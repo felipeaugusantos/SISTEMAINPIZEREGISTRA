@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Painel de leads — Pesquisa INPI</title>
+    <link rel="stylesheet" href="/static/styles.css?v=6" />
+    <script src="/static/admin-leads.js?v=6" defer></script>
+  </head>
+  <body class="admin-body">
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">PI</span>
+        <span>Pesquisa INPI</span>
+      </a>
+      <span class="admin-label">Painel interno</span>
+    </header>
+
+    <main class="admin-main">
+      <section class="admin-heading">
+        <div>
+          <p class="eyebrow">Relacionamento comercial</p>
+          <h1>Leads de pesquisa</h1>
+          <p>Acompanhe as pessoas interessadas em marcas e patentes.</p>
+        </div>
+        <a class="primary-button admin-export" href="/v1/admin/leads.csv">Exportar CSV</a>
+      </section>
+
+      <section class="lead-metrics" aria-label="Resumo dos leads">
+        <div><span>Total</span><strong id="metric-total">0</strong></div>
+        <div><span>Novos</span><strong id="metric-new">0</strong></div>
+        <div><span>Em contato</span><strong id="metric-contact">0</strong></div>
+        <div><span>Convertidos</span><strong id="metric-converted">0</strong></div>
+      </section>
+
+      <form id="lead-filters" class="admin-filters">
+        <label>
+          <span>Buscar lead</span>
+          <input id="lead-search" type="search" placeholder="Nome, contato, marca ou processo" />
+        </label>
+        <label>
+          <span>Status</span>
+          <select id="lead-status-filter">
+            <option value="">Todos</option>
+            <option value="novo">Novo</option>
+            <option value="em_contato">Em contato</option>
+            <option value="convertido">Convertido</option>
+            <option value="descartado">Descartado</option>
+          </select>
+        </label>
+        <button class="primary-button" type="submit">Filtrar</button>
+      </form>
+
+      <div id="admin-message" class="status-message" role="status"></div>
+      <div class="leads-table-shell">
+        <table class="leads-table">
+          <thead>
+            <tr>
+              <th>Contato</th>
+              <th>Telefone</th>
+              <th>Pesquisa</th>
+              <th>Origem</th>
+              <th>Recebido em</th>
+              <th>Status</th>
+              <th><span class="visually-hidden">Ações</span></th>
+            </tr>
+          </thead>
+          <tbody id="leads-list"></tbody>
+        </table>
+      </div>
+    </main>
+  </body>
+</html>

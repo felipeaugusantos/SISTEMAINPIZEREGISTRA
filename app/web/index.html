@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Consulta simplificada de marcas e patentes publicadas pelo INPI." />
+    <title>Pesquisa INPI — Marcas e Patentes</title>
+    <link rel="stylesheet" href="/static/styles.css?v=6" />
+    <script src="/static/app.js?v=6" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Página inicial da Pesquisa INPI">
+        <span class="brand-mark" aria-hidden="true">PI</span>
+        <span>Pesquisa INPI</span>
+      </a>
+      <a class="api-link" href="/docs">Documentação da API</a>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="eyebrow">Marcas e patentes do Brasil</p>
+          <h1 id="page-title">Encontre um processo pelo nome.</h1>
+          <p class="hero-description">
+            Consulte publicações importadas da Revista da Propriedade Industrial por nome da
+            marca, título da patente ou titular.
+          </p>
+        </div>
+
+        <form id="search-form" class="search-panel" role="search">
+          <div class="lead-form-intro">
+            <p class="eyebrow">Consulta gratuita</p>
+            <h2>Pesquise sem cadastro</h2>
+            <p>Busque por nome da marca, título da patente ou titular. Nenhum dado pessoal é necessário para consultar.</p>
+          </div>
+
+          <label for="search-input">Marca ou termo que deseja pesquisar</label>
+          <div class="search-row">
+            <div class="input-shell">
+              <span class="search-symbol" aria-hidden="true"></span>
+              <input
+                id="search-input"
+                name="marca"
+                type="search"
+                minlength="2"
+                maxlength="100"
+                placeholder="Ex.: São Camilo, universidade, torre..."
+                autocomplete="off"
+                required
+              />
+            </div>
+            <button class="primary-button" type="submit">Pesquisar</button>
+          </div>
+
+          <fieldset class="type-filter">
+            <legend>Tipo de processo</legend>
+            <label><input type="radio" name="tipo" value="" checked /> Todos</label>
+            <label><input type="radio" name="tipo" value="marca" /> Marcas</label>
+            <label><input type="radio" name="tipo" value="patente" /> Patentes</label>
+          </fieldset>
+        </form>
+      </section>
+
+      <section id="results-section" class="results-section" aria-labelledby="results-title" hidden>
+        <div class="results-heading">
+          <div>
+            <p class="eyebrow">Resultados</p>
+            <h2 id="results-title">Processos encontrados</h2>
+          </div>
+          <p id="results-count" class="results-count" aria-live="polite"></p>
+        </div>
+
+        <div id="status-message" class="status-message" role="status"></div>
+        <div id="results-list" class="results-list"></div>
+
+        <nav id="pagination" class="pagination" aria-label="Paginação dos resultados" hidden>
+          <button id="previous-page" class="secondary-button" type="button">Anterior</button>
+          <span id="page-label"></span>
+          <button id="next-page" class="secondary-button" type="button">Próxima</button>
+        </nav>
+      </section>
+
+      <section id="lead-cta" class="contact-cta" aria-labelledby="lead-cta-title" hidden>
+        <div>
+          <p class="eyebrow">Atendimento opcional</p>
+          <h2 id="lead-cta-title">Quer ajuda para analisar “<span id="lead-cta-term"></span>”?</h2>
+          <p>A consulta continua livre. Solicite contato apenas se quiser apoio especializado.</p>
+        </div>
+        <button id="open-lead-form" class="primary-button" type="button">Falar com um especialista</button>
+      </section>
+
+      <section id="lead-section" class="search-panel lead-section" aria-labelledby="lead-title" hidden>
+        <div class="lead-form-intro">
+          <p class="eyebrow">Precisa de ajuda com <span id="lead-term">sua marca</span>?</p>
+          <h2 id="lead-title">Fale com um especialista</h2>
+          <p>Deixe seus dados e um especialista entra em contato sobre a marca ou patente pesquisada.</p>
+        </div>
+
+        <form id="lead-form">
+          <div class="contact-fields">
+            <label class="lead-context-field">
+              <span>Assunto do contato</span>
+              <input id="lead-subject" name="lead_subject" type="text" readonly />
+            </label>
+            <label>
+              <span>Seu nome</span>
+              <input id="lead-name" name="lead_name" type="text" minlength="2" maxlength="150" autocomplete="name" placeholder="Nome completo" required />
+            </label>
+            <label>
+              <span>E-mail</span>
+              <input id="lead-email" name="lead_email" type="email" maxlength="254" autocomplete="email" placeholder="voce@empresa.com.br" required />
+            </label>
+            <label>
+              <span>Telefone ou WhatsApp</span>
+              <input id="lead-phone" name="lead_phone" type="tel" minlength="10" maxlength="30" inputmode="tel" autocomplete="tel" placeholder="(11) 99999-9999" required />
+            </label>
+          </div>
+
+          <label class="honeypot-field" aria-hidden="true">
+            Website
+            <input id="lead-website" name="website" type="text" tabindex="-1" autocomplete="off" />
+          </label>
+
+          <label class="privacy-consent">
+            <input id="privacy-consent" type="checkbox" required />
+            <span>Li o <a href="/privacidade" target="_blank">aviso de privacidade</a> e solicito contato sobre esta pesquisa.</span>
+          </label>
+
+          <button class="primary-button" type="submit">Solicitar contato</button>
+          <div id="lead-status" class="status-message" role="status"></div>
+        </form>
+      </section>
+
+      <section id="initial-note" class="initial-note" aria-label="Informações sobre a base">
+        <div class="note-number">01</div>
+        <div>
+          <h2>Uma consulta informativa</h2>
+          <p>
+            Os dados exibidos vêm de publicações do INPI e não substituem a consulta oficial à
+            RPI nem uma análise jurídica especializada.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Fonte dos dados: Instituto Nacional da Propriedade Industrial — INPI.</p>
+      <p>Atualização conforme as edições importadas da RPI.</p>
+    </footer>
+  </body>
+</html>

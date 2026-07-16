@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Detalhes de um processo de marca ou patente publicado pelo INPI." />
+    <title>Detalhes do processo — Pesquisa INPI</title>
+    <link rel="stylesheet" href="/static/styles.css?v=6" />
+    <script src="/static/processo.js?v=6" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Página inicial da Pesquisa INPI">
+        <span class="brand-mark" aria-hidden="true">PI</span>
+        <span>Pesquisa INPI</span>
+      </a>
+      <a class="api-link" href="/docs">Documentação da API</a>
+    </header>
+
+    <main class="detail-main">
+      <a id="back-link" class="back-link" href="/">
+        <span aria-hidden="true">←</span> Voltar aos resultados
+      </a>
+
+      <div id="detail-loading" class="detail-loading" role="status">
+        Consultando os dados do processo...
+      </div>
+
+      <section id="detail-error" class="detail-error" hidden>
+        <p class="eyebrow">Não foi possível carregar</p>
+        <h1>Processo não encontrado.</h1>
+        <p id="detail-error-message">Confira o número informado ou volte para a pesquisa.</p>
+      </section>
+
+      <article id="process-detail" hidden>
+        <header class="detail-hero">
+          <div class="detail-heading">
+            <div class="result-topline">
+              <span id="detail-type" class="type-badge"></span>
+              <span id="detail-number" class="process-number"></span>
+            </div>
+            <p class="eyebrow">Processo encontrado</p>
+            <h1 id="detail-title"></h1>
+          </div>
+          <div class="status-card">
+            <span>Situação atual</span>
+            <strong id="detail-status"></strong>
+            <small id="detail-source"></small>
+          </div>
+        </header>
+
+        <section class="detail-facts" aria-label="Dados principais do processo">
+          <div class="fact-item">
+            <span>Data do depósito</span>
+            <strong id="detail-deposit-date"></strong>
+          </div>
+          <div class="fact-item">
+            <span>Tipo de processo</span>
+            <strong id="detail-type-label"></strong>
+          </div>
+          <div class="fact-item">
+            <span>Última atualização</span>
+            <strong id="detail-updated-at"></strong>
+          </div>
+          <div class="fact-item">
+            <span>Número do processo</span>
+            <strong id="detail-number-copy"></strong>
+          </div>
+        </section>
+
+        <section id="trademark-details" class="trademark-details" aria-labelledby="trademark-details-title" hidden>
+          <div class="trademark-details-heading">
+            <div>
+              <p class="eyebrow">Dados publicados da marca</p>
+              <h2 id="trademark-details-title">Detalhes técnicos</h2>
+            </div>
+            <div id="brand-image-card" class="brand-image-card">
+              <img id="detail-brand-image" alt="Apresentação visual da marca" hidden />
+              <div id="brand-image-placeholder" class="brand-image-placeholder">
+                <span aria-hidden="true">IM</span>
+                <small>Imagem não disponibilizada no XML desta RPI</small>
+              </div>
+            </div>
+          </div>
+
+          <dl class="technical-facts">
+            <div><dt>Apresentação</dt><dd id="detail-presentation"></dd></div>
+            <div><dt>Natureza</dt><dd id="detail-nature"></dd></div>
+            <div><dt>Elemento nominativo</dt><dd id="detail-word-element"></dd></div>
+            <div><dt>Procurador</dt><dd id="detail-attorney"></dd></div>
+          </dl>
+
+          <div id="classifications" class="classifications" hidden>
+            <section id="vienna-section" hidden>
+              <h3>Classificação de Viena (CFE)</h3>
+              <div id="vienna-list" class="classification-chips"></div>
+            </section>
+            <section id="nice-section" hidden>
+              <h3>Classificação de Nice (NCL)</h3>
+              <div id="nice-list" class="nice-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <div class="detail-columns">
+          <section class="detail-section" aria-labelledby="holders-title">
+            <p class="eyebrow">Propriedade</p>
+            <h2 id="holders-title">Titulares</h2>
+            <div id="holders-list" class="holders-list"></div>
+          </section>
+
+          <section class="detail-section timeline-section" aria-labelledby="timeline-title">
+            <div class="section-heading-row">
+              <div>
+                <p class="eyebrow">Histórico publicado</p>
+                <h2 id="timeline-title">Movimentações na RPI</h2>
+              </div>
+              <span id="movements-count" class="results-count"></span>
+            </div>
+            <ol id="movements-list" class="timeline"></ol>
+          </section>
+        </div>
+
+        <section class="detail-contact" aria-labelledby="detail-contact-title">
+          <div id="detail-contact-cta" class="contact-cta">
+            <div>
+              <p class="eyebrow">Atendimento opcional</p>
+              <h2 id="detail-contact-title">Quer ajuda para analisar este processo?</h2>
+              <p>Solicite contato sobre <strong id="detail-contact-term"></strong>. A consulta permanece livre e informativa.</p>
+            </div>
+            <button id="open-detail-contact" class="primary-button" type="button">Falar com um especialista</button>
+          </div>
+
+          <form id="detail-lead-form" class="search-panel detail-lead-form" hidden>
+            <div class="lead-form-intro">
+              <p class="eyebrow">Solicitação de contato</p>
+              <h2>Fale com um especialista</h2>
+              <p id="detail-lead-subject"></p>
+            </div>
+            <div class="contact-fields">
+              <label>
+                <span>Seu nome</span>
+                <input id="detail-lead-name" type="text" minlength="2" maxlength="150" autocomplete="name" required />
+              </label>
+              <label>
+                <span>E-mail</span>
+                <input id="detail-lead-email" type="email" maxlength="254" autocomplete="email" required />
+              </label>
+              <label>
+                <span>Telefone ou WhatsApp</span>
+                <input id="detail-lead-phone" type="tel" minlength="10" maxlength="30" inputmode="tel" autocomplete="tel" required />
+              </label>
+            </div>
+            <label class="honeypot-field" aria-hidden="true">
+              Website
+              <input id="detail-lead-website" type="text" tabindex="-1" autocomplete="off" />
+            </label>
+            <label class="privacy-consent">
+              <input id="detail-privacy-consent" type="checkbox" required />
+              <span>Li o <a href="/privacidade" target="_blank">aviso de privacidade</a> e solicito contato sobre este processo.</span>
+            </label>
+            <button class="primary-button" type="submit">Solicitar contato</button>
+            <div id="detail-lead-status" class="status-message" role="status"></div>
+          </form>
+        </section>
+
+        <aside class="detail-note">
+          <span class="note-number">01</span>
+          <div>
+            <strong>Consulta informativa</strong>
+            <p>Os dados vêm de publicações do INPI e não substituem a consulta oficial à RPI nem uma análise jurídica especializada.</p>
+          </div>
+        </aside>
+      </article>
+    </main>
+
+    <footer>
+      <p>Fonte dos dados: Instituto Nacional da Propriedade Industrial — INPI.</p>
+      <p>Atualização conforme as edições importadas da RPI.</p>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>IA explicativa — Zé Registra</title>
+    <link rel="stylesheet" href="/static/styles.css?v=16" />
+    <script src="/static/admin-shell.js?v=19" defer></script>
+    <script src="/static/admin-fase4.js?v=11" defer></script>
+  </head>
+  <body class="admin-body" data-admin-section="ai">
+    <header class="topbar">
+      <a class="brand" href="/"><span class="brand-mark">PI</span><span>Pesquisa INPI</span></a>
+      <span class="admin-label">Painel interno</span>
+      <a class="admin-nav-link" href="/admin/fase3">Motor de risco</a>
+      <a class="admin-nav-link admin-nav-link-secondary" href="/admin/leads">Leads</a>
+    </header>
+    <main class="admin-main">
+      <section class="admin-heading">
+        <div>
+          <p class="eyebrow">Explicação assistida · uso interno</p>
+          <h1>IA explicativa</h1>
+          <p>A IA somente explica a pontuação do motor. Processos e classes não são enviados ao modelo, e resultados altos ou críticos exigem aprovação humana.</p>
+        </div>
+        <span id="ai-state" class="engine-version"></span>
+      </section>
+      <section class="lead-metrics" aria-label="Resumo da IA explicativa">
+        <div><span>Avaliações disponíveis</span><strong id="metric-evaluations">0</strong></div>
+        <div><span>Explicações geradas</span><strong id="metric-generated">0</strong></div>
+        <div><span>Aguardando revisão</span><strong id="metric-pending">0</strong></div>
+        <div><span>Falhas bloqueadas</span><strong id="metric-failed">0</strong></div>
+      </section>
+      <div id="phase4-message" class="status-message" role="status"></div>
+      <section id="explanation-list" class="risk-review-list" aria-label="Explicações de risco"></section>
+    </main>
+  </body>
+</html>

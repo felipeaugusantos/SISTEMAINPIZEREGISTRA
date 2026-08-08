@@ -13,7 +13,14 @@ def test_health_ok() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "environment": "development", "database": "ok"}
+    payload = response.json()
+    assert {chave: payload[chave] for chave in ("status", "environment", "database")} == {
+        "status": "ok",
+        "environment": "development",
+        "database": "ok",
+    }
+    if "redis" in payload:
+        assert payload["redis"]["status"] == "ok"
 
 
 class SessaoComFalha:

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Validação técnica — Zé Registra</title>
+    <link rel="stylesheet" href="/static/styles.css?v=16" />
+    <script src="/static/admin-shell.js?v=19" defer></script>
+    <script src="/static/admin-fase2.js?v=11" defer></script>
+  </head>
+  <body class="admin-body" data-admin-section="validation">
+    <header class="topbar">
+      <a class="brand" href="/"><span class="brand-mark">PI</span><span>Pesquisa INPI</span></a>
+      <span class="admin-label">Painel interno</span>
+      <a class="admin-nav-link" href="/admin/leads">Leads</a>
+      <a class="admin-nav-link admin-nav-link-secondary" href="/admin/fase3">Motor de risco</a>
+    </header>
+    <main class="admin-main">
+      <section class="admin-heading">
+        <div>
+          <p class="eyebrow">Governança de dados</p>
+          <h1>Validação técnica</h1>
+          <p>Aprove ou rejeite cada relação preliminar entre classes antes de tratá-la como validada.</p>
+        </div>
+      </section>
+      <section class="lead-metrics" aria-label="Resumo da validação">
+        <div><span>Alto renome vigente</span><strong id="metric-high-renown">0</strong></div>
+        <div><span>Afinidades pendentes</span><strong id="metric-pending">0</strong></div>
+        <div><span>Aprovadas</span><strong id="metric-approved">0</strong></div>
+        <div><span>Rejeitadas</span><strong id="metric-rejected">0</strong></div>
+      </section>
+      <p id="high-renown-date" class="admin-source-note"></p>
+      <div id="phase2-message" class="status-message" role="status"></div>
+      <div class="leads-table-shell">
+        <table class="leads-table phase2-table">
+          <thead><tr><th>Classes</th><th>Nível inicial</th><th>Justificativa</th><th>Revisão</th><th>Ação do especialista</th></tr></thead>
+          <tbody id="affinity-list"></tbody>
+        </table>
+      </div>
+    </main>
+  </body>
+</html>

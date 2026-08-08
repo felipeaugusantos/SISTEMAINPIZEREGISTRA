@@ -3,18 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Detalhes de um processo de marca ou patente publicado pelo INPI." />
-    <title>Detalhes do processo — Pesquisa INPI</title>
-    <link rel="stylesheet" href="/static/styles.css?v=6" />
-    <script src="/static/processo.js?v=6" defer></script>
-  </head>
+    <meta name="description" content="Detalhes de um processo de marca publicado pelo INPI." />
+    <title>Detalhes do processo — Zé Registra</title>
+    <link rel="icon" href="/static/assets/personagem.png" />
+    <link rel="stylesheet" href="/static/styles.css?v=12" />
+    <script src="/static/processo.js?v=12" defer></script>
+  <script src="/static/tenant-branding.js?v=1" defer></script>
+</head>
   <body>
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="Página inicial da Pesquisa INPI">
-        <span class="brand-mark" aria-hidden="true">PI</span>
-        <span>Pesquisa INPI</span>
+    <header class="topbar public-topbar">
+      <a class="brand" href="/" aria-label="Página inicial da Zé Registra">
+        <img class="brand-avatar" src="/static/assets/personagem.png" alt="" />
+        <span class="brand-wordmark">Zé Registra<sup>®</sup></span>
       </a>
-      <a class="api-link" href="/docs">Documentação da API</a>
+      <nav class="public-nav" aria-label="Navegação principal"><a href="/">Pesquisa</a><a href="/sobre">Sobre</a><a href="/contato">Contato</a></nav>
     </header>
 
     <main class="detail-main">
@@ -121,49 +123,6 @@
           </section>
         </div>
 
-        <section class="detail-contact" aria-labelledby="detail-contact-title">
-          <div id="detail-contact-cta" class="contact-cta">
-            <div>
-              <p class="eyebrow">Atendimento opcional</p>
-              <h2 id="detail-contact-title">Quer ajuda para analisar este processo?</h2>
-              <p>Solicite contato sobre <strong id="detail-contact-term"></strong>. A consulta permanece livre e informativa.</p>
-            </div>
-            <button id="open-detail-contact" class="primary-button" type="button">Falar com um especialista</button>
-          </div>
-
-          <form id="detail-lead-form" class="search-panel detail-lead-form" hidden>
-            <div class="lead-form-intro">
-              <p class="eyebrow">Solicitação de contato</p>
-              <h2>Fale com um especialista</h2>
-              <p id="detail-lead-subject"></p>
-            </div>
-            <div class="contact-fields">
-              <label>
-                <span>Seu nome</span>
-                <input id="detail-lead-name" type="text" minlength="2" maxlength="150" autocomplete="name" required />
-              </label>
-              <label>
-                <span>E-mail</span>
-                <input id="detail-lead-email" type="email" maxlength="254" autocomplete="email" required />
-              </label>
-              <label>
-                <span>Telefone ou WhatsApp</span>
-                <input id="detail-lead-phone" type="tel" minlength="10" maxlength="30" inputmode="tel" autocomplete="tel" required />
-              </label>
-            </div>
-            <label class="honeypot-field" aria-hidden="true">
-              Website
-              <input id="detail-lead-website" type="text" tabindex="-1" autocomplete="off" />
-            </label>
-            <label class="privacy-consent">
-              <input id="detail-privacy-consent" type="checkbox" required />
-              <span>Li o <a href="/privacidade" target="_blank">aviso de privacidade</a> e solicito contato sobre este processo.</span>
-            </label>
-            <button class="primary-button" type="submit">Solicitar contato</button>
-            <div id="detail-lead-status" class="status-message" role="status"></div>
-          </form>
-        </section>
-
         <aside class="detail-note">
           <span class="note-number">01</span>
           <div>
@@ -174,9 +133,10 @@
       </article>
     </main>
 
-    <footer>
-      <p>Fonte dos dados: Instituto Nacional da Propriedade Industrial — INPI.</p>
-      <p>Atualização conforme as edições importadas da RPI.</p>
+    <footer class="site-footer">
+      <div class="footer-brand"><img src="/static/assets/personagem.png" alt="" /><div><strong class="brand-wordmark">Zé Registra<sup>®</sup></strong><p>Pesquisa e inteligência para marcas.</p></div></div>
+      <div class="footer-links"><a href="/sobre">Sobre</a><a href="/contato">Contato</a><a href="/privacidade">Privacidade</a></div>
+      <div class="footer-source"><p>Fonte dos dados: Instituto Nacional da Propriedade Industrial — INPI.</p><p>Atualização conforme as edições importadas da RPI.</p></div>
     </footer>
   </body>
 </html>

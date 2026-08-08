@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Centro de operações — Zé Registra</title>
+    <link rel="stylesheet" href="/static/styles.css?v=16" />
+    <script src="/static/admin-shell.js?v=19" defer></script>
+    <script src="/static/admin-dashboard.js?v=12" defer></script>
+  </head>
+  <body class="admin-body" data-admin-section="overview">
+    <main class="admin-main admin-dashboard">
+      <section class="admin-overview-hero">
+        <div>
+          <p class="eyebrow">Centro de operações</p>
+          <h1>Visão geral</h1>
+          <p>Acompanhe pesquisas, validações e análises em um único lugar.</p>
+        </div>
+        <div class="admin-system-state">
+          <span class="system-live"><i aria-hidden="true"></i> Sistema operacional</span>
+          <small id="overview-model">Carregando configurações…</small>
+        </div>
+      </section>
+
+      <div id="overview-message" class="status-message loading" role="status">Atualizando indicadores…</div>
+
+      <section class="overview-primary-metrics" aria-label="Indicadores principais">
+        <article>
+          <span>Pesquisas realizadas</span>
+          <strong id="overview-searches">—</strong>
+          <small id="overview-leads">— leads cadastrados</small>
+        </article>
+        <article>
+          <span>Riscos calculados</span>
+          <strong id="overview-risks">—</strong>
+          <small id="overview-high-risks">— casos elevados</small>
+        </article>
+        <article>
+          <span>Última publicação</span>
+          <strong id="overview-rpi">—</strong>
+          <small>Revista da Propriedade Industrial</small>
+        </article>
+        <article>
+          <span>Alto renome vigente</span>
+          <strong id="overview-high-renown">—</strong>
+          <small>Registros sincronizados</small>
+        </article>
+      </section>
+
+      <section class="overview-section rpi-monitor" id="rpi-monitor">
+        <header>
+          <div><p class="eyebrow">Dados oficiais</p><h2>Atualização da RPI</h2></div>
+          <div class="rpi-monitor-actions">
+            <span id="rpi-status-badge" class="rpi-status-badge cinza">Carregando</span>
+            <button id="rpi-sync-now" class="secondary-button" type="button">Verificar agora</button>
+          </div>
+        </header>
+
+        <div id="rpi-action-message" class="status-message" role="status"></div>
+
+        <div class="rpi-metric-grid">
+          <article><span>Última oficial</span><strong id="rpi-official">—</strong><small>Portal do INPI</small></article>
+          <article><span>Última importada</span><strong id="rpi-local">—</strong><small id="rpi-delay">—</small></article>
+          <article><span>Próxima verificação</span><strong id="rpi-next">—</strong><small id="rpi-last-check">—</small></article>
+          <article><span>Falhas consecutivas</span><strong id="rpi-failures">—</strong><small>Reinicia automaticamente</small></article>
+        </div>
+
+        <div class="rpi-health" aria-label="Saúde dos componentes">
+          <span id="rpi-health-api">API</span>
+          <span id="rpi-health-db">PostgreSQL</span>
+          <span id="rpi-health-sync">Sincronizador</span>
+          <small id="rpi-heartbeat">Heartbeat ainda não recebido</small>
+        </div>
+
+        <article id="rpi-current" class="rpi-current" hidden>
+          <div class="rpi-current-heading">
+            <div><span>Execução atual</span><strong id="rpi-current-title">—</strong></div>
+            <b id="rpi-current-progress">0%</b>
+          </div>
+          <div class="rpi-progress" aria-label="Progresso da sincronização"><i id="rpi-progress-bar"></i></div>
+          <p id="rpi-current-message">Preparando atualização…</p>
+          <div class="rpi-count-grid">
+            <span><b id="rpi-count-editions">0</b> edições</span>
+            <span><b id="rpi-count-records">0</b> publicações</span>
+            <span><b id="rpi-count-holders">0</b> titulares</span>
+            <span><b id="rpi-count-classes">0</b> classes</span>
+            <span><b id="rpi-count-movements">0</b> movimentações</span>
+          </div>
+        </article>
+
+        <div id="rpi-error" class="rpi-error" hidden></div>
+
+        <div class="rpi-history-heading">
+          <div><p class="eyebrow">Histórico</p><h3>Execuções recentes</h3></div>
+          <small>Atualização automática a cada 10 segundos</small>
+        </div>
+        <div class="rpi-history-table-wrap">
+          <table class="rpi-history-table">
+            <thead><tr><th>Execução</th><th>Origem</th><th>Intervalo</th><th>Resultado</th><th>Volume</th><th>Duração</th><th></th></tr></thead>
+            <tbody id="rpi-history"><tr><td colspan="7">Carregando histórico…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="overview-section">
+        <header>
+          <div><p class="eyebrow">Prioridades</p><h2>Pendências que pedem atenção</h2></div>
+          <span>Atualização em tempo real</span>
+        </header>
+        <div class="overview-priority-grid">
+          <a href="/admin/pesquisas" class="priority-card priority-commercial">
+            <span class="priority-icon">LP</span>
+            <div><strong id="priority-leads">—</strong><h3>Novos leads</h3><p>Contatos aguardando acompanhamento comercial.</p></div>
+            <b aria-hidden="true">→</b>
+          </a>
+          <a href="/admin/pesquisas" class="priority-card priority-validation">
+            <span class="priority-icon">VT</span>
+            <div><strong id="priority-affinities">—</strong><h3>Afinidades pendentes</h3><p>Relações entre classes aguardando especialista.</p></div>
+            <b aria-hidden="true">→</b>
+          </a>
+          <a href="/admin/pesquisas" class="priority-card priority-risk">
+            <span class="priority-icon">MR</span>
+            <div><strong id="priority-risks">—</strong><h3>Riscos elevados</h3><p>Avaliações de nível alto ou crítico.</p></div>
+            <b aria-hidden="true">→</b>
+          </a>
+          <a href="/admin/pesquisas" class="priority-card priority-ai">
+            <span class="priority-icon">IA</span>
+            <div><strong id="priority-ai">—</strong><h3>Revisões da IA</h3><p>Explicações bloqueadas para avaliação humana.</p></div>
+            <b aria-hidden="true">→</b>
+          </a>
+        </div>
+      </section>
+
+      <section class="overview-section">
+        <header>
+          <div><p class="eyebrow">Módulos</p><h2>Áreas do painel</h2></div>
+        </header>
+        <div class="overview-module-grid">
+          <a href="/admin/pesquisas"><span>AN</span><h3>Leads, pesquisas e análises</h3><p>Validação técnica, risco, probabilidade, IA, parecer e relatório em uma única central por marca.</p></a>
+          <a href="/admin/producao"><span>PR</span><h3>Produção e auditoria</h3><p>Rollout, telemetria, versionamento, divergências e segurança administrativa.</p></a>
+          <a href="/admin/confiabilidade"><span>CF</span><h3>Confiabilidade e LGPD</h3><p>Retenção, segurança, privacidade, filas e controles operacionais.</p></a>
+          <a href="/admin/usuarios"><span>UA</span><h3>Usuários e acessos</h3><p>Perfis, permissões, sessões, MFA e rastreabilidade administrativa.</p></a>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

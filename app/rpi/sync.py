@@ -14,6 +14,20 @@ def nome_zip(numero_rpi: int, tipo: TipoProcesso) -> str:
     return f"{prefixo}{numero_rpi}.zip"
 
 
+def _baixar_zip_atomico(url: str, arquivo_zip: Path) -> None:
+    arquivo_temporario = arquivo_zip.with_suffix(f"{arquivo_zip.suffix}.part")
+    requisicao = urllib.request.Request(url, headers={"User-Agent": "INPI-API/0.1"})
+    try:
+        with urllib.request.urlopen(requisicao, timeout=120) as resposta:
+            with arquivo_temporario.open("wb") as destino:
+                shutil.copyfileobj(resposta, destino)
+        if not zipfile.is_zipfile(arquivo_temporario):
+            raise zipfile.BadZipFile(f"Download inválido recebido de {url}")
+        arquivo_temporario.replace(arquivo_zip)
+    finally:
+        arquivo_temporario.unlink(missing_ok=True)
+
+
 def baixar_e_extrair_rpi(
     numero_rpi: int,
     tipo: TipoProcesso,
@@ -23,14 +37,11 @@ def baixar_e_extrair_rpi(
     diretorio.mkdir(parents=True, exist_ok=True)
     arquivo_zip = diretorio / nome_zip(numero_rpi, tipo)
 
-    if not arquivo_zip.is_file():
+    if not arquivo_zip.is_file() or not zipfile.is_zipfile(arquivo_zip):
         url = f"{BASE_RPI}/{arquivo_zip.name}"
         if progresso:
             progresso(f"Baixando {url}")
-        requisicao = urllib.request.Request(url, headers={"User-Agent": "INPI-API/0.1"})
-        with urllib.request.urlopen(requisicao, timeout=120) as resposta:
-            with arquivo_zip.open("wb") as destino:
-                shutil.copyfileobj(resposta, destino)
+        _baixar_zip_atomico(url, arquivo_zip)
 
     with zipfile.ZipFile(arquivo_zip) as pacote:
         arquivos_xml = [nome for nome in pacote.namelist() if nome.lower().endswith(".xml")]

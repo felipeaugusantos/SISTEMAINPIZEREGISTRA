@@ -1,0 +1,170 @@
+from datetime import UTC, date, datetime
+from io import BytesIO
+
+from fastapi.testclient import TestClient
+from pypdf import PdfReader
+
+from app.database import get_session
+from app.main import app
+from app.models import TipoProcesso
+from app.relatorios import gerar_pdf_relatorio, gerar_pdf_resumo_cliente
+from app.schemas import (
+    AfinidadeClassesResponse,
+    ClasseNiceCandidataResponse,
+    ClassificacaoMarcaResponse,
+    EstimativaRegistrabilidadeResponse,
+    MarcaRelatorioItem,
+    RelatorioMarcaResponse,
+    TitularResponse,
+)
+from app.security import exigir_token_integracao
+from tests.conftest import FakeResult, sessao_override
+
+
+def _relatorio_exemplo(
+    *, com_itens: bool = True, com_estimativa: bool = False
+) -> RelatorioMarcaResponse:
+    itens = []
+    if com_itens:
+        itens.append(
+            MarcaRelatorioItem(
+                numero="943906024",
+                tipo=TipoProcesso.MARCA,
+                titulo="CAVALINHO FEROZ",
+                data_deposito=None,
+                situacao="Registro concedido",
+                situacao_normalizada="registro_vigente",
+                relevancia_situacao="alta",
+                atualizado_em=datetime.now(UTC),
+                titulares=[TitularResponse(nome="ACME LTDA", pais="BR")],
+                apresentacao="Mista",
+                natureza="Produto",
+                classificacoes=[
+                    ClassificacaoMarcaResponse(
+                        sistema="nice",
+                        codigo="25",
+                        edicao=None,
+                        especificacao=None,
+                        status=None,
+                    )
+                ],
+                criterios_encontro=["Nome idêntico"],
+                alto_renome=True,
+                afinidade_classes=AfinidadeClassesResponse(
+                    nivel="alta",
+                    rotulo="Alta afinidade",
+                    justificativa="x",
+                    revisao="pendente",
+                    classes_atividade=["25"],
+                    classes_processo=["25"],
+                ),
+            )
+        )
+    return RelatorioMarcaResponse(
+        id="abc",
+        marca="CAVALINHO FEROZ",
+        atividade="Venda de roupas",
+        tipo_pesquisa="completa",
+        classe_nice=None,
+        criado_em=datetime.now(UTC),
+        gerado_em=datetime.now(UTC),
+        ultima_rpi=2897,
+        classes_atividade=[
+            ClasseNiceCandidataResponse(
+                codigo="25",
+                titulo="Vestuário",
+                tipo="produto",
+                termos_encontrados=["roupas"],
+            )
+        ],
+        matriz_afinidade_status="pendente_de_validacao",
+        alto_renome_atualizado_em=None,
+        total=1 if com_itens else 0,
+        limite_exibido=1 if com_itens else 0,
+        itens=itens,
+        estimativa_registrabilidade=(
+            EstimativaRegistrabilidadeResponse(
+                probabilidade_deferimento=0.68,
+                probabilidade_inferior=0.57,
+                probabilidade_superior=0.77,
+                nivel="atencao",
+                confianca=0.72,
+                confianca_rotulo="media",
+                cobertura_entrada=0.81,
+                modelo_versao="registrabilidade-teste",
+                amostras_referencia=500,
+                corte_dados=date(2026, 7, 14),
+                fatores_principais=[{"atributo": "classe_identica", "impacto": -0.7}],
+            )
+            if com_estimativa
+            else None
+        ),
+    )
+
+
+class _FakeVersao:
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+
+
+def test_gera_pdf_valido() -> None:
+    pdf = gerar_pdf_relatorio(_relatorio_exemplo())
+    assert pdf[:5] == b"%PDF-"
+    assert len(pdf) > 1000
+    texto = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+    assert "Estimativa de registrabilidade" in texto
+    assert "Em validação interna" in texto
+    assert "Nenhuma probabilidade" in texto
+
+
+def test_gera_pdf_sem_ocorrencias() -> None:
+    pdf = gerar_pdf_relatorio(_relatorio_exemplo(com_itens=False))
+    assert pdf[:5] == b"%PDF-"
+
+
+def test_gera_pdf_com_estimativa_probabilistica_e_faixa() -> None:
+    pdf = gerar_pdf_relatorio(_relatorio_exemplo(com_estimativa=True))
+    assert pdf[:5] == b"%PDF-"
+    assert len(pdf) > 1000
+    texto = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+    assert "68% de deferimento estimado" in texto
+    assert "57% a 77%" in texto
+    assert "não obrigatória" in texto
+
+
+def test_resumo_cliente_tem_uma_pagina_e_nao_expoe_ocorrencias() -> None:
+    pdf = gerar_pdf_resumo_cliente(_relatorio_exemplo(com_estimativa=True))
+    leitor = PdfReader(BytesIO(pdf))
+    texto = "\n".join(page.extract_text() or "" for page in leitor.pages)
+
+    assert len(leitor.pages) == 1
+    assert "68% de deferimento estimado" in texto
+    assert "Ocorrências encontradas" not in texto
+    assert "943906024" not in texto
+
+
+def test_endpoint_pdf_retorna_documento() -> None:
+    versao = _FakeVersao(_relatorio_exemplo().model_dump(mode="json"))
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=versao))
+    app.dependency_overrides[exigir_token_integracao] = lambda: None
+    try:
+        resposta = TestClient(app).get("/v1/pesquisas-marca/abc/relatorio.pdf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resposta.status_code == 200
+    assert resposta.headers["content-type"] == "application/pdf"
+    assert 'filename="resumo-' in resposta.headers["content-disposition"]
+    assert resposta.content[:5] == b"%PDF-"
+    assert len(PdfReader(BytesIO(resposta.content)).pages) == 1
+
+
+def test_endpoint_pdf_404_sem_versao() -> None:
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=None))
+    app.dependency_overrides[exigir_token_integracao] = lambda: None
+    try:
+        resposta = TestClient(app).get("/v1/pesquisas-marca/inexistente/relatorio.pdf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resposta.status_code == 404

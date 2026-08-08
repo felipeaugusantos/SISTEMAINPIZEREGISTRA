@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Central de análise — Zé Registra</title>
+    <link rel="stylesheet" href="/static/styles.css?v=18" />
+    <link rel="stylesheet" href="/static/admin-analise.css?v=1" />
+    <script src="/static/admin-shell.js?v=19" defer></script>
+    <script src="/static/admin-analise.js?v=1" defer></script>
+  </head>
+  <body class="admin-body" data-admin-section="leads">
+    <header class="topbar"><span>Central de análise</span></header>
+    <main class="admin-main analysis-main">
+      <nav class="analysis-breadcrumb" aria-label="Navegação contextual">
+        <a href="/admin/pesquisas">Leads e pesquisas</a><span>›</span><span>Central de análise</span>
+      </nav>
+      <section class="analysis-heading">
+        <div>
+          <p class="eyebrow">Dossiê técnico unificado</p>
+          <h1 id="analysis-brand">Carregando pesquisa…</h1>
+          <p id="analysis-subtitle">Reunindo validação, risco, aprendizado e explicação assistida.</p>
+        </div>
+        <div class="analysis-heading-actions">
+          <button id="analysis-help-open" class="help-trigger" type="button" aria-label="Como usar esta tela">?</button>
+          <a id="analysis-public-report" class="secondary-button" href="#" target="_blank" rel="noopener">Ver resultado automático</a>
+        </div>
+      </section>
+      <div id="analysis-message" class="status-message" role="status"></div>
+      <section id="analysis-summary" class="analysis-summary" aria-label="Resumo da pesquisa"></section>
+      <div class="analysis-workspace">
+        <aside class="analysis-progress-card" aria-label="Progresso da análise">
+          <p class="eyebrow">Fluxo recomendado</p>
+          <h2>Checklist</h2>
+          <ol id="analysis-progress"></ol>
+          <p class="analysis-progress-note">As etapas respeitam suas permissões. A probabilidade preliminar não depende da revisão humana.</p>
+        </aside>
+        <div id="analysis-sections" class="analysis-sections">
+          <section class="analysis-loading"><span class="loading-spinner"></span><p>Montando o dossiê técnico…</p></section>
+        </div>
+      </div>
+    </main>
+
+    <dialog id="analysis-help" class="analysis-help-drawer" aria-labelledby="analysis-help-title">
+      <header>
+        <div><p class="eyebrow">Guia operacional</p><h2 id="analysis-help-title">Como trabalhar nesta tela</h2></div>
+        <button id="analysis-help-close" type="button" aria-label="Fechar ajuda">×</button>
+      </header>
+      <div class="analysis-help-content">
+        <p class="help-intro">Use as etapas na ordem apresentada. O sistema calcula os indicadores; o analista interpreta as evidências e registra o parecer.</p>
+        <details id="help-overview" open><summary>1. Confira o contexto</summary><p>Valide a marca, a atividade informada, o cliente e a atualização da base antes de interpretar qualquer indicador.</p></details>
+        <details id="help-validation"><summary>2. Validação técnica</summary><p>Confira situações, classes de Nice, afinidade entre atividades, alto renome e qualidade dos dados. Pendências de classificação reduzem a segurança da interpretação.</p></details>
+        <details id="help-risk"><summary>3. Motor de risco</summary><p>A pontuação é determinística e auditável. Ela mede conflitos encontrados; não é a mesma coisa que a probabilidade estatística de deferimento.</p></details>
+        <details id="help-learning"><summary>4. Aprendizado supervisionado</summary><p>A probabilidade usa decisões históricas. Leia junto a faixa de incerteza, confiança, cobertura e alertas de qualidade. Ela é preliminar e não garante registro.</p></details>
+        <details id="help-ai"><summary>5. IA explicativa</summary><p>A IA apenas explica dados estruturados já calculados. Ela não cria processos, classes, fundamentos ou uma nova pontuação. Revise a saída antes de utilizá-la.</p></details>
+        <details id="help-opinion"><summary>6. Parecer humano</summary><p>Registre sua classificação e justificativa com base nos conflitos relevantes. O parecer fica versionado e alimenta a comparação entre máquina e especialista.</p></details>
+        <details id="help-report"><summary>7. Relatório completo</summary><p>Gere somente após conferir as etapas anteriores. A primeira geração registra data e responsável; novas gerações preservam esse histórico.</p></details>
+        <section class="help-glossary"><h3>Indicadores essenciais</h3><dl><dt>Risco</dt><dd>Pontuação por regras de conflito.</dd><dt>Probabilidade</dt><dd>Estimativa histórica de deferimento.</dd><dt>Confiança</dt><dd>Estabilidade estatística da estimativa.</dd><dt>Cobertura</dt><dd>Quanto a pesquisa se parece com os exemplos conhecidos pelo modelo.</dd></dl></section>
+      </div>
+    </dialog>
+  </body>
+</html>

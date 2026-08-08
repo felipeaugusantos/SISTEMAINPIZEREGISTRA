@@ -4,31 +4,37 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
-    <title>Painel de leads — Pesquisa INPI</title>
-    <link rel="stylesheet" href="/static/styles.css?v=6" />
-    <script src="/static/admin-leads.js?v=6" defer></script>
+    <title>Painel de leads — Zé Registra</title>
+    <link rel="stylesheet" href="/static/styles.css?v=18" />
+    <link rel="stylesheet" href="/static/admin-leads.css?v=3" />
+    <script src="/static/admin-shell.js?v=19" defer></script>
+    <script src="/static/admin-leads.js?v=20" defer></script>
   </head>
-  <body class="admin-body">
+  <body class="admin-body" data-admin-section="leads">
     <header class="topbar">
       <a class="brand" href="/">
         <span class="brand-mark" aria-hidden="true">PI</span>
         <span>Pesquisa INPI</span>
       </a>
       <span class="admin-label">Painel interno</span>
+      <a class="admin-nav-link" href="/admin/fase2">Validação técnica</a>
+      <a class="admin-nav-link admin-nav-link-secondary" href="/admin/fase3">Motor de risco</a>
     </header>
 
     <main class="admin-main">
       <section class="admin-heading">
         <div>
           <p class="eyebrow">Relacionamento comercial</p>
-          <h1>Leads de pesquisa</h1>
-          <p>Acompanhe as pessoas interessadas em marcas e patentes.</p>
+          <h1>Leads e pesquisas</h1>
+          <p>Acompanhe as empresas que geraram relatórios de pesquisa de marcas.</p>
         </div>
-        <a class="primary-button admin-export" href="/v1/admin/leads.csv">Exportar CSV</a>
+        <button id="export-leads" class="primary-button admin-export" type="button">Exportar resultado</button>
       </section>
 
       <section class="lead-metrics" aria-label="Resumo dos leads">
-        <div><span>Total</span><strong id="metric-total">0</strong></div>
+        <div><span>Contatos ativos</span><strong id="metric-global">0</strong></div>
+        <div><span>Resultados filtrados</span><strong id="metric-total">0</strong></div>
+        <div><span>Pesquisas realizadas</span><strong id="metric-searches">0</strong></div>
         <div><span>Novos</span><strong id="metric-new">0</strong></div>
         <div><span>Em contato</span><strong id="metric-contact">0</strong></div>
         <div><span>Convertidos</span><strong id="metric-converted">0</strong></div>
@@ -37,7 +43,7 @@
       <form id="lead-filters" class="admin-filters">
         <label>
           <span>Buscar lead</span>
-          <input id="lead-search" type="search" placeholder="Nome, contato, marca ou processo" />
+          <input id="lead-search" type="search" placeholder="Nome, empresa, contato ou marca" />
         </label>
         <label>
           <span>Status</span>
@@ -45,11 +51,21 @@
             <option value="">Todos</option>
             <option value="novo">Novo</option>
             <option value="em_contato">Em contato</option>
+            <option value="qualificado">Qualificado</option>
+            <option value="proposta_enviada">Proposta enviada</option>
+            <option value="sem_retorno">Sem retorno</option>
             <option value="convertido">Convertido</option>
             <option value="descartado">Descartado</option>
           </select>
         </label>
+        <label><span>Responsável</span><select id="lead-owner-filter"><option value="">Todos</option></select></label>
+        <label><span>Origem</span><select id="lead-origin-filter"><option value="">Todas</option><option value="relatorio">Relatório</option><option value="processo">Processo</option><option value="resultados">Resultados</option><option value="geral">Contato geral</option></select></label>
+        <label><span>Desde</span><input id="lead-date-start" type="date" /></label>
+        <label><span>Até</span><input id="lead-date-end" type="date" /></label>
+        <label><span>Marketing</span><select id="lead-marketing-filter"><option value="">Todos</option><option value="true">Autorizado</option><option value="false">Não autorizado</option></select></label>
+        <label class="filter-check"><input id="lead-archived-filter" type="checkbox" /><span>Mostrar arquivados</span></label>
         <button class="primary-button" type="submit">Filtrar</button>
+        <button id="clear-lead-filters" class="secondary-button" type="button">Limpar filtros</button>
       </form>
 
       <div id="admin-message" class="status-message" role="status"></div>
@@ -58,9 +74,8 @@
           <thead>
             <tr>
               <th>Contato</th>
-              <th>Telefone</th>
               <th>Pesquisa</th>
-              <th>Origem</th>
+              <th>Atendimento</th>
               <th>Recebido em</th>
               <th>Status</th>
               <th><span class="visually-hidden">Ações</span></th>
@@ -69,6 +84,27 @@
           <tbody id="leads-list"></tbody>
         </table>
       </div>
+      <nav class="lead-pagination" aria-label="Paginação dos leads">
+        <label>Por página <select id="lead-page-size"><option>20</option><option selected>50</option><option>100</option></select></label>
+        <span id="lead-page-summary">0 resultados</span>
+        <button id="lead-prev" class="secondary-button" type="button">Anterior</button>
+        <button id="lead-next" class="secondary-button" type="button">Próxima</button>
+      </nav>
     </main>
+
+    <dialog id="lead-dialog" class="lead-dialog">
+      <div class="lead-dialog-frame">
+        <header><div><p class="eyebrow">Contato e histórico</p><h2 id="lead-dialog-title">Lead</h2></div><button class="dialog-close" type="button" aria-label="Fechar">×</button></header>
+        <div id="lead-dialog-content" class="lead-dialog-content"></div>
+      </div>
+    </dialog>
+
+    <dialog id="archive-dialog" class="confirm-dialog">
+      <form method="dialog">
+        <h2>Arquivar contato?</h2>
+        <p>O contato sairá da operação, mas todas as pesquisas e relatórios serão preservados.</p>
+        <div><button class="secondary-button" value="cancel">Cancelar</button><button id="confirm-archive" class="danger-button" value="confirm">Arquivar</button></div>
+      </form>
+    </dialog>
   </body>
 </html>

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Motor de risco — Zé Registra</title>
+    <link rel="stylesheet" href="/static/styles.css?v=16" />
+    <script src="/static/admin-shell.js?v=19" defer></script>
+    <script src="/static/admin-fase3.js?v=11" defer></script>
+  </head>
+  <body class="admin-body" data-admin-section="risk">
+    <header class="topbar">
+      <a class="brand" href="/"><span class="brand-mark">PI</span><span>Pesquisa INPI</span></a>
+      <span class="admin-label">Painel interno</span>
+      <a class="admin-nav-link" href="/admin/leads">Leads</a>
+      <a class="admin-nav-link admin-nav-link-secondary" href="/admin/fase2">Validação técnica</a>
+      <a class="admin-nav-link admin-nav-link-secondary" href="/admin/fase4">IA explicativa</a>
+    </header>
+    <main class="admin-main">
+      <section class="admin-heading">
+        <div>
+          <p class="eyebrow">Análise técnica · modo sombra</p>
+          <h1>Motor determinístico de risco</h1>
+          <p>O cálculo está oculto do cliente. Compare cada resultado com a avaliação humana antes de considerar qualquer publicação.</p>
+        </div>
+        <span id="engine-version" class="engine-version"></span>
+      </section>
+      <section class="lead-metrics" aria-label="Resumo da comparação">
+        <div><span>Calculadas</span><strong id="metric-calculated">0</strong></div>
+        <div><span>Avaliadas por humano</span><strong id="metric-reviewed">0</strong></div>
+        <div><span>Concordantes</span><strong id="metric-agree">0</strong></div>
+        <div><span>Taxa de concordância</span><strong id="metric-rate">—</strong></div>
+      </section>
+      <div id="phase3-message" class="status-message" role="status"></div>
+      <section id="risk-list" class="risk-review-list" aria-label="Avaliações de risco"></section>
+    </main>
+  </body>
+</html>

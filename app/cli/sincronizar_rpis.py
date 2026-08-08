@@ -7,6 +7,7 @@ import asyncpg
 
 from app.models import TipoProcesso
 from app.rpi.bulk_importer import importar_rpi_em_lotes
+from app.rpi.locking import adquirir_lock_sincronizacao, liberar_lock_sincronizacao
 from app.rpi.parsers import ler_marcas, ler_patentes
 from app.rpi.sync import baixar_e_extrair_rpi
 from app.settings import get_settings
@@ -46,21 +47,33 @@ async def _registrar_importacao(
     numero: int,
     tipo: TipoProcesso,
     registros: int,
+    titulares: int,
+    classes: int,
+    movimentacoes: int,
 ) -> None:
     dsn = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
     conexao = await asyncpg.connect(dsn=dsn)
     try:
         await conexao.execute(
             """
-            INSERT INTO rpi_importacoes (numero_rpi, tipo, registros_processados)
-            VALUES ($1, $2, $3)
+            INSERT INTO rpi_importacoes (
+                numero_rpi, tipo, registros_processados,
+                titulares_processados, classes_processadas, movimentacoes_processadas
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (numero_rpi, tipo) DO UPDATE SET
                 registros_processados=excluded.registros_processados,
+                titulares_processados=excluded.titulares_processados,
+                classes_processadas=excluded.classes_processadas,
+                movimentacoes_processadas=excluded.movimentacoes_processadas,
                 importado_em=now()
             """,
             numero,
             tipo.value,
             registros,
+            titulares,
+            classes,
+            movimentacoes,
         )
     finally:
         await conexao.close()
@@ -77,6 +90,10 @@ async def executar() -> None:
         else (TipoProcesso(args.tipo),)
     )
     database_url = get_settings().database_url
+    lock = await adquirir_lock_sincronizacao(database_url)
+    if lock is None:
+        print("Outra sincronização de RPIs já está em execução", file=sys.stderr, flush=True)
+        return
 
     for numero in range(args.inicio, args.fim + 1):
         for tipo in tipos:
@@ -86,9 +103,22 @@ async def executar() -> None:
 
             xml = baixar_e_extrair_rpi(numero, tipo, args.diretorio, print)
             leitor = ler_marcas if tipo is TipoProcesso.MARCA else ler_patentes
-            total = await importar_rpi_em_lotes(database_url, leitor(xml))
-            await _registrar_importacao(database_url, numero, tipo, total)
-            print(f"RPI {numero} ({tipo.value}): {total:,} registros", flush=True)
+            estatisticas = await importar_rpi_em_lotes(database_url, leitor(xml))
+            await _registrar_importacao(
+                database_url,
+                numero,
+                tipo,
+                estatisticas.registros,
+                estatisticas.titulares,
+                estatisticas.classes,
+                estatisticas.movimentacoes,
+            )
+            print(
+                f"RPI {numero} ({tipo.value}): {estatisticas.registros:,} registros",
+                flush=True,
+            )
+
+    await liberar_lock_sincronizacao(lock)
 
 
 if __name__ == "__main__":

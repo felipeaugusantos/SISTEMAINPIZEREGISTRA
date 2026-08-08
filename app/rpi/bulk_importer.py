@@ -1,10 +1,26 @@
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from hashlib import sha256
 
 import asyncpg
 
 from app.normalization import normalizar_numero_processo
 from app.rpi.types import RegistroRpi
+from app.trademarks.status import normalizar_despacho
+
+
+@dataclass(slots=True)
+class EstatisticasImportacaoRpi:
+    registros: int = 0
+    titulares: int = 0
+    classes: int = 0
+    movimentacoes: int = 0
+
+    def adicionar(self, lote: list[RegistroRpi]) -> None:
+        self.registros += len(lote)
+        self.titulares += sum(len(registro.titulares) for registro in lote)
+        self.classes += sum(len(registro.classificacoes) for registro in lote)
+        self.movimentacoes += sum(len(registro.movimentacoes) for registro in lote)
 
 
 def _chave_movimentacao(registro: RegistroRpi, codigo: str | None, descricao: str) -> str:
@@ -20,15 +36,24 @@ def _chave_movimentacao(registro: RegistroRpi, codigo: str | None, descricao: st
     return sha256(conteudo.encode()).hexdigest()
 
 
+def _situacao_registro(registro: RegistroRpi) -> tuple[str, str]:
+    ultimo = registro.movimentacoes[-1] if registro.movimentacoes else None
+    normalizada = normalizar_despacho(
+        ultimo.codigo if ultimo else None,
+        ultimo.descricao if ultimo else registro.situacao,
+    )
+    return normalizada.codigo, normalizada.relevancia
+
+
 async def importar_rpi_em_lotes(
     database_url: str,
     registros: Iterable[RegistroRpi],
     tamanho_lote: int = 10_000,
     progresso: Callable[[int], None] | None = None,
-) -> int:
+) -> EstatisticasImportacaoRpi:
     dsn = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
     conexao = await asyncpg.connect(dsn=dsn)
-    processados = 0
+    estatisticas = EstatisticasImportacaoRpi()
 
     try:
         await _criar_tabelas_temporarias(conexao)
@@ -38,20 +63,20 @@ async def importar_rpi_em_lotes(
             if len(lote) < tamanho_lote:
                 continue
             await _importar_lote(conexao, lote)
-            processados += len(lote)
+            estatisticas.adicionar(lote)
             lote.clear()
             if progresso:
-                progresso(processados)
+                progresso(estatisticas.registros)
 
         if lote:
             await _importar_lote(conexao, lote)
-            processados += len(lote)
+            estatisticas.adicionar(lote)
             if progresso:
-                progresso(processados)
+                progresso(estatisticas.registros)
     finally:
         await conexao.close()
 
-    return processados
+    return estatisticas
 
 
 async def _criar_tabelas_temporarias(conexao: asyncpg.Connection) -> None:
@@ -63,6 +88,8 @@ async def _criar_tabelas_temporarias(conexao: asyncpg.Connection) -> None:
             titulo text,
             data_deposito date,
             situacao text,
+            situacao_normalizada varchar(30),
+            relevancia_situacao varchar(20),
             numero_rpi integer NOT NULL,
             ordem integer NOT NULL DEFAULT 0,
             apresentacao text,
@@ -98,24 +125,29 @@ async def _criar_tabelas_temporarias(conexao: asyncpg.Connection) -> None:
 
 
 async def _importar_lote(conexao: asyncpg.Connection, lote: list[RegistroRpi]) -> None:
-    processos = [
-        (
-            registro.numero,
-            registro.tipo.value,
-            registro.titulo,
-            registro.data_deposito,
-            registro.situacao,
-            registro.numero_rpi,
-            registro.ordem,
-            registro.apresentacao,
-            registro.natureza,
-            registro.elemento_nominativo,
-            registro.procurador,
-            registro.imagem_url,
+    processos = []
+    for registro in lote:
+        if not registro.numero:
+            continue
+        situacao_normalizada, relevancia_situacao = _situacao_registro(registro)
+        processos.append(
+            (
+                registro.numero,
+                registro.tipo.value,
+                registro.titulo,
+                registro.data_deposito,
+                registro.situacao,
+                situacao_normalizada,
+                relevancia_situacao,
+                registro.numero_rpi,
+                registro.ordem,
+                registro.apresentacao,
+                registro.natureza,
+                registro.elemento_nominativo,
+                registro.procurador,
+                registro.imagem_url,
+            )
         )
-        for registro in lote
-        if registro.numero
-    ]
     titulares = [
         (registro.numero, titular.nome, titular.pais)
         for registro in lote
@@ -161,6 +193,8 @@ async def _importar_lote(conexao: asyncpg.Connection, lote: list[RegistroRpi]) -
                     "titulo",
                     "data_deposito",
                     "situacao",
+                    "situacao_normalizada",
+                    "relevancia_situacao",
                     "numero_rpi",
                     "ordem",
                     "apresentacao",
@@ -175,7 +209,8 @@ async def _importar_lote(conexao: asyncpg.Connection, lote: list[RegistroRpi]) -
                 INSERT INTO processos (
                     numero, numero_normalizado, tipo, titulo,
                     data_deposito, situacao, fonte, apresentacao,
-                    natureza, elemento_nominativo, procurador, imagem_url
+                    natureza, elemento_nominativo, procurador, imagem_url,
+                    situacao_normalizada, relevancia_situacao
                 )
                 SELECT DISTINCT ON (numero_normalizado)
                     numero,
@@ -189,7 +224,9 @@ async def _importar_lote(conexao: asyncpg.Connection, lote: list[RegistroRpi]) -
                     natureza,
                     elemento_nominativo,
                     procurador,
-                    imagem_url
+                    imagem_url,
+                    situacao_normalizada,
+                    relevancia_situacao
                 FROM (
                     SELECT *, upper(regexp_replace(numero, '[^A-Za-z0-9]', '', 'g'))
                         AS numero_normalizado
@@ -200,6 +237,8 @@ async def _importar_lote(conexao: asyncpg.Connection, lote: list[RegistroRpi]) -
                     titulo = coalesce(excluded.titulo, processos.titulo),
                     data_deposito = coalesce(excluded.data_deposito, processos.data_deposito),
                     situacao = coalesce(excluded.situacao, processos.situacao),
+                    situacao_normalizada = excluded.situacao_normalizada,
+                    relevancia_situacao = excluded.relevancia_situacao,
                     fonte = excluded.fonte,
                     apresentacao = coalesce(excluded.apresentacao, processos.apresentacao),
                     natureza = coalesce(excluded.natureza, processos.natureza),

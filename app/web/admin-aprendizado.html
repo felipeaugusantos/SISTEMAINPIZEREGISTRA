@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Aprendizado supervisionado — Zé Registra</title>
+    <link rel="stylesheet" href="/static/styles.css?v=18" />
+    <script src="/static/admin-shell.js?v=19" defer></script>
+    <script src="/static/admin-aprendizado.js?v=15" defer></script>
+  </head>
+  <body class="admin-body" data-admin-section="learning">
+    <main class="admin-main">
+      <section class="admin-heading">
+        <div>
+          <p class="eyebrow">Modelo estatístico · modo sombra</p>
+          <h1>Aprendizado supervisionado</h1>
+          <p>Construa rótulos auditáveis, valide o modelo no tempo e compare previsões com avaliações humanas antes de qualquer liberação ao cliente.</p>
+        </div>
+        <span id="learning-state" class="engine-version">Carregando…</span>
+      </section>
+      <section class="lead-metrics" aria-label="Indicadores do aprendizado">
+        <div><span>Rótulos históricos</span><strong id="metric-labels">—</strong></div>
+        <div><span>Pares temporais</span><strong id="metric-pairs">—</strong></div>
+        <div><span>Previsões sombra</span><strong id="metric-predictions">—</strong></div>
+        <div><span>Revisões humanas</span><strong id="metric-reviews">—</strong></div>
+      </section>
+      <div id="learning-message" class="status-message" role="status"></div>
+      <section class="production-grid learning-control-grid">
+        <section class="production-control-card">
+          <p class="eyebrow">Pipeline histórico</p><h2>Preparar e treinar</h2>
+          <p>Os candidatos são limitados às marcas existentes antes do depósito analisado. Arquivamentos formais não são usados como negativa de registrabilidade.</p>
+          <label><span>Quantidade de processos</span><input id="dataset-limit" type="number" min="30" max="5000" value="500" /></label>
+          <div class="learning-actions"><button id="build-dataset" class="secondary-button" type="button">Reconstruir dataset</button><button id="train-model" class="primary-button" type="button">Treinar candidato</button></div>
+        </section>
+        <form id="learning-control" class="production-control-card">
+          <p class="eyebrow">Política de exibição</p><h2>Estimativa imediata</h2>
+          <p>A probabilidade preliminar é calculada e exibida na primeira consulta. A avaliação humana e as metas abaixo aprimoram o modelo, mas não bloqueiam o relatório.</p>
+          <label class="production-toggle"><input id="learning-enabled" type="checkbox" /><span aria-hidden="true"></span><b>Motor estatístico ativo</b></label>
+          <label class="learning-rollout-control"><span>Cobertura das consultas</span><input id="learning-rollout" type="range" min="100" max="100" step="1" disabled /><output id="learning-rollout-output">100%</output></label>
+          <label class="production-toggle"><input id="learning-client" type="checkbox" checked disabled /><span aria-hidden="true"></span><b>Exibição preliminar automática ao cliente</b></label>
+          <div class="learning-thresholds"><label><span>Meta de revisões</span><input id="learning-min-reviews" type="number" min="10" /></label><label><span>Meta de amostras</span><input id="learning-min-samples" type="number" min="100" /></label><label><span>Meta de teste temporal</span><input id="learning-min-test-samples" type="number" min="20" /></label><label><span>Meta de recall</span><input id="learning-min-recall" type="number" min="0.5" max="1" step="0.01" /></label><label><span>Meta de especificidade</span><input id="learning-min-specificity" type="number" min="0.5" max="1" step="0.01" /></label><label><span>Meta de Brier máximo</span><input id="learning-max-brier" type="number" min="0" max="0.5" step="0.01" /></label><label><span>Meta de ECE máximo</span><input id="learning-max-ece" type="number" min="0" max="0.5" step="0.01" /></label><label><span>Meta da largura da faixa</span><input id="learning-max-interval" type="number" min="0.05" max="0.8" step="0.01" /></label><label><span>Meta de cobertura</span><input id="learning-min-coverage" type="number" min="0" max="1" step="0.01" /></label></div>
+          <label><span>Justificativa</span><textarea id="learning-reason" minlength="5" maxlength="1000" required></textarea></label>
+          <button class="primary-button" type="submit">Salvar controle</button><div id="release-blockers" class="status-message"></div>
+        </form>
+      </section>
+      <section class="overview-section"><header><div><p class="eyebrow">Modelos versionados</p><h2>Validação temporal e calibração</h2></div></header><div id="model-list" class="learning-model-list"></div></section>
+      <section class="overview-section"><header><div><p class="eyebrow">Qualidade dos dados</p><h2>Rótulos aguardando especialista</h2></div><span>Prioridade para baixa confiança</span></header><div id="label-list" class="learning-review-list"></div></section>
+      <section class="overview-section"><header><div><p class="eyebrow">Teste silencioso</p><h2>Previsões e comparação humana</h2></div></header><div id="prediction-list" class="learning-review-list"></div></section>
+    </main>
+  </body>
+</html>

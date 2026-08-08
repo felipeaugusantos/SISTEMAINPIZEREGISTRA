@@ -2,15 +2,35 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 
-from app.api.leads import exigir_admin
+from app.api.admin import router as admin_router
+from app.api.analises import router as analises_router
+from app.api.aprendizado import router as aprendizado_router
+from app.api.auth_routes import router as auth_router
+from app.api.confiabilidade import public_router as tenant_router
+from app.api.confiabilidade import router as confiabilidade_router
+from app.api.fase2 import router as fase2_router
+from app.api.fase3 import router as fase3_router
+from app.api.fase4 import router as fase4_router
 from app.api.leads import router as leads_router
+from app.api.pesquisas import router as pesquisas_router
 from app.api.processos import router as processos_router
+from app.api.producao import router as producao_router
+from app.api.rpi_admin import router as rpi_admin_router
+from app.api.saas import exigir_superadmin
+from app.api.saas import router as saas_router
+from app.api.usuarios import router as usuarios_router
+from app.auth import exigir_permissao
 from app.database import get_session
+from app.observability import observar_requisicao
+from app.queueing import status_fila
+from app.security import exigir_token_integracao
 from app.settings import get_settings
 
 settings = get_settings()
@@ -19,10 +39,37 @@ web_dir = Path(__file__).resolve().parent / "web"
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
-    description="API de consulta de marcas e patentes do INPI Brasil.",
+    description="API de pesquisa indicativa de marcas publicadas pelo INPI Brasil.",
 )
+if settings.admin_force_https:
+    app.add_middleware(HTTPSRedirectMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Integration-Key"],
+)
+app.middleware("http")(observar_requisicao)
 app.include_router(processos_router)
 app.include_router(leads_router)
+app.include_router(
+    pesquisas_router,
+    dependencies=[Depends(exigir_token_integracao)],
+)
+app.include_router(fase2_router)
+app.include_router(fase3_router)
+app.include_router(fase4_router)
+app.include_router(admin_router)
+app.include_router(analises_router)
+app.include_router(producao_router)
+app.include_router(rpi_admin_router)
+app.include_router(aprendizado_router)
+app.include_router(auth_router)
+app.include_router(usuarios_router)
+app.include_router(saas_router)
+app.include_router(confiabilidade_router)
+app.include_router(tenant_router)
 app.mount("/static", StaticFiles(directory=web_dir / "static"), name="static")
 
 
@@ -36,14 +83,151 @@ async def pagina_detalhe_processo(numero: str) -> FileResponse:
     return FileResponse(web_dir / "processo.html")
 
 
-@app.get("/admin/leads", include_in_schema=False, dependencies=[Depends(exigir_admin)])
+@app.get("/relatorios/{pesquisa_id}", include_in_schema=False)
+async def pagina_relatorio(pesquisa_id: str) -> FileResponse:
+    return FileResponse(web_dir / "relatorio.html")
+
+
+@app.get("/login", include_in_schema=False)
+async def pagina_login() -> FileResponse:
+    return FileResponse(web_dir / "login.html")
+
+
+@app.get("/alterar-senha", include_in_schema=False)
+async def pagina_alterar_senha() -> FileResponse:
+    return FileResponse(web_dir / "alterar-senha.html")
+
+
+@app.get(
+    "/admin/leads", include_in_schema=False, dependencies=[Depends(exigir_permissao("leads.view"))]
+)
 async def painel_leads() -> FileResponse:
     return FileResponse(web_dir / "admin-leads.html")
+
+
+@app.get(
+    "/admin", include_in_schema=False, dependencies=[Depends(exigir_permissao("dashboard.view"))]
+)
+async def painel_administrativo() -> FileResponse:
+    return FileResponse(web_dir / "admin.html")
+
+
+@app.get(
+    "/admin/pesquisas",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("leads.view"))],
+)
+async def painel_pesquisas() -> FileResponse:
+    return FileResponse(web_dir / "admin-leads.html")
+
+
+@app.get(
+    "/admin/analises/{pesquisa_id}",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("leads.view"))],
+)
+async def central_analise_marca(pesquisa_id: str) -> FileResponse:
+    return FileResponse(web_dir / "admin-analise.html")
+
+
+@app.get(
+    "/admin/fase2",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("validation.view"))],
+)
+async def painel_fase2() -> FileResponse:
+    return FileResponse(web_dir / "admin-fase2.html")
+
+
+@app.get(
+    "/admin/validacao",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("validation.view"))],
+)
+async def painel_validacao() -> FileResponse:
+    return FileResponse(web_dir / "admin-fase2.html")
+
+
+@app.get(
+    "/admin/fase3", include_in_schema=False, dependencies=[Depends(exigir_permissao("risk.view"))]
+)
+async def painel_fase3() -> FileResponse:
+    return FileResponse(web_dir / "admin-fase3.html")
+
+
+@app.get(
+    "/admin/risco", include_in_schema=False, dependencies=[Depends(exigir_permissao("risk.view"))]
+)
+async def painel_risco() -> FileResponse:
+    return FileResponse(web_dir / "admin-fase3.html")
+
+
+@app.get(
+    "/admin/fase4", include_in_schema=False, dependencies=[Depends(exigir_permissao("ai.view"))]
+)
+async def painel_fase4() -> FileResponse:
+    return FileResponse(web_dir / "admin-fase4.html")
+
+
+@app.get("/admin/ia", include_in_schema=False, dependencies=[Depends(exigir_permissao("ai.view"))])
+async def painel_ia() -> FileResponse:
+    return FileResponse(web_dir / "admin-fase4.html")
+
+
+@app.get(
+    "/admin/producao",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("production.view"))],
+)
+async def painel_producao() -> FileResponse:
+    return FileResponse(web_dir / "admin-producao.html")
+
+
+@app.get(
+    "/admin/aprendizado",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("learning.view"))],
+)
+async def painel_aprendizado() -> FileResponse:
+    return FileResponse(web_dir / "admin-aprendizado.html")
+
+
+@app.get(
+    "/admin/usuarios",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("users.view"))],
+)
+async def painel_usuarios() -> FileResponse:
+    return FileResponse(web_dir / "admin-usuarios.html")
+
+
+@app.get("/admin/saas", include_in_schema=False, dependencies=[Depends(exigir_superadmin)])
+async def painel_saas() -> FileResponse:
+    return FileResponse(web_dir / "admin-saas.html")
+
+
+@app.get(
+    "/admin/confiabilidade",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("production.manage"))],
+)
+async def painel_confiabilidade() -> FileResponse:
+    return FileResponse(web_dir / "admin-confiabilidade.html")
 
 
 @app.get("/privacidade", include_in_schema=False)
 async def pagina_privacidade() -> FileResponse:
     return FileResponse(web_dir / "privacidade.html")
+
+
+@app.get("/sobre", include_in_schema=False)
+async def pagina_sobre() -> FileResponse:
+    return FileResponse(web_dir / "sobre.html")
+
+
+@app.get("/contato", include_in_schema=False)
+async def pagina_contato() -> FileResponse:
+    return FileResponse(web_dir / "contato.html")
 
 
 @app.get("/health", tags=["infraestrutura"])
@@ -57,6 +241,12 @@ async def health(
             status_code=503,
             content={"status": "degraded", "environment": settings.app_env, "database": "error"},
         )
+    fila = await status_fila()
+    status_geral = "ok" if fila["status"] == "ok" or not settings.redis_required else "degraded"
+    conteudo = {"status": status_geral, "environment": settings.app_env, "database": "ok"}
+    if fila["status"] == "ok" or settings.redis_required:
+        conteudo["redis"] = fila
     return JSONResponse(
-        content={"status": "ok", "environment": settings.app_env, "database": "ok"},
+        status_code=200 if status_geral == "ok" else 503,
+        content=conteudo,
     )

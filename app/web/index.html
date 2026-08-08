@@ -3,150 +3,97 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Consulta simplificada de marcas e patentes publicadas pelo INPI." />
-    <title>Pesquisa INPI — Marcas e Patentes</title>
-    <link rel="stylesheet" href="/static/styles.css?v=6" />
-    <script src="/static/app.js?v=6" defer></script>
+    <meta name="description" content="Pesquisa indicativa de anterioridade de marcas na Seção V da RPI, com relatório estruturado e atendimento especializado." />
+    <title>Zé Registra — Pesquisa de Marcas no INPI</title>
+    <link rel="icon" href="/static/assets/personagem.png" />
+    <script src="/static/tenant-branding.js?v=1" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=13" />
+    <script src="/static/app.js?v=13" defer></script>
   </head>
   <body>
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="Página inicial da Pesquisa INPI">
-        <span class="brand-mark" aria-hidden="true">PI</span>
-        <span>Pesquisa INPI</span>
+    <header class="topbar public-topbar">
+      <a class="brand" href="/" aria-label="Zé Registra — página inicial">
+        <img class="brand-avatar" src="/static/assets/personagem.png" alt="" />
+        <span class="brand-wordmark">Zé Registra<sup>®</sup></span>
       </a>
-      <a class="api-link" href="/docs">Documentação da API</a>
+      <nav class="public-nav" aria-label="Navegação principal">
+        <a href="/">Pesquisa</a>
+        <a href="/#como-funciona">Como funciona</a>
+        <a href="/sobre">Sobre</a>
+        <a href="/contato">Contato</a>
+      </nav>
+      <a class="nav-cta" href="#research-form">Pesquisar marca</a>
     </header>
 
     <main>
-      <section class="hero" aria-labelledby="page-title">
+      <section class="hero report-gate" aria-labelledby="page-title">
         <div class="hero-copy">
-          <p class="eyebrow">Marcas e patentes do Brasil</p>
-          <h1 id="page-title">Encontre um processo pelo nome.</h1>
-          <p class="hero-description">
-            Consulte publicações importadas da Revista da Propriedade Industrial por nome da
-            marca, título da patente ou titular.
-          </p>
+          <div class="hero-brand-visual" aria-hidden="true">
+            <span class="hero-orbit"></span>
+            <img src="/static/assets/personagem.png" alt="" />
+          </div>
+          <p class="eyebrow">Pesquisa de anterioridade de marcas · Seção V — Marcas</p>
+          <h1 id="page-title">Sua marca começa com uma boa pesquisa.</h1>
+          <p class="hero-description">Consulte sinais publicados pelo INPI e receba um relatório indicativo, organizado para apoiar sua próxima decisão.</p>
+          <div class="trust-points">
+            <p><strong>Busca ampliada</strong> pelo nome completo e por partes relevantes do sinal.</p>
+            <p><strong>Leitura estruturada</strong> de situações, classes e possíveis afinidades.</p>
+            <p><strong>Relatório claro</strong> com fonte, versão e limites da análise registrados.</p>
+          </div>
         </div>
 
-        <form id="search-form" class="search-panel" role="search">
+        <form id="research-form" class="search-panel research-form">
           <div class="lead-form-intro">
-            <p class="eyebrow">Consulta gratuita</p>
-            <h2>Pesquise sem cadastro</h2>
-            <p>Busque por nome da marca, título da patente ou titular. Nenhum dado pessoal é necessário para consultar.</p>
+            <p class="eyebrow">Comece por aqui</p>
+            <h2>Gere sua pesquisa indicativa</h2>
+            <p>Preencha os dados abaixo para liberar o relatório e permitir um atendimento relacionado à sua pesquisa.</p>
           </div>
 
-          <label for="search-input">Marca ou termo que deseja pesquisar</label>
-          <div class="search-row">
-            <div class="input-shell">
-              <span class="search-symbol" aria-hidden="true"></span>
-              <input
-                id="search-input"
-                name="marca"
-                type="search"
-                minlength="2"
-                maxlength="100"
-                placeholder="Ex.: São Camilo, universidade, torre..."
-                autocomplete="off"
-                required
-              />
-            </div>
-            <button class="primary-button" type="submit">Pesquisar</button>
+          <div class="form-grid">
+            <label class="form-field form-field-wide"><span>Marca ou sinal pretendido</span><input id="brand-input" name="marca" minlength="2" maxlength="200" placeholder="Ex.: CAVALINHO FEROZ" required /></label>
+            <label class="form-field form-field-wide"><span>O que sua empresa oferece?</span><textarea id="business-activity" name="atividade" minlength="3" maxlength="500" rows="3" placeholder="Ex.: Venda de roupas e acessórios pela internet" required></textarea><small>Essa descrição ajuda a sugerir classes relacionadas à atividade.</small></label>
+            <label class="form-field"><span>Nome completo</span><input id="contact-name" autocomplete="name" minlength="2" maxlength="150" required /></label>
+            <label class="form-field"><span>Empresa</span><input id="company" autocomplete="organization" maxlength="200" placeholder="Razão social ou nome fantasia" /></label>
+            <label class="form-field"><span>E-mail de contato</span><input id="corporate-email" type="email" autocomplete="email" maxlength="254" placeholder="seunome@email.com" required /></label>
+            <label class="form-field"><span>Telefone</span><input id="corporate-phone" type="tel" autocomplete="tel" minlength="10" maxlength="30" placeholder="(11) 99999-9999" required /></label>
           </div>
 
-          <fieldset class="type-filter">
-            <legend>Tipo de processo</legend>
-            <label><input type="radio" name="tipo" value="" checked /> Todos</label>
-            <label><input type="radio" name="tipo" value="marca" /> Marcas</label>
-            <label><input type="radio" name="tipo" value="patente" /> Patentes</label>
-          </fieldset>
+          <label class="honeypot-field" aria-hidden="true">Website<input id="website" tabindex="-1" autocomplete="off" /></label>
+          <label class="privacy-consent"><input id="privacy-consent" type="checkbox" required /><span>Li o <a href="/privacidade" target="_blank">aviso de privacidade</a> e autorizo o tratamento dos dados para gerar e atender esta pesquisa.</span></label>
+          <label class="privacy-consent"><input id="marketing-consent" type="checkbox" /><span>Quero receber novidades e comunicações comerciais (opcional).</span></label>
+          <button class="primary-button report-button" type="submit">Gerar relatório indicativo</button>
+          <div id="form-status" class="status-message" role="status" aria-live="polite"></div>
         </form>
       </section>
 
-      <section id="results-section" class="results-section" aria-labelledby="results-title" hidden>
-        <div class="results-heading">
-          <div>
-            <p class="eyebrow">Resultados</p>
-            <h2 id="results-title">Processos encontrados</h2>
-          </div>
-          <p id="results-count" class="results-count" aria-live="polite"></p>
+      <section id="como-funciona" class="commercial-section" aria-labelledby="how-title">
+        <div class="section-intro"><p class="eyebrow">Uma jornada simples</p><h2 id="how-title">Como funciona</h2><p>A tecnologia organiza a pesquisa; a decisão final continua sendo técnica e humana.</p></div>
+        <div class="commercial-steps">
+          <article><span>01</span><h3>Conte sobre a marca</h3><p>Informe o sinal pretendido e descreva, em linguagem simples, os produtos ou serviços da empresa.</p></article>
+          <article><span>02</span><h3>Consulte a base</h3><p>O sistema pesquisa variações relevantes nas publicações de marcas da RPI e consolida os processos encontrados.</p></article>
+          <article><span>03</span><h3>Entenda o cenário</h3><p>O relatório apresenta ocorrências, situações, classes candidatas, fontes e ressalvas para orientar a análise.</p></article>
+          <article><span>04</span><h3>Fale com um especialista</h3><p>Quando necessário, solicite uma avaliação profissional antes de protocolar um pedido no INPI.</p></article>
         </div>
-
-        <div id="status-message" class="status-message" role="status"></div>
-        <div id="results-list" class="results-list"></div>
-
-        <nav id="pagination" class="pagination" aria-label="Paginação dos resultados" hidden>
-          <button id="previous-page" class="secondary-button" type="button">Anterior</button>
-          <span id="page-label"></span>
-          <button id="next-page" class="secondary-button" type="button">Próxima</button>
-        </nav>
       </section>
 
-      <section id="lead-cta" class="contact-cta" aria-labelledby="lead-cta-title" hidden>
-        <div>
-          <p class="eyebrow">Atendimento opcional</p>
-          <h2 id="lead-cta-title">Quer ajuda para analisar “<span id="lead-cta-term"></span>”?</h2>
-          <p>A consulta continua livre. Solicite contato apenas se quiser apoio especializado.</p>
+      <section class="value-section" aria-labelledby="value-title">
+        <div class="section-intro"><p class="eyebrow">Zé Registra</p><h2 id="value-title">Informação para proteger o que você está construindo.</h2></div>
+        <div class="value-grid">
+          <article><strong>Transparência</strong><p>Mostramos a fonte dos dados, a versão do relatório e os limites de cada resultado.</p></article>
+          <article><strong>Pesquisa focada</strong><p>A consulta considera somente processos de marcas, publicados na Seção V da RPI.</p></article>
+          <article><strong>Segurança operacional</strong><p>Dados estruturados, relatórios versionados e controles internos apoiam a rastreabilidade.</p></article>
         </div>
-        <button id="open-lead-form" class="primary-button" type="button">Falar com um especialista</button>
       </section>
 
-      <section id="lead-section" class="search-panel lead-section" aria-labelledby="lead-title" hidden>
-        <div class="lead-form-intro">
-          <p class="eyebrow">Precisa de ajuda com <span id="lead-term">sua marca</span>?</p>
-          <h2 id="lead-title">Fale com um especialista</h2>
-          <p>Deixe seus dados e um especialista entra em contato sobre a marca ou patente pesquisada.</p>
-        </div>
-
-        <form id="lead-form">
-          <div class="contact-fields">
-            <label class="lead-context-field">
-              <span>Assunto do contato</span>
-              <input id="lead-subject" name="lead_subject" type="text" readonly />
-            </label>
-            <label>
-              <span>Seu nome</span>
-              <input id="lead-name" name="lead_name" type="text" minlength="2" maxlength="150" autocomplete="name" placeholder="Nome completo" required />
-            </label>
-            <label>
-              <span>E-mail</span>
-              <input id="lead-email" name="lead_email" type="email" maxlength="254" autocomplete="email" placeholder="voce@empresa.com.br" required />
-            </label>
-            <label>
-              <span>Telefone ou WhatsApp</span>
-              <input id="lead-phone" name="lead_phone" type="tel" minlength="10" maxlength="30" inputmode="tel" autocomplete="tel" placeholder="(11) 99999-9999" required />
-            </label>
-          </div>
-
-          <label class="honeypot-field" aria-hidden="true">
-            Website
-            <input id="lead-website" name="website" type="text" tabindex="-1" autocomplete="off" />
-          </label>
-
-          <label class="privacy-consent">
-            <input id="privacy-consent" type="checkbox" required />
-            <span>Li o <a href="/privacidade" target="_blank">aviso de privacidade</a> e solicito contato sobre esta pesquisa.</span>
-          </label>
-
-          <button class="primary-button" type="submit">Solicitar contato</button>
-          <div id="lead-status" class="status-message" role="status"></div>
-        </form>
-      </section>
-
-      <section id="initial-note" class="initial-note" aria-label="Informações sobre a base">
+      <section class="initial-note" aria-label="Limites da pesquisa">
         <div class="note-number">01</div>
-        <div>
-          <h2>Uma consulta informativa</h2>
-          <p>
-            Os dados exibidos vêm de publicações do INPI e não substituem a consulta oficial à
-            RPI nem uma análise jurídica especializada.
-          </p>
-        </div>
+        <div><h2>Resultado meramente indicativo</h2><p>A busca consulta automaticamente o nome completo e partes relevantes da marca em processos publicados na Seção V da RPI. O resultado não substitui a consulta oficial ao INPI nem a análise jurídica de registrabilidade, semelhança fonética ou afinidade mercadológica.</p></div>
       </section>
     </main>
-
-    <footer>
-      <p>Fonte dos dados: Instituto Nacional da Propriedade Industrial — INPI.</p>
-      <p>Atualização conforme as edições importadas da RPI.</p>
+    <footer class="site-footer">
+      <div class="footer-brand"><img src="/static/assets/personagem.png" alt="" /><div><strong class="brand-wordmark">Zé Registra<sup>®</sup></strong><p>Pesquisa e inteligência para marcas.</p></div></div>
+      <div class="footer-links"><a href="/sobre">Sobre</a><a href="/contato">Contato</a><a href="/privacidade">Privacidade</a><a href="/docs">API</a></div>
+      <div class="footer-source"><p>Fonte: Instituto Nacional da Propriedade Industrial — INPI.</p><p>Base formada por publicações da RPI e dados históricos importados.</p></div>
     </footer>
   </body>
 </html>

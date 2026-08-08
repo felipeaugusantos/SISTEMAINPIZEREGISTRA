@@ -1,0 +1,80 @@
+from datetime import UTC, datetime
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.auth import obter_usuario_atual
+from app.database import get_session
+from app.main import app
+from app.models import Lead, PesquisaMarca, StatusLead, VersaoRelatorioMarca
+from tests.conftest import FakeResult, auth_override, sessao_override
+
+
+@pytest.fixture(autouse=True)
+def _cleanup() -> None:
+    yield
+    app.dependency_overrides.clear()
+
+
+def test_api_da_central_exige_autenticacao() -> None:
+    assert TestClient(app).get("/v1/admin/analises/pesquisa-1").status_code == 401
+
+
+def test_api_da_central_consolida_pesquisa_e_status_do_relatorio() -> None:
+    agora = datetime.now(UTC)
+    lead = Lead(
+        id=1,
+        organizacao_id=1,
+        nome="Cliente Teste",
+        email="cliente@empresa.com",
+        telefone="11999998888",
+        empresa="Empresa",
+        marca="ACME",
+        origem="relatorio",
+        status=StatusLead.NOVO,
+    )
+    lead.responsavel = None
+    pesquisa = PesquisaMarca(
+        id="pesquisa-1",
+        organizacao_id=1,
+        lead_id=1,
+        marca="ACME",
+        atividade="Tecnologia",
+        tipo_pesquisa="completa",
+        relatorio_completo_gerado_em=None,
+        criado_em=agora,
+    )
+    versao = VersaoRelatorioMarca(
+        pesquisa_id=pesquisa.id,
+        numero_versao=2,
+        schema_versao="relatorio-marca-4.2",
+        conteudo_hash="hash",
+        payload={
+            "ultima_rpi": 2900,
+            "total": 3,
+            "limite_exibido": 3,
+            "matriz_afinidade_status": "validada",
+            "qualidade_base": {"status": "adequada", "avisos": []},
+            "classes_atividade": [],
+            "itens": [],
+        },
+        gerado_em=agora,
+    )
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(itens=[(pesquisa, lead)]),
+        FakeResult(scalar=versao),
+        FakeResult(scalar=None),
+        FakeResult(itens=[]),
+    )
+    app.dependency_overrides[obter_usuario_atual] = auth_override()
+
+    response = TestClient(app).get("/v1/admin/analises/pesquisa-1")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["pesquisa"]["marca"] == "ACME"
+    assert data["validacao"]["ultima_rpi"] == 2900
+    assert data["validacao"]["total_ocorrencias"] == 3
+    assert data["risco"] is None
+    assert data["relatorio_completo"]["gerado"] is False
+    assert data["permissoes"]["relatorio_gerar"] is True

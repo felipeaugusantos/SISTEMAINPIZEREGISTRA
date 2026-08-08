@@ -8,7 +8,8 @@ from sqlalchemy.orm import selectinload
 from app.database import get_session
 from app.models import Processo, TipoProcesso, Titular, processo_titulares
 from app.normalization import normalizar_numero_processo
-from app.schemas import ProcessoResponse, ResultadoBusca
+from app.privacy import mascarar_documentos_publicos
+from app.schemas import ProcessoResponse, ProcessoResumo, ResultadoBusca, TitularResponse
 
 router = APIRouter(prefix="/v1/processos", tags=["processos"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -17,24 +18,30 @@ NomeBusca = Annotated[
     Query(
         min_length=2,
         max_length=100,
-        description="Nome da marca, título da patente ou nome do titular",
+        description="Nome da marca ou do titular",
     ),
 ]
 LimiteBusca = Annotated[int, Query(ge=1, le=50)]
 DeslocamentoBusca = Annotated[int, Query(ge=0)]
 
 
+def _titulares_publicos(processo: Processo) -> list[TitularResponse]:
+    return [
+        TitularResponse(nome=mascarar_documentos_publicos(titular.nome), pais=titular.pais)
+        for titular in processo.titulares
+    ]
+
+
 @router.get("", response_model=ResultadoBusca)
 async def pesquisar_processos(
     nome: NomeBusca,
     session: SessionDep,
-    tipo: TipoProcesso | None = None,
     limite: LimiteBusca = 20,
     deslocamento: DeslocamentoBusca = 0,
 ) -> ResultadoBusca:
     termo = f"%{nome.strip()}%"
     termo_sem_acentos = func.immutable_unaccent(termo)
-    filtro_tipo = Processo.tipo == tipo if tipo is not None else True
+    filtro_tipo = Processo.tipo == TipoProcesso.MARCA
 
     ids_por_titulo = select(Processo.id.label("processo_id")).where(
         func.immutable_unaccent(Processo.titulo).ilike(termo_sem_acentos),
@@ -68,15 +75,21 @@ async def pesquisar_processos(
         total=total,
         limite=limite,
         deslocamento=deslocamento,
-        itens=processos,
+        itens=[
+            ProcessoResumo.model_validate(processo).model_copy(
+                update={"titulares": _titulares_publicos(processo)}
+            )
+            for processo in processos
+        ],
     )
 
 
 @router.get("/{numero}", response_model=ProcessoResponse)
-async def buscar_processo(numero: str, session: SessionDep) -> Processo:
+async def buscar_processo(numero: str, session: SessionDep) -> ProcessoResponse:
     consulta = (
         select(Processo)
         .where(Processo.numero_normalizado == normalizar_numero_processo(numero))
+        .where(Processo.tipo == TipoProcesso.MARCA)
         .options(
             selectinload(Processo.titulares),
             selectinload(Processo.movimentacoes),
@@ -91,4 +104,6 @@ async def buscar_processo(numero: str, session: SessionDep) -> Processo:
             detail="Processo não encontrado",
         )
 
-    return processo
+    return ProcessoResponse.model_validate(processo).model_copy(
+        update={"titulares": _titulares_publicos(processo)}
+    )

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Relatório de pesquisa de marca — Zé Registra</title>
+    <link rel="icon" href="/static/assets/personagem.png" />
+    <link rel="stylesheet" href="/static/styles.css?v=14" />
+    <script src="/static/relatorio.js?v=16" defer></script>
+  <script src="/static/tenant-branding.js?v=1" defer></script>
+</head>
+  <body class="report-page">
+    <header class="topbar public-topbar">
+      <a class="brand" href="/"><img class="brand-avatar" src="/static/assets/personagem.png" alt="" /><span class="brand-wordmark">Zé Registra<sup>®</sup></span></a>
+      <div class="report-actions">
+        <button id="print-report" class="secondary-button" type="button" disabled>Baixar resumo PDF</button>
+      </div>
+    </header>
+    <main class="report-main">
+      <a class="back-link" href="/">← Nova pesquisa</a>
+      <div id="report-loading" class="detail-loading">Organizando seu relatório...</div>
+      <section id="report-content" hidden>
+        <div class="report-print-brand"><div class="footer-brand"><img src="/static/assets/personagem.png" alt="" /><div><strong class="brand-wordmark">Zé Registra<sup>®</sup></strong><p>Pesquisa e inteligência para marcas.</p></div></div><span>Relatório indicativo · Seção V — Marcas</span></div>
+        <header class="report-cover">
+          <div class="report-heading"><div><p class="eyebrow">Relatório de pesquisa de anterioridade</p><h1 id="report-brand"></h1><p id="report-description" class="hero-description"></p></div><div class="report-version-meta"><span id="report-version"></span><p id="report-date" class="report-date"></p></div></div>
+          <div class="report-cover-seal"><img src="/static/assets/personagem.png" alt="" /><span>Pesquisa estruturada em publicações do INPI</span></div>
+        </header>
+        <section class="report-download-card" aria-labelledby="download-title">
+          <div><p class="eyebrow">Relatório concluído</p><h2 id="download-title">Seu PDF está pronto para baixar.</h2><p id="download-status">O download começa automaticamente após a pesquisa. Se necessário, use o botão ao lado para baixar novamente.</p></div>
+          <a id="download-report" class="primary-button button-link" href="#">Baixar resumo de 1 página</a>
+        </section>
+        <div id="report-metrics" class="report-metrics"></div>
+        <section id="report-conclusion" class="report-classification" aria-labelledby="conclusion-title">
+          <div><p class="eyebrow">Conclusão indicativa</p><h2 id="conclusion-title"></h2></div>
+          <p id="conclusion-summary"></p>
+          <p id="conclusion-review" class="matrix-status"></p>
+        </section>
+        <section class="report-classification" aria-labelledby="evidence-title">
+          <div><p class="eyebrow">Rastreabilidade</p><h2 id="evidence-title">Como a pesquisa foi realizada</h2></div>
+          <div id="search-evidence" class="activity-classes"></div>
+          <p id="base-quality" class="matrix-status"></p>
+          <div id="base-warnings"></div>
+        </section>
+        <section class="report-classification" aria-labelledby="classification-title">
+          <div><p class="eyebrow">Produtos e serviços</p><h2 id="classification-title">Classes candidatas para sua atividade</h2></div>
+          <p>Esta associação é automática e preliminar. A especificação final deve ser confirmada por um especialista.</p>
+          <div id="activity-classes" class="activity-classes"></div>
+          <p id="matrix-status" class="matrix-status"></p>
+        </section>
+        <div class="results-heading"><div><p class="eyebrow">Ocorrências localizadas</p><h2>Marcas que merecem atenção</h2></div><p id="report-count" class="results-count"></p></div>
+        <div id="report-empty" class="status-message"></div>
+        <div id="report-results" class="results-list"></div>
+        <aside class="report-next-step"><div><p class="eyebrow">Próximo passo</p><h2>Quer interpretar este cenário com segurança?</h2><p>Converse com a equipe da Zé Registra sobre as ocorrências, classes e situações apresentadas.</p></div><a href="/contato" class="primary-button button-link">Falar com a equipe</a></aside>
+        <aside class="report-disclaimer"><strong>Importante</strong><p>Este relatório é meramente indicativo. A situação normalizada preserva o despacho oficial, e a associação de classes não constitui conclusão jurídica. Afinidades pendentes só passam a ser validadas após revisão humana. Consulte sempre a base oficial do INPI e a legislação vigente.</p></aside>
+        <div class="report-print-footer">Zé Registra · Dados originados de publicações do Instituto Nacional da Propriedade Industrial — INPI.</div>
+      </section>
+      <section id="report-error" class="detail-error" hidden><p class="eyebrow">Relatório indisponível</p><h1>Não foi possível abrir.</h1><p>Confira o endereço ou gere uma nova pesquisa.</p></section>
+    </main>
+    <footer class="site-footer"><div class="footer-brand"><img src="/static/assets/personagem.png" alt="" /><div><strong class="brand-wordmark">Zé Registra<sup>®</sup></strong><p>Pesquisa e inteligência para marcas.</p></div></div><div class="footer-links"><a href="/sobre">Sobre</a><a href="/contato">Contato</a><a href="/privacidade">Privacidade</a></div><div class="footer-source"><p>Relatório gerado automaticamente a partir de publicações do INPI.</p></div></footer>
+  </body>
+</html>

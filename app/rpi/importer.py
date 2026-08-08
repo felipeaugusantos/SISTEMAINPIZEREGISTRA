@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.models import ClassificacaoMarca, Movimentacao, Processo, Titular
 from app.normalization import normalizar_numero_processo
 from app.rpi.types import RegistroRpi, ResultadoImportacao, TitularRpi
+from app.trademarks.status import normalizar_despacho
 
 
 def _chave_movimentacao(registro: RegistroRpi, codigo: str | None, descricao: str) -> str:
@@ -60,6 +61,11 @@ async def importar_registros(
             break
 
         numero_normalizado = normalizar_numero_processo(registro.numero)
+        ultimo_movimento = registro.movimentacoes[-1] if registro.movimentacoes else None
+        situacao_normalizada = normalizar_despacho(
+            ultimo_movimento.codigo if ultimo_movimento else None,
+            ultimo_movimento.descricao if ultimo_movimento else registro.situacao,
+        )
         processo = processos.get(numero_normalizado)
         if processo is None:
             consulta = (
@@ -77,6 +83,8 @@ async def importar_registros(
                 titulo=registro.titulo,
                 data_deposito=registro.data_deposito,
                 situacao=registro.situacao,
+                situacao_normalizada=situacao_normalizada.codigo,
+                relevancia_situacao=situacao_normalizada.relevancia,
                 fonte=f"RPI {registro.numero_rpi}",
                 apresentacao=registro.apresentacao,
                 natureza=registro.natureza,
@@ -92,6 +100,8 @@ async def importar_registros(
             processo.titulo = registro.titulo or processo.titulo
             processo.data_deposito = registro.data_deposito or processo.data_deposito
             processo.situacao = registro.situacao or processo.situacao
+            processo.situacao_normalizada = situacao_normalizada.codigo
+            processo.relevancia_situacao = situacao_normalizada.relevancia
             processo.fonte = f"RPI {registro.numero_rpi}"
             processo.apresentacao = registro.apresentacao or processo.apresentacao
             processo.natureza = registro.natureza or processo.natureza

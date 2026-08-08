@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Produção e auditoria — Zé Registra</title>
+    <link rel="stylesheet" href="/static/styles.css?v=16" />
+    <script src="/static/admin-shell.js?v=19" defer></script>
+    <script src="/static/admin-producao.js?v=12" defer></script>
+  </head>
+  <body class="admin-body" data-admin-section="production">
+    <main class="admin-main">
+      <section class="admin-heading">
+        <div>
+          <p class="eyebrow">Fase 5 · governança</p>
+          <h1>Produção e auditoria</h1>
+          <p>Controle a liberação gradual, acompanhe desempenho e mantenha uma trilha verificável das ações administrativas.</p>
+        </div>
+        <span id="production-environment" class="engine-version">Carregando…</span>
+      </section>
+
+      <section class="lead-metrics production-metrics" aria-label="Indicadores das últimas 24 horas">
+        <div><span>Requisições monitoradas</span><strong id="metric-requests">0</strong></div>
+        <div><span>Taxa de erros</span><strong id="metric-errors">0%</strong></div>
+        <div><span>Tempo médio</span><strong id="metric-duration">0 ms</strong></div>
+        <div><span>Divergência humana</span><strong id="metric-divergence">0%</strong></div>
+      </section>
+
+      <div id="production-message" class="status-message" role="status"></div>
+
+      <section class="production-grid">
+        <form id="production-control" class="production-control-card">
+          <p class="eyebrow">Liberação gradual</p>
+          <h2>Controle operacional da IA</h2>
+          <p>A chave do ambiente é o bloqueio mestre. Este controle permite interromper a IA imediatamente ou ampliar o lote com segurança.</p>
+          <div class="production-switch-row">
+            <label class="production-toggle">
+              <input id="ai-enabled" name="ia_habilitada" type="checkbox" />
+              <span aria-hidden="true"></span>
+              <b>IA habilitada operacionalmente</b>
+            </label>
+            <small id="master-key-state">Verificando chave mestra…</small>
+          </div>
+          <label>
+            <span>Percentual de rollout</span>
+            <div class="rollout-input">
+              <input id="ai-rollout" name="ia_rollout_percentual" type="range" min="0" max="100" step="5" value="0" />
+              <output id="ai-rollout-output">0%</output>
+            </div>
+          </label>
+          <label>
+            <span>Justificativa da alteração</span>
+            <textarea id="production-reason" name="justificativa" minlength="5" maxlength="1000" required placeholder="Ex.: ampliar para lote controlado após validação dos últimos resultados."></textarea>
+          </label>
+          <button class="primary-button" type="submit">Salvar controle de produção</button>
+          <small id="control-history"></small>
+        </form>
+
+        <section class="production-version-card">
+          <p class="eyebrow">Rastreabilidade</p>
+          <h2>Relatórios versionados</h2>
+          <div><strong id="metric-versions">0</strong><span>versões imutáveis</span></div>
+          <div><strong id="metric-versioned-reports">0</strong><span>pesquisas com snapshot</span></div>
+          <p>Cada mudança nos dados públicos cria uma nova versão. Conteúdo idêntico reutiliza o snapshot anterior.</p>
+        </section>
+      </section>
+
+      <section class="overview-section production-audit-section">
+        <header>
+          <div><p class="eyebrow">Segurança administrativa</p><h2>Eventos recentes de auditoria</h2></div>
+          <span>Sem armazenamento de senhas ou IP em texto aberto</span>
+        </header>
+        <div class="leads-table-shell">
+          <table class="leads-table production-audit-table">
+            <thead><tr><th>Data</th><th>Administrador</th><th>Ação</th><th>Recurso</th><th>Resultado</th></tr></thead>
+            <tbody id="audit-list"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -3,18 +3,6 @@ const errorSection = document.querySelector("#detail-error");
 const errorMessage = document.querySelector("#detail-error-message");
 const detail = document.querySelector("#process-detail");
 const backLink = document.querySelector("#back-link");
-const contactCta = document.querySelector("#detail-contact-cta");
-const openContactButton = document.querySelector("#open-detail-contact");
-const detailLeadForm = document.querySelector("#detail-lead-form");
-const detailLeadName = document.querySelector("#detail-lead-name");
-const detailLeadEmail = document.querySelector("#detail-lead-email");
-const detailLeadPhone = document.querySelector("#detail-lead-phone");
-const detailLeadWebsite = document.querySelector("#detail-lead-website");
-const detailPrivacyConsent = document.querySelector("#detail-privacy-consent");
-const detailLeadStatus = document.querySelector("#detail-lead-status");
-const detailLeadSubmit = detailLeadForm.querySelector("button[type='submit']");
-
-let currentProcess = null;
 
 function text(selector, value) {
   document.querySelector(selector).textContent = value;
@@ -140,7 +128,6 @@ function renderTrademarkDetails(item) {
 }
 
 function renderProcess(item) {
-  currentProcess = item;
   const typeLabel = item.tipo === "marca" ? "Marca" : "Patente";
   const badge = document.querySelector("#detail-type");
   badge.textContent = typeLabel;
@@ -161,73 +148,7 @@ function renderProcess(item) {
   document.querySelector("#holders-list").innerHTML = renderHolders(item.titulares);
   document.querySelector("#movements-list").innerHTML = renderMovements(item.movimentacoes);
   renderTrademarkDetails(item);
-  text("#detail-contact-term", item.titulo || item.numero);
-  text(
-    "#detail-lead-subject",
-    `${typeLabel} ${item.titulo || "sem título informado"} · Processo ${item.numero}`,
-  );
-  document.title = `${item.titulo || item.numero} — Pesquisa INPI`;
-}
-
-openContactButton.addEventListener("click", () => {
-  contactCta.hidden = true;
-  detailLeadForm.hidden = false;
-  detailLeadForm.scrollIntoView({ behavior: "smooth", block: "center" });
-  detailLeadName.focus({ preventScroll: true });
-});
-
-detailLeadForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (!currentProcess) return;
-
-  detailLeadStatus.className = "status-message loading";
-  detailLeadStatus.textContent = "Enviando sua solicitação...";
-  detailLeadSubmit.disabled = true;
-  try {
-    const response = await fetch("/v1/leads", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        nome: detailLeadName.value.trim(),
-        email: detailLeadEmail.value.trim(),
-        telefone: detailLeadPhone.value.trim(),
-        marca: currentProcess.titulo || "",
-        processo_numero: currentProcess.numero,
-        origem: "processo",
-        tipo_interesse: currentProcess.tipo,
-        aceite_privacidade: detailPrivacyConsent.checked,
-        website: detailLeadWebsite.value,
-      }),
-    });
-    if (!response.ok) {
-      const data = await response.json().catch(() => null);
-      const message = Array.isArray(data?.detail) ? data.detail[0]?.msg : data?.detail;
-      throw new Error(message || "Não foi possível registrar a solicitação.");
-    }
-    sessionStorage.setItem(
-      "inpiLeadContact",
-      JSON.stringify({
-        nome: detailLeadName.value,
-        email: detailLeadEmail.value,
-        telefone: detailLeadPhone.value,
-      }),
-    );
-    detailPrivacyConsent.checked = false;
-    detailLeadStatus.className = "status-message";
-    detailLeadStatus.textContent = "Solicitação enviada. Em breve um especialista entrará em contato.";
-  } catch (error) {
-    detailLeadStatus.className = "status-message error";
-    detailLeadStatus.textContent = error.message;
-  } finally {
-    detailLeadSubmit.disabled = false;
-  }
-});
-
-const savedContact = JSON.parse(sessionStorage.getItem("inpiLeadContact") || "null");
-if (savedContact) {
-  detailLeadName.value = savedContact.nome || "";
-  detailLeadEmail.value = savedContact.email || "";
-  detailLeadPhone.value = savedContact.telefone || "";
+  document.title = `${item.titulo || item.numero} — Zé Registra`;
 }
 
 async function loadProcess() {

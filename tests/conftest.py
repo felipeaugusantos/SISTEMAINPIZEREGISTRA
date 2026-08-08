@@ -2,6 +2,31 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
+from app.auth import UsuarioAutenticado
+
+
+def usuario_teste(
+    perfil: str = "administrador", permissoes: set[str] | None = None
+) -> UsuarioAutenticado:
+    return UsuarioAutenticado(
+        id=1,
+        nome="Admin Teste",
+        usuario="admin",
+        email="admin@teste.local",
+        perfil=perfil,
+        permissoes=frozenset(permissoes or set()),
+        alterar_senha=False,
+        sessao_id=1,
+        csrf_hash="",
+    )
+
+
+def auth_override(usuario: UsuarioAutenticado | None = None):
+    async def _override() -> UsuarioAutenticado:
+        return usuario or usuario_teste()
+
+    return _override
+
 
 class FakeResult:
     """Resultado de execute() configurável para os testes de endpoint."""
@@ -22,6 +47,14 @@ class FakeResult:
     def all(self) -> list[Any]:
         return list(self._itens)
 
+    def first(self) -> Any:
+        return self._itens[0] if self._itens else None
+
+    def one(self) -> Any:
+        if len(self._itens) != 1:
+            raise AssertionError(f"Era esperada uma linha, mas foram recebidas {len(self._itens)}")
+        return self._itens[0]
+
 
 class FakeSession:
     """Sessão async que devolve resultados enfileirados, sem tocar no banco."""
@@ -41,6 +74,9 @@ class FakeSession:
 
     async def commit(self) -> None:
         self.commits += 1
+
+    async def flush(self) -> None:
+        return None
 
     async def refresh(self, obj: Any) -> None:
         # Simula o preenchimento de colunas geradas pelo banco após o commit.

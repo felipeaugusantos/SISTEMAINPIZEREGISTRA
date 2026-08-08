@@ -40,6 +40,8 @@ class ProcessoResponse(BaseModel):
     titulo: str | None
     data_deposito: date | None
     situacao: str | None
+    situacao_normalizada: str | None
+    relevancia_situacao: str | None
     fonte: str
     apresentacao: str | None
     natureza: str | None
@@ -60,6 +62,8 @@ class ProcessoResumo(BaseModel):
     titulo: str | None
     data_deposito: date | None
     situacao: str | None
+    situacao_normalizada: str | None = None
+    relevancia_situacao: str | None = None
     atualizado_em: datetime
     titulares: list[TitularResponse]
 
@@ -110,20 +114,651 @@ class LeadResponse(BaseModel):
     nome: str
     email: str
     telefone: str
+    empresa: str | None
     marca: str
+    atividade: str | None
     processo_numero: str | None
     origem: str
     tipo_interesse: TipoProcesso | None
     status: StatusLead
+    aceite_marketing: bool
+    responsavel_id: int | None = None
+    responsavel_nome: str | None = None
+    notas: str | None = None
+    proxima_acao_em: datetime | None = None
+    ultimo_contato_em: datetime | None = None
+    tags: list[str] = Field(default_factory=list)
+    arquivado_em: datetime | None = None
+    total_pesquisas: int = 0
+    ultima_pesquisa: "PesquisaLeadResumo | None" = None
     criado_em: datetime
     atualizado_em: datetime
+
+    @field_validator("aceite_marketing", mode="before")
+    @classmethod
+    def marketing_nao_informado(cls, valor: bool | None) -> bool:
+        return bool(valor)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def tags_nao_informadas(cls, valor: list[str] | None) -> list[str]:
+        return valor or []
+
+
+TipoPesquisaMarca = Literal["exata", "radical", "completa"]
+
+
+class PesquisaMarcaCreate(BaseModel):
+    nome: str = Field(min_length=2, max_length=150)
+    empresa: str | None = Field(default=None, max_length=200)
+    email_corporativo: str = Field(
+        min_length=5,
+        max_length=254,
+        pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$",
+    )
+    telefone: str = Field(min_length=10, max_length=30)
+    marca: str = Field(min_length=2, max_length=200)
+    atividade: str = Field(min_length=3, max_length=500)
+    aceite_privacidade: Literal[True]
+    aceite_marketing: bool = False
+    website: str = Field(default="", max_length=200)
+
+    @field_validator("nome", "email_corporativo", "telefone", "marca", "atividade")
+    @classmethod
+    def remover_espacos_pesquisa(cls, valor: str) -> str:
+        return valor.strip()
+
+    @field_validator("empresa")
+    @classmethod
+    def remover_espacos_opcionais(cls, valor: str | None) -> str | None:
+        if valor is None:
+            return None
+        return valor.strip() or None
+
+    @field_validator("email_corporativo")
+    @classmethod
+    def normalizar_email(cls, valor: str) -> str:
+        return valor.lower()
+
+    @field_validator("telefone")
+    @classmethod
+    def validar_telefone_corporativo(cls, valor: str) -> str:
+        digitos = "".join(caractere for caractere in valor if caractere.isdigit())
+        if not 10 <= len(digitos) <= 15:
+            raise ValueError("Informe um telefone corporativo válido com DDD")
+        return valor
+
+
+class PesquisaMarcaCriada(BaseModel):
+    id: str
+    relatorio_url: str
+
+
+class ClasseNiceCandidataResponse(BaseModel):
+    codigo: str
+    titulo: str
+    tipo: Literal["produto", "serviço"]
+    termos_encontrados: list[str]
+
+
+class AfinidadeClassesResponse(BaseModel):
+    nivel: str
+    rotulo: str
+    justificativa: str
+    revisao: str
+    classes_atividade: list[str]
+    classes_processo: list[str]
+
+
+class EvidenciasBuscaResponse(BaseModel):
+    termo_original: str
+    expressao_completa: str
+    radicais: list[str]
+    variacoes: list[str]
+    nomes_identicos: int
+    expressoes_completas: int
+    ocorrencias_por_radical: int
+    criterios_considerados: list[str]
+    versao_algoritmo: str
+
+
+class QualidadeBaseResponse(BaseModel):
+    status: Literal["adequada", "atencao", "bloqueada"]
+    ultima_rpi: int | None
+    data_ultima_rpi: date | None
+    importada_em: datetime | None
+    idade_dias: int | None
+    total_processos_marca: int
+    deposito_mais_antigo: date | None
+    deposito_mais_recente: date | None
+    ocorrencias_sem_titulo: int
+    ocorrencias_sem_situacao: int
+    ocorrencias_sem_classe: int
+    avisos: list[str] = Field(default_factory=list)
+
+
+class ConclusaoIndicativaResponse(BaseModel):
+    nivel: str
+    titulo: str
+    resumo: str
+    revisao_humana_recomendada: bool
+
+
+class EstimativaRegistrabilidadeResponse(BaseModel):
+    probabilidade_deferimento: float = Field(ge=0, le=1)
+    probabilidade_inferior: float | None = Field(default=None, ge=0, le=1)
+    probabilidade_superior: float | None = Field(default=None, ge=0, le=1)
+    nivel: Literal["favoravel", "atencao", "alto_risco", "critico"]
+    confianca: float = Field(ge=0, le=1)
+    confianca_rotulo: Literal["baixa", "media", "alta"] = "baixa"
+    cobertura_entrada: float = Field(default=0, ge=0, le=1)
+    modelo_versao: str
+    escopo: Literal["deferimento_exame_merito"] = "deferimento_exame_merito"
+    amostras_referencia: int = Field(default=0, ge=0)
+    corte_dados: date | None = None
+    revisao_humana_obrigatoria: bool = False
+    fatores_principais: list[dict]
+    aviso: str = (
+        "Estimativa estatística preliminar do deferimento no exame de mérito, baseada em "
+        "decisões históricas publicadas. É exibida desde a primeira consulta, não constitui "
+        "garantia de registro e não substitui o exame do INPI."
+    )
+
+
+class MarcaRelatorioItem(ProcessoResumo):
+    apresentacao: str | None
+    natureza: str | None
+    classificacoes: list[ClassificacaoMarcaResponse]
+    criterios_encontro: list[str] = Field(default_factory=list)
+    alto_renome: bool = False
+    afinidade_classes: AfinidadeClassesResponse | None = None
+    relevancia: Literal["critica", "alta", "media", "baixa"] = "baixa"
+    relevancia_rotulo: str = "Baixa relevância aparente"
+    justificativas_relevancia: list[str] = Field(default_factory=list)
+    url_detalhe: str | None = None
+    url_busca_oficial: str | None = None
+    ultima_rpi: int | None = None
+    data_ultima_rpi: date | None = None
+
+
+class RelatorioMarcaResponse(BaseModel):
+    id: str
+    versao: int = 1
+    schema_versao: str = "relatorio-marca-4.2"
+    gerado_em: datetime | None = None
+    conteudo_hash: str = ""
+    marca: str
+    atividade: str
+    tipo_pesquisa: TipoPesquisaMarca
+    classe_nice: str | None
+    criado_em: datetime
+    ultima_rpi: int | None
+    classes_atividade: list[ClasseNiceCandidataResponse]
+    matriz_afinidade_status: str
+    alto_renome_atualizado_em: datetime | None
+    total: int
+    limite_exibido: int
+    itens: list[MarcaRelatorioItem]
+    evidencias_busca: EvidenciasBuscaResponse | None = None
+    qualidade_base: QualidadeBaseResponse | None = None
+    conclusao: ConclusaoIndicativaResponse | None = None
+    estimativa_status: Literal["disponivel", "validacao_interna", "indisponivel"] = (
+        "validacao_interna"
+    )
+    estimativa_mensagem: str = (
+        "O modelo estatístico permanece em validação interna. Nenhuma probabilidade é "
+        "exibida até que os critérios mínimos de dados, calibração e revisão humana sejam "
+        "atendidos."
+    )
+    estimativa_registrabilidade: EstimativaRegistrabilidadeResponse | None = None
 
 
 class LeadListResponse(BaseModel):
     total: int
+    total_global: int = 0
+    pesquisas_total: int = 0
+    deslocamento: int = 0
+    limite: int = 50
+    tem_mais: bool = False
     itens: list[LeadResponse]
     por_status: dict[str, int]
+    acoes: dict[str, bool] = Field(default_factory=dict)
+
+
+class PesquisaLeadResumo(BaseModel):
+    id: str
+    marca: str
+    atividade: str | None = None
+    classe_nice: str | None = None
+    criado_em: datetime
+    risco_nivel: str | None = None
+    risco_pontuacao: int | None = None
+    relatorio_disponivel: bool = False
+    relatorio_completo_gerado: bool = False
+    relatorio_completo_gerado_em: datetime | None = None
+    relatorio_completo_gerado_por: str | None = None
+    relatorio_url: str
+    pdf_url: str | None = None
+
+
+class LeadDetalheResponse(LeadResponse):
+    pesquisas: list[PesquisaLeadResumo] = Field(default_factory=list)
 
 
 class LeadStatusUpdate(BaseModel):
-    status: StatusLead
+    status: StatusLead | None = None
+    responsavel_id: int | None = None
+    notas: str | None = Field(default=None, max_length=4000)
+    proxima_acao_em: datetime | None = None
+    tags: list[str] | None = Field(default=None, max_length=20)
+    registrar_contato: bool = False
+
+    @field_validator("notas")
+    @classmethod
+    def limpar_notas(cls, valor: str | None) -> str | None:
+        return valor.strip() or None if valor else None
+
+    @field_validator("tags")
+    @classmethod
+    def limpar_tags(cls, valor: list[str] | None) -> list[str] | None:
+        if valor is None:
+            return None
+        unicas = []
+        for tag in valor:
+            limpa = tag.strip()[:40]
+            if limpa and limpa.casefold() not in {item.casefold() for item in unicas}:
+                unicas.append(limpa)
+        return unicas
+
+
+class AfinidadeClasseResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    classe_origem: str
+    classe_destino: str
+    nivel: str
+    justificativa: str
+    versao: str
+    status_revisao: str
+    revisor: str | None
+    observacoes_revisao: str | None
+    revisado_em: datetime | None
+
+
+class Fase2AdminResponse(BaseModel):
+    alto_renome_vigentes: int
+    alto_renome_atualizado_em: datetime | None
+    afinidades_pendentes: int
+    afinidades_aprovadas: int
+    afinidades_rejeitadas: int
+    afinidades: list[AfinidadeClasseResponse]
+
+
+class AfinidadeRevisaoUpdate(BaseModel):
+    status_revisao: Literal["aprovada", "rejeitada"]
+    revisor: str = Field(min_length=2, max_length=150)
+    observacoes_revisao: str = Field(min_length=3, max_length=1000)
+
+    @field_validator("revisor", "observacoes_revisao")
+    @classmethod
+    def limpar_revisao(cls, valor: str) -> str:
+        return valor.strip()
+
+
+NivelRisco = Literal["baixo", "moderado", "alto", "critico"]
+
+
+class AvaliacaoRiscoAdminItem(BaseModel):
+    id: int
+    pesquisa_id: str
+    marca: str
+    atividade: str
+    contato_nome: str
+    empresa: str | None
+    pontuacao: int
+    nivel: NivelRisco
+    versao_motor: str
+    modo: Literal["sombra"]
+    principais_conflitos: list[dict]
+    regras_aplicadas: dict
+    calculado_em: datetime
+    nivel_humano: NivelRisco | None
+    avaliador: str | None
+    observacoes_humanas: str | None
+    avaliado_em: datetime | None
+    concordancia: bool | None
+
+
+class Fase3AdminResponse(BaseModel):
+    total_calculadas: int
+    total_avaliadas_humanamente: int
+    total_concordantes: int
+    taxa_concordancia: float | None
+    modo: Literal["sombra"]
+    versao_motor: str
+    itens: list[AvaliacaoRiscoAdminItem]
+
+
+class AvaliacaoHumanaRiscoUpdate(BaseModel):
+    nivel_humano: NivelRisco
+    avaliador: str = Field(min_length=2, max_length=150)
+    observacoes_humanas: str = Field(min_length=3, max_length=2000)
+
+    @field_validator("avaliador", "observacoes_humanas")
+    @classmethod
+    def limpar_avaliacao_humana(cls, valor: str) -> str:
+        return valor.strip()
+
+
+StatusExplicacaoIA = Literal[
+    "gerada",
+    "aguardando_revisao",
+    "aprovada",
+    "rejeitada",
+    "falhou_validacao",
+    "falhou_provedor",
+]
+
+
+class ExplicacaoRiscoIAAdminItem(BaseModel):
+    id: int
+    avaliacao_risco_id: int
+    pesquisa_id: str
+    marca_pesquisada: str
+    pontuacao: int
+    nivel: NivelRisco
+    modelo: str
+    versao_prompt: str
+    hash_entrada: str
+    status: StatusExplicacaoIA
+    saida_estruturada: dict | None
+    conflitos_referencia: list[dict]
+    erro: str | None
+    revisao_obrigatoria: bool
+    decisao_revisao: Literal["aprovada", "rejeitada"] | None
+    revisor: str | None
+    observacoes_revisao: str | None
+    gerado_em: datetime | None
+    duracao_ms: int | None
+    revisado_em: datetime | None
+    atualizado_em: datetime
+
+
+class Fase4AdminResponse(BaseModel):
+    habilitada: bool
+    chave_mestra_habilitada: bool
+    rollout_percentual: int
+    modelo: str
+    total_avaliacoes: int
+    total_explicacoes: int
+    aguardando_revisao: int
+    falhas: int
+    itens: list[ExplicacaoRiscoIAAdminItem]
+
+
+class RevisaoExplicacaoIAUpdate(BaseModel):
+    decisao: Literal["aprovada", "rejeitada"]
+    revisor: str = Field(min_length=2, max_length=150)
+    observacoes: str = Field(min_length=3, max_length=2000)
+
+    @field_validator("revisor", "observacoes")
+    @classmethod
+    def limpar_revisao_ia(cls, valor: str) -> str:
+        return valor.strip()
+
+
+class AdminResumoResponse(BaseModel):
+    leads_total: int
+    leads_novos: int
+    pesquisas_total: int
+    ultima_rpi: int | None
+    alto_renome_vigentes: int
+    afinidades_pendentes: int
+    riscos_calculados: int
+    riscos_elevados: int
+    explicacoes_total: int
+    explicacoes_aguardando_revisao: int
+    ia_habilitada: bool
+    ia_rollout_percentual: int
+    modelo_ia: str
+
+
+class RpiSyncExecucaoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    origem: str
+    status: str
+    solicitado_por: str | None
+    execucao_anterior_id: int | None
+    rpi_inicio: int | None
+    rpi_fim: int | None
+    rpi_atual: int | None
+    ultima_rpi_oficial: int | None
+    ultima_rpi_local_antes: int | None
+    ultima_rpi_local_depois: int | None
+    edicoes_total: int
+    edicoes_processadas: int
+    progresso_percentual: float
+    registros_processados: int
+    titulares_processados: int
+    classes_processadas: int
+    movimentacoes_processadas: int
+    mensagem: str | None
+    erro: str | None
+    solicitado_em: datetime
+    iniciado_em: datetime | None
+    heartbeat_em: datetime | None
+    finalizado_em: datetime | None
+    duracao_segundos: float | None
+
+
+class RpiSyncSaudeResponse(BaseModel):
+    api: bool
+    banco: bool
+    sincronizador: bool
+
+
+class RpiSyncAdminResponse(BaseModel):
+    status: str
+    status_rotulo: str
+    status_cor: Literal["verde", "amarelo", "vermelho", "cinza"]
+    ultima_rpi_oficial: int | None
+    ultima_rpi_local: int | None
+    edicoes_atraso: int
+    ultima_verificacao_em: datetime | None
+    proxima_verificacao_em: datetime | None
+    heartbeat_em: datetime | None
+    falhas_consecutivas: int
+    ultimo_erro: str | None
+    intervalo_segundos: int
+    saude: RpiSyncSaudeResponse
+    execucao_atual: RpiSyncExecucaoResponse | None
+    historico: list[RpiSyncExecucaoResponse]
+
+
+class RpiSyncAcaoResponse(BaseModel):
+    id: int
+    status: str
+    mensagem: str
+
+
+class ControleProducaoUpdate(BaseModel):
+    ia_habilitada: bool
+    ia_rollout_percentual: int = Field(ge=0, le=100)
+    justificativa: str = Field(min_length=5, max_length=1000)
+
+    @field_validator("justificativa")
+    @classmethod
+    def limpar_justificativa(cls, valor: str) -> str:
+        return valor.strip()
+
+
+class EventoAuditoriaResponse(BaseModel):
+    ator: str
+    acao: str
+    recurso: str
+    sucesso: bool
+    status_http: int
+    criado_em: datetime
+
+
+class ProducaoAdminResponse(BaseModel):
+    ambiente: str
+    chave_mestra_ia: bool
+    chave_api_configurada: bool
+    ia_habilitada: bool
+    ia_habilitada_operacional: bool
+    ia_rollout_percentual: int
+    modelo_ia: str
+    atualizado_por: str | None
+    justificativa: str | None
+    atualizado_em: datetime
+    requisicoes_24h: int
+    erros_24h: int
+    taxa_erros_24h: float
+    duracao_media_ms_24h: float
+    duracao_maxima_ms_24h: int
+    avaliacoes_humanas: int
+    divergencias_humanas: int
+    taxa_divergencia: float
+    relatorios_versionados: int
+    pesquisas_com_versao: int
+    auditoria: list[EventoAuditoriaResponse]
+
+
+class AprendizadoModeloResponse(BaseModel):
+    id: int
+    versao: str
+    algoritmo: str
+    status: str
+    metricas: dict
+    dataset: dict
+    corte_treino: date | None
+    corte_validacao: date | None
+    treinado_em: datetime
+    ativado_em: datetime | None
+    ativado_por: str | None
+
+
+class AprendizadoRotuloResponse(BaseModel):
+    id: int
+    processo_numero: str
+    marca: str | None
+    rotulo: str
+    fundamento: str
+    confianca: float
+    data_referencia: date
+    numero_rpi: int | None
+    status_revisao: str
+    revisor: str | None
+
+
+class AprendizadoPrevisaoResponse(BaseModel):
+    id: int
+    pesquisa_id: str
+    marca: str
+    atividade: str | None
+    modelo_versao: str
+    modo: str
+    probabilidade_deferimento: float
+    probabilidade_inferior: float | None
+    probabilidade_superior: float | None
+    nivel: str
+    confianca: float
+    confianca_rotulo: str
+    cobertura_entrada: float
+    elegivel_cliente: bool
+    motivos_inelegibilidade: list[str]
+    escopo_estimativa: str
+    amostras_referencia: int
+    corte_dados: date | None
+    fatores_principais: list[dict]
+    nivel_humano: str | None
+    avaliador: str | None
+    observacoes_humanas: str | None
+    avaliado_em: datetime | None
+    calculado_em: datetime
+
+
+class AprendizadoControleResponse(BaseModel):
+    inferencia_habilitada: bool
+    rollout_percentual: int
+    exibir_cliente: bool
+    minimo_revisoes_humanas: int
+    minimo_recall: float
+    minimo_especificidade: float
+    maximo_brier: float
+    maximo_ece: float
+    minimo_amostras_modelo: int
+    minimo_amostras_teste: int
+    largura_maxima_intervalo: float
+    minima_cobertura: float
+    atualizado_por: str | None
+    justificativa: str | None
+
+
+class AprendizadoAdminResponse(BaseModel):
+    total_rotulos: int
+    rotulos_deferidos: int
+    rotulos_indeferidos: int
+    rotulos_revisados: int
+    total_pares: int
+    total_previsoes: int
+    previsoes_revisadas: int
+    modelo_ativo: AprendizadoModeloResponse | None
+    modelos: list[AprendizadoModeloResponse]
+    rotulos_pendentes: list[AprendizadoRotuloResponse]
+    previsoes: list[AprendizadoPrevisaoResponse]
+    controle: AprendizadoControleResponse
+    liberacao_cliente_permitida: bool
+    bloqueios_liberacao: list[str]
+
+
+class ConstruirDatasetRequest(BaseModel):
+    limite: int = Field(default=500, ge=30, le=5000)
+    candidatos_por_processo: int = Field(default=8, ge=1, le=20)
+
+
+class AprendizadoAcaoResponse(BaseModel):
+    mensagem: str
+    rotulos_processados: int = 0
+    pares_processados: int = 0
+    modelo: AprendizadoModeloResponse | None = None
+
+
+class RevisaoRotuloUpdate(BaseModel):
+    status_revisao: Literal["aprovada", "rejeitada"]
+    rotulo: Literal["deferida", "indeferida"]
+    fundamento: Literal[
+        "deferimento",
+        "conflito_anterior",
+        "falta_distintividade",
+        "outra_proibicao",
+        "indeferimento_nao_especificado",
+    ]
+    revisor: str = Field(min_length=2, max_length=150)
+    observacoes: str = Field(min_length=3, max_length=2000)
+
+
+class RevisaoPrevisaoUpdate(BaseModel):
+    nivel_humano: Literal["favoravel", "atencao", "alto_risco", "critico"]
+    avaliador: str = Field(min_length=2, max_length=150)
+    observacoes: str = Field(min_length=3, max_length=2000)
+
+
+class AprendizadoControleUpdate(BaseModel):
+    inferencia_habilitada: bool
+    rollout_percentual: int = Field(ge=0, le=100)
+    exibir_cliente: bool
+    minimo_revisoes_humanas: int = Field(ge=10, le=10000)
+    minimo_recall: float = Field(ge=0.5, le=1.0)
+    minimo_especificidade: float = Field(ge=0.5, le=1.0)
+    maximo_brier: float = Field(ge=0.0, le=0.5)
+    maximo_ece: float = Field(ge=0.0, le=0.5)
+    minimo_amostras_modelo: int = Field(ge=100, le=1000000)
+    minimo_amostras_teste: int = Field(ge=20, le=100000)
+    largura_maxima_intervalo: float = Field(ge=0.05, le=0.8)
+    minima_cobertura: float = Field(ge=0.0, le=1.0)
+    justificativa: str = Field(min_length=5, max_length=1000)

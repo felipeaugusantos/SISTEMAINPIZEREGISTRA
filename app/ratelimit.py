@@ -20,8 +20,12 @@ class RateLimiter:
         return request.client.host if request.client else "desconhecido"
 
     def __call__(self, request: Request) -> None:
+        self.aplicar(self._cliente(request))
+
+    def aplicar(self, chave: str) -> None:
+        """Registra uma tentativa para uma chave definida pelo chamador."""
         agora = time.monotonic()
-        registros = self._acessos[self._cliente(request)]
+        registros = self._acessos[chave]
         while registros and agora - registros[0] > self.janela:
             registros.popleft()
         if len(registros) >= self.limite:

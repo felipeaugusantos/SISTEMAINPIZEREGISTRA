@@ -5,7 +5,14 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.database import Base
-from app.models import ClassificacaoMarca, Lead, Movimentacao, Processo, Titular  # noqa: F401
+from app.models import (  # noqa: F401
+    ClassificacaoMarca,
+    Lead,
+    Movimentacao,
+    PesquisaMarca,
+    Processo,
+    Titular,
+)
 from app.settings import get_settings
 
 config = context.config

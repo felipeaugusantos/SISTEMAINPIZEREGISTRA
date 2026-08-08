@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow"><title>Empresas e planos — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=17">
+  <script src="/static/admin-shell.js?v=19" defer></script><script src="/static/admin-saas.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="saas">
+<main class="admin-main admin-dashboard">
+  <section class="admin-overview-hero"><div><p class="eyebrow">Administração da plataforma</p><h1>Empresas e planos</h1><p>Cadastre clientes, controle planos, limites, domínios e chaves de integração.</p></div><button id="new-org" class="primary-button" type="button">Nova empresa</button></section>
+  <div id="saas-message" class="status-message loading">Carregando empresas…</div>
+  <section class="overview-section"><header><div><p class="eyebrow">Clientes SaaS</p><h2>Organizações</h2></div></header><div id="org-list" class="users-list"></div></section>
+  <section class="overview-section"><header><div><p class="eyebrow">Monitoramento</p><h2>Alertas abertos</h2></div><button id="check-subscriptions" class="secondary-button" type="button">Verificar trials</button></header><div id="saas-alerts" class="users-list"></div></section>
+</main>
+<dialog id="org-dialog" class="user-dialog"><form id="org-form"><header><h2>Nova empresa</h2><button type="button" data-close aria-label="Fechar">×</button></header><div class="user-fields">
+  <label>Empresa<input name="nome" required></label><label>Identificador (slug)<input name="slug" pattern="[a-z0-9-]{2,80}" required></label>
+  <label>Plano<select name="plano_id" required></select></label><label>CNPJ/Documento<input name="documento"></label>
+  <label>E-mail do administrador<input name="email_contato" type="email" required></label><label>Telefone<input name="telefone_contato"></label>
+  <label>Nome do administrador<input name="administrador_nome" required></label><label>Usuário do administrador<input name="administrador_usuario" pattern="[a-zA-Z0-9._-]{2,80}" required></label>
+  </div><div id="org-form-message" class="status-message"></div><footer><button type="button" class="secondary-button" data-close>Cancelar</button><button class="primary-button" type="submit">Criar empresa</button></footer></form></dialog>
+</body></html>

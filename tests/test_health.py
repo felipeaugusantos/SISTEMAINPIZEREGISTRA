@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.database import get_session
 from app.main import app
+from app.settings import get_settings
 from tests.conftest import FakeResult, sessao_override
 
 
@@ -16,7 +17,7 @@ def test_health_ok() -> None:
     payload = response.json()
     assert {chave: payload[chave] for chave in ("status", "environment", "database")} == {
         "status": "ok",
-        "environment": "development",
+        "environment": get_settings().app_env,
         "database": "ok",
     }
     if "redis" in payload:

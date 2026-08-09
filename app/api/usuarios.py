@@ -13,12 +13,12 @@ from app.auth import UsuarioAutenticado, exigir_permissao, hash_senha
 from app.database import get_session
 from app.models import (
     EventoAuditoria,
-    Organizacao,
     PermissaoOperacoes,
     SessaoOperacoes,
     UsuarioOperacoes,
 )
 from app.permissions import CHAVES_PERMISSAO, PERFIS, PERMISSOES, permissoes_do_perfil
+from app.tenancy import validar_limite_usuarios
 
 router = APIRouter(prefix="/v1/admin/usuarios", tags=["usuarios"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -106,6 +106,7 @@ async def listar(session: SessionDep, ator: ViewDep) -> dict:
 async def criar(dados: UsuarioInput, session: SessionDep, ator: ManageDep) -> dict:
     if dados.perfil == "administrador" and ator.perfil != "administrador":
         raise HTTPException(403, "Somente administrador pode criar outro administrador")
+    await validar_limite_usuarios(session, ator.organizacao_id)
     duplicado = (await session.execute(select(UsuarioOperacoes.id).where(or_(UsuarioOperacoes.usuario == dados.usuario.lower(), UsuarioOperacoes.email == str(dados.email).lower())))).scalar_one_or_none()
     if duplicado:
         raise HTTPException(409, "Usuario ou email ja cadastrado")
@@ -135,6 +136,8 @@ async def atualizar(usuario_id: int, dados: UsuarioUpdate, session: SessionDep, 
     despromove = alvo.perfil == "administrador" and (novo_perfil != "administrador" or dados.ativo is False)
     if alvo.id == ator.id and despromove:
         raise HTTPException(409, "Nao e permitido remover o proprio acesso administrativo")
+    if dados.ativo is True and not alvo.ativo:
+        await validar_limite_usuarios(session, ator.organizacao_id)
     if despromove:
         total = (await session.execute(select(func.count()).select_from(UsuarioOperacoes).where(
             UsuarioOperacoes.organizacao_id == ator.organizacao_id,
@@ -189,14 +192,3 @@ async def revogar_sessoes(usuario_id: int, session: SessionDep, ator: RevokeDep)
     await _auditar(session, ator, "REVOGAR_SESSOES", usuario_id, {"quantidade": resultado.rowcount})
     await session.commit()
     return {"revogadas": resultado.rowcount}
-    organizacao = (await session.execute(
-        select(Organizacao).options(selectinload(Organizacao.plano)).where(Organizacao.id == ator.organizacao_id)
-    )).scalar_one_or_none()
-    limite_usuarios = int(organizacao.plano.limites.get("usuarios", 0) or 0) if organizacao else 0
-    if limite_usuarios:
-        total_usuarios = (await session.execute(select(func.count()).select_from(UsuarioOperacoes).where(
-            UsuarioOperacoes.organizacao_id == ator.organizacao_id,
-            UsuarioOperacoes.ativo.is_(True),
-        ))).scalar_one()
-        if total_usuarios >= limite_usuarios:
-            raise HTTPException(409, "Limite de usuarios ativos do plano atingido")

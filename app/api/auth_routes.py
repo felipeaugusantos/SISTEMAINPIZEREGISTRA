@@ -2,7 +2,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -32,13 +32,16 @@ from app.security_ext import (
     proteger_segredo,
     revelar_segredo,
     uri_totp,
+    validar_forca_senha,
     validar_totp,
 )
 from app.settings import TAMANHO_MINIMO_SENHA, get_settings
-from app.tenancy import aplicar_contexto_tenant
+from app.tenancy import aplicar_contexto_tenant, validar_limite_usuarios
 
 router = APIRouter(prefix="/v1/auth", tags=["autenticacao"])
-limitar_login = RateLimiter(limite=10, janela_segundos=60)
+limitar_login = RateLimiter(limite=10, janela_segundos=60, escopo="login")
+limitar_recuperacao = RateLimiter(limite=5, janela_segundos=300, escopo="recuperacao")
+limitar_mfa = RateLimiter(limite=10, janela_segundos=300, escopo="mfa")
 
 
 class LoginInput(BaseModel):
@@ -51,6 +54,8 @@ class TrocarSenhaInput(BaseModel):
     senha_atual: str = Field(min_length=1, max_length=200)
     nova_senha: str = Field(min_length=TAMANHO_MINIMO_SENHA, max_length=200)
 
+    _senha_forte = field_validator("nova_senha")(validar_forca_senha)
+
 
 class RecuperacaoInput(BaseModel):
     email: str = Field(min_length=3, max_length=254)
@@ -59,6 +64,8 @@ class RecuperacaoInput(BaseModel):
 class RedefinirSenhaInput(BaseModel):
     token: str = Field(min_length=20, max_length=300)
     nova_senha: str = Field(min_length=TAMANHO_MINIMO_SENHA, max_length=200)
+
+    _senha_forte = field_validator("nova_senha")(validar_forca_senha)
 
 
 class CodigoMfaInput(BaseModel):
@@ -70,6 +77,8 @@ class AceitarConviteInput(BaseModel):
     nome: str = Field(min_length=2, max_length=150)
     usuario: str = Field(pattern=r"^[a-zA-Z0-9._-]{2,80}$")
     senha: str = Field(min_length=TAMANHO_MINIMO_SENHA, max_length=200)
+
+    _senha_forte = field_validator("senha")(validar_forca_senha)
 
 
 def _resposta_usuario(usuario: UsuarioOperacoes) -> dict:
@@ -295,8 +304,11 @@ async def trocar_senha(
 
 @router.post("/recuperacao/solicitar")
 async def solicitar_recuperacao(
-    dados: RecuperacaoInput, session: AsyncSession = Depends(get_session)
+    dados: RecuperacaoInput,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
+    limitar_recuperacao.aplicar(request.client.host if request.client else "desconhecido")
     usuario = (
         await session.execute(
             select(UsuarioOperacoes).where(
@@ -307,7 +319,17 @@ async def solicitar_recuperacao(
     ).scalar_one_or_none()
     resposta = {"status": "ok", "mensagem": "Se a conta existir, a recuperação foi criada."}
     if usuario:
+        await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
         token = secrets.token_urlsafe(48)
+        agora = datetime.now(UTC)
+        await session.execute(
+            update(TokenRecuperacaoSenha)
+            .where(
+                TokenRecuperacaoSenha.usuario_id == usuario.id,
+                TokenRecuperacaoSenha.usado_em.is_(None),
+            )
+            .values(usado_em=agora)
+        )
         session.add(
             TokenRecuperacaoSenha(
                 usuario_id=usuario.id,
@@ -339,6 +361,9 @@ async def redefinir_senha(
     if not item:
         raise HTTPException(400, "Token inválido ou expirado")
     usuario = await session.get(UsuarioOperacoes, item.usuario_id)
+    if not usuario:
+        raise HTTPException(400, "Token invalido ou expirado")
+    await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
     usuario.senha_hash = hash_senha(dados.nova_senha)
     usuario.alterar_senha = False
     item.usado_em = agora
@@ -355,6 +380,7 @@ async def redefinir_senha(
 async def iniciar_mfa(
     request: Request, usuario: UsuarioAtualDep, session: AsyncSession = Depends(get_session)
 ) -> dict:
+    limitar_mfa.aplicar(f"usuario:{usuario.id}")
     exigir_csrf(request, usuario)
     registro = await session.get(UsuarioOperacoes, usuario.id)
     segredo = gerar_segredo_totp()
@@ -375,6 +401,7 @@ async def confirmar_mfa(
     usuario: UsuarioAtualDep,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
+    limitar_mfa.aplicar(f"usuario:{usuario.id}")
     exigir_csrf(request, usuario)
     registro = await session.get(UsuarioOperacoes, usuario.id)
     if not registro.mfa_segredo or not validar_totp(
@@ -424,6 +451,7 @@ async def aceitar_convite(
     ).scalar_one_or_none()
     if not convite:
         raise HTTPException(400, "Convite inválido ou expirado")
+    await aplicar_contexto_tenant(session, convite.organizacao_id)
     duplicado = (
         await session.execute(
             select(UsuarioOperacoes.id).where(
@@ -436,6 +464,7 @@ async def aceitar_convite(
     ).scalar_one_or_none()
     if duplicado:
         raise HTTPException(409, "Usuário ou e-mail já cadastrado")
+    await validar_limite_usuarios(session, convite.organizacao_id)
     registro = UsuarioOperacoes(
         organizacao_id=convite.organizacao_id,
         nome=dados.nome.strip(),

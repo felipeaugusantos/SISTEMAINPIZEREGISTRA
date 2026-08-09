@@ -169,15 +169,22 @@ def test_modelo_antigo_sem_bootstrap_fica_restrito_ao_modo_sombra() -> None:
     assert "Modelo sem intervalo bootstrap válido" in bloqueios
 
 
-def test_alertas_e_revisao_humana_nao_bloqueiam_estimativa_preliminar() -> None:
+def test_gate_tecnico_bloqueia_estimativa_sem_exigir_revisao_humana() -> None:
     controle = ControleAprendizadoMarca(exibir_cliente=True)
-    alertas = [
-        "Especificidade do teste abaixo do mínimo",
-        "Revisões humanas insuficientes",
-    ]
+    alertas = ["Especificidade do teste abaixo do mínimo"]
 
     modo, elegivel, alertas_retornados = decidir_exibicao_estimativa(controle, alertas)
 
+    assert modo == "sombra"
+    assert elegivel is False
+    assert alertas_retornados == alertas
+
+
+def test_estimativa_aprovada_aparece_sem_revisao_humana() -> None:
+    controle = ControleAprendizadoMarca(exibir_cliente=True)
+
+    modo, elegivel, alertas = decidir_exibicao_estimativa(controle, [])
+
     assert modo == "cliente"
     assert elegivel is True
-    assert alertas_retornados == alertas
+    assert alertas == []

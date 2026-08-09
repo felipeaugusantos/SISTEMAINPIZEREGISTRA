@@ -27,6 +27,7 @@ from app.models import (
     PlanoSaas,
     UsuarioOperacoes,
 )
+from app.schemas import BrandingConfig
 
 router = APIRouter(prefix="/v1/admin/saas", tags=["saas"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -73,7 +74,7 @@ class OrganizacaoUpdate(BaseModel):
     assinatura_status: str | None = Field(default=None, max_length=30)
     email_contato: str | None = Field(default=None, max_length=254)
     telefone_contato: str | None = Field(default=None, max_length=30)
-    branding: dict | None = None
+    branding: BrandingConfig | None = None
 
 
 class DominioInput(BaseModel):

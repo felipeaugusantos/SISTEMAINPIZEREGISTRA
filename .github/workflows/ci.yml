@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: inpi
+          POSTGRES_USER: inpi
+          POSTGRES_PASSWORD: inpi
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U inpi -d inpi"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://inpi:inpi@localhost:5432/inpi
+      REDIS_URL: redis://localhost:6379/0
+      APP_ENV: test
+      ADMIN_PASSWORD: Teste-Seguro-123!
+      SECURITY_MASTER_KEY: ci-only-security-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --frozen
+      - run: uv run ruff check app tests migrations --ignore E501
+      - name: Create restricted application role
+        run: >-
+          docker exec "$(docker ps -q --filter ancestor=postgres:16-alpine)"
+          psql -U inpi -d inpi -c
+          "CREATE ROLE inpi_app LOGIN PASSWORD 'ci-inpi-app';"
+      - run: uv run alembic upgrade head
+      - run: uv run alembic check
+      - run: uv run pytest -q

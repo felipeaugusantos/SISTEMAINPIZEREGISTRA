@@ -15,7 +15,7 @@
         <div>
           <p class="eyebrow">Fase 5 · governança</p>
           <h1>Produção e auditoria</h1>
-          <p>Controle a liberação gradual, acompanhe desempenho e mantenha uma trilha verificável das ações administrativas.</p>
+          <p>Acompanhe desempenho, versões de relatórios e a trilha verificável das ações administrativas.</p>
         </div>
         <span id="production-environment" class="engine-version">Carregando…</span>
       </section>
@@ -29,41 +29,14 @@
 
       <div id="production-message" class="status-message" role="status"></div>
 
-      <section class="production-grid">
-        <form id="production-control" class="production-control-card">
-          <p class="eyebrow">Liberação gradual</p>
-          <h2>Controle operacional da IA</h2>
-          <p>A chave do ambiente é o bloqueio mestre. Este controle permite interromper a IA imediatamente ou ampliar o lote com segurança.</p>
-          <div class="production-switch-row">
-            <label class="production-toggle">
-              <input id="ai-enabled" name="ia_habilitada" type="checkbox" />
-              <span aria-hidden="true"></span>
-              <b>IA habilitada operacionalmente</b>
-            </label>
-            <small id="master-key-state">Verificando chave mestra…</small>
-          </div>
-          <label>
-            <span>Percentual de rollout</span>
-            <div class="rollout-input">
-              <input id="ai-rollout" name="ia_rollout_percentual" type="range" min="0" max="100" step="5" value="0" />
-              <output id="ai-rollout-output">0%</output>
-            </div>
-          </label>
-          <label>
-            <span>Justificativa da alteração</span>
-            <textarea id="production-reason" name="justificativa" minlength="5" maxlength="1000" required placeholder="Ex.: ampliar para lote controlado após validação dos últimos resultados."></textarea>
-          </label>
-          <button class="primary-button" type="submit">Salvar controle de produção</button>
-          <small id="control-history"></small>
-        </form>
-
-        <section class="production-version-card">
+      <section class="overview-section">
+        <div class="production-version-card">
           <p class="eyebrow">Rastreabilidade</p>
           <h2>Relatórios versionados</h2>
           <div><strong id="metric-versions">0</strong><span>versões imutáveis</span></div>
           <div><strong id="metric-versioned-reports">0</strong><span>pesquisas com snapshot</span></div>
           <p>Cada mudança nos dados públicos cria uma nova versão. Conteúdo idêntico reutiliza o snapshot anterior.</p>
-        </section>
+        </div>
       </section>
 
       <section class="overview-section production-audit-section">

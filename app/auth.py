@@ -25,7 +25,7 @@ SESSION_COOKIE = "zr_session"
 CSRF_COOKIE = "zr_csrf"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _password_hasher = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
-_limitar_acoes = RateLimiter(limite=60, janela_segundos=60)
+_limitar_acoes = RateLimiter(limite=60, janela_segundos=60, escopo="sessao-admin")
 MODULO_POR_PERMISSAO = {
     "leads": "leads", "validation": "validacao", "risk": "risco", "ai": "ia",
     "learning": "aprendizado", "users": "usuarios", "rpi": "rpi",

@@ -171,6 +171,18 @@ def _texto(valor: object, padrao: str = "—") -> str:
     return escape(str(valor)) if valor not in (None, "") else padrao
 
 
+def _rotulo_enum(valor: str) -> str:
+    return {
+        "favoravel": "favorável",
+        "desfavoravel": "desfavorável",
+        "atencao": "atenção",
+        "alto_risco": "alto risco",
+        "critico": "crítico",
+        "critica": "crítica",
+        "adequada": "adequada",
+    }.get(valor, valor.replace("_", " "))
+
+
 def _decorar_pagina(canvas: object, doc: SimpleDocTemplate) -> None:
     canvas.saveState()
     largura, _ = A4
@@ -238,14 +250,21 @@ def gerar_pdf_relatorio(
     relatório completo gerado no Centro de Operações.
     """
     estilos = _estilos()
+    if not incluir_ocorrencias:
+        estilos["secao"].spaceBefore = 5
+        estilos["secao"].spaceAfter = 3
+        estilos["celula"].fontSize = 7.5
+        estilos["celula"].leading = 9
+        estilos["celula_menor"].fontSize = 6.7
+        estilos["celula_menor"].leading = 8
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
         leftMargin=16 * mm,
         rightMargin=16 * mm,
-        topMargin=16 * mm,
-        bottomMargin=16 * mm,
+        topMargin=(16 if incluir_ocorrencias else 12) * mm,
+        bottomMargin=(16 if incluir_ocorrencias else 12) * mm,
         title=f"Relatório de pesquisa de anterioridade — {relatorio.marca}",
         author="Zé Registra",
     )
@@ -299,20 +318,20 @@ def gerar_pdf_relatorio(
     )
     story: list = [
         cabecalho_marca,
-        Spacer(1, 12),
+        Spacer(1, 8 if not incluir_ocorrencias else 12),
         destaque,
-        Spacer(1, 15),
+        Spacer(1, 10 if not incluir_ocorrencias else 15),
         Paragraph("Pesquisa de anterioridade de marca", estilos["titulo"]),
         Paragraph(_texto(relatorio.marca), estilos["marca"]),
         Paragraph(f"Atividade informada: {_texto(relatorio.atividade)}", estilos["sub"]),
-        Spacer(1, 8),
+        Spacer(1, 4 if not incluir_ocorrencias else 8),
         Paragraph(
             f"Emitido em {emitido} &nbsp;·&nbsp; Versão {relatorio.versao} "
             f"({_texto(relatorio.schema_versao)}) &nbsp;·&nbsp; "
             f"Base atualizada até {_texto(base_rpi)}",
             estilos["sub"],
         ),
-        Spacer(1, 14),
+        Spacer(1, 8 if not incluir_ocorrencias else 14),
     ]
 
     # Métricas
@@ -320,12 +339,25 @@ def gerar_pdf_relatorio(
         [
             [
                 Paragraph("Total localizado", estilos["cabecalho"]),
-                Paragraph("Exibidos", estilos["cabecalho"]),
+                Paragraph(
+                    "Exibidos" if incluir_ocorrencias else "Análise técnica",
+                    estilos["cabecalho"],
+                ),
                 Paragraph("Matriz de afinidade", estilos["cabecalho"]),
             ],
             [
                 Paragraph(str(relatorio.total), estilos["celula"]),
-                Paragraph(str(relatorio.limite_exibido), estilos["celula"]),
+                Paragraph(
+                    str(relatorio.limite_exibido)
+                    if incluir_ocorrencias
+                    else (
+                        f"{relatorio.risco_pontuacao} pontos · risco "
+                        f"{_texto((relatorio.risco_nivel or '').replace('_', ' '))}"
+                        if relatorio.risco_pontuacao is not None
+                        else "Pontuação ainda indisponível"
+                    ),
+                    estilos["celula"],
+                ),
                 Paragraph(_texto(matriz), estilos["celula"]),
             ],
         ],
@@ -346,6 +378,14 @@ def gerar_pdf_relatorio(
         )
     )
     story.append(metricas)
+    if not incluir_ocorrencias and relatorio.risco_pontuacao is not None:
+        story.append(
+            Paragraph(
+                "A pontuação acima mede risco de conflito: quanto maior o valor, maior a "
+                "atenção necessária. Ela não é um percentual de chance de registro.",
+                estilos["celula_menor"],
+            )
+        )
 
     if relatorio.conclusao:
         story.append(Paragraph("Conclusão indicativa", estilos["secao"]))
@@ -382,6 +422,7 @@ def gerar_pdf_relatorio(
 
     if relatorio.estimativa_registrabilidade:
         estimativa = relatorio.estimativa_registrabilidade
+        nivel_estimativa = _rotulo_enum(estimativa.nivel)
         limite_inferior = (
             estimativa.probabilidade_inferior
             if estimativa.probabilidade_inferior is not None
@@ -392,20 +433,20 @@ def gerar_pdf_relatorio(
             if estimativa.probabilidade_superior is not None
             else estimativa.probabilidade_deferimento
         )
-        story.append(Paragraph("Estimativa de deferimento no exame de mérito", estilos["secao"]))
+        story.append(Paragraph("Chance estimada de registro", estilos["secao"]))
         fatores = ", ".join(
             f"{item.get('rotulo') or str(item.get('atributo', 'fator')).replace('_', ' ')} "
-            f"({item.get('efeito', 'influência')})"
+            f"({_rotulo_enum(item.get('efeito', 'influência'))})"
             for item in estimativa.fatores_principais[:3]
         )
         revisao = "Revisão profissional recomendada, mas não obrigatória para esta estimativa."
         story.append(
             Paragraph(
                 f"<b>{round(estimativa.probabilidade_deferimento * 100)}% de deferimento "
-                f"estimado</b> · faixa de incerteza de "
+                f"estimado no exame de mérito</b> · faixa de incerteza de "
                 f"{round(limite_inferior * 100)}% a "
                 f"{round(limite_superior * 100)}%.<br/>"
-                f"<b>Nível:</b> {_texto(estimativa.nivel.replace('_', ' '))} &nbsp;·&nbsp; "
+                f"<b>Nível:</b> {_texto(nivel_estimativa)} &nbsp;·&nbsp; "
                 f"<b>Confiança:</b> {_texto(estimativa.confianca_rotulo)} "
                 f"({round(estimativa.confianca * 100)}%) &nbsp;·&nbsp; "
                 f"<b>Cobertura:</b> {round(estimativa.cobertura_entrada * 100)}%.<br/>"
@@ -455,6 +496,7 @@ def gerar_pdf_relatorio(
 
     if relatorio.qualidade_base:
         qualidade = relatorio.qualidade_base
+        status_qualidade = _rotulo_enum(qualidade.status).title()
         story.append(Paragraph("Qualidade e cobertura da base", estilos["secao"]))
         cobertura = (
             f"{_formatar_data(qualidade.deposito_mais_antigo)} a "
@@ -462,7 +504,7 @@ def gerar_pdf_relatorio(
         )
         story.append(
             Paragraph(
-                f"<b>Status:</b> {_texto(qualidade.status.title())} &nbsp;·&nbsp; "
+                f"<b>Status:</b> {_texto(status_qualidade)} &nbsp;·&nbsp; "
                 f"<b>Última RPI:</b> {_texto(qualidade.ultima_rpi)} "
                 f"({_formatar_data(qualidade.data_ultima_rpi)}) &nbsp;·&nbsp; "
                 f"<b>Cobertura de depósitos:</b> {cobertura}",
@@ -470,7 +512,7 @@ def gerar_pdf_relatorio(
             )
         )
         for aviso in qualidade.avisos:
-            story.append(Paragraph(f"• {_texto(aviso)}", estilos["celula_menor"]))
+            story.append(Paragraph(f"- {_texto(aviso)}", estilos["celula_menor"]))
 
     if relatorio.evidencias_busca:
         evidencia = relatorio.evidencias_busca
@@ -509,7 +551,7 @@ def gerar_pdf_relatorio(
             )
         )
 
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 4 if not incluir_ocorrencias else 10))
     story.append(Paragraph(_DISCLAIMER, estilos["rodape"]))
 
     # O cliente recebe somente o resumo executivo da primeira página. As

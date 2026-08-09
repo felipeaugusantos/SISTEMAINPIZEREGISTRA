@@ -33,13 +33,6 @@ PERMISSOES = (
     ),
     PermissaoDef("risk.view", "Risco", "Visualizar risco", "Consultar o motor deterministico."),
     PermissaoDef("risk.review", "Risco", "Revisar risco", "Registrar avaliacao humana de risco."),
-    PermissaoDef("ai.view", "IA explicativa", "Visualizar IA", "Consultar explicacoes assistidas."),
-    PermissaoDef(
-        "ai.generate", "IA explicativa", "Gerar explicacao", "Solicitar uma explicacao estruturada."
-    ),
-    PermissaoDef(
-        "ai.review", "IA explicativa", "Revisar explicacao", "Aprovar ou rejeitar explicacoes."
-    ),
     PermissaoDef(
         "learning.view", "Aprendizado", "Visualizar aprendizado", "Consultar modelos e metricas."
     ),
@@ -91,9 +84,6 @@ PERFIS = {
             "validation.review",
             "risk.view",
             "risk.review",
-            "ai.view",
-            "ai.generate",
-            "ai.review",
             "rpi.view",
         }
     ),
@@ -113,7 +103,6 @@ PERFIS = {
             "leads.view",
             "validation.view",
             "risk.view",
-            "ai.view",
             "learning.view",
             "rpi.view",
             "production.view",

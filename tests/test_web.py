@@ -64,7 +64,7 @@ def test_admin_leads_requires_authentication() -> None:
     assert response.status_code == 200
     assert "Leads e pesquisas" in response.text
     assert 'data-admin-section="leads"' in response.text
-    assert "/static/admin-leads.css?v=3" in response.text
+    assert "/static/admin-leads.css?v=5" in response.text
     assert client.get("/static/admin-leads.css").status_code == 200
     _limpar_auth()
 
@@ -99,7 +99,7 @@ def test_semantic_admin_routes_keep_modules_available() -> None:
     assert client.get("/admin/pesquisas").status_code == 200
     assert client.get("/admin/validacao").status_code == 200
     assert client.get("/admin/risco").status_code == 200
-    assert client.get("/admin/ia").status_code == 200
+    assert client.get("/admin/ia").status_code == 404
     learning = client.get("/admin/aprendizado")
     assert learning.status_code == 200
     assert "Aprendizado supervisionado" in learning.text
@@ -135,13 +135,67 @@ def test_leads_exibe_status_e_acao_do_relatorio_completo() -> None:
     script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
     styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
 
-    assert "admin-leads.js?v=20" in page
+    assert "admin-leads.js?v=22" in page
+    assert "Pipeline de atendimento" in page
+    assert 'data-priority="atrasadas"' in page
+    assert "Histórico de pesquisas" in page
+    assert "Última pesquisa" in page
+    assert "Por contato" in page
+    assert "Por pesquisa" in page
     assert "Completo não gerado" in script
     assert "Completo gerado" in script
     assert "/relatorio-completo.pdf" in script
     assert 'method: "POST"' in script
     assert ".full-report-status.ready" in styles
     assert ".full-report-status.pending" in styles
+    assert "relatorios_completos_gerados" in script
+    assert "Maior risco:" in script
+    assert "Ver pesquisas" in script
+    assert 'fetch("/v1/admin/leads-crm")' in script
+    assert 'params.set("prioridade", state.priority)' in script
+
+
+def test_dossie_envia_e_exibe_leitura_supervisionada() -> None:
+    page = (web_dir / "admin-analise.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-analise.js").read_text(encoding="utf-8")
+
+    assert "admin-analise.js?v=5" in page
+    assert "admin-analise.css?v=4" in page
+    assert 'observacoes: values.get("observacoes_humanas")' in script
+    assert "Boolean(item.avaliado_em)" in script
+    assert "Leitura registrada" in script
+
+
+def test_dossie_exibe_legenda_da_pontuacao_de_risco() -> None:
+    script = (web_dir / "static" / "admin-analise.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "admin-analise.css").read_text(encoding="utf-8")
+
+    assert 'range: "0–24"' in script
+    assert 'range: "25–49"' in script
+    assert 'range: "50–74"' in script
+    assert 'range: "75–100"' in script
+    assert "esta pontuação mede risco de conflito" in script
+    assert "Ela não é um percentual de chance" in script
+    assert "riskLegend(item)" in script
+    assert ".risk-range.active" in styles
+
+
+def test_dossie_exibe_matriz_oficial_de_registrabilidade() -> None:
+    page = (web_dir / "admin-analise.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-analise.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "admin-analise.css").read_text(encoding="utf-8")
+
+    assert "Validação técnica e matriz oficial" in page
+    assert "Matriz de Registrabilidade INPI" in script
+    assert "Não analisado" in script
+    assert "Consultar Manual de Marcas do INPI" in script
+    assert (
+        "officialMatrix(item.matriz_registrabilidade, data.permissoes.validacao_revisar)" in script
+    )
+    assert ".official-rule.possivel_impedimento" in styles
+    assert "Completar análise oficial" in script
+    assert 'id="registrability-form"' in page
+    assert "Salvar e recalcular matriz" in page
 
 
 def test_menu_de_usuarios_existe_em_todas_as_paginas_admin() -> None:
@@ -154,7 +208,6 @@ def test_menu_de_usuarios_existe_em_todas_as_paginas_admin() -> None:
         "admin-leads.html",
         "admin-fase2.html",
         "admin-fase3.html",
-        "admin-fase4.html",
         "admin-producao.html",
         "admin-aprendizado.html",
         "admin-usuarios.html",
@@ -179,7 +232,6 @@ def test_central_de_analise_unifica_etapas_e_ajuda_contextual() -> None:
         "Validação técnica",
         "Motor determinístico de risco",
         "Aprendizado supervisionado",
-        "IA explicativa",
         "Parecer humano",
         "Relatório completo",
     ):
@@ -210,15 +262,11 @@ def test_admin_phase3_requires_authentication() -> None:
     _limpar_auth()
 
 
-def test_admin_phase4_requires_authentication() -> None:
+def test_rotas_da_ia_explicativa_foram_removidas() -> None:
     client = TestClient(app)
-    assert client.get("/admin/fase4", follow_redirects=False).status_code == 303
-    response = _client_autenticado().get("/admin/fase4")
-
-    assert response.status_code == 200
-    assert "IA explicativa" in response.text
-    assert "não são enviados ao modelo" in response.text
-    _limpar_auth()
+    assert client.get("/admin/fase4").status_code == 404
+    assert client.get("/admin/ia").status_code == 404
+    assert client.get("/v1/admin/fase4").status_code == 404
 
 
 def test_privacy_page() -> None:

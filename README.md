@@ -19,7 +19,6 @@ As migrações são aplicadas automaticamente quando o contêiner inicia. Acesse
 - Leads e pesquisas: http://localhost:8000/admin/pesquisas
 - Validação técnica: http://localhost:8000/admin/validacao
 - Motor de risco em modo sombra: http://localhost:8000/admin/risco
-- IA explicativa interna: http://localhost:8000/admin/ia
 - Produção e auditoria: http://localhost:8000/admin/producao
 - Usuários e acessos: http://localhost:8000/admin/usuarios
 - Empresas, planos e integrações (superadministrador): http://localhost:8000/admin/saas
@@ -72,31 +71,11 @@ Cada ponto fica associado à regra e à evidência que o originou. A pontuação
 
 No painel `/admin/fase3`, um especialista pode registrar sua própria classificação e fundamentação. O sistema mede concordância simples entre o nível determinístico e o nível humano, sem alterar pesos ou calibrar o motor automaticamente.
 
-## IA explicativa interna
-
-A Fase 4 é opt-in e não altera a pontuação. O modelo recebe somente a versão do motor, pontuação, nível, identificadores sequenciais dos conflitos e fatores controlados. Nome, e-mail, telefone, empresa, marca pesquisada, número de processo e classes Nice não são enviados.
-
-A saída usa esquema fixo e passa por validação no servidor. Qualquer tentativa de alterar a pontuação, inventar conflito ou regra, citar processo, classe ou fundamento jurídico é bloqueada. Explicações de risco alto ou crítico ficam com status `aguardando_revisao` até decisão nominal de um especialista. Nada desta fase é incluído no relatório público.
-
-Para habilitar a geração, configure no `.env`:
-
-```dotenv
-AI_EXPLANATIONS_ENABLED=true
-OPENAI_API_KEY=...
-OPENAI_EXPLANATION_MODEL=gpt-5.6-luna
-```
-
-Sem a chave e a habilitação explícita, o painel permanece disponível para auditoria, mas nenhuma chamada externa é feita.
-
 ## Governança de produção
-
-A Fase 5 adiciona duas camadas independentes para a IA: a chave mestra `AI_EXPLANATIONS_ENABLED` no ambiente e o controle operacional em `/admin/producao`. A geração só ocorre quando ambas estão habilitadas, existe chave da API e a pesquisa pertence ao percentual de rollout configurado. A distribuição é determinística, portanto uma pesquisa não entra e sai do mesmo lote aleatoriamente.
 
 O painel acompanha tempo e erros das operações nas últimas 24 horas, divergências entre motor e avaliação humana, quantidade de versões de relatório e eventos administrativos. Senhas nunca entram na auditoria e o endereço de origem é armazenado somente como hash com `AUDIT_IP_SALT`.
 
-Relatórios públicos recebem número de versão, versão de esquema, data de geração e hash de conteúdo. Conteúdo idêntico reutiliza o snapshot anterior; mudanças nos dados públicos criam uma nova versão. Risco e explicações internas não fazem parte do snapshot público.
-
-Riscos alto e crítico continuam exigindo avaliação humana do motor antes que uma explicação da IA possa ser aprovada.
+Relatórios públicos recebem número de versão, versão de esquema, data de geração e hash de conteúdo. Conteúdo idêntico reutiliza o snapshot anterior; mudanças nos dados públicos criam uma nova versão.
 
 ## Dados corporativos e privacidade
 
@@ -116,7 +95,7 @@ No menu **Empresas e planos**, o superadministrador pode cadastrar uma empresa c
 
 Para integrar um site externo, envie a chave no cabeçalho `X-Integration-Key`. Também é aceito `Authorization: Bearer`, mantendo compatibilidade com a integração anterior. O token é armazenado somente como SHA-256 e identifica automaticamente a organização. Em domínios cadastrados, a organização também pode ser resolvida pelo host. Cobrança automática permanece preparada pelos campos de assinatura e provedor, mas exige integração futura com o gateway escolhido.
 
-O endereço `/admin` centraliza os indicadores e as pendências de Leads, Validação Técnica, Motor de Risco e IA Explicativa. Os módulos usam a mesma navegação lateral e continuam separados internamente para preservar desempenho e manutenção. Os endereços antigos `/admin/leads` e `/admin/fase2` a `/admin/fase4` permanecem disponíveis por compatibilidade.
+O endereço `/admin` centraliza os indicadores e as pendências de Leads, Validação Técnica, Motor de Risco e Aprendizado Supervisionado. Os módulos usam a mesma navegação lateral e continuam separados internamente para preservar desempenho e manutenção. Os endereços antigos `/admin/leads`, `/admin/fase2` e `/admin/fase3` permanecem disponíveis por compatibilidade.
 
 O acesso é feito em `/login` com uma conta individual. No primeiro start após a
 migração, o sistema cria o usuário definido por `ADMIN_USERNAME`, `ADMIN_EMAIL` e
@@ -229,11 +208,7 @@ final. Resultados de risco alto, crítico ou confiança insuficiente exigem revi
 - `PATCH /v1/admin/fase2/afinidades/{id}`
 - `GET /v1/admin/fase3`
 - `PATCH /v1/admin/fase3/avaliacoes/{id}`
-- `GET /v1/admin/fase4`
-- `POST /v1/admin/fase4/avaliacoes/{id}/gerar`
-- `PATCH /v1/admin/fase4/explicacoes/{id}/revisao`
 - `GET /v1/admin/producao`
-- `PATCH /v1/admin/producao/controle`
 - `GET /v1/admin/aprendizado`
 - `POST /v1/admin/aprendizado/dataset`
 - `POST /v1/admin/aprendizado/treinar`
@@ -255,7 +230,7 @@ uv run uvicorn app.main:app --reload
 
 O ambiente de teste separa a conta administrativa de migração (`inpi`) da conta de
 execução (`inpi_app`). A segunda não é superusuária e as tabelas de leads, pesquisas,
-relatórios, risco, IA, cobrança, alertas e privacidade usam Row Level Security (RLS).
+relatórios, risco, aprendizado supervisionado, cobrança, alertas e privacidade usam Row Level Security (RLS).
 Assim, o PostgreSQL bloqueia acesso entre organizações mesmo se uma consulta da API
 esquecer o filtro de tenant.
 

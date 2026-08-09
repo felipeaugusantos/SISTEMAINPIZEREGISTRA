@@ -51,6 +51,14 @@ async def avaliar_qualidade_base(
         for processo in processos_encontrados
     )
     sem_classes = sum(not processo.classificacoes for processo in processos_encontrados)
+    total_encontrados = len(processos_encontrados)
+    completude = (
+        1
+        - (sem_titulo + sem_situacao + sem_classes)
+        / max(1, total_encontrados * 3)
+        if total_encontrados
+        else 1.0
+    )
     avisos: list[str] = []
 
     hoje = datetime.now(UTC).date()
@@ -73,6 +81,21 @@ async def avaliar_qualidade_base(
     if avisos and status == "adequada":
         status = "atencao"
 
+    atualidade = 0.0 if idade_dias is None else max(0.0, 1 - idade_dias / 30)
+    cobertura_minima = min(1.0, int(cobertura[0] or 0) / 300_000)
+    pontuacao_qualidade = round(
+        0.55 * completude + 0.35 * atualidade + 0.10 * cobertura_minima,
+        4,
+    )
+    apta_para_modelo = (
+        status != "bloqueada"
+        and completude >= 0.80
+        and int(cobertura[0] or 0) >= 300
+    )
+    if pontuacao_qualidade < 0.75 and status == "adequada":
+        status = "atencao"
+        avisos.append("A pontuação consolidada de qualidade está abaixo do recomendado.")
+
     return {
         "status": status,
         "ultima_rpi": ultima_importacao.numero_rpi if ultima_importacao else None,
@@ -85,5 +108,8 @@ async def avaliar_qualidade_base(
         "ocorrencias_sem_titulo": sem_titulo,
         "ocorrencias_sem_situacao": sem_situacao,
         "ocorrencias_sem_classe": sem_classes,
+        "completude_resultados": round(completude, 4),
+        "pontuacao_qualidade": pontuacao_qualidade,
+        "apta_para_modelo": apta_para_modelo,
         "avisos": avisos,
     }

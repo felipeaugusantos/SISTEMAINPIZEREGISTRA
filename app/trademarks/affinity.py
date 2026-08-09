@@ -41,6 +41,9 @@ def avaliar_afinidade(
             processo,
         )
 
+    def nivel_canonico(valor: str) -> str:
+        return {"media": "moderada", "média": "moderada"}.get(valor.lower(), valor.lower())
+
     por_par = {
         tuple(sorted((item.classe_origem, item.classe_destino))): item
         for item in matriz
@@ -54,11 +57,15 @@ def avaliar_afinidade(
     ]
     if encontrados:
         prioridade = {"alta": 0, "moderada": 1}
-        melhor = sorted(encontrados, key=lambda item: prioridade.get(item.nivel, 9))[0]
+        melhor = sorted(
+            encontrados,
+            key=lambda item: prioridade.get(nivel_canonico(item.nivel), 9),
+        )[0]
+        nivel = nivel_canonico(melhor.nivel)
         pendente = melhor.status_revisao != "aprovada"
         return ResultadoAfinidade(
-            melhor.nivel,
-            "Possível afinidade entre classes",
+            nivel,
+            "Alta afinidade" if nivel == "alta" else "Afinidade moderada",
             melhor.justificativa,
             "pendente" if pendente else "aprovada",
             atividade,

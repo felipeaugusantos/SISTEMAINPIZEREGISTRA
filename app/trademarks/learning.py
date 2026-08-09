@@ -220,8 +220,8 @@ def _pares_afinidade(matriz: list[AfinidadeClasse]) -> set[tuple[str, str]]:
 async def construir_dataset_historico(
     session: AsyncSession,
     *,
-    limite: int = 500,
-    candidatos_por_processo: int = 8,
+    limite: int = 3000,
+    candidatos_por_processo: int = 12,
 ) -> tuple[int, int]:
     processos = (
         (
@@ -576,6 +576,17 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
 async def ativar_modelo(
     session: AsyncSession, modelo: ModeloRegistrabilidade, administrador: str
 ) -> None:
+    controle = await obter_controle(session)
+    revisoes = await session.scalar(
+        select(func.count())
+        .select_from(PrevisaoRegistrabilidade)
+        .where(PrevisaoRegistrabilidade.nivel_humano.is_not(None))
+    )
+    bloqueios = validar_modelo_para_cliente(modelo, controle, int(revisoes or 0))
+    if bloqueios:
+        raise ValueError(
+            "Modelo reprovado pelos critérios automáticos: " + "; ".join(bloqueios)
+        )
     await session.execute(
         update(ModeloRegistrabilidade)
         .where(ModeloRegistrabilidade.status == "ativo")
@@ -686,8 +697,11 @@ def validar_modelo_para_cliente(
         bloqueios.append("Amostras do teste temporal insuficientes")
     if int(dataset.get("bootstrap_modelos", 0)) < 10:
         bloqueios.append("Modelo sem intervalo bootstrap válido")
-    if revisoes_humanas < controle.minimo_revisoes_humanas:
-        bloqueios.append("Revisões humanas insuficientes")
+    positivos = int(dataset.get("positivos", 0))
+    negativos = int(dataset.get("negativos", 0))
+    total = int(dataset.get("total", 0))
+    if {"positivos", "negativos"}.issubset(dataset) and total and min(positivos, negativos) / total < 0.15:
+        bloqueios.append("Distribuição histórica excessivamente desbalanceada")
     return bloqueios
 
 
@@ -712,8 +726,8 @@ def decidir_exibicao_estimativa(
     controle: ControleAprendizadoMarca,
     alertas_qualidade: list[str],
 ) -> tuple[str, bool, list[str]]:
-    """Publica a estimativa preliminar; qualidade e revisão geram alertas, não bloqueios."""
-    if controle.exibir_cliente:
+    """Dispensa revisão humana, mas preserva os gates técnicos automáticos."""
+    if controle.exibir_cliente and not alertas_qualidade:
         return "cliente", True, alertas_qualidade
     return "sombra", False, alertas_qualidade
 

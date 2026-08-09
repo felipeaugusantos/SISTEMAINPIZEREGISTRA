@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import re
 import struct
 import time
 from urllib.parse import quote
@@ -8,6 +9,20 @@ from urllib.parse import quote
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.settings import get_settings
+
+
+def validar_forca_senha(senha: str) -> str:
+    requisitos = (
+        re.search(r"[a-z]", senha),
+        re.search(r"[A-Z]", senha),
+        re.search(r"\d", senha),
+        re.search(r"[^A-Za-z0-9]", senha),
+    )
+    if not all(requisitos):
+        raise ValueError(
+            "A senha deve conter letra maiúscula, minúscula, número e caractere especial"
+        )
+    return senha
 
 
 def _fernet() -> Fernet:

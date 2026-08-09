@@ -53,10 +53,8 @@ async function loadOverview() {
   document.querySelector("#priority-leads").textContent = formatNumber(data.leads_novos);
   document.querySelector("#priority-affinities").textContent = formatNumber(data.afinidades_pendentes);
   document.querySelector("#priority-risks").textContent = formatNumber(data.riscos_elevados);
-  document.querySelector("#priority-ai").textContent = formatNumber(data.explicacoes_aguardando_revisao);
-  document.querySelector("#overview-model").textContent = data.ia_habilitada
-    ? `IA ativa para ${data.ia_rollout_percentual}% · ${data.modelo_ia}`
-    : `IA desativada · rollout ${data.ia_rollout_percentual}%`;
+  document.querySelector("#priority-reviews").textContent = formatNumber(data.riscos_pendentes_revisao);
+  document.querySelector("#overview-model").textContent = "Motor determinístico e aprendizado supervisionado ativos";
   overviewMessage.textContent = "";
   overviewMessage.classList.remove("loading");
 }

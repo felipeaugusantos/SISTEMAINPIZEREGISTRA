@@ -4,13 +4,21 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAtualDep, exigir_csrf
 from app.database import get_session
-from app.models import Lead, Organizacao, PesquisaMarca, SolicitacaoPrivacidade, UsuarioOperacoes
+from app.models import (
+    EventoAuditoria,
+    Lead,
+    Organizacao,
+    PesquisaMarca,
+    SolicitacaoPrivacidade,
+    UsuarioOperacoes,
+)
 from app.queueing import enfileirar, status_fila
+from app.schemas import BrandingConfig
 
 router = APIRouter(prefix="/v1/admin/confiabilidade", tags=["confiabilidade"])
 public_router = APIRouter(prefix="/v1/tenant", tags=["tenant"])
@@ -41,7 +49,7 @@ async def branding_publico(request: Request, session: SessionDep) -> dict:
 
 
 class ConfiguracaoTenantInput(BaseModel):
-    branding: dict = {}
+    branding: BrandingConfig = Field(default_factory=BrandingConfig)
     retencao_dados_dias: int = Field(default=730, ge=30, le=3650)
     politica_privacidade_versao: str = Field(default="1.0", min_length=1, max_length=30)
 
@@ -82,7 +90,7 @@ async def configurar(
     dados: ConfiguracaoTenantInput, request: Request, session: SessionDep, usuario: AdminDep
 ) -> dict:
     org = await session.get(Organizacao, usuario.organizacao_id)
-    org.branding = dados.branding
+    org.branding = dados.branding.model_dump(exclude_none=True)
     org.retencao_dados_dias = dados.retencao_dados_dias
     org.politica_privacidade_versao = dados.politica_privacidade_versao
     await session.commit()
@@ -91,7 +99,11 @@ async def configurar(
 
 @router.post("/tarefas/{tipo}", status_code=202)
 async def criar_tarefa(tipo: str, request: Request, _: AdminDep) -> dict:
-    permitidos = {"assinaturas.verificar", "privacidade.verificar_retencao"}
+    permitidos = {
+        "assinaturas.verificar",
+        "privacidade.verificar_retencao",
+        "registrabilidade.reconciliar_resultados",
+    }
     if tipo not in permitidos:
         raise HTTPException(422, "Tarefa não permitida")
     try:
@@ -131,6 +143,18 @@ async def exportar_lead(lead_id: int, session: SessionDep, usuario: AdminDep) ->
     ).scalar_one_or_none()
     if not lead:
         raise HTTPException(404, "Lead não encontrado")
+    pesquisas = list(
+        (
+            await session.execute(
+                select(PesquisaMarca)
+                .where(
+                    PesquisaMarca.lead_id == lead.id,
+                    PesquisaMarca.organizacao_id == usuario.organizacao_id,
+                )
+                .order_by(PesquisaMarca.criado_em.desc())
+            )
+        ).scalars()
+    )
     return {
         "nome": lead.nome,
         "email": lead.email,
@@ -141,6 +165,17 @@ async def exportar_lead(lead_id: int, session: SessionDep, usuario: AdminDep) ->
         "aceite_privacidade": lead.aceite_privacidade,
         "aceite_marketing": lead.aceite_marketing,
         "criado_em": lead.criado_em,
+        "pesquisas": [
+            {
+                "id": pesquisa.id,
+                "marca": pesquisa.marca,
+                "atividade": pesquisa.atividade,
+                "tipo_pesquisa": pesquisa.tipo_pesquisa,
+                "classe_nice": pesquisa.classe_nice,
+                "criado_em": pesquisa.criado_em,
+            }
+            for pesquisa in pesquisas
+        ],
     }
 
 
@@ -160,14 +195,49 @@ async def anonimizar(
     if not item or not item.lead_id:
         raise HTTPException(404, "Solicitação aberta não encontrada")
     lead = await session.get(Lead, item.lead_id)
+    if not lead or lead.organizacao_id != usuario.organizacao_id:
+        raise HTTPException(404, "Lead nÃ£o encontrado")
     marcador = hashlib.sha256(f"{lead.id}:{lead.email}".encode()).hexdigest()[:12]
+    pesquisas_desvinculadas = (
+        await session.execute(
+            update(PesquisaMarca)
+            .where(
+                PesquisaMarca.lead_id == lead.id,
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+            )
+            .values(lead_id=None)
+        )
+    ).rowcount
     lead.nome = "Titular anonimizado"
     lead.email = f"anonimo-{marcador}@invalid.local"
     lead.telefone = "anonimizado"
     lead.empresa = None
+    lead.marca = "Interesse anonimizado"
+    lead.atividade = None
+    lead.processo_numero = None
     lead.aceite_marketing = False
+    lead.aceite_privacidade = False
+    lead.responsavel_id = None
+    lead.notas = None
+    lead.proxima_acao_em = None
+    lead.ultimo_contato_em = None
+    lead.tags = []
     item.status = "concluida"
     item.concluido_por = usuario.email
     item.concluido_em = datetime.now(UTC)
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            ator=usuario.email,
+            acao="ANONIMIZAR",
+            recurso="lead",
+            sucesso=True,
+            status_http=200,
+            detalhes={
+                "lead_id": lead.id,
+                "pesquisas_desvinculadas": pesquisas_desvinculadas or 0,
+            },
+        )
+    )
     await session.commit()
     return {"status": "concluida", "lead_id": lead.id}

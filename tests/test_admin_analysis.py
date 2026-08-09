@@ -3,11 +3,17 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth import obter_usuario_atual
+from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
-from app.models import Lead, PesquisaMarca, StatusLead, VersaoRelatorioMarca
-from tests.conftest import FakeResult, auth_override, sessao_override
+from app.models import (
+    Lead,
+    PesquisaMarca,
+    PrevisaoRegistrabilidade,
+    StatusLead,
+    VersaoRelatorioMarca,
+)
+from tests.conftest import FakeResult, auth_override, sessao_override, usuario_teste
 
 
 @pytest.fixture(autouse=True)
@@ -75,6 +81,76 @@ def test_api_da_central_consolida_pesquisa_e_status_do_relatorio() -> None:
     assert data["pesquisa"]["marca"] == "ACME"
     assert data["validacao"]["ultima_rpi"] == 2900
     assert data["validacao"]["total_ocorrencias"] == 3
+    assert data["validacao"]["matriz_registrabilidade"]["versao"].startswith("manual-inpi")
+    assert len(data["validacao"]["matriz_registrabilidade"]["regras"]) == 12
     assert data["risco"] is None
     assert data["relatorio_completo"]["gerado"] is False
     assert data["permissoes"]["relatorio_gerar"] is True
+
+
+def test_leitura_supervisionada_e_persistida() -> None:
+    previsao = PrevisaoRegistrabilidade(
+        id=17,
+        pesquisa_id="pesquisa-1",
+        modelo_id=2,
+        modo="sombra",
+        probabilidade_deferimento=0.98,
+        nivel="favoravel",
+        confianca=0.78,
+        cobertura_entrada=0.51,
+        atributos={},
+        fatores_principais=[],
+    )
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=previsao))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).patch(
+        "/v1/admin/aprendizado/previsoes/17",
+        headers={"X-CSRF-Token": "csrf-teste"},
+        json={
+            "nivel_humano": "favoravel",
+            "avaliador": "Felipe Augusto dos Santos",
+            "observacoes": "Grande chance de registro",
+        },
+    )
+
+    assert resposta.status_code == 200
+    assert previsao.nivel_humano == "favoravel"
+    assert previsao.avaliador == "Felipe Augusto dos Santos"
+    assert previsao.observacoes_humanas == "Grande chance de registro"
+    assert previsao.avaliado_em is not None
+
+
+def test_dados_complementares_sao_persistidos_para_recalcular_matriz() -> None:
+    pesquisa = PesquisaMarca(
+        id="pesquisa-complementar",
+        organizacao_id=1,
+        marca="ACME",
+        atividade="Tecnologia",
+        tipo_pesquisa="completa",
+    )
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=pesquisa))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).patch(
+        "/v1/admin/analises/pesquisa-complementar/dados-complementares",
+        headers={"X-CSRF-Token": "csrf-teste"},
+        json={
+            "forma_apresentacao": "nominativa",
+            "significado": "Expressão de fantasia",
+            "atividade_compativel": True,
+            "usa_simbolo_oficial": False,
+            "conteudo_potencialmente_ofensivo": False,
+            "termo_generico_descritivo": False,
+            "deposito_realizado": False,
+        },
+    )
+
+    assert resposta.status_code == 200
+    assert pesquisa.dados_complementares_registrabilidade["forma_apresentacao"] == "nominativa"
+    assert pesquisa.dados_complementares_registrabilidade["atividade_compativel"] is True
+    assert pesquisa.dados_complementares_registrabilidade["preenchido_por"] == usuario.email

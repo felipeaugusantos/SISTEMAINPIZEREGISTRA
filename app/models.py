@@ -540,6 +540,7 @@ class PesquisaMarca(Base):
     atividade: Mapped[str | None] = mapped_column(Text, nullable=True)
     tipo_pesquisa: Mapped[str] = mapped_column(String(20), index=True)
     classe_nice: Mapped[str | None] = mapped_column(String(2), nullable=True, index=True)
+    dados_complementares_registrabilidade: Mapped[dict] = mapped_column(JSON, default=dict)
     relatorio_completo_gerado_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
@@ -723,6 +724,54 @@ class PrevisaoRegistrabilidade(Base):
     avaliado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     calculado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ExecucaoAgenteRegistrabilidade(Base):
+    """Snapshot auditavel da decisao produzida pelo orquestrador de registrabilidade."""
+
+    __tablename__ = "execucoes_agente_registrabilidade"
+    __table_args__ = (
+        UniqueConstraint(
+            "pesquisa_id", "hash_entrada", name="uq_agente_registrabilidade_pesquisa_hash"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="RESTRICT"), index=True
+    )
+    pesquisa_id: Mapped[str] = mapped_column(
+        ForeignKey("pesquisas_marca.id", ondelete="CASCADE"), index=True
+    )
+    versao_agente: Mapped[str] = mapped_column(String(40), index=True)
+    hash_entrada: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    decisao: Mapped[str] = mapped_column(String(40), index=True)
+    abstencao: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    cobertura: Mapped[float] = mapped_column(Float, default=0.0)
+    confianca: Mapped[float | None] = mapped_column(Float, nullable=True)
+    probabilidade_deferimento: Mapped[float | None] = mapped_column(Float, nullable=True)
+    probabilidade_inferior: Mapped[float | None] = mapped_column(Float, nullable=True)
+    probabilidade_superior: Mapped[float | None] = mapped_column(Float, nullable=True)
+    nivel_risco: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    pontuacao_risco: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    motivos: Mapped[list[str]] = mapped_column(JSON, default=list)
+    fatores_principais: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    entrada_estruturada: Mapped[dict] = mapped_column(JSON)
+    evidencias: Mapped[dict] = mapped_column(JSON)
+    regras: Mapped[dict] = mapped_column(JSON)
+    versoes_fontes: Mapped[dict] = mapped_column(JSON)
+    numero_pedido: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    resultado_real: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    resultado_fundamento: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    resultado_data_referencia: Mapped[date | None] = mapped_column(Date, nullable=True)
+    resultado_numero_rpi: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    resultado_sincronizado_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
     )
 
 

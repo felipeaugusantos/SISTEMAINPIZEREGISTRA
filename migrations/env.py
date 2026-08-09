@@ -23,6 +23,28 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+INDEXES_SQL_MANUAL = {
+    "ix_processos_titulo_trgm",
+    "ix_titulares_nome_trgm",
+    "uq_leads_org_email_ativos",
+}
+
+
+def incluir_objeto(objeto, nome, tipo, refletido, comparar_com) -> bool:
+    """Preserva Ã­ndices PostgreSQL por expressÃ£o criados em SQL nas migraÃ§Ãµes."""
+    if tipo == "index" and refletido and comparar_com is None and nome in INDEXES_SQL_MANUAL:
+        return False
+    if tipo == "unique_constraint" and refletido and nome == "uq_titulares_nome_pais":
+        return False
+    return True
+
+
+def comparar_tipo(_contexto, _coluna_inspecionada, _coluna_modelo, tipo_inspecionado, tipo_modelo):
+    # Enums legados foram persistidos como VARCHAR com constraints CHECK.
+    if getattr(tipo_modelo, "enum_class", None) is not None and tipo_inspecionado.__class__.__name__ == "VARCHAR":
+        return False
+    return None
+
 
 def run_migrations_offline() -> None:
     context.configure(
@@ -30,7 +52,8 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        compare_type=True,
+        compare_type=comparar_tipo,
+        include_object=incluir_objeto,
     )
 
     with context.begin_transaction():
@@ -38,7 +61,12 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=comparar_tipo,
+        include_object=incluir_objeto,
+    )
 
     with context.begin_transaction():
         context.run_migrations()

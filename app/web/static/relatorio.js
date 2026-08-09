@@ -46,7 +46,7 @@ async function loadReport() {
     document.querySelector("#report-date").textContent = `Gerado em ${dateLabel(data.gerado_em || data.criado_em)}`;
     document.querySelector("#report-version").textContent = `Versão ${data.versao} · ${data.schema_versao}`;
     document.querySelector("#report-count").textContent = `${data.total} ocorrência${data.total === 1 ? "" : "s"}`;
-    document.querySelector("#report-metrics").innerHTML = `<div><span>Total localizado</span><strong>${data.total}</strong></div><div><span>Exibidos</span><strong>${data.limite_exibido}</strong></div><div><span>Abrangência</span><strong>Nome, situação e classes</strong></div><div><span>Base atualizada até</span><strong>${data.ultima_rpi ? `RPI ${data.ultima_rpi}` : "Não informado"}</strong></div>`;
+    document.querySelector("#report-metrics").innerHTML = `<div><span>Total localizado</span><strong>${data.total}</strong></div><div><span>Relatório entregue</span><strong>Resumo público</strong></div><div><span>Abrangência</span><strong>Nome, situação e classes</strong></div><div><span>Base atualizada até</span><strong>${data.ultima_rpi ? `RPI ${data.ultima_rpi}` : "Não informado"}</strong></div>`;
     const conclusion = data.conclusao;
     document.querySelector("#conclusion-title").textContent = conclusion?.titulo || "Resultado meramente indicativo";
     document.querySelector("#conclusion-summary").textContent = conclusion?.resumo || "A pesquisa não substitui uma análise profissional.";
@@ -81,9 +81,11 @@ async function loadReport() {
     document.querySelector("#base-quality").textContent = quality ? `Qualidade da base: ${quality.status}. Seção V atualizada até RPI ${quality.ultima_rpi || "não informada"} (${dateLabel(quality.data_ultima_rpi)}). Cobertura dos depósitos: ${dateLabel(quality.deposito_mais_antigo)} a ${dateLabel(quality.deposito_mais_recente)}.` : "Qualidade da base não registrada nesta versão.";
     document.querySelector("#base-warnings").innerHTML = quality?.avisos?.map((warning) => `<p class="status-message">${escapeHtml(warning)}</p>`).join("") || "";
     document.querySelector("#activity-classes").innerHTML = data.classes_atividade.length ? data.classes_atividade.map((item) => `<div class="activity-class"><strong>Classe ${escapeHtml(item.codigo)}</strong><span>${escapeHtml(item.titulo)}</span><small>Identificada por: ${escapeHtml(item.termos_encontrados.join(", "))}</small></div>`).join("") : `<p>Não foi possível sugerir classes com segurança a partir da atividade informada.</p>`;
-    document.querySelector("#matrix-status").textContent = data.matriz_afinidade_status === "validada" ? "Matriz de afinidade validada por especialista." : "Matriz inicial de afinidade pendente de validação por especialista.";
-    document.querySelector("#report-results").innerHTML = data.itens.map(itemCard).join("");
-    document.querySelector("#report-empty").textContent = data.total ? (data.total > data.limite_exibido ? `O relatório apresenta as ${data.limite_exibido} ocorrências mais relevantes.` : "") : "Nenhuma ocorrência foi localizada com os parâmetros informados.";
+    document.querySelector("#matrix-status").textContent = "A afinidade entre classes é processada na análise técnica interna.";
+    document.querySelector("#report-results").innerHTML = data.total
+      ? `<article class="report-public-summary"><strong>${data.total} ocorrência${data.total === 1 ? "" : "s"} localizada${data.total === 1 ? "" : "s"}</strong><p>Os processos, fundamentos e comparações detalhadas ficam reservados à análise interna da equipe.</p></article>`
+      : "";
+    document.querySelector("#report-empty").textContent = data.total ? "Este resumo não expõe a lista técnica completa." : "Nenhuma ocorrência foi localizada com os parâmetros informados.";
     document.querySelector("#download-report").href = pdfUrl;
     document.querySelector("#print-report").disabled = false;
     loading.hidden = true;

@@ -19,9 +19,6 @@ class Settings(BaseSettings):
     session_duration_hours: int = 8
     session_idle_minutes: int = 60
     alto_renome_page_url: str = "https://www.gov.br/inpi/pt-br/servicos/marcas/alto-renome/"
-    ai_explanations_enabled: bool = False
-    openai_api_key: str | None = None
-    openai_explanation_model: str = "gpt-5.6-luna"
     audit_ip_salt: str = "desenvolvimento-local"
     security_master_key: str = "desenvolvimento-local-chave-mestra"
     admin_force_https: bool = False
@@ -37,7 +34,11 @@ class Settings(BaseSettings):
     redis_required: bool = False
     password_reset_minutes: int = 30
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     @property
     def cors_origins(self) -> list[str]:

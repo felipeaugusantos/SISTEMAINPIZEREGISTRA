@@ -16,7 +16,6 @@ async def test_resumo_centraliza_metricas_sem_carregar_listas() -> None:
                         19,
                         64,
                         7,
-                        12,
                         3,
                     )
                 ]
@@ -33,4 +32,4 @@ async def test_resumo_centraliza_metricas_sem_carregar_listas() -> None:
     assert resumo.alto_renome_vigentes == 201
     assert resumo.afinidades_pendentes == 19
     assert resumo.riscos_elevados == 7
-    assert resumo.explicacoes_aguardando_revisao == 3
+    assert resumo.riscos_pendentes_revisao == 3

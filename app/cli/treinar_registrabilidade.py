@@ -33,8 +33,8 @@ def main() -> None:
     parser.add_argument("--dataset", action="store_true")
     parser.add_argument("--treinar", action="store_true")
     parser.add_argument("--ativar", action="store_true")
-    parser.add_argument("--limite", type=int, default=500)
-    parser.add_argument("--candidatos", type=int, default=8)
+    parser.add_argument("--limite", type=int, default=3000)
+    parser.add_argument("--candidatos", type=int, default=12)
     parser.add_argument("--administrador", default="cli")
     args = parser.parse_args()
     if not args.dataset and not args.treinar:

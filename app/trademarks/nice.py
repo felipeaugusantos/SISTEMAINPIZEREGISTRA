@@ -9,6 +9,7 @@ class ClasseNiceCandidata:
     titulo: str
     tipo: str
     termos_encontrados: tuple[str, ...]
+    confianca: float = 0.0
 
 
 # Caputs resumidos da NCL (13) 2026. As palavras-chave são apenas um índice
@@ -213,15 +214,23 @@ def _normalizar(valor: str) -> str:
 
 def mapear_atividade(atividade: str, limite: int = 4) -> list[ClasseNiceCandidata]:
     texto = _normalizar(atividade)
+    tokens_texto = set(texto.split())
     candidatos: list[tuple[int, str, tuple[str, ...]]] = []
     for codigo, (_, palavras_chave) in CLASSES_NICE.items():
-        encontrados = tuple(
-            termo
-            for termo in palavras_chave
-            if re.search(rf"(?<!\w){re.escape(termo)}(?!\w)", texto)
-        )
+        lista_encontrados: list[str] = []
+        pontuacao = 0
+        for termo in palavras_chave:
+            termo_normalizado = _normalizar(termo)
+            if re.search(rf"(?<!\w){re.escape(termo_normalizado)}(?!\w)", texto):
+                lista_encontrados.append(termo)
+                pontuacao += 4 if " " in termo_normalizado else 2
+                continue
+            tokens_termo = set(termo_normalizado.split())
+            if len(tokens_termo) > 1 and tokens_termo <= tokens_texto:
+                lista_encontrados.append(termo)
+                pontuacao += 2
+        encontrados = tuple(lista_encontrados)
         if encontrados:
-            pontuacao = sum(3 if " " in termo else 1 for termo in encontrados)
             candidatos.append((pontuacao, codigo, encontrados))
 
     candidatos.sort(key=lambda item: (-item[0], item[1]))
@@ -231,6 +240,7 @@ def mapear_atividade(atividade: str, limite: int = 4) -> list[ClasseNiceCandidat
             titulo=CLASSES_NICE[codigo][0],
             tipo="produto" if int(codigo) <= 34 else "serviço",
             termos_encontrados=encontrados,
+            confianca=min(1.0, pontuacao / 8),
         )
-        for _, codigo, encontrados in candidatos[:limite]
+        for pontuacao, codigo, encontrados in candidatos[:limite]
     ]

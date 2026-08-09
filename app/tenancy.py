@@ -10,7 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_session
-from app.models import CredencialIntegracao, DominioOrganizacao, Organizacao, PesquisaMarca
+from app.models import (
+    CredencialIntegracao,
+    DominioOrganizacao,
+    Organizacao,
+    PesquisaMarca,
+    UsuarioOperacoes,
+)
 from app.settings import get_settings
 
 
@@ -23,6 +29,7 @@ class OrganizacaoAtual:
     modulos: frozenset[str]
     limites: dict
     branding: dict
+    politica_privacidade_versao: str = "1.0"
 
 
 async def aplicar_contexto_tenant(
@@ -65,9 +72,9 @@ async def resolver_organizacao_publica(
     host = host.split(",", 1)[0].split(":", 1)[0].lower()
     token = _token_requisicao(request)
     if getattr(request.state, "global_integration_token", False) or (
-        token and settings.integration_auth_enabled and secrets.compare_digest(
-            token, settings.inpi_integration_token
-        )
+        token
+        and settings.integration_auth_enabled
+        and secrets.compare_digest(token, settings.inpi_integration_token)
     ):
         padrao = _organizacao_padrao()
         await aplicar_contexto_tenant(session, padrao.id)
@@ -76,20 +83,25 @@ async def resolver_organizacao_publica(
         raise HTTPException(401, "Chave de integracao invalida")
     if token:
         token_hash = hashlib.sha256(token.encode()).hexdigest()
-        credencial = (await session.execute(
-            select(CredencialIntegracao)
-            .where(
-                CredencialIntegracao.token_hash == token_hash,
-                CredencialIntegracao.ativo.is_(True),
-            )
-        )).scalar_one_or_none()
-        if credencial and (credencial.expira_em is None or credencial.expira_em > datetime.now(UTC)):
-            credencial.ultimo_uso_em = datetime.now(UTC)
-            organizacao = (await session.execute(
-                select(Organizacao).options(selectinload(Organizacao.plano)).where(
-                    Organizacao.id == credencial.organizacao_id
+        credencial = (
+            await session.execute(
+                select(CredencialIntegracao).where(
+                    CredencialIntegracao.token_hash == token_hash,
+                    CredencialIntegracao.ativo.is_(True),
                 )
-            )).scalar_one_or_none()
+            )
+        ).scalar_one_or_none()
+        if credencial and (
+            credencial.expira_em is None or credencial.expira_em > datetime.now(UTC)
+        ):
+            credencial.ultimo_uso_em = datetime.now(UTC)
+            organizacao = (
+                await session.execute(
+                    select(Organizacao)
+                    .options(selectinload(Organizacao.plano))
+                    .where(Organizacao.id == credencial.organizacao_id)
+                )
+            ).scalar_one_or_none()
         if organizacao is None:
             raise HTTPException(401, "Chave de integracao invalida")
     if organizacao is None and host in {"localhost", "127.0.0.1", "testserver"}:
@@ -97,24 +109,30 @@ async def resolver_organizacao_publica(
         await aplicar_contexto_tenant(session, padrao.id)
         return padrao
     if organizacao is None:
-        dominio = (await session.execute(
-            select(DominioOrganizacao).where(
-                DominioOrganizacao.dominio == host,
-                DominioOrganizacao.ativo.is_(True),
-            )
-        )).scalar_one_or_none()
-        if dominio:
-            organizacao = (await session.execute(
-                select(Organizacao).options(selectinload(Organizacao.plano)).where(
-                    Organizacao.id == dominio.organizacao_id
+        dominio = (
+            await session.execute(
+                select(DominioOrganizacao).where(
+                    DominioOrganizacao.dominio == host,
+                    DominioOrganizacao.ativo.is_(True),
                 )
-            )).scalar_one_or_none()
-    if organizacao is None:
-        organizacao = (await session.execute(
-            select(Organizacao).options(selectinload(Organizacao.plano)).where(
-                Organizacao.slug == get_settings().default_organization_slug
             )
-        )).scalar_one_or_none()
+        ).scalar_one_or_none()
+        if dominio:
+            organizacao = (
+                await session.execute(
+                    select(Organizacao)
+                    .options(selectinload(Organizacao.plano))
+                    .where(Organizacao.id == dominio.organizacao_id)
+                )
+            ).scalar_one_or_none()
+    if organizacao is None:
+        organizacao = (
+            await session.execute(
+                select(Organizacao)
+                .options(selectinload(Organizacao.plano))
+                .where(Organizacao.slug == get_settings().default_organization_slug)
+            )
+        ).scalar_one_or_none()
     if organizacao is None:
         raise HTTPException(503, "Organizacao padrao nao configurada")
     if organizacao.status not in {"ativa", "trial"}:
@@ -127,6 +145,7 @@ async def resolver_organizacao_publica(
         modulos=frozenset(organizacao.plano.modulos or []),
         limites=organizacao.plano.limites or {},
         branding=organizacao.branding or {},
+        politica_privacidade_versao=organizacao.politica_privacidade_versao,
     )
     await aplicar_contexto_tenant(session, atual.id)
     return atual
@@ -139,10 +158,18 @@ def _organizacao_padrao() -> OrganizacaoAtual:
         nome="Zé Registra",
         slug=settings.default_organization_slug,
         plano="profissional",
-        modulos=frozenset({
-            "consulta", "leads", "validacao", "risco", "ia", "aprendizado",
-            "usuarios", "rpi", "producao",
-        }),
+        modulos=frozenset(
+            {
+                "consulta",
+                "leads",
+                "validacao",
+                "risco",
+                "aprendizado",
+                "usuarios",
+                "rpi",
+                "producao",
+            }
+        ),
         limites={"usuarios": 50, "pesquisas_mes": 10000},
         branding={},
     )
@@ -157,11 +184,42 @@ async def validar_limite_pesquisas(session: AsyncSession, organizacao: Organizac
         return
     agora = datetime.now(UTC)
     inicio = datetime(agora.year, agora.month, 1, tzinfo=UTC)
-    total = (await session.execute(
-        select(func.count()).select_from(PesquisaMarca).where(
-            PesquisaMarca.organizacao_id == organizacao.id,
-            PesquisaMarca.criado_em >= inicio,
+    total = (
+        await session.execute(
+            select(func.count())
+            .select_from(PesquisaMarca)
+            .where(
+                PesquisaMarca.organizacao_id == organizacao.id,
+                PesquisaMarca.criado_em >= inicio,
+            )
         )
-    )).scalar_one()
+    ).scalar_one()
     if total >= limite:
         raise HTTPException(429, "Limite mensal de pesquisas atingido")
+
+
+async def validar_limite_usuarios(session: AsyncSession, organizacao_id: int) -> None:
+    organizacao = (
+        await session.execute(
+            select(Organizacao)
+            .options(selectinload(Organizacao.plano))
+            .where(Organizacao.id == organizacao_id)
+        )
+    ).scalar_one_or_none()
+    if organizacao is None:
+        raise HTTPException(404, "Organizacao nao encontrada")
+    limite = int((organizacao.plano.limites or {}).get("usuarios", 0) or 0)
+    if limite <= 0:
+        return
+    total = (
+        await session.execute(
+            select(func.count())
+            .select_from(UsuarioOperacoes)
+            .where(
+                UsuarioOperacoes.organizacao_id == organizacao_id,
+                UsuarioOperacoes.ativo.is_(True),
+            )
+        )
+    ).scalar_one()
+    if total >= limite:
+        raise HTTPException(409, "Limite de usuarios ativos do plano atingido")

@@ -274,7 +274,10 @@ async def ativar(
     modelo = await session.get(ModeloRegistrabilidade, modelo_id)
     if modelo is None:
         raise HTTPException(status_code=404, detail="Modelo não encontrado")
-    await ativar_modelo(session, modelo, administrador.email)
+    try:
+        await ativar_modelo(session, modelo, administrador.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return AprendizadoAcaoResponse(mensagem="Modelo ativado em modo sombra", modelo=_modelo(modelo))
 
 

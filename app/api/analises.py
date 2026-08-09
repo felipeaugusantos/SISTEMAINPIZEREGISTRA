@@ -1,27 +1,31 @@
+from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.auth import UsuarioAutenticado, exigir_permissao
+from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import get_session
 from app.models import (
     AvaliacaoRiscoMarca,
-    ExplicacaoRiscoIA,
+    EventoAuditoria,
+    ExecucaoAgenteRegistrabilidade,
     Lead,
     ModeloRegistrabilidade,
     PesquisaMarca,
     PrevisaoRegistrabilidade,
     VersaoRelatorioMarca,
 )
-from app.production import ia_efetivamente_habilitada, obter_controle_producao
-from app.settings import get_settings
+from app.schemas import DadosComplementaresRegistrabilidadeUpdate
+from app.trademarks.agent import execucao_para_dict, reconciliar_resultados_reais
+from app.trademarks.registrability import construir_matriz_registrabilidade
 
 router = APIRouter(prefix="/v1/admin/analises", tags=["central de análise"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 AnalysisDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
+AnalysisWriteDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("validation.review"))]
 
 
 def _modulo_liberado(usuario: UsuarioAutenticado, modulo: str, permissao: str) -> bool:
@@ -42,6 +46,66 @@ def _mascarar_email(email: str) -> str:
 def _mascarar_telefone(telefone: str) -> str:
     digitos = "".join(caractere for caractere in telefone if caractere.isdigit())
     return f"***{digitos[-4:]}" if digitos else "***"
+
+
+@router.patch("/{pesquisa_id}/dados-complementares")
+async def atualizar_dados_complementares(
+    pesquisa_id: str,
+    dados: DadosComplementaresRegistrabilidadeUpdate,
+    request: Request,
+    session: SessionDep,
+    usuario: AnalysisWriteDep,
+) -> dict:
+    pesquisa = (
+        await session.execute(
+            select(PesquisaMarca).where(
+                PesquisaMarca.id == pesquisa_id,
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if pesquisa is None:
+        raise HTTPException(status_code=404, detail="Pesquisa não encontrada")
+
+    agora = datetime.now(UTC)
+    payload = dados.model_dump(mode="json")
+    payload.update(
+        {
+            "preenchido_em": agora.isoformat(),
+            "preenchido_por": usuario.ator,
+        }
+    )
+    pesquisa.dados_complementares_registrabilidade = payload
+    if payload.get("numero_pedido"):
+        await session.execute(
+            update(ExecucaoAgenteRegistrabilidade)
+            .where(
+                ExecucaoAgenteRegistrabilidade.pesquisa_id == pesquisa.id,
+                ExecucaoAgenteRegistrabilidade.organizacao_id == usuario.organizacao_id,
+            )
+            .values(numero_pedido=payload["numero_pedido"])
+        )
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            ator=usuario.ator,
+            acao="complementar",
+            recurso=f"pesquisa:{pesquisa.id}",
+            sucesso=True,
+            status_http=200,
+            ip_hash=hash_ip(request.client.host if request.client else None),
+            detalhes={
+                "matriz": "registrabilidade",
+                "campos_preenchidos": sorted(
+                    chave
+                    for chave, valor in payload.items()
+                    if valor is not None and chave not in {"preenchido_em", "preenchido_por"}
+                ),
+            },
+        )
+    )
+    await session.commit()
+    return {"status": "ok", "mensagem": "Dados complementares registrados"}
 
 
 @router.get("/{pesquisa_id}")
@@ -93,22 +157,21 @@ async def obter_central_analise(
             .limit(1)
         )
     ).first()
-    explicacao = None
-    if avaliacao is not None:
-        explicacao = (
-            await session.execute(
-                select(ExplicacaoRiscoIA).where(
-                    ExplicacaoRiscoIA.avaliacao_risco_id == avaliacao.id
-                )
+    execucao_agente = (
+        await session.execute(
+            select(ExecucaoAgenteRegistrabilidade)
+            .where(
+                ExecucaoAgenteRegistrabilidade.pesquisa_id == pesquisa.id,
+                ExecucaoAgenteRegistrabilidade.organizacao_id == usuario.organizacao_id,
             )
-        ).scalar_one_or_none()
-
+            .order_by(ExecucaoAgenteRegistrabilidade.criado_em.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     relatorio = versao.payload if versao is not None else {}
     qualidade = relatorio.get("qualidade_base") or {}
     itens = relatorio.get("itens") or []
     previsao, modelo = previsao_linha if previsao_linha is not None else (None, None)
-    controle_ia = await obter_controle_producao(session)
-    settings = get_settings()
     pii = usuario.pode("leads.pii.view")
 
     permissoes = {
@@ -118,15 +181,24 @@ async def obter_central_analise(
         "risco_revisar": _modulo_liberado(usuario, "risco", "risk.review"),
         "aprendizado_visualizar": _modulo_liberado(usuario, "aprendizado", "learning.view"),
         "aprendizado_revisar": _modulo_liberado(usuario, "aprendizado", "learning.manage"),
-        "ia_visualizar": _modulo_liberado(usuario, "ia", "ai.view"),
-        "ia_gerar": _modulo_liberado(usuario, "ia", "ai.generate"),
-        "ia_revisar": _modulo_liberado(usuario, "ia", "ai.review"),
         "relatorio_gerar": usuario.pode("leads.manage"),
     }
     validacao_visivel = permissoes["validacao_visualizar"]
     risco_visivel = permissoes["risco_visualizar"]
     aprendizado_visivel = permissoes["aprendizado_visualizar"]
-    ia_visivel = permissoes["ia_visualizar"]
+    matriz_registrabilidade = (
+        construir_matriz_registrabilidade(
+            marca=pesquisa.marca,
+            atividade=pesquisa.atividade,
+            classe_nice=pesquisa.classe_nice,
+            relatorio=relatorio,
+            pontuacao_risco=avaliacao.pontuacao if avaliacao is not None else None,
+            nivel_risco=avaliacao.nivel if avaliacao is not None else None,
+            dados_complementares=pesquisa.dados_complementares_registrabilidade or {},
+        )
+        if validacao_visivel
+        else None
+    )
 
     return {
         "pesquisa": {
@@ -162,6 +234,8 @@ async def obter_central_analise(
                 "classes_atividade": relatorio.get("classes_atividade") or [],
                 "total_ocorrencias": relatorio.get("total", 0),
                 "ocorrencias_exibidas": relatorio.get("limite_exibido", 0),
+                "matriz_registrabilidade": matriz_registrabilidade,
+                "dados_complementares": pesquisa.dados_complementares_registrabilidade or {},
                 "conflitos": [
                     {
                         "numero": item.get("numero"),
@@ -225,29 +299,9 @@ async def obter_central_analise(
             if previsao is not None and aprendizado_visivel
             else None
         ),
-        "ia": (
-            {
-                "habilitada": ia_efetivamente_habilitada(settings, controle_ia),
-                "avaliacao_risco_id": avaliacao.id if avaliacao is not None else None,
-                "explicacao": (
-                    {
-                        "id": explicacao.id,
-                        "status": explicacao.status,
-                        "modelo": explicacao.modelo,
-                        "saida": explicacao.saida_estruturada,
-                        "erro": explicacao.erro,
-                        "revisao_obrigatoria": explicacao.revisao_obrigatoria,
-                        "decisao_revisao": explicacao.decisao_revisao,
-                        "revisor": explicacao.revisor,
-                        "observacoes_revisao": explicacao.observacoes_revisao,
-                        "gerado_em": explicacao.gerado_em,
-                        "revisado_em": explicacao.revisado_em,
-                    }
-                    if explicacao is not None
-                    else None
-                ),
-            }
-            if ia_visivel
+        "agente_registrabilidade": (
+            execucao_para_dict(execucao_agente)
+            if execucao_agente is not None and validacao_visivel
             else None
         ),
         "relatorio_completo": {
@@ -257,3 +311,39 @@ async def obter_central_analise(
             "gerado_por": pesquisa.relatorio_completo_gerado_por,
         },
     }
+
+
+@router.post("/{pesquisa_id}/reconciliar-resultado")
+async def reconciliar_resultado(
+    pesquisa_id: str,
+    request: Request,
+    session: SessionDep,
+    usuario: AnalysisWriteDep,
+) -> dict:
+    pesquisa = (
+        await session.execute(
+            select(PesquisaMarca).where(
+                PesquisaMarca.id == pesquisa_id,
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if pesquisa is None:
+        raise HTTPException(status_code=404, detail="Pesquisa não encontrada")
+    resultado = await reconciliar_resultados_reais(
+        session, organizacao_id=usuario.organizacao_id
+    )
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            ator=usuario.ator,
+            acao="reconciliar",
+            recurso=f"pesquisa:{pesquisa.id}",
+            sucesso=True,
+            status_http=200,
+            ip_hash=hash_ip(request.client.host if request.client else None),
+            detalhes={"agente": "registrabilidade", **resultado},
+        )
+    )
+    await session.commit()
+    return {"status": "ok", **resultado}

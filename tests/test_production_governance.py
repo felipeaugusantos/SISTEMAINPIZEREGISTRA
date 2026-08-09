@@ -1,13 +1,7 @@
 from datetime import UTC, datetime
 
-from app.models import ControleProducao
-from app.production import (
-    elegivel_rollout,
-    ia_efetivamente_habilitada,
-    versionar_relatorio,
-)
+from app.production import versionar_relatorio
 from app.schemas import RelatorioMarcaResponse
-from app.settings import Settings
 from tests.conftest import FakeResult, FakeSession
 
 
@@ -29,32 +23,13 @@ def relatorio() -> RelatorioMarcaResponse:
     )
 
 
-def test_rollout_e_estavel_e_respeita_limites() -> None:
-    chave = "pesquisa-estavel"
-
-    assert elegivel_rollout(chave, 0) is False
-    assert elegivel_rollout(chave, 100) is True
-    assert elegivel_rollout(chave, 35) == elegivel_rollout(chave, 35)
-
-
-def test_ia_exige_chave_mestra_controle_e_chave_api() -> None:
-    controle = ControleProducao(id=1, ia_habilitada=True, ia_rollout_percentual=10)
-    ativa = Settings(ai_explanations_enabled=True, openai_api_key="teste")
-    mestre_desligada = Settings(ai_explanations_enabled=False, openai_api_key="teste")
-
-    assert ia_efetivamente_habilitada(ativa, controle) is True
-    assert ia_efetivamente_habilitada(mestre_desligada, controle) is False
-    controle.ia_habilitada = False
-    assert ia_efetivamente_habilitada(ativa, controle) is False
-
-
 async def test_primeiro_snapshot_cria_versao_imutavel() -> None:
     session = FakeSession([FakeResult(scalar=None)])
 
     resultado = await versionar_relatorio(session, relatorio())
 
     assert resultado.versao == 1
-    assert resultado.schema_versao == "relatorio-marca-4.2"
+    assert resultado.schema_versao == "relatorio-marca-4.3"
     assert len(resultado.conteudo_hash) == 64
     assert resultado.gerado_em is not None
     assert session.adicionados[0].payload["conteudo_hash"] == resultado.conteudo_hash

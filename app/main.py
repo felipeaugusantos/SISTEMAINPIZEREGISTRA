@@ -17,7 +17,6 @@ from app.api.confiabilidade import public_router as tenant_router
 from app.api.confiabilidade import router as confiabilidade_router
 from app.api.fase2 import router as fase2_router
 from app.api.fase3 import router as fase3_router
-from app.api.fase4 import router as fase4_router
 from app.api.leads import router as leads_router
 from app.api.pesquisas import router as pesquisas_router
 from app.api.processos import router as processos_router
@@ -59,7 +58,6 @@ app.include_router(
 )
 app.include_router(fase2_router)
 app.include_router(fase3_router)
-app.include_router(fase4_router)
 app.include_router(admin_router)
 app.include_router(analises_router)
 app.include_router(producao_router)
@@ -160,18 +158,6 @@ async def painel_fase3() -> FileResponse:
 )
 async def painel_risco() -> FileResponse:
     return FileResponse(web_dir / "admin-fase3.html")
-
-
-@app.get(
-    "/admin/fase4", include_in_schema=False, dependencies=[Depends(exigir_permissao("ai.view"))]
-)
-async def painel_fase4() -> FileResponse:
-    return FileResponse(web_dir / "admin-fase4.html")
-
-
-@app.get("/admin/ia", include_in_schema=False, dependencies=[Depends(exigir_permissao("ai.view"))])
-async def painel_ia() -> FileResponse:
-    return FileResponse(web_dir / "admin-fase4.html")
 
 
 @app.get(

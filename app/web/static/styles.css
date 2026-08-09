@@ -565,6 +565,24 @@ input::placeholder {
   gap: 14px;
 }
 
+.report-public-summary {
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+.report-public-summary strong {
+  color: var(--forest);
+  font-size: 1.05rem;
+}
+
+.report-public-summary p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .result-card {
   display: grid;
   grid-template-columns: 1fr auto;

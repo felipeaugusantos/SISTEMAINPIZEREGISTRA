@@ -99,6 +99,8 @@ def _relatorio_exemplo(
             if com_estimativa
             else None
         ),
+        risco_pontuacao=69,
+        risco_nivel="alto",
     )
 
 
@@ -128,6 +130,7 @@ def test_gera_pdf_com_estimativa_probabilistica_e_faixa() -> None:
     assert len(pdf) > 1000
     texto = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
     assert "68% de deferimento estimado" in texto
+    assert "Chance estimada de registro" in texto
     assert "57% a 77%" in texto
     assert "não obrigatória" in texto
 
@@ -139,6 +142,10 @@ def test_resumo_cliente_tem_uma_pagina_e_nao_expoe_ocorrencias() -> None:
 
     assert len(leitor.pages) == 1
     assert "68% de deferimento estimado" in texto
+    assert "Análise técnica" in texto
+    assert "69 pontos" in texto
+    assert "risco alto" in texto
+    assert "AnÃ¡lise" not in texto
     assert "Ocorrências encontradas" not in texto
     assert "943906024" not in texto
 

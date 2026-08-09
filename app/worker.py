@@ -8,6 +8,7 @@ from app.database import session_factory
 from app.models import AlertaSistema, Lead, Organizacao
 from app.queueing import FAILED_KEY, QUEUE_KEY, cliente_redis
 from app.tenancy import aplicar_contexto_tenant
+from app.trademarks.agent import reconciliar_resultados_reais
 
 
 async def processar(tipo: str, payload: dict) -> None:
@@ -73,6 +74,8 @@ async def processar(tipo: str, payload: dict) -> None:
                                 detalhes={"total": total},
                             )
                         )
+        elif tipo == "registrabilidade.reconciliar_resultados":
+            await reconciliar_resultados_reais(session)
         else:
             raise ValueError(f"Tipo de trabalho desconhecido: {tipo}")
         await session.commit()
@@ -85,7 +88,11 @@ async def main() -> None:
         item = await redis.blpop(QUEUE_KEY, timeout=5)
         if not item:
             if datetime.now(UTC) >= proxima_manutencao:
-                for tarefa in ("assinaturas.verificar", "privacidade.verificar_retencao"):
+                for tarefa in (
+                    "assinaturas.verificar",
+                    "privacidade.verificar_retencao",
+                    "registrabilidade.reconciliar_resultados",
+                ):
                     try:
                         await processar(tarefa, {})
                     except Exception as exc:

@@ -38,7 +38,6 @@ function card(item) {
         <label><span>Fundamentação</span><textarea name="observacoes" required minlength="3" maxlength="2000">${escapeHtml(item.observacoes_humanas || "")}</textarea></label>
         <button class="primary-button" type="submit">Registrar comparação</button>
         <p class="comparison-state ${item.concordancia === false ? "divergent" : ""}">${escapeHtml(agreement)}${item.avaliado_em ? ` · ${dateTimeLabel(item.avaliado_em)}` : ""}</p>
-        <button class="secondary-button ai-generate-button" type="button" data-ai-id="${item.id}">Gerar explicação interna com IA</button>
       </form>
     </div>
   </article>`;
@@ -74,33 +73,8 @@ list.addEventListener("submit", async (event) => {
     message.textContent = "Não foi possível registrar. Confira todos os campos.";
     return;
   }
-  if (data.status === "falhou_validacao" || data.status === "falhou_provedor") {
-    message.textContent = data.erro || "A geração foi bloqueada.";
-    button.disabled = false;
-    return;
-  }
   message.textContent = "Comparação registrada.";
   await load();
-});
-
-list.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-ai-id]");
-  if (!button) return;
-  button.disabled = true;
-  message.textContent = "Gerando explicação estruturada...";
-  const response = await fetch(`/v1/admin/fase4/avaliacoes/${button.dataset.aiId}/gerar`, {
-    method: "POST",
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    message.textContent = data.detail || "Não foi possível gerar a explicação.";
-    button.disabled = false;
-    return;
-  }
-  message.textContent = data.revisao_obrigatoria
-    ? "Explicação gerada e bloqueada para revisão humana."
-    : "Explicação interna gerada.";
-  window.location.href = "/admin/fase4";
 });
 
 load().catch((error) => {

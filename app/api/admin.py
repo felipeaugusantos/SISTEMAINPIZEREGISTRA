@@ -9,16 +9,13 @@ from app.database import get_session
 from app.models import (
     AfinidadeClasse,
     AvaliacaoRiscoMarca,
-    ExplicacaoRiscoIA,
     Lead,
     MarcaAltoRenome,
     Movimentacao,
     PesquisaMarca,
     StatusLead,
 )
-from app.production import ia_efetivamente_habilitada, obter_controle_producao
 from app.schemas import AdminResumoResponse
-from app.settings import get_settings
 
 router = APIRouter(prefix="/v1/admin", tags=["painel administrativo"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -31,14 +28,20 @@ async def obter_resumo(session: SessionDep, usuario: AdminDep) -> AdminResumoRes
     metricas = (
         await session.execute(
             select(
-                select(func.count()).select_from(Lead).where(Lead.organizacao_id == organizacao_id).scalar_subquery(),
+                select(func.count())
+                .select_from(Lead)
+                .where(Lead.organizacao_id == organizacao_id)
+                .scalar_subquery(),
                 (
                     select(func.count())
                     .select_from(Lead)
                     .where(Lead.status == StatusLead.NOVO, Lead.organizacao_id == organizacao_id)
                     .scalar_subquery()
                 ),
-                select(func.count()).select_from(PesquisaMarca).where(PesquisaMarca.organizacao_id == organizacao_id).scalar_subquery(),
+                select(func.count())
+                .select_from(PesquisaMarca)
+                .where(PesquisaMarca.organizacao_id == organizacao_id)
+                .scalar_subquery(),
                 select(func.max(Movimentacao.numero_rpi)).scalar_subquery(),
                 (
                     select(func.count())
@@ -52,28 +55,34 @@ async def obter_resumo(session: SessionDep, usuario: AdminDep) -> AdminResumoRes
                     .where(AfinidadeClasse.status_revisao == "pendente")
                     .scalar_subquery()
                 ),
-                select(func.count()).select_from(AvaliacaoRiscoMarca).join(PesquisaMarca, PesquisaMarca.id == AvaliacaoRiscoMarca.pesquisa_id).where(PesquisaMarca.organizacao_id == organizacao_id).scalar_subquery(),
+                select(func.count())
+                .select_from(AvaliacaoRiscoMarca)
+                .join(PesquisaMarca, PesquisaMarca.id == AvaliacaoRiscoMarca.pesquisa_id)
+                .where(PesquisaMarca.organizacao_id == organizacao_id)
+                .scalar_subquery(),
                 (
                     select(func.count())
                     .select_from(AvaliacaoRiscoMarca)
                     .join(PesquisaMarca, PesquisaMarca.id == AvaliacaoRiscoMarca.pesquisa_id)
-                    .where(AvaliacaoRiscoMarca.nivel.in_(["alto", "critico"]), PesquisaMarca.organizacao_id == organizacao_id)
+                    .where(
+                        AvaliacaoRiscoMarca.nivel.in_(["alto", "critico"]),
+                        PesquisaMarca.organizacao_id == organizacao_id,
+                    )
                     .scalar_subquery()
                 ),
-                select(func.count()).select_from(ExplicacaoRiscoIA).join(AvaliacaoRiscoMarca, AvaliacaoRiscoMarca.id == ExplicacaoRiscoIA.avaliacao_risco_id).join(PesquisaMarca, PesquisaMarca.id == AvaliacaoRiscoMarca.pesquisa_id).where(PesquisaMarca.organizacao_id == organizacao_id).scalar_subquery(),
                 (
                     select(func.count())
-                    .select_from(ExplicacaoRiscoIA)
-                    .join(AvaliacaoRiscoMarca, AvaliacaoRiscoMarca.id == ExplicacaoRiscoIA.avaliacao_risco_id)
+                    .select_from(AvaliacaoRiscoMarca)
                     .join(PesquisaMarca, PesquisaMarca.id == AvaliacaoRiscoMarca.pesquisa_id)
-                    .where(ExplicacaoRiscoIA.status == "aguardando_revisao", PesquisaMarca.organizacao_id == organizacao_id)
+                    .where(
+                        AvaliacaoRiscoMarca.nivel_humano.is_(None),
+                        PesquisaMarca.organizacao_id == organizacao_id,
+                    )
                     .scalar_subquery()
                 ),
             )
         )
     ).one()
-    settings = get_settings()
-    controle = await obter_controle_producao(session)
     return AdminResumoResponse(
         leads_total=metricas[0],
         leads_novos=metricas[1],
@@ -83,9 +92,5 @@ async def obter_resumo(session: SessionDep, usuario: AdminDep) -> AdminResumoRes
         afinidades_pendentes=metricas[5],
         riscos_calculados=metricas[6],
         riscos_elevados=metricas[7],
-        explicacoes_total=metricas[8],
-        explicacoes_aguardando_revisao=metricas[9],
-        ia_habilitada=ia_efetivamente_habilitada(settings, controle),
-        ia_rollout_percentual=controle.ia_rollout_percentual,
-        modelo_ia=settings.openai_explanation_model,
+        riscos_pendentes_revisao=metricas[8],
     )

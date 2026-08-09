@@ -36,8 +36,6 @@ def _componente(caminho: str) -> str | None:
         return None
     if caminho.startswith("/v1/pesquisas-marca") and caminho.endswith("/relatorio"):
         return "relatorio"
-    if caminho.startswith("/v1/admin/fase4"):
-        return "ia"
     if caminho.startswith("/v1/admin"):
         return "administracao"
     if caminho.startswith("/v1/processos"):

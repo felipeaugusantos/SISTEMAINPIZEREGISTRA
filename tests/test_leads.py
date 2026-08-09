@@ -133,6 +133,59 @@ def test_admin_lista_com_credenciais() -> None:
     assert corpo["por_status"]["novo"] == 1
 
 
+def test_resumo_crm_apresenta_prioridades_comerciais() -> None:
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(itens=[(2, 1, 3)]),
+    )
+    app.dependency_overrides[obter_usuario_atual] = auth_override()
+
+    resposta = TestClient(app).get("/v1/admin/leads-crm")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["sem_responsavel"] == 2
+    assert resposta.json()["atrasadas"] == 1
+    assert resposta.json()["sem_proxima_acao"] == 3
+
+
+def test_admin_abre_contato_com_historico_de_pesquisas() -> None:
+    lead = Lead(
+        organizacao_id=1,
+        nome="Enzo",
+        email="enzo@empresa.com.br",
+        telefone="16999998888",
+        marca="MARCA INICIAL",
+        origem="relatorio",
+        status=StatusLead.NOVO,
+    )
+    lead.id = 22
+    lead.criado_em = datetime(2026, 8, 1, tzinfo=UTC)
+    lead.atualizado_em = lead.criado_em
+    pesquisa = PesquisaMarca(
+        id="pesquisa-contato",
+        organizacao_id=1,
+        lead_id=lead.id,
+        marca="MARCA MAIS RECENTE",
+        atividade="Tecnologia",
+        tipo_pesquisa="completa",
+    )
+    pesquisa.criado_em = datetime(2026, 8, 8, tzinfo=UTC)
+
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(scalar=lead),
+        FakeResult(itens=[(pesquisa, "alto", 72, True)]),
+    )
+    app.dependency_overrides[obter_usuario_atual] = auth_override()
+
+    resposta = TestClient(app).get(f"/v1/admin/leads/{lead.id}")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["nome"] == "Enzo"
+    assert corpo["total_pesquisas"] == 1
+    assert corpo["ultima_pesquisa"]["id"] == pesquisa.id
+    assert corpo["pesquisas"][0]["marca"] == "MARCA MAIS RECENTE"
+
+
 def test_leituras_admin_nao_sao_bloqueadas_por_rate_limit() -> None:
     app.dependency_overrides[get_session] = sessao_override(
         FakeResult(scalar=0),
@@ -207,6 +260,53 @@ def test_resumo_distingue_relatorio_completo_gerado_pelo_time() -> None:
     gerado = _resumo_pesquisa(pesquisa, "moderado", 40, True)
     assert gerado.relatorio_completo_gerado is True
     assert gerado.relatorio_completo_gerado_por == "Admin Teste"
+
+
+def test_resumo_do_contato_agrega_historico_risco_e_relatorios() -> None:
+    lead = Lead(
+        organizacao_id=1,
+        nome="Contato",
+        email="contato@empresa.com.br",
+        telefone="11999998888",
+        marca="MARCA ANTIGA",
+        origem="relatorio",
+        status=StatusLead.NOVO,
+    )
+    lead.id = 20
+    lead.criado_em = datetime(2026, 1, 1, tzinfo=UTC)
+    lead.atualizado_em = lead.criado_em
+
+    antiga = PesquisaMarca(
+        id="pesquisa-antiga",
+        organizacao_id=1,
+        marca="MARCA ANTIGA",
+        atividade="Comércio",
+        tipo_pesquisa="completa",
+        relatorio_completo_gerado_em=datetime(2026, 2, 2, tzinfo=UTC),
+    )
+    antiga.criado_em = datetime(2026, 2, 1, tzinfo=UTC)
+    recente = PesquisaMarca(
+        id="pesquisa-recente",
+        organizacao_id=1,
+        marca="MARCA NOVA",
+        atividade="Tecnologia",
+        tipo_pesquisa="completa",
+    )
+    recente.criado_em = datetime(2026, 3, 1, tzinfo=UTC)
+    pesquisas = [
+        _resumo_pesquisa(recente, "moderado", 48, True),
+        _resumo_pesquisa(antiga, "critico", 91, True),
+    ]
+
+    resposta = _lead_response(lead, usuario_teste(), pesquisas)
+
+    assert resposta.total_pesquisas == 2
+    assert resposta.ultima_pesquisa.id == "pesquisa-recente"
+    assert resposta.ultima_pesquisa_em == recente.criado_em
+    assert resposta.risco_mais_alto == "critico"
+    assert resposta.risco_mais_alto_pontuacao == 91
+    assert resposta.relatorios_completos_gerados == 1
+    assert [item.id for item in resposta.pesquisas] == ["pesquisa-recente", "pesquisa-antiga"]
 
 
 def test_geracao_de_relatorio_completo_exige_autenticacao() -> None:

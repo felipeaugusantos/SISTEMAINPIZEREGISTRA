@@ -1,7 +1,7 @@
 import csv
 import io
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
@@ -36,10 +36,10 @@ from app.tenancy import OrganizacaoPublicaDep
 
 router = APIRouter(tags=["leads"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-limitar_leads = RateLimiter(limite=10, janela_segundos=60)
+limitar_leads = RateLimiter(limite=10, janela_segundos=60, escopo="leads-publicos")
 # Nomes preservados apenas para limpeza de estado nos testes antigos; não autenticam requisições.
-limitar_admin = RateLimiter(limite=10, janela_segundos=60)
-limitar_acoes_admin = RateLimiter(limite=30, janela_segundos=60)
+limitar_admin = RateLimiter(limite=10, janela_segundos=60, escopo="admin-legado")
+limitar_acoes_admin = RateLimiter(limite=30, janela_segundos=60, escopo="admin-acoes")
 LeadsViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
 LeadsManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.manage"))]
 LeadsDeleteDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.delete"))]
@@ -51,6 +51,10 @@ DeslocamentoLead = Annotated[int, Query(ge=0)]
 DataLead = Annotated[datetime | None, Query()]
 OrigemLead = Annotated[str | None, Query(max_length=30)]
 ResponsavelLead = Annotated[int | None, Query(ge=1)]
+PrioridadeLead = Annotated[
+    Literal["atrasadas", "sem_responsavel", "sem_proxima_acao"] | None,
+    Query(),
+]
 
 
 def _escapar_busca(valor: str) -> str:
@@ -109,6 +113,7 @@ def _filtros_lead(
     data_fim: datetime | None,
     marketing: bool | None,
     arquivados: bool,
+    prioridade: str | None = None,
 ) -> list:
     filtros = [Lead.organizacao_id == usuario.organizacao_id]
     filtros.append(Lead.arquivado_em.is_not(None) if arquivados else Lead.arquivado_em.is_(None))
@@ -143,6 +148,28 @@ def _filtros_lead(
         filtros.append(Lead.criado_em <= data_fim)
     if marketing is not None:
         filtros.append(Lead.aceite_marketing.is_(marketing))
+    if prioridade == "atrasadas":
+        filtros.extend(
+            (
+                Lead.proxima_acao_em.is_not(None),
+                Lead.proxima_acao_em < datetime.now(UTC),
+                Lead.status.not_in((StatusLead.CONVERTIDO, StatusLead.DESCARTADO)),
+            )
+        )
+    elif prioridade == "sem_responsavel":
+        filtros.extend(
+            (
+                Lead.responsavel_id.is_(None),
+                Lead.status.not_in((StatusLead.CONVERTIDO, StatusLead.DESCARTADO)),
+            )
+        )
+    elif prioridade == "sem_proxima_acao":
+        filtros.extend(
+            (
+                Lead.proxima_acao_em.is_(None),
+                Lead.status.not_in((StatusLead.CONVERTIDO, StatusLead.DESCARTADO)),
+            )
+        )
     return filtros
 
 
@@ -241,13 +268,35 @@ def _lead_response(
     usuario: UsuarioAutenticado,
     pesquisas: list[PesquisaLeadResumo] | None = None,
 ) -> LeadResponse:
+    pesquisas = pesquisas or []
     dados = LeadResponse.model_validate(lead)
     if not usuario.pode("leads.pii.view"):
         dados.email = _mascarar_email(dados.email)
         dados.telefone = _mascarar_telefone(dados.telefone)
     dados.responsavel_nome = getattr(getattr(lead, "responsavel", None), "nome", None)
-    dados.total_pesquisas = len(pesquisas or [])
+    dados.total_pesquisas = len(pesquisas)
     dados.ultima_pesquisa = pesquisas[0] if pesquisas else None
+    dados.ultima_pesquisa_em = pesquisas[0].criado_em if pesquisas else lead.criado_em
+    dados.relatorios_completos_gerados = sum(item.relatorio_completo_gerado for item in pesquisas)
+    dados.pesquisas = pesquisas
+    pesquisas_com_risco = [item for item in pesquisas if item.risco_nivel]
+    if pesquisas_com_risco:
+        ordem_risco = {
+            "baixo": 1,
+            "moderado": 2,
+            "alto": 3,
+            "muito_alto": 4,
+            "critico": 5,
+        }
+        maior_risco = max(
+            pesquisas_com_risco,
+            key=lambda item: (
+                ordem_risco.get(item.risco_nivel or "", 0),
+                item.risco_pontuacao if item.risco_pontuacao is not None else -1,
+            ),
+        )
+        dados.risco_mais_alto = maior_risco.risco_nivel
+        dados.risco_mais_alto_pontuacao = maior_risco.risco_pontuacao
     return dados
 
 
@@ -326,6 +375,7 @@ async def listar_leads(
     data_fim: DataLead = None,
     marketing: bool | None = None,
     arquivados: bool = False,
+    prioridade: PrioridadeLead = None,
 ) -> LeadListResponse:
     filtros = _filtros_lead(
         usuario,
@@ -337,6 +387,7 @@ async def listar_leads(
         data_fim,
         marketing,
         arquivados,
+        prioridade,
     )
 
     total = (
@@ -349,11 +400,17 @@ async def listar_leads(
     total_global = (
         await session.execute(select(func.count()).select_from(Lead).where(*filtros_globais))
     ).scalar_one()
+    ultima_pesquisa_em = (
+        select(func.max(PesquisaMarca.criado_em))
+        .where(PesquisaMarca.lead_id == Lead.id)
+        .correlate(Lead)
+        .scalar_subquery()
+    )
     consulta = (
         select(Lead)
         .options(selectinload(Lead.responsavel))
         .where(*filtros)
-        .order_by(Lead.criado_em.desc())
+        .order_by(func.coalesce(ultima_pesquisa_em, Lead.criado_em).desc(), Lead.id.desc())
         .limit(limite)
         .offset(deslocamento)
     )
@@ -417,6 +474,34 @@ async def listar_leads(
             "ver_pii": usuario.pode("leads.pii.view"),
         },
     )
+
+
+@router.get("/v1/admin/leads-crm")
+async def resumo_crm_leads(session: SessionDep, usuario: LeadsViewDep) -> dict:
+    agora = datetime.now(UTC)
+    em_aberto = Lead.status.not_in((StatusLead.CONVERTIDO, StatusLead.DESCARTADO))
+    linha = (
+        await session.execute(
+            select(
+                func.count().filter(Lead.responsavel_id.is_(None), em_aberto),
+                func.count().filter(
+                    Lead.proxima_acao_em.is_not(None),
+                    Lead.proxima_acao_em < agora,
+                    em_aberto,
+                ),
+                func.count().filter(Lead.proxima_acao_em.is_(None), em_aberto),
+            ).where(
+                Lead.organizacao_id == usuario.organizacao_id,
+                Lead.arquivado_em.is_(None),
+            )
+        )
+    ).one()
+    return {
+        "sem_responsavel": int(linha[0] or 0),
+        "atrasadas": int(linha[1] or 0),
+        "sem_proxima_acao": int(linha[2] or 0),
+        "atualizado_em": agora,
+    }
 
 
 @router.patch("/v1/admin/leads/{lead_id}", response_model=LeadResponse)
@@ -538,7 +623,7 @@ async def detalhar_lead(
         for pesquisa, nivel, pontuacao, disponivel in linhas
     ]
     base = _lead_response(lead, usuario, pesquisas)
-    return LeadDetalheResponse(**base.model_dump(), pesquisas=pesquisas)
+    return LeadDetalheResponse.model_validate(base.model_dump())
 
 
 @router.delete("/v1/admin/leads/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -612,6 +697,7 @@ async def exportar_leads(
     data_inicio: DataLead = None,
     data_fim: DataLead = None,
     marketing: bool | None = None,
+    prioridade: PrioridadeLead = None,
 ) -> StreamingResponse:
     if not usuario.pode("leads.pii.view"):
         raise HTTPException(status_code=403, detail="Sem permissao para exportar dados de contato")
@@ -625,6 +711,7 @@ async def exportar_leads(
         data_fim,
         marketing,
         False,
+        prioridade,
     )
     leads = (
         (

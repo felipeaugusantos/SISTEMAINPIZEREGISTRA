@@ -1,5 +1,6 @@
 import re
 import unicodedata
+from difflib import SequenceMatcher
 
 from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +25,8 @@ PALAVRAS_IGNORADAS = {
 }
 MAX_VARIACOES_POR_PALAVRA = 8
 MAX_VARIACOES_TOTAL = 24
-VERSAO_BUSCA = "busca-marcas-2.0"
+VERSAO_BUSCA = "busca-marcas-3.0"
+LIMIAR_TRIGRAMA = 0.30
 
 
 def normalizar_texto(valor: str) -> str:
@@ -130,6 +132,8 @@ def identificar_criterios(titulo: str | None, marca: str) -> list[str]:
         criterios.append("Radical semelhante")
     if any(variacao in titulo_normalizado for variacao in variacoes):
         criterios.append("Variação ortográfica ou fonética")
+    if SequenceMatcher(None, titulo_normalizado, marca_normalizada).ratio() >= 0.55:
+        criterios.append("Semelhança global do nome")
 
     return criterios[:3] or ["Aproximação nominativa"]
 
@@ -150,6 +154,9 @@ async def buscar_marcas(
     filtro_identico = func.lower(titulo_normalizado) == func.lower(
         func.immutable_unaccent(marca_limpa)
     )
+    filtro_trigrama = titulo_normalizado.bool_op("%")(
+        func.immutable_unaccent(marca_limpa)
+    )
 
     radicais = extrair_radicais(marca_limpa)
     variacoes = gerar_variacoes(marca_limpa)
@@ -164,7 +171,7 @@ async def buscar_marcas(
     elif tipo_pesquisa == "radical":
         filtro_texto = or_(*filtros_ampliados)
     else:
-        filtro_texto = or_(filtro_frase, *filtros_ampliados)
+        filtro_texto = or_(filtro_frase, filtro_trigrama, *filtros_ampliados)
 
     filtros_base = [Processo.tipo == TipoProcesso.MARCA]
     if classe_nice:
@@ -180,7 +187,7 @@ async def buscar_marcas(
     filtros = [*filtros_base, filtro_texto]
 
     filtro_radical = or_(*filtros_ampliados) if filtros_ampliados else filtro_frase
-    filtro_candidatos = or_(filtro_frase, filtro_radical)
+    filtro_candidatos = or_(filtro_frase, filtro_radical, filtro_trigrama)
     contagens = (
         await session.execute(
             select(
@@ -238,5 +245,15 @@ async def buscar_marcas(
             "alto renome",
         ],
         "versao_algoritmo": VERSAO_BUSCA,
+        "estrategias_executadas": [
+            "exata",
+            "radical",
+            "fonetica",
+            "similaridade_trigrama",
+        ],
+        "termos_consultados": list(
+            dict.fromkeys([normalizar_texto(marca_limpa), *radicais, *variacoes])
+        ),
+        "limiar_trigrama": LIMIAR_TRIGRAMA,
     }
     return total, ocorrencias, evidencias

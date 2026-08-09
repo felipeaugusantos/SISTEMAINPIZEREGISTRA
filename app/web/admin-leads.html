@@ -6,9 +6,9 @@
     <meta name="robots" content="noindex,nofollow" />
     <title>Painel de leads — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=18" />
-    <link rel="stylesheet" href="/static/admin-leads.css?v=3" />
+    <link rel="stylesheet" href="/static/admin-leads.css?v=5" />
     <script src="/static/admin-shell.js?v=19" defer></script>
-    <script src="/static/admin-leads.js?v=20" defer></script>
+    <script src="/static/admin-leads.js?v=22" defer></script>
   </head>
   <body class="admin-body" data-admin-section="leads">
     <header class="topbar">
@@ -40,6 +40,30 @@
         <div><span>Convertidos</span><strong id="metric-converted">0</strong></div>
       </section>
 
+      <section class="crm-overview" aria-labelledby="crm-title">
+        <header>
+          <div>
+            <p class="eyebrow">Funil comercial</p>
+            <h2 id="crm-title">Pipeline de atendimento</h2>
+          </div>
+          <p>Clique em uma etapa ou prioridade para filtrar a carteira.</p>
+        </header>
+        <div id="crm-pipeline" class="crm-pipeline" aria-label="Etapas do funil">
+          <button type="button" class="crm-stage" data-status="novo"><span>Novo</span><strong id="crm-status-novo">0</strong></button>
+          <button type="button" class="crm-stage" data-status="em_contato"><span>Em contato</span><strong id="crm-status-em_contato">0</strong></button>
+          <button type="button" class="crm-stage" data-status="qualificado"><span>Qualificado</span><strong id="crm-status-qualificado">0</strong></button>
+          <button type="button" class="crm-stage" data-status="proposta_enviada"><span>Proposta enviada</span><strong id="crm-status-proposta_enviada">0</strong></button>
+          <button type="button" class="crm-stage" data-status="sem_retorno"><span>Sem retorno</span><strong id="crm-status-sem_retorno">0</strong></button>
+          <button type="button" class="crm-stage" data-status="convertido"><span>Convertido</span><strong id="crm-status-convertido">0</strong></button>
+          <button type="button" class="crm-stage" data-status="descartado"><span>Descartado</span><strong id="crm-status-descartado">0</strong></button>
+        </div>
+        <div id="crm-priorities" class="crm-priorities" aria-label="Filas de prioridade">
+          <button type="button" class="crm-priority overdue" data-priority="atrasadas"><span>Ações atrasadas</span><strong id="crm-overdue">0</strong><small>Precisam de retorno</small></button>
+          <button type="button" class="crm-priority" data-priority="sem_responsavel"><span>Sem responsável</span><strong id="crm-unassigned">0</strong><small>Aguardam distribuição</small></button>
+          <button type="button" class="crm-priority" data-priority="sem_proxima_acao"><span>Sem próxima ação</span><strong id="crm-no-action">0</strong><small>Precisam de planejamento</small></button>
+        </div>
+      </section>
+
       <form id="lead-filters" class="admin-filters">
         <label>
           <span>Buscar lead</span>
@@ -69,14 +93,21 @@
       </form>
 
       <div id="admin-message" class="status-message" role="status"></div>
+      <section class="lead-view-toolbar" aria-label="Visualização dos resultados">
+        <div class="lead-view-switch" role="group" aria-label="Agrupar resultados">
+          <button class="lead-view-button active" type="button" data-view="contacts" aria-pressed="true">Por contato</button>
+          <button class="lead-view-button" type="button" data-view="researches" aria-pressed="false">Por pesquisa</button>
+        </div>
+        <p id="lead-view-description">Cada linha representa um contato e resume todo o seu histórico.</p>
+      </section>
       <div class="leads-table-shell">
         <table class="leads-table">
           <thead>
             <tr>
               <th>Contato</th>
-              <th>Pesquisa</th>
+              <th id="research-column-title">Histórico de pesquisas</th>
               <th>Atendimento</th>
-              <th>Recebido em</th>
+              <th id="activity-column-title">Última pesquisa</th>
               <th>Status</th>
               <th><span class="visually-hidden">Ações</span></th>
             </tr>

@@ -5,39 +5,10 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import ControleProducao, VersaoRelatorioMarca
+from app.models import VersaoRelatorioMarca
 from app.schemas import RelatorioMarcaResponse
-from app.settings import Settings
 
-SCHEMA_RELATORIO = "relatorio-marca-4.2"
-
-
-def elegivel_rollout(chave: str, percentual: int) -> bool:
-    if percentual <= 0:
-        return False
-    if percentual >= 100:
-        return True
-    faixa = int(hashlib.sha256(chave.encode("utf-8")).hexdigest()[:8], 16) % 100
-    return faixa < percentual
-
-
-async def obter_controle_producao(session: AsyncSession) -> ControleProducao:
-    controle = await session.get(ControleProducao, 1)
-    if controle is not None:
-        return controle
-    controle = ControleProducao(id=1, ia_habilitada=False, ia_rollout_percentual=0)
-    session.add(controle)
-    await session.flush()
-    return controle
-
-
-def ia_efetivamente_habilitada(
-    settings: Settings,
-    controle: ControleProducao,
-) -> bool:
-    return bool(
-        settings.ai_explanations_enabled and settings.openai_api_key and controle.ia_habilitada
-    )
+SCHEMA_RELATORIO = "relatorio-marca-4.3"
 
 
 def _hash_conteudo(relatorio: RelatorioMarcaResponse) -> str:

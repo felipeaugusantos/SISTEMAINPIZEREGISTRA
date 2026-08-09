@@ -6,9 +6,9 @@
     <meta name="robots" content="noindex,nofollow" />
     <title>Central de análise — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=18" />
-    <link rel="stylesheet" href="/static/admin-analise.css?v=1" />
+    <link rel="stylesheet" href="/static/admin-analise.css?v=4" />
     <script src="/static/admin-shell.js?v=19" defer></script>
-    <script src="/static/admin-analise.js?v=1" defer></script>
+    <script src="/static/admin-analise.js?v=5" defer></script>
   </head>
   <body class="admin-body" data-admin-section="leads">
     <header class="topbar"><span>Central de análise</span></header>
@@ -20,7 +20,7 @@
         <div>
           <p class="eyebrow">Dossiê técnico unificado</p>
           <h1 id="analysis-brand">Carregando pesquisa…</h1>
-          <p id="analysis-subtitle">Reunindo validação, risco, aprendizado e explicação assistida.</p>
+          <p id="analysis-subtitle">Reunindo validação, risco, aprendizado e parecer profissional.</p>
         </div>
         <div class="analysis-heading-actions">
           <button id="analysis-help-open" class="help-trigger" type="button" aria-label="Como usar esta tela">?</button>
@@ -50,14 +50,51 @@
       <div class="analysis-help-content">
         <p class="help-intro">Use as etapas na ordem apresentada. O sistema calcula os indicadores; o analista interpreta as evidências e registra o parecer.</p>
         <details id="help-overview" open><summary>1. Confira o contexto</summary><p>Valide a marca, a atividade informada, o cliente e a atualização da base antes de interpretar qualquer indicador.</p></details>
-        <details id="help-validation"><summary>2. Validação técnica</summary><p>Confira situações, classes de Nice, afinidade entre atividades, alto renome e qualidade dos dados. Pendências de classificação reduzem a segurança da interpretação.</p></details>
+        <details id="help-validation"><summary>2. Validação técnica e matriz oficial</summary><p>Confira situações, classes de Nice, afinidade, alto renome e a Matriz de Registrabilidade INPI. “Não analisado” significa que faltam dados ou avaliação profissional; nunca deve ser interpretado como favorável.</p></details>
         <details id="help-risk"><summary>3. Motor de risco</summary><p>A pontuação é determinística e auditável. Ela mede conflitos encontrados; não é a mesma coisa que a probabilidade estatística de deferimento.</p></details>
         <details id="help-learning"><summary>4. Aprendizado supervisionado</summary><p>A probabilidade usa decisões históricas. Leia junto a faixa de incerteza, confiança, cobertura e alertas de qualidade. Ela é preliminar e não garante registro.</p></details>
-        <details id="help-ai"><summary>5. IA explicativa</summary><p>A IA apenas explica dados estruturados já calculados. Ela não cria processos, classes, fundamentos ou uma nova pontuação. Revise a saída antes de utilizá-la.</p></details>
         <details id="help-opinion"><summary>6. Parecer humano</summary><p>Registre sua classificação e justificativa com base nos conflitos relevantes. O parecer fica versionado e alimenta a comparação entre máquina e especialista.</p></details>
         <details id="help-report"><summary>7. Relatório completo</summary><p>Gere somente após conferir as etapas anteriores. A primeira geração registra data e responsável; novas gerações preservam esse histórico.</p></details>
         <section class="help-glossary"><h3>Indicadores essenciais</h3><dl><dt>Risco</dt><dd>Pontuação por regras de conflito.</dd><dt>Probabilidade</dt><dd>Estimativa histórica de deferimento.</dd><dt>Confiança</dt><dd>Estabilidade estatística da estimativa.</dd><dt>Cobertura</dt><dd>Quanto a pesquisa se parece com os exemplos conhecidos pelo modelo.</dd></dl></section>
       </div>
+    </dialog>
+
+    <dialog id="registrability-dialog" class="registrability-dialog" aria-labelledby="registrability-dialog-title">
+      <form id="registrability-form">
+        <header><div><p class="eyebrow">Complementação técnica</p><h2 id="registrability-dialog-title">Completar análise oficial</h2></div><button id="registrability-close" type="button" aria-label="Fechar">×</button></header>
+        <p class="registrability-intro">Preencha somente o que puder confirmar. Respostas desconhecidas permanecem pendentes e não serão tratadas como favoráveis.</p>
+        <div class="registrability-fields">
+          <fieldset><legend>Sinal e apresentação</legend>
+            <label><span>Forma de apresentação</span><select name="forma_apresentacao"><option value="">Não informado</option><option value="nominativa">Nominativa</option><option value="mista">Mista</option><option value="figurativa">Figurativa</option><option value="tridimensional">Tridimensional</option><option value="posicao">De posição</option></select></label>
+            <label class="wide"><span>Descrição do logotipo ou elementos visuais</span><textarea name="descricao_visual" rows="3" maxlength="2000"></textarea></label>
+            <label class="wide"><span>Significado da marca ou expressão</span><textarea name="significado" rows="3" maxlength="2000"></textarea></label>
+          </fieldset>
+          <fieldset><legend>Produtos, serviços e requerente</legend>
+            <label class="wide"><span>Produtos e serviços exatos</span><textarea name="produtos_servicos" rows="3" maxlength="4000"></textarea></label>
+            <label><span>Tipo do requerente</span><select name="requerente_tipo"><option value="">Não informado</option><option value="pessoa_fisica">Pessoa física</option><option value="pessoa_juridica">Pessoa jurídica</option></select></label>
+            <label><span>Atividade compatível?</span><select name="atividade_compativel" data-boolean><option value="">Não verificado</option><option value="true">Sim</option><option value="false">Não</option></select></label>
+            <label class="wide"><span>Atividade exercida pelo requerente</span><textarea name="atividade_requerente" rows="2" maxlength="2000"></textarea></label>
+          </fieldset>
+          <fieldset><legend>Liceidade, distintividade e veracidade</legend>
+            <label><span>Usa símbolo oficial?</span><select name="usa_simbolo_oficial" data-boolean><option value="">Não verificado</option><option value="true">Sim</option><option value="false">Não</option></select></label>
+            <label><span>Conteúdo potencialmente ofensivo?</span><select name="conteudo_potencialmente_ofensivo" data-boolean><option value="">Não verificado</option><option value="true">Sim</option><option value="false">Não</option></select></label>
+            <label><span>Termo genérico ou descritivo?</span><select name="termo_generico_descritivo" data-boolean><option value="">Não verificado</option><option value="true">Sim</option><option value="false">Não</option></select></label>
+            <label><span>Alega origem, qualidade ou certificação?</span><select name="possui_alegacao_origem_qualidade" data-boolean><option value="">Não verificado</option><option value="true">Sim</option><option value="false">Não</option></select></label>
+            <label><span>A alegação é comprovável?</span><select name="alegacao_comprovavel" data-boolean><option value="">Não verificado</option><option value="true">Sim</option><option value="false">Não</option></select></label>
+          </fieldset>
+          <fieldset><legend>Direitos, documentos e depósito</legend>
+            <label><span>Usa nome ou imagem de terceiro?</span><select name="usa_nome_ou_imagem_terceiro" data-boolean><option value="">Não verificado</option><option value="true">Sim</option><option value="false">Não</option></select></label>
+            <label><span>Usa obra protegida de terceiro?</span><select name="usa_obra_terceiro" data-boolean><option value="">Não verificado</option><option value="true">Sim</option><option value="false">Não</option></select></label>
+            <label><span>Usa indicação geográfica?</span><select name="usa_indicacao_geografica" data-boolean><option value="">Não verificado</option><option value="true">Sim</option><option value="false">Não</option></select></label>
+            <label><span>Possui autorizações necessárias?</span><select name="possui_autorizacoes" data-boolean><option value="">Não verificado</option><option value="true">Sim</option><option value="false">Não</option></select></label>
+            <label><span>Documentos obrigatórios disponíveis?</span><select name="documentos_obrigatorios_disponiveis" data-boolean><option value="">Não verificado</option><option value="true">Sim</option><option value="false">Não</option></select></label>
+            <label><span>Pedido já depositado?</span><select name="deposito_realizado" data-boolean><option value="false">Não</option><option value="true">Sim</option></select></label>
+            <label><span>Número do pedido</span><input name="numero_pedido" maxlength="50" /></label>
+            <label><span>Oposição identificada?</span><select name="oposicao_identificada" data-boolean><option value="">Não verificado</option><option value="true">Sim</option><option value="false">Não</option></select></label>
+          </fieldset>
+        </div>
+        <footer><span id="registrability-save-message" role="status"></span><button class="secondary-button" id="registrability-cancel" type="button">Cancelar</button><button class="primary-button" type="submit">Salvar e recalcular matriz</button></footer>
+      </form>
     </dialog>
   </body>
 </html>

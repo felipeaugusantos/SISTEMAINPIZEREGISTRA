@@ -34,14 +34,17 @@ from app.schemas import (
     PesquisaMarcaCriada,
     QualidadeBaseResponse,
     RelatorioMarcaResponse,
+    ResumoPublicoMarcaResponse,
     TitularResponse,
 )
 from app.search import buscar_marcas, normalizar_texto
 from app.tenancy import OrganizacaoPublicaDep, validar_limite_pesquisas
 from app.trademarks.affinity import avaliar_afinidade
+from app.trademarks.agent import registrar_execucao_agente
 from app.trademarks.learning import extrair_atributos_par, registrar_previsao_sombra
 from app.trademarks.nice import mapear_atividade
 from app.trademarks.quality import avaliar_qualidade_base
+from app.trademarks.registrability import construir_matriz_registrabilidade
 from app.trademarks.relevance import (
     ORDEM_RELEVANCIA,
     classificar_relevancia,
@@ -59,7 +62,7 @@ from app.trademarks.status import normalizar_despacho
 
 router = APIRouter(prefix="/v1/pesquisas-marca", tags=["pesquisas de marcas"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-limitar_pesquisas = RateLimiter(limite=10, janela_segundos=60)
+limitar_pesquisas = RateLimiter(limite=10, janela_segundos=60, escopo="pesquisas-publicas")
 
 
 @router.post(
@@ -137,12 +140,34 @@ async def criar_pesquisa(
     return PesquisaMarcaCriada(id=pesquisa.id, relatorio_url=f"/relatorios/{pesquisa.id}")
 
 
-@router.get("/{pesquisa_id}/relatorio", response_model=RelatorioMarcaResponse)
+def construir_resumo_publico(relatorio: RelatorioMarcaResponse) -> ResumoPublicoMarcaResponse:
+    return ResumoPublicoMarcaResponse(
+        id=relatorio.id,
+        versao=relatorio.versao,
+        gerado_em=relatorio.gerado_em,
+        marca=relatorio.marca,
+        atividade=relatorio.atividade,
+        criado_em=relatorio.criado_em,
+        ultima_rpi=relatorio.ultima_rpi,
+        classes_atividade=relatorio.classes_atividade,
+        total=relatorio.total,
+        evidencias_busca=relatorio.evidencias_busca,
+        qualidade_base=relatorio.qualidade_base,
+        conclusao=relatorio.conclusao,
+        risco_pontuacao=relatorio.risco_pontuacao,
+        risco_nivel=relatorio.risco_nivel,
+        estimativa_status=relatorio.estimativa_status,
+        estimativa_mensagem=relatorio.estimativa_mensagem,
+        estimativa_registrabilidade=relatorio.estimativa_registrabilidade,
+    )
+
+
+@router.get("/{pesquisa_id}/relatorio", response_model=ResumoPublicoMarcaResponse)
 async def obter_relatorio(
     pesquisa_id: str,
     session: SessionDep,
     organizacao: OrganizacaoPublicaDep,
-) -> RelatorioMarcaResponse:
+) -> ResumoPublicoMarcaResponse:
     pesquisa = (
         await session.execute(
             select(PesquisaMarca)
@@ -335,7 +360,7 @@ async def obter_relatorio(
     )
     modelo_previsao = (
         await session.get(ModeloRegistrabilidade, previsao.modelo_id)
-        if (previsao is not None and previsao.modo == "cliente" and previsao.elegivel_cliente)
+        if previsao is not None
         else None
     )
     nivel, titulo, resumo, revisao = construir_conclusao(itens, total)
@@ -353,6 +378,7 @@ async def obter_relatorio(
                 titulo=classe.titulo,
                 tipo=classe.tipo,
                 termos_encontrados=list(classe.termos_encontrados),
+                confianca=classe.confianca,
             )
             for classe in classes_atividade
         ],
@@ -369,6 +395,8 @@ async def obter_relatorio(
             resumo=resumo,
             revisao_humana_recomendada=revisao,
         ),
+        risco_pontuacao=avaliacao.pontuacao,
+        risco_nivel=avaliacao.nivel,
         estimativa_status=(
             "disponivel"
             if previsao is not None and modelo_previsao is not None
@@ -377,7 +405,12 @@ async def obter_relatorio(
             else "indisponivel"
         ),
         estimativa_mensagem=(
-            "A estimativa estatística foi validada para exibição nesta pesquisa."
+            (
+                "A estimativa estatística foi validada para exibição nesta pesquisa."
+                if previsao.elegivel_cliente
+                else "A estimativa preliminar foi calculada automaticamente e o modelo ainda "
+                "está em validação interna. Leia a faixa de incerteza e os avisos de qualidade."
+            )
             if previsao is not None and modelo_previsao is not None
             else (
                 "O modelo estatístico permanece em validação interna. Nenhuma probabilidade "
@@ -405,14 +438,44 @@ async def obter_relatorio(
                 corte_dados=previsao.corte_dados,
                 revisao_humana_obrigatoria=False,
                 fatores_principais=previsao.fatores_principais,
+                aviso=(
+                    "Estimativa estatística preliminar do deferimento no exame de mérito, "
+                    "baseada em decisões históricas publicadas. O modelo ainda está em "
+                    "validação interna; esta informação não constitui garantia de registro "
+                    "e não substitui o exame do INPI."
+                    if not previsao.elegivel_cliente
+                    else "Estimativa estatística preliminar do deferimento no exame de "
+                    "mérito, baseada em decisões históricas publicadas. Não constitui "
+                    "garantia de registro e não substitui o exame do INPI."
+                ),
             )
             if previsao is not None and modelo_previsao is not None
             else None
         ),
     )
+    relatorio_payload = relatorio.model_dump(mode="json")
+    matriz_registrabilidade = construir_matriz_registrabilidade(
+        marca=pesquisa.marca,
+        atividade=pesquisa.atividade,
+        classe_nice=pesquisa.classe_nice,
+        relatorio=relatorio_payload,
+        pontuacao_risco=avaliacao.pontuacao,
+        nivel_risco=avaliacao.nivel,
+        dados_complementares=pesquisa.dados_complementares_registrabilidade or {},
+    )
+    await registrar_execucao_agente(
+        session,
+        pesquisa=pesquisa,
+        matriz=matriz_registrabilidade,
+        relatorio=relatorio_payload,
+        pontuacao_risco=avaliacao.pontuacao,
+        nivel_risco=avaliacao.nivel,
+        previsao=previsao,
+        modelo_versao=modelo_previsao.versao if modelo_previsao is not None else None,
+    )
     relatorio_versionado = await versionar_relatorio(session, relatorio)
     await session.commit()
-    return relatorio_versionado
+    return construir_resumo_publico(relatorio_versionado)
 
 
 @router.get("/{pesquisa_id}/relatorio.pdf", response_class=Response)

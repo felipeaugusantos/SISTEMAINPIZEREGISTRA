@@ -27,8 +27,10 @@ def exigir_token_integracao(
     if token and secrets.compare_digest(token, settings.inpi_integration_token):
         request.state.global_integration_token = True
         return
-    # Chaves SaaS sÃ£o validadas pelo resolvedor de organizaÃ§Ã£o, que possui acesso ao banco.
+    # Chaves SaaS são validadas pelo resolvedor de organização, que possui acesso ao banco.
+    # Aqui só sinalizamos que há um token candidato; a validação efetiva ocorre no resolvedor.
     if token:
+        request.state.integration_token_candidato = True
         return
 
     raise HTTPException(

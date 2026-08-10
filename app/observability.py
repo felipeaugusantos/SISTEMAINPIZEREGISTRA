@@ -103,18 +103,29 @@ async def _registrar(
         return
 
 
+# Swagger/Redoc dependem de scripts inline e CDN; nao recebem o CSP estrito.
+_ROTAS_DOCUMENTACAO = ("/docs", "/redoc", "/openapi.json")
+# Rotas sensiveis nao podem ser cacheadas por proxies/navegador.
+_ROTAS_SENSIVEIS = ("/admin", "/v1/admin", "/login", "/alterar-senha", "/v1/auth")
+_CSP_PADRAO = (
+    "default-src 'self'; img-src 'self' data: https:; "
+    "style-src 'self'; script-src 'self'; connect-src 'self'; "
+    "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+)
+
+
 def _cabecalhos_seguranca(response: Response, request: Request) -> None:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    if request.url.path.startswith(("/admin", "/v1/admin", "/login", "/alterar-senha", "/v1/auth")):
+    caminho = request.url.path
+    if caminho.startswith(_ROTAS_DOCUMENTACAO):
+        return
+    # CSP e protecao contra clickjacking em todas as paginas da aplicacao (inclui publicas).
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Content-Security-Policy", _CSP_PADRAO)
+    if caminho.startswith(_ROTAS_SENSIVEIS):
         response.headers["Cache-Control"] = "no-store"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; img-src 'self' data: https:; "
-            "style-src 'self'; script-src 'self'; connect-src 'self'; "
-            "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-        )
 
 
 async def observar_requisicao(request: Request, call_next: CallNext) -> Response:

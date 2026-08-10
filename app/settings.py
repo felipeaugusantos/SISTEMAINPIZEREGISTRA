@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     cors_allowed_origins: str = "*"
     redis_url: str = "redis://localhost:6379/0"
     redis_required: bool = False
+    # Usa Redis para o rate limiting (necessário com múltiplos workers/instâncias).
+    # Desligado por padrão: em processo único a janela em memória basta.
+    ratelimit_redis_enabled: bool = False
     password_reset_minutes: int = 30
 
     model_config = SettingsConfigDict(

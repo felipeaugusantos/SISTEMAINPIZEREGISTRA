@@ -2,8 +2,13 @@
 set -e
 
 # Aplica as migrações pendentes antes de iniciar os serviços.
-DATABASE_URL="${MIGRATION_DATABASE_URL:-$DATABASE_URL}" /app/.venv/bin/alembic upgrade head
-/app/.venv/bin/python -m app.bootstrap_admin
+if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
+    DATABASE_URL="${MIGRATION_DATABASE_URL:-$DATABASE_URL}" /app/.venv/bin/alembic upgrade head
+fi
+
+if [ "${BOOTSTRAP_ADMIN:-true}" = "true" ]; then
+    /app/.venv/bin/python -m app.bootstrap_admin
+fi
 
 if [ "$#" -gt 0 ]; then
     exec "$@"

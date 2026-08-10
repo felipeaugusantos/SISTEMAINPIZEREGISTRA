@@ -81,4 +81,14 @@ async def enviar_recuperacao_senha(destinatario: str, nome: str, token: str) -> 
     if not settings.email_enabled:
         return
     mensagem = _mensagem_recuperacao(destinatario, nome, token, settings)
-    await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+    ultimo_erro: Exception | None = None
+    for tentativa in range(1, max(1, settings.smtp_max_attempts) + 1):
+        try:
+            await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+            return
+        except Exception as exc:
+            ultimo_erro = exc
+            if tentativa < settings.smtp_max_attempts:
+                await asyncio.sleep(min(2 ** (tentativa - 1), 4))
+    if ultimo_erro is not None:
+        raise ultimo_erro

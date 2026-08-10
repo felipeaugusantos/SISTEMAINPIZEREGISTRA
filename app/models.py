@@ -242,6 +242,49 @@ class TokenRecuperacaoSenha(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class IdentidadeExterna(Base):
+    __tablename__ = "identidades_externas"
+    __table_args__ = (
+        UniqueConstraint("provedor", "provedor_usuario_id", name="uq_identidade_provedor_subject"),
+        UniqueConstraint("usuario_id", "provedor", name="uq_identidade_usuario_provedor"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    usuario_id: Mapped[int] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="CASCADE"), index=True
+    )
+    provedor: Mapped[str] = mapped_column(String(20), index=True)
+    provedor_usuario_id: Mapped[str] = mapped_column(String(255))
+    email_recebido: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    ultimo_login_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TentativaOAuth(Base):
+    __tablename__ = "tentativas_oauth"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    provedor: Mapped[str] = mapped_column(String(20), index=True)
+    state_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    browser_token_hash: Mapped[str] = mapped_column(String(64))
+    nonce: Mapped[str] = mapped_column(String(128))
+    code_verifier: Mapped[str] = mapped_column(String(180))
+    modo: Mapped[str] = mapped_column(String(20), default="login")
+    usuario_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    destino: Mapped[str] = mapped_column(String(300), default="/admin")
+    mfa_token_hash: Mapped[str | None] = mapped_column(
+        String(64), unique=True, nullable=True, index=True
+    )
+    expira_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    usado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class EventoCobrancaSandbox(Base):
     __tablename__ = "eventos_cobranca_sandbox"
 
@@ -656,11 +699,11 @@ class RotuloHistoricoMarca(Base):
 
 class EvidenciaDecisaoMarca(Base):
     __tablename__ = "evidencias_decisoes_marca"
+    __table_args__ = (UniqueConstraint("rotulo_id"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     rotulo_id: Mapped[int] = mapped_column(
         ForeignKey("rotulos_historicos_marca.id", ondelete="CASCADE"),
-        unique=True,
         index=True,
     )
     processo_numero: Mapped[str] = mapped_column(String(30), index=True)

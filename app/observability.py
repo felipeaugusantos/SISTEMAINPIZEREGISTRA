@@ -9,6 +9,7 @@ from fastapi import Request, Response
 
 from app.database import session_factory
 from app.models import EventoAuditoria, EventoOperacional
+from app.proxy import cliente_ip
 from app.settings import get_settings
 
 CallNext = Callable[[Request], Awaitable[Response]]
@@ -44,12 +45,10 @@ def _componente(caminho: str) -> str | None:
 
 
 def _hash_ip(request: Request) -> str | None:
-    if request.client is None:
-        return None
     segredo = get_settings().audit_ip_salt.encode("utf-8")
     return hmac.new(
         segredo,
-        request.client.host.encode("utf-8"),
+        cliente_ip(request).encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
 

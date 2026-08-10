@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from redis.asyncio import Redis
 
@@ -7,6 +8,8 @@ from app.settings import get_settings
 
 QUEUE_KEY = "ze-registra:jobs"
 FAILED_KEY = "ze-registra:jobs:failed"
+PROCESSING_KEY = "ze-registra:jobs:processing"
+MAX_ATTEMPTS = 3
 
 
 def cliente_redis() -> Redis:
@@ -14,7 +17,13 @@ def cliente_redis() -> Redis:
 
 
 async def enfileirar(tipo: str, payload: dict | None = None) -> dict:
-    job = {"tipo": tipo, "payload": payload or {}, "criado_em": datetime.now(UTC).isoformat()}
+    job = {
+        "id": str(uuid4()),
+        "tipo": tipo,
+        "payload": payload or {},
+        "tentativas": 0,
+        "criado_em": datetime.now(UTC).isoformat(),
+    }
     redis = cliente_redis()
     try:
         await redis.rpush(QUEUE_KEY, json.dumps(job))
@@ -31,6 +40,7 @@ async def status_fila() -> dict:
             "status": "ok",
             "pendentes": await redis.llen(QUEUE_KEY),
             "falhas": await redis.llen(FAILED_KEY),
+            "processando": await redis.llen(PROCESSING_KEY),
         }
     except Exception as exc:
         return {

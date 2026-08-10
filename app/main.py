@@ -25,6 +25,7 @@ from app.api.producao import router as producao_router
 from app.api.rpi_admin import router as rpi_admin_router
 from app.api.saas import exigir_superadmin
 from app.api.saas import router as saas_router
+from app.api.social_auth import router as social_auth_router
 from app.api.usuarios import router as usuarios_router
 from app.auth import exigir_permissao
 from app.database import get_session
@@ -40,6 +41,9 @@ app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
     description="API de pesquisa indicativa de marcas publicadas pelo INPI Brasil.",
+    docs_url=None if settings.app_env.lower() == "production" else "/docs",
+    redoc_url=None if settings.app_env.lower() == "production" else "/redoc",
+    openapi_url=None if settings.app_env.lower() == "production" else "/openapi.json",
 )
 if settings.admin_force_https:
     app.add_middleware(HTTPSRedirectMiddleware)
@@ -66,6 +70,7 @@ app.include_router(rpi_admin_router)
 app.include_router(aprendizado_router)
 app.include_router(consulta_router)
 app.include_router(auth_router)
+app.include_router(social_auth_router)
 app.include_router(usuarios_router)
 app.include_router(saas_router)
 app.include_router(confiabilidade_router)

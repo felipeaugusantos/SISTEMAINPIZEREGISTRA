@@ -43,10 +43,25 @@ services:
       timeout: 5s
       retries: 10
 
+  migrate:
+    build: .
+    command: ["/bin/true"]
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://inpi:inpi@db:5432/inpi
+      RUN_MIGRATIONS: "true"
+      BOOTSTRAP_ADMIN: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   api:
     build: .
     environment:
       APP_ENV: development
+      RUN_MIGRATIONS: "false"
+      BOOTSTRAP_ADMIN: "true"
       DATABASE_URL: postgresql+asyncpg://inpi_app:${APP_DB_PASSWORD:-inpi-app-local-change-me}@db:5432/inpi
       MIGRATION_DATABASE_URL: postgresql+asyncpg://inpi:inpi@db:5432/inpi
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
@@ -54,9 +69,6 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       SESSION_DURATION_HOURS: ${SESSION_DURATION_HOURS:-8}
       SESSION_IDLE_MINUTES: ${SESSION_IDLE_MINUTES:-60}
-      AI_EXPLANATIONS_ENABLED: ${AI_EXPLANATIONS_ENABLED:-false}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_EXPLANATION_MODEL: ${OPENAI_EXPLANATION_MODEL:-gpt-5.6-luna}
       AUDIT_IP_SALT: ${AUDIT_IP_SALT:-desenvolvimento-local}
       SECURITY_MASTER_KEY: ${SECURITY_MASTER_KEY:-desenvolvimento-local-chave-mestra}
       ADMIN_FORCE_HTTPS: ${ADMIN_FORCE_HTTPS:-false}
@@ -65,6 +77,8 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8000}
       REDIS_URL: redis://redis:6379/0
       REDIS_REQUIRED: "true"
+      RATELIMIT_REDIS_ENABLED: "true"
+      TRUSTED_PROXY_NETWORKS: ${TRUSTED_PROXY_NETWORKS:-127.0.0.1/32,::1/128,172.16.0.0/12,192.168.0.0/16}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:8000}
       EMAIL_ENABLED: ${EMAIL_ENABLED:-true}
       EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-nao-responda@zeregistra.local}
@@ -75,13 +89,26 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
       SMTP_TIMEOUT_SECONDS: ${SMTP_TIMEOUT_SECONDS:-10}
+      SMTP_MAX_ATTEMPTS: ${SMTP_MAX_ATTEMPTS:-3}
+      OAUTH_ATTEMPT_MINUTES: ${OAUTH_ATTEMPT_MINUTES:-10}
+      OAUTH_AUTO_LINK_VERIFIED_EMAIL: ${OAUTH_AUTO_LINK_VERIFIED_EMAIL:-true}
+      GOOGLE_OAUTH_ENABLED: ${GOOGLE_OAUTH_ENABLED:-false}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      APPLE_OAUTH_ENABLED: ${APPLE_OAUTH_ENABLED:-false}
+      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
+      APPLE_TEAM_ID: ${APPLE_TEAM_ID:-}
+      APPLE_KEY_ID: ${APPLE_KEY_ID:-}
+      APPLE_PRIVATE_KEY: ${APPLE_PRIVATE_KEY:-}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/app/data
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       mailpit:
@@ -105,6 +132,8 @@ services:
       - app.cli.atualizar_rpis_automaticamente
     environment:
       APP_ENV: development
+      RUN_MIGRATIONS: "false"
+      BOOTSTRAP_ADMIN: "false"
       DATABASE_URL: postgresql+asyncpg://inpi_app:${APP_DB_PASSWORD:-inpi-app-local-change-me}@db:5432/inpi
       RPI_SYNC_INTERVAL_SECONDS: ${RPI_SYNC_INTERVAL_SECONDS:-21600}
       RPI_SYNC_START_NUMBER: ${RPI_SYNC_START_NUMBER:-2900}
@@ -121,6 +150,8 @@ services:
     command: [/app/.venv/bin/python, -m, app.worker]
     environment:
       APP_ENV: development
+      RUN_MIGRATIONS: "false"
+      BOOTSTRAP_ADMIN: "false"
       DATABASE_URL: postgresql+asyncpg://inpi_app:${APP_DB_PASSWORD:-inpi-app-local-change-me}@db:5432/inpi
       REDIS_URL: redis://redis:6379/0
       SECURITY_MASTER_KEY: ${SECURITY_MASTER_KEY:-desenvolvimento-local-chave-mestra}

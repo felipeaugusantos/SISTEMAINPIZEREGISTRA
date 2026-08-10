@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 from app.database import get_session
 from app.models import SessaoOperacoes, UsuarioOperacoes
 from app.permissions import CHAVES_PERMISSAO
+from app.proxy import cliente_ip, requisicao_https
 from app.ratelimit import RateLimiter
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
@@ -139,7 +140,13 @@ async def obter_usuario_atual(
     if (agora - sessao.ultimo_acesso_em).total_seconds() > 60:
         sessao.ultimo_acesso_em = agora
         await session.commit()
-    liberados = {"/v1/auth/me", "/v1/auth/csrf", "/v1/auth/logout", "/v1/auth/trocar-senha", "/alterar-senha"}
+    liberados = {
+        "/v1/auth/me",
+        "/v1/auth/csrf",
+        "/v1/auth/logout",
+        "/v1/auth/trocar-senha",
+        "/alterar-senha",
+    }
     if auth.alterar_senha and request.url.path not in liberados:
         if request.url.path.startswith("/admin"):
             raise HTTPException(status_code=303, headers={"Location": "/alterar-senha"})
@@ -189,7 +196,22 @@ def criar_sessao(usuario_id: int, request: Request) -> tuple[SessaoOperacoes, st
     sessao = SessaoOperacoes(
         usuario_id=usuario_id, token_hash=hash_token(token), csrf_hash=hash_token(csrf),
         user_agent=request.headers.get("user-agent", "")[:500] or None,
-        ip_hash=hash_ip(request.client.host if request.client else None),
+        ip_hash=hash_ip(cliente_ip(request)),
         expira_em=datetime.now(UTC) + timedelta(hours=settings.session_duration_hours),
     )
     return sessao, token, csrf
+
+
+def definir_cookies_sessao(
+    response: Response, token: str, csrf: str, request: Request | None = None
+) -> None:
+    settings = get_settings()
+    secure = requisicao_https(request)
+    comum = {
+        "secure": secure,
+        "samesite": "lax",
+        "max_age": settings.session_duration_hours * 3600,
+        "path": "/",
+    }
+    response.set_cookie(SESSION_COOKIE, token, httponly=True, **comum)
+    response.set_cookie(CSRF_COOKIE, csrf, httponly=False, **comum)

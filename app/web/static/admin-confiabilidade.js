@@ -6,6 +6,8 @@ const mfaButton = document.querySelector("#enable-mfa");
 const mfaPanel = document.querySelector("#mfa-panel");
 const mfaRecovery = document.querySelector("#mfa-recovery");
 const mfaStatus = document.querySelector("#mfa-status");
+const socialIdentities = document.querySelector("#social-identities");
+const socialIdentityStatus = document.querySelector("#social-identity-status");
 
 async function api(url, options = {}) {
   options.headers = { "Content-Type": "application/json", ...(options.headers || {}) };
@@ -183,3 +185,58 @@ document.querySelector("#download-recovery").addEventListener("click", () => {
 });
 
 carregar();
+
+async function carregarIdentidades() {
+  try {
+    const dados = await api("/v1/auth/social/identities/me");
+    socialIdentities.replaceChildren(...dados.providers.map(provedor => {
+      const card = document.createElement("article");
+      card.className = "social-identity-card";
+      const texto = document.createElement("div");
+      const titulo = document.createElement("strong");
+      titulo.textContent = provedor.nome;
+      const estado = document.createElement("span");
+      estado.textContent = provedor.linked
+        ? `Vinculado${provedor.email ? ` · ${provedor.email}` : ""}`
+        : (provedor.enabled ? "Disponível para vincular" : "Não configurado neste ambiente");
+      texto.append(titulo, estado);
+      const acao = document.createElement(provedor.linked ? "button" : "a");
+      acao.className = "secondary-button";
+      if (provedor.linked) {
+        acao.type = "button";
+        acao.textContent = "Desvincular";
+        acao.addEventListener("click", async () => {
+          if (!confirm(`Desvincular a conta ${provedor.nome}?`)) return;
+          try {
+            await api(`/v1/auth/social/identities/${provedor.id}`, { method: "DELETE" });
+            definirStatus(socialIdentityStatus, `${provedor.nome} desvinculado.`, "success");
+            await carregarIdentidades();
+          } catch (error) {
+            definirStatus(socialIdentityStatus, error.message, "error");
+          }
+        });
+      } else {
+        acao.textContent = "Vincular";
+        acao.href = `/v1/auth/social/${provedor.id}/link`;
+        if (!provedor.enabled) {
+          acao.setAttribute("aria-disabled", "true");
+          acao.removeAttribute("href");
+        }
+      }
+      card.append(texto, acao);
+      return card;
+    }));
+  } catch (error) {
+    definirStatus(socialIdentityStatus, error.message, "error");
+  }
+}
+
+const socialParams = new URLSearchParams(location.search);
+if (socialParams.get("oauth_linked")) {
+  definirStatus(socialIdentityStatus, "Conta externa vinculada com sucesso.", "success");
+  history.replaceState(null, "", location.pathname);
+} else if (socialParams.get("oauth_error")) {
+  definirStatus(socialIdentityStatus, socialParams.get("oauth_error"), "error");
+  history.replaceState(null, "", location.pathname);
+}
+carregarIdentidades();

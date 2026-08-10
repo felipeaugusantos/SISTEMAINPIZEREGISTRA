@@ -16,9 +16,14 @@ try {
     if (-not $container) { throw "Container do PostgreSQL nao esta em execucao." }
     & docker compose exec -T db pg_dump -U inpi -d inpi -Fc -f $temporario
     if ($LASTEXITCODE -ne 0) { throw "pg_dump falhou com codigo $LASTEXITCODE" }
+    & docker compose exec -T db pg_restore -l $temporario | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "O arquivo gerado nao passou na validacao do pg_restore." }
     & docker cp "${container}:$temporario" (Join-Path $Destino $nome)
     if ($LASTEXITCODE -ne 0) { throw "docker cp falhou com codigo $LASTEXITCODE" }
 } finally {
+    if ($container) {
+        & docker compose exec -T db rm -f $temporario 2>$null
+    }
     Pop-Location
 }
 

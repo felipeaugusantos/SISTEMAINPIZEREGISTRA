@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     # Usa Redis para o rate limiting (necessário com múltiplos workers/instâncias).
     # Desligado por padrão: em processo único a janela em memória basta.
     ratelimit_redis_enabled: bool = False
+    trusted_proxy_networks: str = "127.0.0.1/32,::1/128"
     password_reset_minutes: int = 30
     app_public_url: str = "http://localhost:8000"
     email_enabled: bool = False
@@ -46,6 +47,17 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_starttls: bool = False
     smtp_timeout_seconds: float = 10.0
+    smtp_max_attempts: int = 3
+    oauth_attempt_minutes: int = 10
+    oauth_auto_link_verified_email: bool = True
+    google_oauth_enabled: bool = False
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    apple_oauth_enabled: bool = False
+    apple_client_id: str = ""
+    apple_team_id: str = ""
+    apple_key_id: str = ""
+    apple_private_key: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -58,8 +70,31 @@ class Settings(BaseSettings):
         origens = [origem.strip() for origem in self.cors_allowed_origins.split(",")]
         return [origem for origem in origens if origem]
 
+    @property
+    def trusted_proxy_cidrs(self) -> list[str]:
+        return [item.strip() for item in self.trusted_proxy_networks.split(",") if item.strip()]
+
     @model_validator(mode="after")
     def exigir_senha_forte_em_producao(self) -> "Settings":
+        if self.google_oauth_enabled and not (
+            self.google_client_id and self.google_client_secret
+        ):
+            raise ValueError(
+                "GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET sao obrigatorios "
+                "quando o Google OAuth estiver ativo."
+            )
+        if self.apple_oauth_enabled and not all(
+            (self.apple_client_id, self.apple_team_id, self.apple_key_id, self.apple_private_key)
+        ):
+            raise ValueError(
+                "APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID e APPLE_PRIVATE_KEY "
+                "sao obrigatorios quando o Apple OAuth estiver ativo."
+            )
+        if self.apple_oauth_enabled and (
+            not self.app_public_url.startswith("https://")
+            or "localhost" in self.app_public_url
+        ):
+            raise ValueError("Sign in with Apple exige APP_PUBLIC_URL HTTPS com dominio real.")
         if (
             self.integration_auth_enabled
             and len(self.inpi_integration_token) < TAMANHO_MINIMO_TOKEN_INTEGRACAO

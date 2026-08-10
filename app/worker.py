@@ -4,9 +4,11 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
+from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
 from app.database import session_factory
 from app.models import AlertaSistema, Lead, Organizacao
-from app.queueing import FAILED_KEY, QUEUE_KEY, cliente_redis
+from app.queueing import FAILED_KEY, MAX_ATTEMPTS, PROCESSING_KEY, QUEUE_KEY, cliente_redis
+from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
 from app.trademarks.agent import reconciliar_resultados_reais
 
@@ -76,6 +78,8 @@ async def processar(tipo: str, payload: dict) -> None:
                         )
         elif tipo == "registrabilidade.reconciliar_resultados":
             await reconciliar_resultados_reais(session)
+        elif tipo == "alto_renome.sincronizar":
+            await sincronizar_alto_renome(get_settings().alto_renome_page_url)
         else:
             raise ValueError(f"Tipo de trabalho desconhecido: {tipo}")
         await session.commit()
@@ -83,10 +87,16 @@ async def processar(tipo: str, payload: dict) -> None:
 
 async def main() -> None:
     redis = cliente_redis()
+    # Recupera trabalhos que ficaram em processamento apos encerramento abrupto.
+    while await redis.llen(PROCESSING_KEY):
+        bruto_pendente = await redis.rpop(PROCESSING_KEY)
+        if bruto_pendente:
+            await redis.lpush(QUEUE_KEY, bruto_pendente)
     proxima_manutencao = datetime.now(UTC)
+    proximo_alto_renome = datetime.now(UTC)
     while True:
-        item = await redis.blpop(QUEUE_KEY, timeout=5)
-        if not item:
+        bruto = await redis.brpoplpush(QUEUE_KEY, PROCESSING_KEY, timeout=5)
+        if not bruto:
             if datetime.now(UTC) >= proxima_manutencao:
                 for tarefa in (
                     "assinaturas.verificar",
@@ -107,18 +117,39 @@ async def main() -> None:
                             ),
                         )
                 proxima_manutencao = datetime.now(UTC) + timedelta(hours=1)
+            if datetime.now(UTC) >= proximo_alto_renome:
+                try:
+                    await processar("alto_renome.sincronizar", {})
+                except Exception as exc:
+                    await redis.rpush(
+                        FAILED_KEY,
+                        json.dumps(
+                            {
+                                "job": "alto_renome.sincronizar",
+                                "erro": type(exc).__name__,
+                                "falhou_em": datetime.now(UTC).isoformat(),
+                            }
+                        ),
+                    )
+                proximo_alto_renome = datetime.now(UTC) + timedelta(days=7)
             continue
-        bruto = item[1]
         try:
             job = json.loads(bruto)
             await processar(job["tipo"], job.get("payload", {}))
+            await redis.lrem(PROCESSING_KEY, 1, bruto)
         except Exception as exc:
-            await redis.rpush(
-                FAILED_KEY,
-                json.dumps(
-                    {"job": bruto, "erro": str(exc), "falhou_em": datetime.now(UTC).isoformat()}
-                ),
-            )
+            await redis.lrem(PROCESSING_KEY, 1, bruto)
+            try:
+                job = json.loads(bruto)
+            except (TypeError, json.JSONDecodeError):
+                job = {"id": "invalido", "tipo": "desconhecido", "payload": {}}
+            job["tentativas"] = int(job.get("tentativas", 0)) + 1
+            job["ultimo_erro"] = type(exc).__name__
+            job["ultima_falha_em"] = datetime.now(UTC).isoformat()
+            if job["tentativas"] < MAX_ATTEMPTS:
+                await redis.rpush(QUEUE_KEY, json.dumps(job))
+            else:
+                await redis.rpush(FAILED_KEY, json.dumps(job))
 
 
 if __name__ == "__main__":

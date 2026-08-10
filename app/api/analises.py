@@ -18,6 +18,7 @@ from app.models import (
     PrevisaoRegistrabilidade,
     VersaoRelatorioMarca,
 )
+from app.proxy import cliente_ip
 from app.schemas import DadosComplementaresRegistrabilidadeUpdate
 from app.trademarks.agent import execucao_para_dict, reconciliar_resultados_reais
 from app.trademarks.registrability import construir_matriz_registrabilidade
@@ -93,7 +94,7 @@ async def atualizar_dados_complementares(
             recurso=f"pesquisa:{pesquisa.id}",
             sucesso=True,
             status_http=200,
-            ip_hash=hash_ip(request.client.host if request.client else None),
+            ip_hash=hash_ip(cliente_ip(request)),
             detalhes={
                 "matriz": "registrabilidade",
                 "campos_preenchidos": sorted(
@@ -341,7 +342,7 @@ async def reconciliar_resultado(
             recurso=f"pesquisa:{pesquisa.id}",
             sucesso=True,
             status_http=200,
-            ip_hash=hash_ip(request.client.host if request.client else None),
+            ip_hash=hash_ip(cliente_ip(request)),
             detalhes={"agente": "registrabilidade", **resultado},
         )
     )

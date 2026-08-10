@@ -20,6 +20,7 @@ dependencies = [
     "cryptography>=44,<47",
     "redis>=5,<7",
     "dnspython>=2.7,<3",
+    "authlib>=1.4,<2",
 ]
 
 [dependency-groups]

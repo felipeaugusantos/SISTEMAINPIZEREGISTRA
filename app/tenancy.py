@@ -17,6 +17,7 @@ from app.models import (
     PesquisaMarca,
     UsuarioOperacoes,
 )
+from app.proxy import host_publico
 from app.settings import get_settings
 
 
@@ -68,8 +69,7 @@ async def resolver_organizacao_publica(
 ) -> OrganizacaoAtual:
     organizacao = None
     settings = get_settings()
-    host = request.headers.get("x-forwarded-host") or request.url.hostname or ""
-    host = host.split(",", 1)[0].split(":", 1)[0].lower()
+    host = host_publico(request)
     token = _token_requisicao(request)
     if getattr(request.state, "global_integration_token", False) or (
         token

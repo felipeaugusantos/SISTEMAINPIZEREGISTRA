@@ -21,6 +21,7 @@ from app.models import (
     VersaoRelatorioMarca,
 )
 from app.normalization import normalizar_numero_processo
+from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
 from app.relatorios import gerar_pdf_relatorio
 from app.schemas import (
@@ -97,7 +98,7 @@ def _auditar(
             recurso=recurso[:180],
             sucesso=True,
             status_http=status_http,
-            ip_hash=hash_ip(request.client.host if request.client else None),
+            ip_hash=hash_ip(cliente_ip(request)),
             detalhes=detalhes,
         )
     )

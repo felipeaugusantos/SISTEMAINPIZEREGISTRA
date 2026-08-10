@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -92,15 +92,9 @@ async def criar_pesquisa(
             .where(
                 Lead.organizacao_id == organizacao.id,
                 Lead.arquivado_em.is_(None),
-                or_(
-                    func.lower(Lead.email) == dados.email_corporativo.lower(),
-                    Lead.telefone == dados.telefone,
-                ),
+                func.lower(Lead.email) == dados.email_corporativo.lower(),
             )
-            .order_by(
-                case((func.lower(Lead.email) == dados.email_corporativo.lower(), 0), else_=1),
-                Lead.atualizado_em.desc(),
-            )
+            .order_by(Lead.atualizado_em.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
@@ -407,7 +401,11 @@ async def gerar_resumo_pesquisa(
         risco_nivel=avaliacao.nivel,
         estimativa_status=(
             "disponivel"
-            if previsao is not None and modelo_previsao is not None
+            if (
+                previsao is not None
+                and modelo_previsao is not None
+                and previsao.elegivel_cliente
+            )
             else "validacao_interna"
             if previsao is not None
             else "indisponivel"
@@ -457,7 +455,11 @@ async def gerar_resumo_pesquisa(
                     "garantia de registro e não substitui o exame do INPI."
                 ),
             )
-            if previsao is not None and modelo_previsao is not None
+            if (
+                previsao is not None
+                and modelo_previsao is not None
+                and previsao.elegivel_cliente
+            )
             else None
         ),
     )

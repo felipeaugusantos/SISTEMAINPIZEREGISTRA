@@ -1,5 +1,5 @@
-import secrets
 import logging
+import secrets
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -13,6 +13,7 @@ from app.auth import (
     SESSION_COOKIE,
     UsuarioAtualDep,
     criar_sessao,
+    definir_cookies_sessao,
     exigir_csrf,
     hash_senha,
     hash_token,
@@ -28,6 +29,7 @@ from app.models import (
     TokenRecuperacaoSenha,
     UsuarioOperacoes,
 )
+from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
 from app.security_ext import (
     gerar_segredo_totp,
@@ -121,7 +123,7 @@ async def _auditar(
             recurso="autenticacao",
             sucesso=sucesso,
             status_http=200 if sucesso else 401,
-            ip_hash=hash_ip(request.client.host if request.client else None),
+            ip_hash=hash_ip(cliente_ip(request)),
             detalhes=detalhes,
         )
     )
@@ -134,7 +136,7 @@ async def login(
     response: Response,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    cliente = request.client.host if request.client else "desconhecido"
+    cliente = cliente_ip(request)
     limitar_login.aplicar(cliente)
     ident = dados.identificador.strip().lower()
     usuario = (
@@ -196,26 +198,7 @@ async def login(
     session.add(sessao)
     await _auditar(session, request, usuario.email, "LOGIN", True, {"usuario_id": usuario.id})
     await session.commit()
-    settings = get_settings()
-    secure = settings.app_env.lower() == "production" or settings.admin_force_https
-    response.set_cookie(
-        SESSION_COOKIE,
-        token,
-        httponly=True,
-        secure=secure,
-        samesite="lax",
-        max_age=settings.session_duration_hours * 3600,
-        path="/",
-    )
-    response.set_cookie(
-        CSRF_COOKIE,
-        csrf,
-        httponly=False,
-        secure=secure,
-        samesite="lax",
-        max_age=settings.session_duration_hours * 3600,
-        path="/",
-    )
+    definir_cookies_sessao(response, token, csrf, request)
     return {
         "usuario": _resposta_usuario(usuario),
         "destino": "/alterar-senha" if usuario.alterar_senha else "/admin",
@@ -312,7 +295,7 @@ async def solicitar_recuperacao(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    limitar_recuperacao.aplicar(request.client.host if request.client else "desconhecido")
+    limitar_recuperacao.aplicar(cliente_ip(request))
     usuario = (
         await session.execute(
             select(UsuarioOperacoes).where(
@@ -323,7 +306,11 @@ async def solicitar_recuperacao(
     ).scalar_one_or_none()
     resposta = {"status": "ok", "mensagem": "Se a conta existir, a recuperação foi criada."}
     if usuario:
-        await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
+        await aplicar_contexto_tenant(
+            session,
+            usuario.organizacao_id,
+            superadmin=usuario.superadmin,
+        )
         token = secrets.token_urlsafe(48)
         agora = datetime.now(UTC)
         await session.execute(
@@ -342,6 +329,14 @@ async def solicitar_recuperacao(
                 + timedelta(minutes=get_settings().password_reset_minutes),
             )
         )
+        await _auditar(
+            session,
+            request,
+            usuario.email,
+            "RECUPERACAO_SOLICITADA",
+            True,
+            {"usuario_id": usuario.id},
+        )
         await session.commit()
         settings = get_settings()
         if settings.email_enabled:
@@ -358,7 +353,9 @@ async def solicitar_recuperacao(
 
 @router.post("/recuperacao/redefinir")
 async def redefinir_senha(
-    dados: RedefinirSenhaInput, session: AsyncSession = Depends(get_session)
+    dados: RedefinirSenhaInput,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
     agora = datetime.now(UTC)
     item = (
@@ -384,6 +381,14 @@ async def redefinir_senha(
         .where(SessaoOperacoes.usuario_id == usuario.id, SessaoOperacoes.revogada_em.is_(None))
         .values(revogada_em=agora, motivo_revogacao="recuperacao_senha")
     )
+    await _auditar(
+        session,
+        request,
+        usuario.email,
+        "RECUPERACAO_CONCLUIDA",
+        True,
+        {"usuario_id": usuario.id},
+    )
     await session.commit()
     return {"status": "ok"}
 
@@ -398,6 +403,7 @@ async def iniciar_mfa(
     segredo = gerar_segredo_totp()
     registro.mfa_segredo = proteger_segredo(segredo)
     registro.mfa_ativo = False
+    await _auditar(session, request, usuario.email, "MFA_INICIADO", True, {})
     await session.commit()
     return {
         "segredo": segredo,
@@ -423,6 +429,7 @@ async def confirmar_mfa(
     codigos = [secrets.token_hex(5).upper() for _ in range(8)]
     registro.codigos_recuperacao = [hash_token(c) for c in codigos]
     registro.mfa_ativo = True
+    await _auditar(session, request, usuario.email, "MFA_ATIVADO", True, {})
     await session.commit()
     return {"status": "ativo", "codigos_recuperacao": codigos}
 
@@ -443,6 +450,7 @@ async def desativar_mfa(
     registro.mfa_ativo = False
     registro.mfa_segredo = None
     registro.codigos_recuperacao = []
+    await _auditar(session, request, usuario.email, "MFA_DESATIVADO", True, {})
     await session.commit()
     return {"status": "desativado"}
 

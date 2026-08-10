@@ -298,3 +298,43 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\restaurar-banc
 - relatório de uso e alertas operacionais;
 - exportação e anonimização de leads mediante solicitação LGPD;
 - política de retenção que sinaliza dados vencidos para revisão humana, sem apagamento cego.
+## Benchmark da Busca V3
+
+Copie `data/search-benchmark.example.json`, preencha marcas, classes e processos conferidos
+por um especialista e execute:
+
+```powershell
+uv run python -m app.cli.avaliar_busca_marcas .\data\search-benchmark.json --limite 50 --saida .\data\search-benchmark-result.json
+```
+
+O resultado registra Recall@K, Precision@K e latencia por caso.
+
+# Login com Google e Apple
+
+O Centro de Operações suporta login social sem substituir usuários, tenants, perfis,
+permissões, auditoria ou MFA locais. Por padrão os provedores ficam desativados.
+
+Para o Google, crie uma credencial OAuth 2.0 do tipo **Aplicativo da Web** e cadastre:
+
+```text
+http://localhost:8000/v1/auth/social/google/callback
+```
+
+Depois configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e
+`GOOGLE_OAUTH_ENABLED=true`. Em ambiente externo, substitua `APP_PUBLIC_URL` pelo domínio
+HTTPS fixo e cadastre exatamente o callback correspondente no Google Cloud.
+
+Para a Apple, configure um App ID principal, um Services ID, o domínio, a return URL e uma
+chave privada no Apple Developer. A Apple exige domínio HTTPS real e não aceita localhost:
+
+```text
+https://seu-dominio/v1/auth/social/apple/callback
+```
+
+Configure `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` e
+`APPLE_OAUTH_ENABLED=true`. No `.env`, represente as quebras da chave PEM por `\\n`.
+
+Contas externas só são ligadas a usuários existentes e ativos. O vínculo automático exige
+e-mail verificado e correspondência exata; ele pode ser desligado com
+`OAUTH_AUTO_LINK_VERIFIED_EMAIL=false`. O usuário também pode vincular ou desvincular cada
+provedor em **Confiabilidade e LGPD → Google e Apple**.

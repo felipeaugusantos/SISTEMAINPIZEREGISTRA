@@ -4,6 +4,7 @@ from collections import defaultdict, deque
 
 from fastapi import HTTPException, Request, status
 
+from app.proxy import cliente_ip
 from app.settings import get_settings
 
 # Circuit breaker compartilhado: se o Redis falhar, para de tentar por um intervalo
@@ -50,7 +51,7 @@ class RateLimiter:
         self._acessos: dict[str, deque[float]] = defaultdict(deque)
 
     def _cliente(self, request: Request) -> str:
-        return request.client.host if request.client else "desconhecido"
+        return cliente_ip(request)
 
     def __call__(self, request: Request) -> None:
         self.aplicar(f"{request.url.path}:{self._cliente(request)}")

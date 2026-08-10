@@ -654,6 +654,39 @@ class RotuloHistoricoMarca(Base):
     )
 
 
+class EvidenciaDecisaoMarca(Base):
+    __tablename__ = "evidencias_decisoes_marca"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    rotulo_id: Mapped[int] = mapped_column(
+        ForeignKey("rotulos_historicos_marca.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    processo_numero: Mapped[str] = mapped_column(String(30), index=True)
+    cod_pedido: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    fonte_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status_coleta: Mapped[str] = mapped_column(String(30), default="pendente", index=True)
+    status_http: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tentativas: Mapped[int] = mapped_column(Integer, default=0)
+    erro: Mapped[str | None] = mapped_column(Text, nullable=True)
+    despacho_texto: Mapped[str | None] = mapped_column(Text, nullable=True)
+    numero_rpi: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    fundamento_sugerido: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    confianca: Mapped[float | None] = mapped_column(Float, nullable=True)
+    artigos: Mapped[list[str]] = mapped_column(JSON, default=list)
+    processos_citados: Mapped[list[str]] = mapped_column(JSON, default=list)
+    hash_conteudo: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    classificador_versao: Mapped[str] = mapped_column(
+        String(40), default="fundamento-inpi-1.0", index=True
+    )
+    coletado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ParTreinamentoMarca(Base):
     __tablename__ = "pares_treinamento_marca"
     __table_args__ = (

@@ -3,6 +3,7 @@ from datetime import date
 from app.models import ControleAprendizadoMarca, ModeloRegistrabilidade, Movimentacao
 from app.trademarks.learning import (
     ATRIBUTOS_MODELO,
+    _limiar_otimo,
     agregar_atributos,
     decidir_exibicao_estimativa,
     extrair_atributos_par,
@@ -11,6 +12,11 @@ from app.trademarks.learning import (
     prioridade_revisao_rotulo,
     validar_estimativa_para_cliente,
 )
+
+
+def test_limiar_otimo_usa_a_distribuicao_real_calibrada() -> None:
+    limiar = _limiar_otimo([0.75, 0.76, 0.80, 0.90], [0, 0, 1, 1])
+    assert 0.76 < limiar <= 0.80
 
 
 def movimento(

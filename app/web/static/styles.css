@@ -1147,6 +1147,29 @@ footer p {
   background: #fcfdfb;
 }
 
+.label-review > .status-message,
+.label-review > p {
+  margin: 14px 24px 0;
+}
+
+.label-review > .official-evidence {
+  display: grid;
+  gap: 7px;
+  border-left: 4px solid var(--forest);
+  line-height: 1.5;
+}
+
+.official-evidence a {
+  width: max-content;
+  color: var(--forest);
+  font-weight: 800;
+}
+
+.official-evidence small {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
 .prediction-review > p {
   margin: 0;
   padding: 16px 24px 0;

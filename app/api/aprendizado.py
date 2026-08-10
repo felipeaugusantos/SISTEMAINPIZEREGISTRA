@@ -10,6 +10,7 @@ from app.database import get_session
 from app.models import (
     ControleAprendizadoMarca,
     EventoAuditoria,
+    EvidenciaDecisaoMarca,
     ModeloRegistrabilidade,
     ParTreinamentoMarca,
     PesquisaMarca,
@@ -135,6 +136,19 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
                     PesquisaMarca.organizacao_id == usuario.organizacao_id,
                 )
                 .scalar_subquery(),
+                select(func.count())
+                .select_from(RotuloHistoricoMarca)
+                .where(RotuloHistoricoMarca.status_revisao == "documental")
+                .scalar_subquery(),
+                select(func.count()).select_from(EvidenciaDecisaoMarca).scalar_subquery(),
+                select(func.count())
+                .select_from(EvidenciaDecisaoMarca)
+                .where(EvidenciaDecisaoMarca.status_coleta == "revisao")
+                .scalar_subquery(),
+                select(func.count())
+                .select_from(EvidenciaDecisaoMarca)
+                .where(EvidenciaDecisaoMarca.status_coleta == "erro")
+                .scalar_subquery(),
             )
         )
     ).one()
@@ -152,8 +166,12 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
     ativo = next((item for item in modelos if item.status == "ativo"), None)
     rotulos = (
         await session.execute(
-            select(RotuloHistoricoMarca, Processo)
+            select(RotuloHistoricoMarca, Processo, EvidenciaDecisaoMarca)
             .join(Processo, Processo.id == RotuloHistoricoMarca.processo_id)
+            .outerjoin(
+                EvidenciaDecisaoMarca,
+                EvidenciaDecisaoMarca.rotulo_id == RotuloHistoricoMarca.id,
+            )
             .where(RotuloHistoricoMarca.status_revisao == "pendente")
             .order_by(
                 (RotuloHistoricoMarca.fundamento == "indeferimento_nao_especificado").desc(),
@@ -184,6 +202,10 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
         rotulos_indeferidos=contagens[2],
         rotulos_revisados=contagens[3],
         rotulos_prioridade_alta=contagens[4],
+        rotulos_documentais=contagens[8],
+        evidencias_oficiais=contagens[9],
+        evidencias_para_revisao=contagens[10],
+        evidencias_com_erro=contagens[11],
         total_pares=contagens[5],
         total_previsoes=contagens[6],
         previsoes_revisadas=contagens[7],
@@ -211,8 +233,12 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
                 evidencias_classificacao=rotulo.evidencias_classificacao or [],
                 status_revisao=rotulo.status_revisao,
                 revisor=rotulo.revisor,
+                evidencia_oficial_status=evidencia.status_coleta if evidencia else None,
+                evidencia_oficial_url=evidencia.fonte_url if evidencia else None,
+                evidencia_oficial_texto=evidencia.despacho_texto if evidencia else None,
+                evidencia_oficial_hash=evidencia.hash_conteudo if evidencia else None,
             )
-            for rotulo, processo in rotulos
+            for rotulo, processo, evidencia in rotulos
         ],
         previsoes=[
             AprendizadoPrevisaoResponse(

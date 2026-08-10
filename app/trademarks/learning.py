@@ -484,7 +484,7 @@ async def construir_dataset_historico(
         if rotulo is None:
             rotulo = RotuloHistoricoMarca(processo_id=processo.id)
             session.add(rotulo)
-        if rotulo.status_revisao != "aprovada":
+        if rotulo.status_revisao not in {"aprovada", "documental"}:
             rotulo.rotulo = extraido.rotulo
             rotulo.alvo_deferimento = extraido.alvo_deferimento
             rotulo.fundamento = extraido.fundamento
@@ -702,9 +702,12 @@ def _limiar_otimo(probabilidades: list[float], alvos: list[int]) -> float:
     """
     if not probabilidades or len(set(alvos)) < 2:
         return 0.5
-    melhor_limiar, melhor_bal = 0.5, -1.0
-    for passo in range(20, 71):
-        limiar = passo / 100
+    ordenadas = sorted(set(probabilidades))
+    candidatos = [0.0, 1.0]
+    candidatos.extend(ordenadas)
+    candidatos.extend((a + b) / 2 for a, b in zip(ordenadas, ordenadas[1:], strict=False))
+    melhor_limiar, melhor_bal, melhor_equilibrio = 0.5, -1.0, -1.0
+    for limiar in sorted(set(candidatos)):
         tp = fp = tn = fn = 0
         for prob, alvo in zip(probabilidades, alvos, strict=True):
             previsto = int(prob >= limiar)
@@ -715,8 +718,9 @@ def _limiar_otimo(probabilidades: list[float], alvos: list[int]) -> float:
         recall = tp / (tp + fn) if tp + fn else 0.0
         especificidade = tn / (tn + fp) if tn + fp else 0.0
         bal = (recall + especificidade) / 2
-        if bal > melhor_bal:
-            melhor_bal, melhor_limiar = bal, limiar
+        equilibrio = min(recall, especificidade)
+        if (bal, equilibrio) > (melhor_bal, melhor_equilibrio):
+            melhor_bal, melhor_equilibrio, melhor_limiar = bal, equilibrio, limiar
     return melhor_limiar
 
 
@@ -796,9 +800,17 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
         raise ValueError("São necessários ao menos 30 rótulos com deferimentos e indeferimentos")
     treino_fim = max(1, int(len(amostras) * 0.70))
     validacao_fim = max(treino_fim + 1, int(len(amostras) * 0.85))
-    # O peso de confiança pondera apenas o treino/bootstrap; validação e teste medem
-    # desempenho real com pesos neutros para não mascarar a qualidade do modelo.
-    treino = [(x, y, peso) for _, x, y, peso in amostras[:treino_fim]]
+    # Confiança e balanceamento de classe ponderam apenas treino/bootstrap. A regressão
+    # aplica o balanceamento internamente; validação e teste ficam sem pesos.
+    treino_bruto = amostras[:treino_fim]
+    contagem_classes = {
+        classe: sum(item[2] == classe for item in treino_bruto) for classe in (0, 1)
+    }
+    pesos_classes = {
+        classe: len(treino_bruto) / (2 * max(1, quantidade))
+        for classe, quantidade in contagem_classes.items()
+    }
+    treino = [(x, y, peso) for _, x, y, peso in treino_bruto]
     validacao = amostras[treino_fim:validacao_fim]
     teste = amostras[validacao_fim:] or amostras[-max(1, len(amostras) // 10) :]
     parametros = _ajustar_logistica(treino)
@@ -840,11 +852,22 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
             },
             "divisao": "temporal_70_15_15",
             "bootstrap_modelos": len(parametros["bootstrap_modelos"]),
+            "balanceamento_treino": {
+                "contagens": contagem_classes,
+                "pesos": pesos_classes,
+            },
             "corte_dados": max(item[0] for item in amostras).isoformat(),
         },
         corte_treino=amostras[treino_fim - 1][0],
         corte_validacao=amostras[min(validacao_fim - 1, len(amostras) - 1)][0],
     )
+    controle = await obter_controle(session)
+    bloqueios_qualidade = validar_modelo_para_cliente(modelo, controle, 0)
+    modelo.status = "reprovado" if bloqueios_qualidade else "candidato"
+    modelo.dataset = {
+        **modelo.dataset,
+        "bloqueios_qualidade": bloqueios_qualidade,
+    }
     session.add(modelo)
     await session.commit()
     await session.refresh(modelo)
@@ -989,7 +1012,11 @@ def validar_modelo_para_cliente(
     positivos = int(dataset.get("positivos", 0))
     negativos = int(dataset.get("negativos", 0))
     total = int(dataset.get("total", 0))
-    if {"positivos", "negativos"}.issubset(dataset) and total and min(positivos, negativos) / total < 0.15:
+    if (
+        {"positivos", "negativos"}.issubset(dataset)
+        and total
+        and min(positivos, negativos) / total < 0.15
+    ):
         bloqueios.append("Distribuição histórica excessivamente desbalanceada")
     return bloqueios
 

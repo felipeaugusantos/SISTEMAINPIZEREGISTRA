@@ -688,6 +688,10 @@ class AprendizadoRotuloResponse(BaseModel):
     evidencias_classificacao: list[dict] = Field(default_factory=list)
     status_revisao: str
     revisor: str | None
+    evidencia_oficial_status: str | None = None
+    evidencia_oficial_url: str | None = None
+    evidencia_oficial_texto: str | None = None
+    evidencia_oficial_hash: str | None = None
 
 
 class AprendizadoPrevisaoResponse(BaseModel):
@@ -740,6 +744,10 @@ class AprendizadoAdminResponse(BaseModel):
     rotulos_indeferidos: int
     rotulos_revisados: int
     rotulos_prioridade_alta: int
+    rotulos_documentais: int
+    evidencias_oficiais: int
+    evidencias_para_revisao: int
+    evidencias_com_erro: int
     total_pares: int
     total_previsoes: int
     previsoes_revisadas: int

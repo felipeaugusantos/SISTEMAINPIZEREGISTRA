@@ -476,6 +476,7 @@ dependencies = [
     { name = "dnspython" },
     { name = "email-validator" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "pydantic-settings" },
     { name = "pypdf" },
     { name = "redis" },
@@ -487,7 +488,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -503,6 +503,7 @@ requires-dist = [
     { name = "dnspython", specifier = ">=2.7,<3" },
     { name = "email-validator", specifier = ">=2.2,<3" },
     { name = "fastapi", specifier = ">=0.115,<1" },
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "pydantic-settings", specifier = ">=2.7,<3" },
     { name = "pypdf", specifier = ">=5.7,<6" },
     { name = "redis", specifier = ">=5,<7" },
@@ -514,7 +515,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "pytest", specifier = ">=8.3,<9" },
     { name = "pytest-asyncio", specifier = ">=0.25,<1" },
     { name = "ruff", specifier = ">=0.9,<1" },

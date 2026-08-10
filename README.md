@@ -166,12 +166,31 @@ e alto renome.
 Para preparar um lote e treinar um candidato:
 
 ```powershell
+docker compose exec api /app/.venv/bin/python `
+  -m app.cli.coletar_fundamentos_indeferimentos --limite 500 --atraso 0.6
+
 docker compose exec api /app/.venv/bin/python -m app.cli.treinar_registrabilidade `
   --dataset --limite 500 --candidatos 8
 
 docker compose exec api /app/.venv/bin/python -m app.cli.treinar_registrabilidade `
   --treinar
 ```
+
+A coleta consulta somente o detalhe público do processo no INPI, preserva o complemento do
+despacho, URL, artigos, processos citados e hash SHA-256. A amostra é distribuída por trimestre
+de depósito e classe de Nice. Somente regras documentais inequívocas recebem o estado
+`documental`; textos ambíguos permanecem na fila humana. O processo é reiniciável, respeita
+intervalo entre requisições e para sem tentar contornar um eventual CAPTCHA. Para reaplicar uma
+versão nova das regras aos textos já armazenados, sem consultar novamente o INPI:
+
+```powershell
+docker compose exec api /app/.venv/bin/python `
+  -m app.cli.coletar_fundamentos_indeferimentos `
+  --reclassificar --somente-reclassificar
+```
+
+Falhas de rede ou processos não encontrados podem ser tentados novamente sem tocar nas
+evidências válidas com `--somente-erros --limite 100`.
 
 O conjunto é dividido cronologicamente em 70% para treino, 15% para calibração/validação e
 15% para teste. O modelo registra matriz de confusão, recall, especificidade, acurácia

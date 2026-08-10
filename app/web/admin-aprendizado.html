@@ -7,7 +7,7 @@
     <title>Aprendizado supervisionado — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=18" />
     <script src="/static/admin-shell.js?v=19" defer></script>
-    <script src="/static/admin-aprendizado.js?v=15" defer></script>
+    <script src="/static/admin-aprendizado.js?v=16" defer></script>
   </head>
   <body class="admin-body" data-admin-section="learning">
     <main class="admin-main">
@@ -45,7 +45,7 @@
         </form>
       </section>
       <section class="overview-section"><header><div><p class="eyebrow">Modelos versionados</p><h2>Validação temporal e calibração</h2></div></header><div id="model-list" class="learning-model-list"></div></section>
-      <section class="overview-section"><header><div><p class="eyebrow">Qualidade dos dados</p><h2>Rótulos aguardando especialista</h2></div><span>Prioridade para baixa confiança</span></header><div id="label-list" class="learning-review-list"></div></section>
+      <section class="overview-section"><header><div><p class="eyebrow">Qualidade dos dados</p><h2>Fila de revisão de decisões</h2><p>Confirme o resultado e o fundamento usando o despacho e as evidências do histórico. Casos genéricos aparecem primeiro.</p></div><span id="label-queue-state">Carregando fila…</span></header><div id="label-list" class="learning-review-list"></div></section>
       <section class="overview-section"><header><div><p class="eyebrow">Teste silencioso</p><h2>Previsões e comparação humana</h2></div></header><div id="prediction-list" class="learning-review-list"></div></section>
     </main>
   </body>

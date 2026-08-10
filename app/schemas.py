@@ -505,7 +505,7 @@ class Fase2AdminResponse(BaseModel):
 
 class AfinidadeRevisaoUpdate(BaseModel):
     status_revisao: Literal["aprovada", "rejeitada"]
-    revisor: str | None = Field(default=None, min_length=2, max_length=150)
+    revisor: str = Field(min_length=2, max_length=150)
     observacoes_revisao: str = Field(min_length=3, max_length=1000)
 
     @field_validator("revisor", "observacoes_revisao")
@@ -775,7 +775,7 @@ class RevisaoRotuloUpdate(BaseModel):
         "outra_proibicao",
         "indeferimento_nao_especificado",
     ]
-    revisor: str = Field(min_length=2, max_length=150)
+    revisor: str | None = Field(default=None, min_length=2, max_length=150)
     observacoes: str = Field(min_length=3, max_length=2000)
 
 

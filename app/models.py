@@ -636,6 +636,14 @@ class RotuloHistoricoMarca(Base):
     numero_rpi: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     despacho_codigo: Mapped[str | None] = mapped_column(String(30), nullable=True)
     despacho_descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    data_decisao: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    tipo_decisao: Mapped[str] = mapped_column(String(30), default="merito", index=True)
+    elegivel_treinamento: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    motivo_inelegibilidade: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    classificador_versao: Mapped[str] = mapped_column(
+        String(30), default="rotulo-marcario-1.0", index=True
+    )
+    evidencias_classificacao: Mapped[list[dict]] = mapped_column(JSON, default=list)
     status_revisao: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
     revisor: Mapped[str | None] = mapped_column(String(150), nullable=True)
     observacoes_revisao: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -327,7 +327,7 @@ def test_operador_gera_relatorio_completo_e_registra_primeira_geracao() -> None:
         numero_versao=1,
         schema_versao="relatorio-marca-4.2",
         conteudo_hash="hash",
-        payload=_relatorio_exemplo(com_estimativa=True).model_dump(mode="json"),
+        payload=_relatorio_exemplo(com_prognostico=True).model_dump(mode="json"),
     )
     app.dependency_overrides[get_session] = sessao_override(
         FakeResult(scalar=pesquisa),

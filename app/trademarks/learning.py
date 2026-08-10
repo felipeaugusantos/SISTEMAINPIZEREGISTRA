@@ -7,9 +7,9 @@ from datetime import UTC, date, datetime
 from difflib import SequenceMatcher
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import noload, selectinload
 
 from app.models import (
     AfinidadeClasse,
@@ -25,10 +25,16 @@ from app.models import (
 from app.normalization import normalizar_numero_processo
 from app.search import normalizar_texto
 
-VERSAO_ATRIBUTOS = "atributos-marcarios-1.0"
+VERSAO_ATRIBUTOS = "atributos-marcarios-1.1"
 VERSAO_ESTIMATIVA = "deferimento-merito-2.0"
 ESCOPO_ESTIMATIVA = "deferimento_exame_merito"
+VERSAO_CLASSIFICADOR_ROTULO = "rotulo-marcario-1.1"
 QUANTIDADE_BOOTSTRAP = 24
+# Limiar do operador trigram `%` na busca de candidatos do dataset. Com o padrão 0.3
+# o `ORDER BY similarity` percorre milhares de matches por alvo (~11s cada). Em 0.4 o
+# conjunto encolhe para conflitos genuínos e a query cai para ~160ms, mantendo a
+# ordenação por similaridade (candidato mais parecido primeiro).
+LIMIAR_SIMILARIDADE_CANDIDATOS = 0.4
 # Nota: 'alto_renome' foi removido do modelo. No dataset historico ele era sempre
 # False (nao ha status de renome historico confiavel por data de deposito), tornando-se
 # uma feature constante -> peso ~0 e skew treino/producao. O alto renome continua sendo
@@ -37,10 +43,17 @@ ATRIBUTOS_MODELO = (
     "similaridade_sequencia",
     "jaccard_tokens",
     "jaccard_trigramas",
+    "nome_identico",
+    "contencao_tokens",
     "fonetica_igual",
+    "fonetica_similaridade",
+    "prefixo_radical",
     "classe_identica",
     "afinidade_conhecida",
     "candidato_ativo",
+    "similaridade_top3_media",
+    "conflitos_fortes_norm",
+    "conflitos_ativos_norm",
     "marca_token_unico",
     "marca_num_tokens_norm",
     "marca_comprimento_norm",
@@ -50,10 +63,17 @@ ROTULOS_ATRIBUTOS = {
     "similaridade_sequencia": "semelhança geral do nome",
     "jaccard_tokens": "palavras em comum",
     "jaccard_trigramas": "trechos do nome em comum",
+    "nome_identico": "nome idêntico",
+    "contencao_tokens": "elementos nominativos contidos",
     "fonetica_igual": "semelhança fonética",
+    "fonetica_similaridade": "proximidade fonética",
+    "prefixo_radical": "radical inicial semelhante",
     "classe_identica": "classe de Nice idêntica",
     "afinidade_conhecida": "afinidade entre atividades",
     "candidato_ativo": "situação ativa da anterioridade",
+    "similaridade_top3_media": "média dos três conflitos principais",
+    "conflitos_fortes_norm": "quantidade de conflitos fortes",
+    "conflitos_ativos_norm": "quantidade de anterioridades ativas",
     "marca_token_unico": "marca de termo único",
     "marca_num_tokens_norm": "quantidade de termos na marca",
     "marca_comprimento_norm": "comprimento da marca",
@@ -68,6 +88,10 @@ class RotuloExtraido:
     fundamento: str
     confianca: float
     movimentacao: Movimentacao
+    tipo_decisao: str = "merito"
+    elegivel_treinamento: bool = True
+    motivo_inelegibilidade: str | None = None
+    evidencias: tuple[dict[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +159,49 @@ def distintividade_marca(marca: str) -> dict[str, float]:
     }
 
 
+def _evidencias_classificacao(
+    movimentacoes: list[Movimentacao], decisao: Movimentacao
+) -> tuple[dict[str, str], ...]:
+    evidencias: list[dict[str, str]] = []
+    for movimento in sorted(
+        movimentacoes,
+        key=lambda item: (item.data_rpi, item.numero_rpi, item.id or 0),
+        reverse=True,
+    ):
+        texto = _sem_acentos(f"{movimento.codigo_despacho or ''} {movimento.descricao}")
+        tipo = None
+        if movimento is decisao:
+            tipo = "decisao"
+        elif "oposicao" in texto or (movimento.codigo_despacho or "").upper() == "IPAS423":
+            tipo = "oposicao"
+        elif "exigencia de merito" in texto:
+            tipo = "exigencia_merito"
+        elif "recurso" in texto:
+            tipo = "recurso"
+        elif "procedimento judicial" in texto:
+            tipo = "procedimento_judicial"
+        if tipo is not None:
+            evidencias.append(
+                {
+                    "tipo": tipo,
+                    "codigo": movimento.codigo_despacho or "",
+                    "descricao": movimento.descricao,
+                    "numero_rpi": str(movimento.numero_rpi),
+                }
+            )
+        if len(evidencias) >= 8:
+            break
+    return tuple(evidencias)
+
+
+def prioridade_revisao_rotulo(fundamento: str, confianca: float, rotulo: str) -> str:
+    if fundamento == "indeferimento_nao_especificado" or confianca < 0.75:
+        return "alta"
+    if rotulo == "indeferida" or confianca < 0.95:
+        return "media"
+    return "baixa"
+
+
 def extrair_rotulo(movimentacoes: list[Movimentacao]) -> RotuloExtraido | None:
     """Extrai apenas decisões de mérito; arquivamentos formais não viram exemplos."""
     ordenadas = sorted(
@@ -144,9 +211,13 @@ def extrair_rotulo(movimentacoes: list[Movimentacao]) -> RotuloExtraido | None:
     )
     for movimento in ordenadas:
         texto = _sem_acentos(f"{movimento.codigo_despacho or ''} {movimento.descricao}")
+        codigo = (movimento.codigo_despacho or "").upper()
         if "recurso" in texto and "decisao" not in texto:
             continue
-        negativo = any(
+        positivo_recurso = codigo == "IPAS237" or (
+            "recurso provido" in texto and "deferimento" in texto
+        )
+        negativo = codigo == "IPAS024" or any(
             termo in texto
             for termo in (
                 "indeferimento do pedido",
@@ -154,7 +225,7 @@ def extrair_rotulo(movimentacoes: list[Movimentacao]) -> RotuloExtraido | None:
                 "indeferido o pedido",
             )
         )
-        positivo = not negativo and any(
+        positivo = positivo_recurso or (not negativo and (codigo == "IPAS029" or any(
             termo in texto
             for termo in (
                 "deferimento do pedido",
@@ -162,18 +233,44 @@ def extrair_rotulo(movimentacoes: list[Movimentacao]) -> RotuloExtraido | None:
                 "concessao de registro",
                 "registro de marca concedido",
             )
-        )
+        )))
         if positivo:
-            return RotuloExtraido("deferida", True, "deferimento", 1.0, movimento)
+            return RotuloExtraido(
+                "deferida",
+                True,
+                "deferimento_recurso" if positivo_recurso else "deferimento",
+                1.0,
+                movimento,
+                evidencias=_evidencias_classificacao(movimentacoes, movimento),
+            )
         if negativo:
             if any(
                 termo in texto
-                for termo in ("124, xix", "124 xix", "colidencia", "reproducao", "imitacao")
+                for termo in (
+                    "124, xix",
+                    "124 xix",
+                    "art. 124 inciso xix",
+                    "colidencia",
+                    "reproducao",
+                    "imitacao",
+                    "risco de confusao",
+                    "associacao com marca alheia",
+                )
             ):
                 fundamento = "conflito_anterior"
                 confianca = 0.95
             elif any(
-                termo in texto for termo in ("descritiv", "generic", "distintiv", "uso comum")
+                termo in texto
+                for termo in (
+                    "124, vi",
+                    "124 vi",
+                    "descritiv",
+                    "generic",
+                    "distintiv",
+                    "uso comum",
+                    "carater necessario",
+                    "carater vulgar",
+                )
             ):
                 fundamento = "falta_distintividade"
                 confianca = 0.9
@@ -183,7 +280,14 @@ def extrair_rotulo(movimentacoes: list[Movimentacao]) -> RotuloExtraido | None:
             else:
                 fundamento = "indeferimento_nao_especificado"
                 confianca = 0.65
-            return RotuloExtraido("indeferida", False, fundamento, confianca, movimento)
+            return RotuloExtraido(
+                "indeferida",
+                False,
+                fundamento,
+                confianca,
+                movimento,
+                evidencias=_evidencias_classificacao(movimentacoes, movimento),
+            )
     return None
 
 
@@ -200,13 +304,27 @@ def extrair_atributos_par(
     candidata_norm = normalizar_texto(candidata)
     tokens_marca = set(marca_norm.split())
     tokens_candidata = set(candidata_norm.split())
+    fonetica_marca = _fonetica(marca_norm)
+    fonetica_candidata = _fonetica(candidata_norm)
+    menor_conjunto = min(len(tokens_marca), len(tokens_candidata))
+    prefixo_radical = bool(
+        len(fonetica_marca) >= 4
+        and len(fonetica_candidata) >= 4
+        and fonetica_marca[:4] == fonetica_candidata[:4]
+    )
     return {
         "similaridade_sequencia": SequenceMatcher(None, marca_norm, candidata_norm).ratio(),
         "jaccard_tokens": _jaccard(tokens_marca, tokens_candidata),
         "jaccard_trigramas": _jaccard(_trigramas(marca_norm), _trigramas(candidata_norm)),
-        "fonetica_igual": float(
-            bool(marca_norm and _fonetica(marca_norm) == _fonetica(candidata_norm))
+        "nome_identico": float(bool(marca_norm and marca_norm == candidata_norm)),
+        "contencao_tokens": (
+            len(tokens_marca & tokens_candidata) / menor_conjunto if menor_conjunto else 0.0
         ),
+        "fonetica_igual": float(bool(fonetica_marca and fonetica_marca == fonetica_candidata)),
+        "fonetica_similaridade": SequenceMatcher(
+            None, fonetica_marca, fonetica_candidata
+        ).ratio(),
+        "prefixo_radical": float(prefixo_radical),
         "classe_identica": float(bool(set(classes_marca) & set(classes_candidata))),
         "afinidade_conhecida": float(afinidade_conhecida),
         "candidato_ativo": float(candidata_ativa),
@@ -215,8 +333,15 @@ def extrair_atributos_par(
 
 # Atributos que NÃO vêm dos pares (calculados no nível da amostra na agregação).
 _ATRIBUTOS_NAO_PAREADOS = frozenset(
-    {"quantidade_candidatos_norm", "marca_token_unico", "marca_num_tokens_norm",
-     "marca_comprimento_norm"}
+    {
+        "quantidade_candidatos_norm",
+        "similaridade_top3_media",
+        "conflitos_fortes_norm",
+        "conflitos_ativos_norm",
+        "marca_token_unico",
+        "marca_num_tokens_norm",
+        "marca_comprimento_norm",
+    }
 )
 
 
@@ -227,6 +352,17 @@ def agregar_atributos(pares: list[dict[str, float]], marca: str = "") -> dict[st
         if nome not in _ATRIBUTOS_NAO_PAREADOS
     }
     atributos["quantidade_candidatos_norm"] = min(1.0, len(pares) / 10.0)
+    top3 = sorted(
+        (par.get("similaridade_sequencia", 0.0) for par in pares), reverse=True
+    )[:3]
+    atributos["similaridade_top3_media"] = sum(top3) / len(top3) if top3 else 0.0
+    atributos["conflitos_fortes_norm"] = min(
+        1.0,
+        sum(par.get("similaridade_sequencia", 0.0) >= 0.7 for par in pares) / 5.0,
+    )
+    atributos["conflitos_ativos_norm"] = min(
+        1.0, sum(par.get("candidato_ativo", 0.0) >= 0.5 for par in pares) / 5.0
+    )
     # Distintividade é propriedade da marca-alvo, não do par; computada aqui uma vez.
     if marca:
         atributos.update(distintividade_marca(marca))
@@ -259,6 +395,13 @@ async def construir_dataset_historico(
     limite: int = 3000,
     candidatos_por_processo: int = 12,
 ) -> tuple[int, int]:
+    # Restringe o operador trigram `%` a candidatos genuinamente similares e torna a
+    # busca por alvo ~70x mais rápida (ver LIMIAR_SIMILARIDADE_CANDIDATOS).
+    # set_limit espera `real`; cast explícito evita ambiguidade de tipo com float8.
+    await session.execute(
+        text("SELECT set_limit(CAST(:limiar AS real))"),
+        {"limiar": LIMIAR_SIMILARIDADE_CANDIDATOS},
+    )
     processos = (
         (
             await session.execute(
@@ -277,6 +420,7 @@ async def construir_dataset_historico(
                 .options(
                     selectinload(Processo.movimentacoes),
                     selectinload(Processo.classificacoes),
+                    noload(Processo.titulares),
                 )
                 .distinct()
                 .order_by(Processo.data_deposito.desc().nullslast(), Processo.id)
@@ -313,6 +457,12 @@ async def construir_dataset_historico(
             rotulo.numero_rpi = extraido.movimentacao.numero_rpi
             rotulo.despacho_codigo = extraido.movimentacao.codigo_despacho
             rotulo.despacho_descricao = extraido.movimentacao.descricao
+            rotulo.data_decisao = extraido.movimentacao.data_rpi
+            rotulo.tipo_decisao = extraido.tipo_decisao
+            rotulo.elegivel_treinamento = extraido.elegivel_treinamento
+            rotulo.motivo_inelegibilidade = extraido.motivo_inelegibilidade
+            rotulo.classificador_versao = VERSAO_CLASSIFICADOR_ROTULO
+            rotulo.evidencias_classificacao = list(extraido.evidencias)
         await session.flush()
         rotulos_processados += 1
 
@@ -335,6 +485,7 @@ async def construir_dataset_historico(
                     .options(
                         selectinload(Processo.movimentacoes),
                         selectinload(Processo.classificacoes),
+                        noload(Processo.titulares),
                     )
                     .order_by(
                         func.similarity(
@@ -448,11 +599,11 @@ def _ajustar_logistica(
 
 def _probabilidade(atributos: dict[str, float], parametros: dict[str, Any]) -> float:
     linear = float(parametros["vies"])
-    for nome in ATRIBUTOS_MODELO:
-        padronizado = (atributos.get(nome, 0.0) - parametros["medias"][nome]) / parametros[
-            "desvios"
-        ][nome]
-        linear += parametros["pesos"][nome] * padronizado
+    for nome, peso in parametros.get("pesos", {}).items():
+        media = parametros.get("medias", {}).get(nome, 0.0)
+        desvio = max(float(parametros.get("desvios", {}).get(nome, 1.0)), 1e-6)
+        padronizado = (atributos.get(nome, 0.0) - media) / desvio
+        linear += peso * padronizado
     return _sigmoid(linear)
 
 
@@ -554,7 +705,10 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
                 ParTreinamentoMarca, ParTreinamentoMarca.rotulo_id == RotuloHistoricoMarca.id
             )
             .join(Processo, Processo.id == RotuloHistoricoMarca.processo_id)
-            .where(RotuloHistoricoMarca.status_revisao != "rejeitada")
+            .where(
+                RotuloHistoricoMarca.status_revisao != "rejeitada",
+                RotuloHistoricoMarca.elegivel_treinamento.is_(True),
+            )
             .order_by(RotuloHistoricoMarca.data_referencia, RotuloHistoricoMarca.id)
         )
     ).all()
@@ -609,6 +763,12 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
             "teste": len(teste),
             "positivos": sum(item[2] for item in amostras),
             "negativos": len(amostras) - sum(item[2] for item in amostras),
+            "fundamentos": {
+                fundamento: sum(
+                    item[0].fundamento == fundamento for item in agrupadas.values()
+                )
+                for fundamento in sorted({item[0].fundamento for item in agrupadas.values()})
+            },
             "divisao": "temporal_70_15_15",
             "bootstrap_modelos": len(parametros["bootstrap_modelos"]),
             "corte_dados": max(item[0] for item in amostras).isoformat(),
@@ -659,7 +819,7 @@ def _nivel_probabilidade(probabilidade: float) -> str:
 
 def _cobertura_entrada(atributos: dict[str, float], parametros: dict[str, Any]) -> float:
     distancias = []
-    for nome in ATRIBUTOS_MODELO:
+    for nome in parametros.get("pesos", {}):
         desvio = float(parametros["desvios"].get(nome, 1.0))
         diferenca = atributos.get(nome, 0.0) - parametros["medias"].get(nome, 0.0)
         if desvio <= 1e-5:
@@ -696,7 +856,12 @@ def prever(atributos: dict[str, float], modelo: ModeloRegistrabilidade) -> Predi
     )
     confianca_rotulo = "alta" if confianca >= 0.75 else "media" if confianca >= 0.55 else "baixa"
     fatores = []
-    for nome in ATRIBUTOS_MODELO:
+    nomes_modelo = [
+        nome
+        for nome in (modelo.atributos or list(modelo.parametros.get("pesos", {})))
+        if nome in modelo.parametros.get("pesos", {})
+    ]
+    for nome in nomes_modelo:
         padronizado = (
             atributos.get(nome, 0.0) - modelo.parametros["medias"][nome]
         ) / modelo.parametros["desvios"][nome]
@@ -704,7 +869,7 @@ def prever(atributos: dict[str, float], modelo: ModeloRegistrabilidade) -> Predi
         fatores.append(
             {
                 "atributo": nome,
-                "rotulo": ROTULOS_ATRIBUTOS[nome],
+                "rotulo": ROTULOS_ATRIBUTOS.get(nome, nome.replace("_", " ")),
                 "impacto": round(impacto, 4),
                 "efeito": "favoravel" if impacto >= 0 else "risco",
             }

@@ -8,14 +8,17 @@ from app.trademarks.learning import (
     extrair_atributos_par,
     extrair_rotulo,
     prever,
+    prioridade_revisao_rotulo,
     validar_estimativa_para_cliente,
 )
 
 
-def movimento(descricao: str, *, numero_rpi: int = 2900) -> Movimentacao:
+def movimento(
+    descricao: str, *, numero_rpi: int = 2900, codigo: str | None = None
+) -> Movimentacao:
     item = Movimentacao(
         processo_id=1,
-        codigo_despacho=None,
+        codigo_despacho=codigo,
         descricao=descricao,
         data_rpi=date(2026, 7, 14),
         numero_rpi=numero_rpi,
@@ -45,6 +48,37 @@ def test_recurso_nao_substitui_decisao_final() -> None:
     assert resultado.alvo_deferimento is True
 
 
+def test_recurso_provido_reforma_resultado_para_deferimento() -> None:
+    resultado = extrair_rotulo(
+        [
+            movimento("Indeferimento do pedido", numero_rpi=2890, codigo="IPAS024"),
+            movimento(
+                "Recurso provido (decisão reformada para: Deferimento)",
+                numero_rpi=2900,
+                codigo="IPAS237",
+            ),
+        ]
+    )
+    assert resultado is not None
+    assert resultado.alvo_deferimento is True
+    assert resultado.fundamento == "deferimento_recurso"
+
+
+def test_rotulo_generico_prioriza_revisao_e_preserva_evidencias() -> None:
+    resultado = extrair_rotulo(
+        [
+            movimento("Notificação de oposição", numero_rpi=2880, codigo="IPAS423"),
+            movimento("Indeferimento do pedido", numero_rpi=2890, codigo="IPAS024"),
+        ]
+    )
+    assert resultado is not None
+    assert resultado.fundamento == "indeferimento_nao_especificado"
+    assert prioridade_revisao_rotulo(
+        resultado.fundamento, resultado.confianca, resultado.rotulo
+    ) == "alta"
+    assert {item["tipo"] for item in resultado.evidencias} == {"decisao", "oposicao"}
+
+
 def test_atributos_capturam_fonetica_e_classe_sem_llm() -> None:
     atributos = extrair_atributos_par(
         "PHIRMINO",
@@ -55,6 +89,8 @@ def test_atributos_capturam_fonetica_e_classe_sem_llm() -> None:
         candidata_ativa=True,
     )
     assert atributos["fonetica_igual"] == 1
+    assert atributos["fonetica_similaridade"] == 1
+    assert atributos["prefixo_radical"] == 1
     assert atributos["classe_identica"] == 1
     assert atributos["candidato_ativo"] == 1
 
@@ -69,6 +105,30 @@ def test_agregacao_preserva_maior_conflito_e_volume() -> None:
     assert agregado["similaridade_sequencia"] == 0.9
     assert agregado["classe_identica"] == 1.0
     assert agregado["quantidade_candidatos_norm"] == 0.2
+    assert agregado["similaridade_top3_media"] == 0.65
+
+
+def test_modelo_antigo_permanece_compativel_apos_novos_atributos() -> None:
+    nomes_antigos = ["similaridade_sequencia", "classe_identica"]
+    parametros = {
+        "pesos": {nome: 0.0 for nome in nomes_antigos},
+        "vies": 0.0,
+        "medias": {nome: 0.0 for nome in nomes_antigos},
+        "desvios": {nome: 1.0 for nome in nomes_antigos},
+    }
+    modelo = ModeloRegistrabilidade(
+        versao="legado-atributos-1.0",
+        status="ativo",
+        atributos=nomes_antigos,
+        parametros=parametros,
+        calibracao={"a": 1.0, "b": 0.0},
+        metricas={"brier": 0.2},
+        dataset={},
+    )
+
+    resultado = prever({"similaridade_sequencia": 0.8, "nome_identico": 1.0}, modelo)
+
+    assert resultado.probabilidade == 0.5
 
 
 def test_predicao_e_versionada_e_explica_fatores() -> None:

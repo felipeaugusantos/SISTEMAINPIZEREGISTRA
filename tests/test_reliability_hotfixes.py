@@ -17,7 +17,7 @@ from tests.test_relatorio_pdf import _relatorio_exemplo
 
 
 def test_resumo_publico_nao_expoe_processos_ou_matriz_interna() -> None:
-    resumo = construir_resumo_publico(_relatorio_exemplo(com_estimativa=True))
+    resumo = construir_resumo_publico(_relatorio_exemplo(com_prognostico=True))
     payload = resumo.model_dump()
 
     assert "itens" not in payload

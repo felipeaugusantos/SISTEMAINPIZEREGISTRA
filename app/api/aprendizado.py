@@ -2,13 +2,14 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao
 from app.database import get_session
 from app.models import (
     ControleAprendizadoMarca,
+    EventoAuditoria,
     ModeloRegistrabilidade,
     ParTreinamentoMarca,
     PesquisaMarca,
@@ -32,6 +33,7 @@ from app.trademarks.learning import (
     ativar_modelo,
     construir_dataset_historico,
     obter_controle,
+    prioridade_revisao_rotulo,
     treinar_modelo,
     validar_modelo_para_cliente,
 )
@@ -108,6 +110,17 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
                 .select_from(RotuloHistoricoMarca)
                 .where(RotuloHistoricoMarca.status_revisao == "aprovada")
                 .scalar_subquery(),
+                select(func.count())
+                .select_from(RotuloHistoricoMarca)
+                .where(
+                    RotuloHistoricoMarca.status_revisao == "pendente",
+                    or_(
+                        RotuloHistoricoMarca.fundamento
+                        == "indeferimento_nao_especificado",
+                        RotuloHistoricoMarca.confianca < 0.75,
+                    ),
+                )
+                .scalar_subquery(),
                 select(func.count()).select_from(ParTreinamentoMarca).scalar_subquery(),
                 select(func.count())
                 .select_from(PrevisaoRegistrabilidade)
@@ -142,7 +155,11 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
             select(RotuloHistoricoMarca, Processo)
             .join(Processo, Processo.id == RotuloHistoricoMarca.processo_id)
             .where(RotuloHistoricoMarca.status_revisao == "pendente")
-            .order_by(RotuloHistoricoMarca.confianca, RotuloHistoricoMarca.data_referencia.desc())
+            .order_by(
+                (RotuloHistoricoMarca.fundamento == "indeferimento_nao_especificado").desc(),
+                RotuloHistoricoMarca.confianca,
+                RotuloHistoricoMarca.data_referencia.desc(),
+            )
             .limit(30)
         )
     ).all()
@@ -166,9 +183,10 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
         rotulos_deferidos=contagens[1],
         rotulos_indeferidos=contagens[2],
         rotulos_revisados=contagens[3],
-        total_pares=contagens[4],
-        total_previsoes=contagens[5],
-        previsoes_revisadas=contagens[6],
+        rotulos_prioridade_alta=contagens[4],
+        total_pares=contagens[5],
+        total_previsoes=contagens[6],
+        previsoes_revisadas=contagens[7],
         modelo_ativo=_modelo(ativo) if ativo else None,
         modelos=[_modelo(item) for item in modelos],
         rotulos_pendentes=[
@@ -180,7 +198,17 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
                 fundamento=rotulo.fundamento,
                 confianca=rotulo.confianca,
                 data_referencia=rotulo.data_referencia,
+                data_decisao=rotulo.data_decisao,
                 numero_rpi=rotulo.numero_rpi,
+                despacho_codigo=rotulo.despacho_codigo,
+                despacho_descricao=rotulo.despacho_descricao,
+                prioridade_revisao=prioridade_revisao_rotulo(
+                    rotulo.fundamento, rotulo.confianca, rotulo.rotulo
+                ),
+                elegivel_treinamento=rotulo.elegivel_treinamento,
+                motivo_inelegibilidade=rotulo.motivo_inelegibilidade,
+                classificador_versao=rotulo.classificador_versao,
+                evidencias_classificacao=rotulo.evidencias_classificacao or [],
                 status_revisao=rotulo.status_revisao,
                 revisor=rotulo.revisor,
             )
@@ -216,7 +244,12 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
             for item, pesquisa, modelo in previsoes
         ],
         controle=_controle(controle),
-        liberacao_cliente_permitida=bool(ativo and controle.inferencia_habilitada),
+        liberacao_cliente_permitida=bool(
+            ativo
+            and controle.inferencia_habilitada
+            and controle.exibir_cliente
+            and not bloqueios
+        ),
         bloqueios_liberacao=bloqueios,
     )
 
@@ -294,15 +327,46 @@ async def revisar_rotulo(
     rotulo = await session.get(RotuloHistoricoMarca, rotulo_id)
     if rotulo is None:
         raise HTTPException(status_code=404, detail="Rótulo não encontrado")
+    estado_anterior = {
+        "status_revisao": rotulo.status_revisao,
+        "rotulo": rotulo.rotulo,
+        "fundamento": rotulo.fundamento,
+        "elegivel_treinamento": rotulo.elegivel_treinamento,
+    }
     rotulo.status_revisao = dados.status_revisao
     rotulo.rotulo = dados.rotulo
     rotulo.alvo_deferimento = dados.rotulo == "deferida"
     rotulo.fundamento = dados.fundamento
     rotulo.origem = "revisao_humana"
     rotulo.confianca = 1.0
-    rotulo.revisor = dados.revisor
+    rotulo.revisor = usuario.ator
     rotulo.observacoes_revisao = dados.observacoes
     rotulo.revisado_em = datetime.now(UTC)
+    rotulo.elegivel_treinamento = dados.status_revisao == "aprovada"
+    rotulo.motivo_inelegibilidade = (
+        None if rotulo.elegivel_treinamento else "rejeitado_por_especialista"
+    )
+    rotulo.classificador_versao = "revisao-humana-1.0"
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            ator=usuario.ator,
+            acao="revisar_rotulo",
+            recurso=f"rotulo:{rotulo.id}",
+            sucesso=True,
+            status_http=200,
+            detalhes={
+                "antes": estado_anterior,
+                "depois": {
+                    "status_revisao": rotulo.status_revisao,
+                    "rotulo": rotulo.rotulo,
+                    "fundamento": rotulo.fundamento,
+                    "elegivel_treinamento": rotulo.elegivel_treinamento,
+                },
+                "observacoes": dados.observacoes,
+            },
+        )
+    )
     await session.commit()
     return AprendizadoAcaoResponse(mensagem="Rótulo histórico revisado")
 

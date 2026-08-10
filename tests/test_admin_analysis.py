@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,13 +7,15 @@ from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
 from app.models import (
+    EventoAuditoria,
     Lead,
     PesquisaMarca,
     PrevisaoRegistrabilidade,
+    RotuloHistoricoMarca,
     StatusLead,
     VersaoRelatorioMarca,
 )
-from tests.conftest import FakeResult, auth_override, sessao_override, usuario_teste
+from tests.conftest import FakeResult, FakeSession, auth_override, sessao_override, usuario_teste
 
 
 @pytest.fixture(autouse=True)
@@ -121,6 +123,56 @@ def test_leitura_supervisionada_e_persistida() -> None:
     assert previsao.avaliador == "Felipe Augusto dos Santos"
     assert previsao.observacoes_humanas == "Grande chance de registro"
     assert previsao.avaliado_em is not None
+
+
+def test_revisao_de_rotulo_define_elegibilidade_e_registra_auditoria() -> None:
+    rotulo = RotuloHistoricoMarca(
+        id=33,
+        processo_id=10,
+        rotulo="indeferida",
+        alvo_deferimento=False,
+        fundamento="indeferimento_nao_especificado",
+        origem="rpi_automatica",
+        confianca=0.65,
+        data_referencia=date(2025, 1, 10),
+        tipo_decisao="merito",
+        elegivel_treinamento=True,
+        classificador_versao="rotulo-marcario-1.1",
+        evidencias_classificacao=[],
+        status_revisao="pendente",
+    )
+
+    class RotuloSession(FakeSession):
+        async def get(self, *_args, **_kwargs):
+            return rotulo
+
+    sessao = RotuloSession()
+
+    async def override_session():
+        yield sessao
+
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "superadmin", True)
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).patch(
+        "/v1/admin/aprendizado/rotulos/33",
+        headers={"X-CSRF-Token": "csrf-teste"},
+        json={
+            "status_revisao": "rejeitada",
+            "rotulo": "indeferida",
+            "fundamento": "indeferimento_nao_especificado",
+            "observacoes": "Despacho sem fundamento suficiente para o treinamento.",
+        },
+    )
+
+    assert resposta.status_code == 200, resposta.text
+    assert rotulo.elegivel_treinamento is False
+    assert rotulo.motivo_inelegibilidade == "rejeitado_por_especialista"
+    assert rotulo.revisor == "admin@teste.local"
+    assert any(isinstance(item, EventoAuditoria) for item in sessao.adicionados)
 
 
 def test_dados_complementares_sao_persistidos_para_recalcular_matriz() -> None:

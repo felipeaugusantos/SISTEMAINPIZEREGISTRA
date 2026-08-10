@@ -185,14 +185,29 @@
 .report-classification.prognostico {
   border-left-width: 6px;
 }
+.report-classification.prognostico h2 {
+  font-weight: 700;
+}
 .report-classification.prognostico[data-veredito="favoravel"] {
-  border-left-color: #1a7f4b;
+  border-color: #1a7f4b;
+  background: #eef7f1;
+}
+.report-classification.prognostico[data-veredito="favoravel"] h2 {
+  color: #146c3f;
 }
 .report-classification.prognostico[data-veredito="atencao"] {
-  border-left-color: #b8860b;
+  border-color: #b8860b;
+  background: #fbf6e8;
+}
+.report-classification.prognostico[data-veredito="atencao"] h2 {
+  color: #8a6400;
 }
 .report-classification.prognostico[data-veredito="desfavoravel"] {
-  border-left-color: #b3261e;
+  border-color: #b3261e;
+  background: #fdeeec;
+}
+.report-classification.prognostico[data-veredito="desfavoravel"] h2 {
+  color: #9c1f18;
 }
 .prognostico-tag {
   display: inline-block;

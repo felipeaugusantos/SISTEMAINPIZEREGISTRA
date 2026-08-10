@@ -435,8 +435,15 @@ def gerar_pdf_relatorio(
         )
         pendencias = " · ".join(_texto(item) for item in prognostico.pendencias)
         tendencia = _texto(rotulos.get(prognostico.veredito, prognostico.veredito))
+        cores_veredito = {
+            "favoravel": "#146c3f",
+            "atencao": "#8a6400",
+            "desfavoravel": "#9c1f18",
+        }
+        cor = cores_veredito.get(prognostico.veredito, "#10251d")
         partes = [
-            f"<b>Tendência: {tendencia}</b> — {_texto(prognostico.titulo)}<br/>",
+            f'<b><font color="{cor}">Tendência: {tendencia}</font></b> — '
+            f"{_texto(prognostico.titulo)}<br/>",
             f"{_texto(prognostico.resumo)}<br/>",
         ]
         if motivos:

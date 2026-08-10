@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+import asyncio
+import html
+import smtplib
+import ssl
+from email.message import EmailMessage
+from urllib.parse import quote
+
+from app.settings import Settings, get_settings
+
+
+def _link_recuperacao(settings: Settings, token: str) -> str:
+    base = settings.app_public_url.rstrip("/")
+    # O fragmento não é enviado ao servidor nem incluído em logs HTTP/referrers.
+    return f"{base}/redefinir-senha#token={quote(token, safe='')}"
+
+
+def _mensagem_recuperacao(
+    destinatario: str, nome: str, token: str, settings: Settings
+) -> EmailMessage:
+    link = _link_recuperacao(settings, token)
+    nome_seguro = html.escape(nome or "usuário")
+    minutos = settings.password_reset_minutes
+    mensagem = EmailMessage()
+    mensagem["Subject"] = "Redefinição de senha — Zé Registra"
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = destinatario
+    mensagem.set_content(
+        f"Olá, {nome or 'usuário'}.\n\n"
+        "Recebemos uma solicitação para redefinir sua senha no Centro de Operações.\n"
+        f"Acesse o link abaixo em até {minutos} minutos:\n\n{link}\n\n"
+        "Se você não solicitou a alteração, ignore esta mensagem."
+    )
+    mensagem.add_alternative(
+        f"""
+        <!doctype html>
+        <html lang="pt-BR"><body style="margin:0;background:#f5f3eb;padding:28px;">
+          <main style="max-width:600px;margin:auto;background:#fff;border:1px solid #d8ddd6;
+                       border-radius:20px;padding:36px;font-family:Arial,sans-serif;color:#10251d;">
+            <p style="margin:0;color:#08704d;font-weight:700;letter-spacing:.08em;">
+              ZÉ REGISTRA® · CENTRO DE OPERAÇÕES
+            </p>
+            <h1 style="font-size:30px;margin:22px 0 12px;">Redefina sua senha</h1>
+            <p>Olá, {nome_seguro}.</p>
+            <p>Recebemos uma solicitação para redefinir sua senha. Este link é individual,
+               pode ser utilizado uma única vez e expira em {minutos} minutos.</p>
+            <p style="margin:28px 0;">
+              <a href="{html.escape(link, quote=True)}"
+                 style="display:inline-block;background:#086044;color:#fff;text-decoration:none;
+                        border-radius:10px;padding:14px 22px;font-weight:700;">
+                Criar nova senha
+              </a>
+            </p>
+            <p style="color:#607068;font-size:13px;">
+              Se você não solicitou a alteração, ignore esta mensagem. Sua senha continuará válida.
+            </p>
+          </main>
+        </body></html>
+        """,
+        subtype="html",
+    )
+    return mensagem
+
+
+def _enviar_smtp(mensagem: EmailMessage, settings: Settings) -> None:
+    with smtplib.SMTP(
+        settings.smtp_host,
+        settings.smtp_port,
+        timeout=settings.smtp_timeout_seconds,
+    ) as smtp:
+        if settings.smtp_starttls:
+            smtp.starttls(context=ssl.create_default_context())
+        if settings.smtp_username:
+            smtp.login(settings.smtp_username, settings.smtp_password)
+        smtp.send_message(mensagem)
+
+
+async def enviar_recuperacao_senha(destinatario: str, nome: str, token: str) -> None:
+    settings = get_settings()
+    if not settings.email_enabled:
+        return
+    mensagem = _mensagem_recuperacao(destinatario, nome, token, settings)
+    await asyncio.to_thread(_enviar_smtp, mensagem, settings)

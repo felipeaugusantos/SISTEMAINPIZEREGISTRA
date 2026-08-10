@@ -192,3 +192,18 @@ async def revogar_sessoes(usuario_id: int, session: SessionDep, ator: RevokeDep)
     await _auditar(session, ator, "REVOGAR_SESSOES", usuario_id, {"quantidade": resultado.rowcount})
     await session.commit()
     return {"revogadas": resultado.rowcount}
+
+
+@router.post("/{usuario_id}/desbloquear")
+async def desbloquear(usuario_id: int, session: SessionDep, ator: ManageDep) -> dict:
+    alvo = (await session.execute(select(UsuarioOperacoes).where(
+        UsuarioOperacoes.id == usuario_id,
+        UsuarioOperacoes.organizacao_id == ator.organizacao_id,
+    ))).scalar_one_or_none()
+    if not alvo:
+        raise HTTPException(404, "Usuario nao encontrado")
+    alvo.bloqueado_ate = None
+    alvo.tentativas_falhas = 0
+    await _auditar(session, ator, "DESBLOQUEAR", alvo.id, {})
+    await session.commit()
+    return {"desbloqueado": True}

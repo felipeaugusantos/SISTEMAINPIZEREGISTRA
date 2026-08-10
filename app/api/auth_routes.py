@@ -1,4 +1,5 @@
 import secrets
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -18,6 +19,7 @@ from app.auth import (
     verificar_senha,
 )
 from app.database import get_session
+from app.emailing import enviar_recuperacao_senha
 from app.models import (
     ConviteOrganizacao,
     EventoAuditoria,
@@ -39,6 +41,7 @@ from app.settings import TAMANHO_MINIMO_SENHA, get_settings
 from app.tenancy import aplicar_contexto_tenant, validar_limite_usuarios
 
 router = APIRouter(prefix="/v1/auth", tags=["autenticacao"])
+logger = logging.getLogger(__name__)
 limitar_login = RateLimiter(limite=10, janela_segundos=60, escopo="login")
 limitar_recuperacao = RateLimiter(limite=5, janela_segundos=300, escopo="recuperacao")
 limitar_mfa = RateLimiter(limite=10, janela_segundos=300, escopo="mfa")
@@ -109,9 +112,10 @@ async def _auditar(
 
     session.add(
         EventoAuditoria(
-            organizacao_id=getattr(
-                getattr(request.state, "auth_user", None), "organizacao_id", None
-            ),
+            # A org vem do contexto de tenant já aplicado (session.info), não de
+            # request.state.auth_user — que é None no login falho e fazia a linha de
+            # auditoria nascer com org nula, violando o RLS na leitura do RETURNING.
+            organizacao_id=session.info.get("organizacao_id"),
             ator=ator[:150],
             acao=acao[:20],
             recurso="autenticacao",
@@ -339,7 +343,15 @@ async def solicitar_recuperacao(
             )
         )
         await session.commit()
-        if get_settings().app_env.lower() != "production":
+        settings = get_settings()
+        if settings.email_enabled:
+            try:
+                await enviar_recuperacao_senha(usuario.email, usuario.nome, token)
+            except Exception:
+                # A resposta continua genérica para não revelar se a conta existe.
+                # O token nunca é incluído no log.
+                logger.exception("Falha ao enviar e-mail de recuperação de senha")
+        elif settings.app_env.lower() != "production":
             resposta["token_teste_local"] = token
     return resposta
 

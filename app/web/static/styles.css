@@ -1147,6 +1147,15 @@ footer p {
   background: #fcfdfb;
 }
 
+.auth-card .auth-secondary-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  text-align: center;
+  text-decoration: none;
+}
+
 .label-review > .status-message,
 .label-review > p {
   margin: 14px 24px 0;

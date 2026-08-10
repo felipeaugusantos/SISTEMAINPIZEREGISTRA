@@ -22,25 +22,57 @@ login?.addEventListener("submit", async (event) => {
   try { const dados = Object.fromEntries(new FormData(login)); if (!dados.codigo_mfa) delete dados.codigo_mfa; const r = await enviar("/v1/auth/login", dados); location.href = r.destino; }
   catch (erro) { msg.textContent = erro.message; msg.className = "status-message error"; }
 });
-document.querySelector("#forgot-password")?.addEventListener("click", async () => {
-  const email = prompt("Informe o e-mail cadastrado:");
-  if (!email) return;
+const recuperacao = document.querySelector("#forgot-password-form");
+recuperacao?.addEventListener("submit", async (event) => {
+  event.preventDefault();
   const msg = document.querySelector("#auth-message");
+  msg.textContent = "Enviando…";
+  msg.className = "status-message loading";
   try {
+    const { email } = Object.fromEntries(new FormData(recuperacao));
     const resposta = await enviar("/v1/auth/recuperacao/solicitar", { email });
     msg.textContent = resposta.mensagem;
     if (resposta.token_teste_local) {
-      const nova_senha = prompt("Ambiente local: informe a nova senha (mínimo de 12 caracteres):");
-      if (nova_senha) {
-        await enviar("/v1/auth/recuperacao/redefinir", {
-          token: resposta.token_teste_local,
-          nova_senha,
-        });
-        msg.textContent = "Senha redefinida. Entre com a nova senha.";
-      }
+      location.href = `/redefinir-senha#token=${encodeURIComponent(resposta.token_teste_local)}`;
+      return;
     }
     msg.className = "status-message success";
   } catch (erro) { msg.textContent = erro.message; msg.className = "status-message error"; }
+});
+const redefinicao = document.querySelector("#reset-password-form");
+let tokenRecuperacao = "";
+if (redefinicao) {
+  const fragmento = new URLSearchParams(location.hash.replace(/^#/, ""));
+  tokenRecuperacao = fragmento.get("token") || "";
+  history.replaceState(null, "", "/redefinir-senha");
+  if (!tokenRecuperacao) {
+    const msg = document.querySelector("#auth-message");
+    msg.textContent = "Link de recuperação ausente ou inválido. Solicite um novo e-mail.";
+    msg.className = "status-message error";
+    redefinicao.querySelector("button").disabled = true;
+  }
+}
+redefinicao?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const dados = Object.fromEntries(new FormData(redefinicao));
+  const msg = document.querySelector("#auth-message");
+  if (dados.nova_senha !== dados.confirmacao) {
+    msg.textContent = "As senhas não coincidem.";
+    msg.className = "status-message error";
+    return;
+  }
+  msg.textContent = "Salvando…";
+  msg.className = "status-message loading";
+  try {
+    await enviar("/v1/auth/recuperacao/redefinir", {
+      token: tokenRecuperacao,
+      nova_senha: dados.nova_senha,
+    });
+    redefinicao.innerHTML = '<p class="status-message success">Senha redefinida com sucesso.</p><a class="secondary-button auth-secondary-link" href="/login">Entrar com a nova senha</a>';
+  } catch (erro) {
+    msg.textContent = erro.message;
+    msg.className = "status-message error";
+  }
 });
 const senha = document.querySelector("#password-form");
 senha?.addEventListener("submit", async (event) => {

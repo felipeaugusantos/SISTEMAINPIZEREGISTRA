@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Esqueci minha senha — Centro de operações</title>
+  <link rel="stylesheet" href="/static/styles.css?v=14">
+  <script src="/static/auth-pages.js?v=3" defer></script>
+</head>
+<body class="auth-body">
+  <main class="auth-card">
+    <a href="/" class="auth-brand"><img src="/static/assets/personagem.png" alt=""><strong>Zé Registra®</strong></a>
+    <p class="eyebrow">Segurança</p>
+    <h1>Recuperar acesso</h1>
+    <p>Informe o e-mail cadastrado. Se a conta existir, enviaremos um link válido por 30 minutos.</p>
+    <form id="forgot-password-form">
+      <label>E-mail<input name="email" type="email" autocomplete="email" required></label>
+      <button type="submit">Enviar link de recuperação</button>
+      <a class="secondary-button auth-secondary-link" href="/login">Voltar para o login</a>
+      <div id="auth-message" class="status-message" role="alert"></div>
+    </form>
+  </main>
+</body>
+</html>

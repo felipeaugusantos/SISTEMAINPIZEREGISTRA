@@ -98,6 +98,16 @@ async def pagina_alterar_senha() -> FileResponse:
     return FileResponse(web_dir / "alterar-senha.html")
 
 
+@app.get("/esqueci-senha", include_in_schema=False)
+async def pagina_esqueci_senha() -> FileResponse:
+    return FileResponse(web_dir / "esqueci-senha.html")
+
+
+@app.get("/redefinir-senha", include_in_schema=False)
+async def pagina_redefinir_senha() -> FileResponse:
+    return FileResponse(web_dir / "redefinir-senha.html")
+
+
 @app.get(
     "/admin/leads", include_in_schema=False, dependencies=[Depends(exigir_permissao("leads.view"))]
 )

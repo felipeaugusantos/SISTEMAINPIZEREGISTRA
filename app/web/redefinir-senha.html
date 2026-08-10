@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Redefinir senha — Centro de operações</title>
+  <link rel="stylesheet" href="/static/styles.css?v=14">
+  <script src="/static/auth-pages.js?v=3" defer></script>
+</head>
+<body class="auth-body">
+  <main class="auth-card">
+    <a href="/" class="auth-brand"><img src="/static/assets/personagem.png" alt=""><strong>Zé Registra®</strong></a>
+    <p class="eyebrow">Segurança</p>
+    <h1>Criar nova senha</h1>
+    <p>Use pelo menos 12 caracteres, incluindo maiúscula, minúscula, número e símbolo.</p>
+    <form id="reset-password-form">
+      <label>Nova senha<input name="nova_senha" type="password" minlength="12" autocomplete="new-password" required></label>
+      <label>Confirmar nova senha<input name="confirmacao" type="password" minlength="12" autocomplete="new-password" required></label>
+      <button type="submit">Salvar nova senha</button>
+      <div id="auth-message" class="status-message" role="alert"></div>
+    </form>
+  </main>
+</body>
+</html>

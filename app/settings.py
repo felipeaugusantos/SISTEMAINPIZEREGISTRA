@@ -36,6 +36,16 @@ class Settings(BaseSettings):
     # Desligado por padrão: em processo único a janela em memória basta.
     ratelimit_redis_enabled: bool = False
     password_reset_minutes: int = 30
+    app_public_url: str = "http://localhost:8000"
+    email_enabled: bool = False
+    email_from_address: str = "nao-responda@zeregistra.local"
+    email_from_name: str = "Zé Registra"
+    smtp_host: str = "localhost"
+    smtp_port: int = 1025
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_starttls: bool = False
+    smtp_timeout_seconds: float = 10.0
 
     model_config = SettingsConfigDict(
         env_file=".env",

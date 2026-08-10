@@ -53,7 +53,6 @@ def test_atributos_capturam_fonetica_e_classe_sem_llm() -> None:
         ["35"],
         afinidade_conhecida=False,
         candidata_ativa=True,
-        alto_renome=False,
     )
     assert atributos["fonetica_igual"] == 1
     assert atributos["classe_identica"] == 1
@@ -63,12 +62,12 @@ def test_atributos_capturam_fonetica_e_classe_sem_llm() -> None:
 def test_agregacao_preserva_maior_conflito_e_volume() -> None:
     agregado = agregar_atributos(
         [
-            {"similaridade_sequencia": 0.4},
-            {"similaridade_sequencia": 0.9, "alto_renome": 1.0},
+            {"similaridade_sequencia": 0.4, "classe_identica": 1.0},
+            {"similaridade_sequencia": 0.9},
         ]
     )
     assert agregado["similaridade_sequencia"] == 0.9
-    assert agregado["alto_renome"] == 1.0
+    assert agregado["classe_identica"] == 1.0
     assert agregado["quantidade_candidatos_norm"] == 0.2
 
 

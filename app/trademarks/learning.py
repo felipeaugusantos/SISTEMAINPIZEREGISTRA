@@ -29,6 +29,10 @@ VERSAO_ATRIBUTOS = "atributos-marcarios-1.0"
 VERSAO_ESTIMATIVA = "deferimento-merito-2.0"
 ESCOPO_ESTIMATIVA = "deferimento_exame_merito"
 QUANTIDADE_BOOTSTRAP = 24
+# Nota: 'alto_renome' foi removido do modelo. No dataset historico ele era sempre
+# False (nao ha status de renome historico confiavel por data de deposito), tornando-se
+# uma feature constante -> peso ~0 e skew treino/producao. O alto renome continua sendo
+# usado no motor de risco e no relatorio, apenas nao alimenta a estimativa estatistica.
 ATRIBUTOS_MODELO = (
     "similaridade_sequencia",
     "jaccard_tokens",
@@ -37,7 +41,9 @@ ATRIBUTOS_MODELO = (
     "classe_identica",
     "afinidade_conhecida",
     "candidato_ativo",
-    "alto_renome",
+    "marca_token_unico",
+    "marca_num_tokens_norm",
+    "marca_comprimento_norm",
     "quantidade_candidatos_norm",
 )
 ROTULOS_ATRIBUTOS = {
@@ -48,7 +54,9 @@ ROTULOS_ATRIBUTOS = {
     "classe_identica": "classe de Nice idêntica",
     "afinidade_conhecida": "afinidade entre atividades",
     "candidato_ativo": "situação ativa da anterioridade",
-    "alto_renome": "marca de alto renome",
+    "marca_token_unico": "marca de termo único",
+    "marca_num_tokens_norm": "quantidade de termos na marca",
+    "marca_comprimento_norm": "comprimento da marca",
     "quantidade_candidatos_norm": "volume de anterioridades",
 }
 
@@ -105,6 +113,26 @@ def _jaccard(a: set[str], b: set[str]) -> float:
 def _trigramas(valor: str) -> set[str]:
     texto = f"  {normalizar_texto(valor)}  "
     return {texto[indice : indice + 3] for indice in range(max(0, len(texto) - 2))}
+
+
+def distintividade_marca(marca: str) -> dict[str, float]:
+    """Sinais intrínsecos de distintividade da marca-alvo, derivados só do texto.
+
+    Capturam o eixo de indeferimento por falta de distintividade (Art. 124), que as
+    features de conflito não enxergam. São propositalmente calculados apenas da string
+    (sem depender da atividade/classe) para serem simétricos entre treino e inferência —
+    a mesma lição do 'alto_renome' removido. Proxies fracos porém honestos: uma marca
+    curta e de token único tende a ser mais distintiva; frase longa e multi-token tende
+    a ser mais descritiva/fraca. Um sinal forte exigiria léxico/frequência de corpus.
+    """
+    norm = normalizar_texto(marca)
+    tokens = norm.split()
+    comprimento = len(norm.replace(" ", ""))
+    return {
+        "marca_token_unico": float(len(tokens) <= 1),
+        "marca_num_tokens_norm": min(1.0, len(tokens) / 5.0),
+        "marca_comprimento_norm": min(1.0, comprimento / 20.0),
+    }
 
 
 def extrair_rotulo(movimentacoes: list[Movimentacao]) -> RotuloExtraido | None:
@@ -167,7 +195,6 @@ def extrair_atributos_par(
     *,
     afinidade_conhecida: bool,
     candidata_ativa: bool,
-    alto_renome: bool,
 ) -> dict[str, float]:
     marca_norm = normalizar_texto(marca)
     candidata_norm = normalizar_texto(candidata)
@@ -183,17 +210,26 @@ def extrair_atributos_par(
         "classe_identica": float(bool(set(classes_marca) & set(classes_candidata))),
         "afinidade_conhecida": float(afinidade_conhecida),
         "candidato_ativo": float(candidata_ativa),
-        "alto_renome": float(alto_renome),
     }
 
 
-def agregar_atributos(pares: list[dict[str, float]]) -> dict[str, float]:
+# Atributos que NÃO vêm dos pares (calculados no nível da amostra na agregação).
+_ATRIBUTOS_NAO_PAREADOS = frozenset(
+    {"quantidade_candidatos_norm", "marca_token_unico", "marca_num_tokens_norm",
+     "marca_comprimento_norm"}
+)
+
+
+def agregar_atributos(pares: list[dict[str, float]], marca: str = "") -> dict[str, float]:
     atributos = {
         nome: max((par.get(nome, 0.0) for par in pares), default=0.0)
         for nome in ATRIBUTOS_MODELO
-        if nome != "quantidade_candidatos_norm"
+        if nome not in _ATRIBUTOS_NAO_PAREADOS
     }
     atributos["quantidade_candidatos_norm"] = min(1.0, len(pares) / 10.0)
+    # Distintividade é propriedade da marca-alvo, não do par; computada aqui uma vez.
+    if marca:
+        atributos.update(distintividade_marca(marca))
     return atributos
 
 
@@ -331,7 +367,6 @@ async def construir_dataset_historico(
                 classes_candidata,
                 afinidade_conhecida=afinidade,
                 candidata_ativa=_candidata_ativa_na_data(candidata, processo.data_deposito),
-                alto_renome=False,
             )
             session.add(
                 ParTreinamentoMarca(
@@ -359,12 +394,18 @@ def _sigmoid(valor: float) -> float:
 
 
 def _ajustar_logistica(
-    linhas: list[tuple[dict[str, float], int]],
+    linhas: list[tuple[dict[str, float], int, float]],
     *,
     epocas: int = 1200,
     taxa: float = 0.08,
     regularizacao: float = 0.002,
 ) -> dict[str, Any]:
+    """Regressão logística ponderada. Cada linha é (atributos, alvo, peso_confianca).
+
+    O peso reflete a confiabilidade do rótulo extraído do despacho: um indeferimento
+    genérico (0,65) influencia menos que um deferimento explícito (1,0), evitando que o
+    ruído da extração por texto seja tratado como certeza.
+    """
     medias = {
         nome: sum(item[0].get(nome, 0.0) for item in linhas) / len(linhas)
         for nome in ATRIBUTOS_MODELO
@@ -377,7 +418,7 @@ def _ajustar_logistica(
         desvios[nome] = max(math.sqrt(variancia), 1e-6)
     pesos = {nome: 0.0 for nome in ATRIBUTOS_MODELO}
     vies = 0.0
-    positivos = sum(alvo for _, alvo in linhas)
+    positivos = sum(alvo for _, alvo, _ in linhas)
     negativos = len(linhas) - positivos
     pesos_classe = {
         1: len(linhas) / (2 * positivos) if positivos else 1.0,
@@ -386,7 +427,7 @@ def _ajustar_logistica(
     for _ in range(epocas):
         gradientes = {nome: 0.0 for nome in ATRIBUTOS_MODELO}
         gradiente_vies = 0.0
-        for atributos, alvo in linhas:
+        for atributos, alvo, confianca in linhas:
             padronizados = {
                 nome: (atributos.get(nome, 0.0) - medias[nome]) / desvios[nome]
                 for nome in ATRIBUTOS_MODELO
@@ -394,7 +435,7 @@ def _ajustar_logistica(
             previsao = _sigmoid(
                 vies + sum(pesos[nome] * padronizados[nome] for nome in ATRIBUTOS_MODELO)
             )
-            erro = (previsao - alvo) * pesos_classe[alvo]
+            erro = (previsao - alvo) * pesos_classe[alvo] * confianca
             gradiente_vies += erro
             for nome in ATRIBUTOS_MODELO:
                 gradientes[nome] += erro * padronizados[nome]
@@ -452,14 +493,14 @@ def _percentil(valores: list[float], proporcao: float) -> float:
 
 
 def _modelos_bootstrap(
-    treino: list[tuple[dict[str, float], int]], quantidade: int = QUANTIDADE_BOOTSTRAP
+    treino: list[tuple[dict[str, float], int, float]], quantidade: int = QUANTIDADE_BOOTSTRAP
 ) -> list[dict[str, Any]]:
     """Amostra a incerteza do ajuste sem alterar o conjunto temporal de teste."""
     gerador = random.Random(20260808 + len(treino))
     modelos = []
     for _ in range(quantidade):
         amostra = [treino[gerador.randrange(len(treino))] for _ in treino]
-        if len({alvo for _, alvo in amostra}) < 2:
+        if len({alvo for _, alvo, _ in amostra}) < 2:
             continue
         modelos.append(_ajustar_logistica(amostra, epocas=500))
     return modelos
@@ -508,39 +549,47 @@ def _metricas(probabilidades: list[float], alvos: list[int]) -> dict[str, Any]:
 async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
     linhas = (
         await session.execute(
-            select(RotuloHistoricoMarca, ParTreinamentoMarca)
+            select(RotuloHistoricoMarca, ParTreinamentoMarca, Processo.titulo)
             .outerjoin(
                 ParTreinamentoMarca, ParTreinamentoMarca.rotulo_id == RotuloHistoricoMarca.id
             )
+            .join(Processo, Processo.id == RotuloHistoricoMarca.processo_id)
             .where(RotuloHistoricoMarca.status_revisao != "rejeitada")
             .order_by(RotuloHistoricoMarca.data_referencia, RotuloHistoricoMarca.id)
         )
     ).all()
-    agrupadas: dict[int, tuple[RotuloHistoricoMarca, list[dict[str, float]]]] = {}
-    for rotulo, par in linhas:
-        agrupadas.setdefault(rotulo.id, (rotulo, []))
+    agrupadas: dict[int, tuple[RotuloHistoricoMarca, str, list[dict[str, float]]]] = {}
+    for rotulo, par, titulo in linhas:
+        agrupadas.setdefault(rotulo.id, (rotulo, titulo or "", []))
         if par is not None:
-            agrupadas[rotulo.id][1].append(par.atributos)
+            agrupadas[rotulo.id][2].append(par.atributos)
     amostras = [
-        (rotulo.data_referencia, agregar_atributos(pares), int(rotulo.alvo_deferimento))
-        for rotulo, pares in agrupadas.values()
+        (
+            rotulo.data_referencia,
+            agregar_atributos(pares, marca=titulo),
+            int(rotulo.alvo_deferimento),
+            float(rotulo.confianca if rotulo.confianca is not None else 1.0),
+        )
+        for rotulo, titulo, pares in agrupadas.values()
     ]
     if len(amostras) < 30 or len({item[2] for item in amostras}) < 2:
         raise ValueError("São necessários ao menos 30 rótulos com deferimentos e indeferimentos")
     treino_fim = max(1, int(len(amostras) * 0.70))
     validacao_fim = max(treino_fim + 1, int(len(amostras) * 0.85))
-    treino = [(x, y) for _, x, y in amostras[:treino_fim]]
+    # O peso de confiança pondera apenas o treino/bootstrap; validação e teste medem
+    # desempenho real com pesos neutros para não mascarar a qualidade do modelo.
+    treino = [(x, y, peso) for _, x, y, peso in amostras[:treino_fim]]
     validacao = amostras[treino_fim:validacao_fim]
     teste = amostras[validacao_fim:] or amostras[-max(1, len(amostras) // 10) :]
     parametros = _ajustar_logistica(treino)
     parametros["bootstrap_modelos"] = _modelos_bootstrap(treino)
-    probs_validacao = [_probabilidade(x, parametros) for _, x, _ in validacao]
-    calibracao = _ajustar_platt(probs_validacao, [y for _, _, y in validacao])
-    probs_teste = [calibrar(_probabilidade(x, parametros), calibracao) for _, x, _ in teste]
-    metricas = _metricas(probs_teste, [y for _, _, y in teste])
+    probs_validacao = [_probabilidade(x, parametros) for _, x, _, _ in validacao]
+    calibracao = _ajustar_platt(probs_validacao, [y for _, _, y, _ in validacao])
+    probs_teste = [calibrar(_probabilidade(x, parametros), calibracao) for _, x, _, _ in teste]
+    metricas = _metricas(probs_teste, [y for _, _, y, _ in teste])
     metricas["validacao"] = _metricas(
         [calibrar(p, calibracao) for p in probs_validacao],
-        [y for _, _, y in validacao],
+        [y for _, _, y, _ in validacao],
     )
     versao = f"registrabilidade-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
     modelo = ModeloRegistrabilidade(
@@ -754,6 +803,7 @@ async def registrar_previsao_sombra(
     *,
     pesquisa_id: str,
     pares: list[dict[str, float]],
+    marca: str = "",
 ) -> PrevisaoRegistrabilidade | None:
     controle = await obter_controle(session)
     if not controle.inferencia_habilitada:
@@ -768,7 +818,7 @@ async def registrar_previsao_sombra(
     ).scalar_one_or_none()
     if modelo is None:
         return None
-    atributos = agregar_atributos(pares)
+    atributos = agregar_atributos(pares, marca=marca)
     resultado = prever(atributos, modelo)
     revisoes = await session.scalar(
         select(func.count())

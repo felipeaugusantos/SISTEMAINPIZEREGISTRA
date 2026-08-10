@@ -349,7 +349,6 @@ async def obter_relatorio(
                 and item.afinidade_classes.nivel in {"identica", "alta", "moderada"}
             ),
             candidata_ativa=item.relevancia_situacao == "ativa",
-            alto_renome=item.alto_renome,
         )
         for item in itens
     ]
@@ -357,6 +356,7 @@ async def obter_relatorio(
         session,
         pesquisa_id=pesquisa.id,
         pares=pares_aprendizado,
+        marca=pesquisa.marca,
     )
     modelo_previsao = (
         await session.get(ModeloRegistrabilidade, previsao.modelo_id)

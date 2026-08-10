@@ -657,10 +657,38 @@ def _modelos_bootstrap(
     return modelos
 
 
-def _metricas(probabilidades: list[float], alvos: list[int]) -> dict[str, Any]:
+def _limiar_otimo(probabilidades: list[float], alvos: list[int]) -> float:
+    """Corte que maximiza a acurácia balanceada (sensível a probabilidades comprimidas).
+
+    As probabilidades calibradas ficam concentradas numa faixa estreita; o corte fixo
+    de 0,5 degenera as previsões. Este limiar é sintonizado na validação, nunca no teste.
+    """
+    if not probabilidades or len(set(alvos)) < 2:
+        return 0.5
+    melhor_limiar, melhor_bal = 0.5, -1.0
+    for passo in range(20, 71):
+        limiar = passo / 100
+        tp = fp = tn = fn = 0
+        for prob, alvo in zip(probabilidades, alvos, strict=True):
+            previsto = int(prob >= limiar)
+            tp += int(previsto == 1 and alvo == 1)
+            fp += int(previsto == 1 and alvo == 0)
+            tn += int(previsto == 0 and alvo == 0)
+            fn += int(previsto == 0 and alvo == 1)
+        recall = tp / (tp + fn) if tp + fn else 0.0
+        especificidade = tn / (tn + fp) if tn + fp else 0.0
+        bal = (recall + especificidade) / 2
+        if bal > melhor_bal:
+            melhor_bal, melhor_limiar = bal, limiar
+    return melhor_limiar
+
+
+def _metricas(
+    probabilidades: list[float], alvos: list[int], limiar: float = 0.5
+) -> dict[str, Any]:
     tp = fp = tn = fn = 0
     for probabilidade, alvo in zip(probabilidades, alvos, strict=True):
-        previsto = int(probabilidade >= 0.5)
+        previsto = int(probabilidade >= limiar)
         tp += int(previsto == 1 and alvo == 1)
         fp += int(previsto == 1 and alvo == 0)
         tn += int(previsto == 0 and alvo == 0)
@@ -693,6 +721,7 @@ def _metricas(probabilidades: list[float], alvos: list[int]) -> dict[str, Any]:
         "f1": 2 * precisao * recall / (precisao + recall) if precisao + recall else 0.0,
         "brier": brier,
         "ece": ece,
+        "limiar": limiar,
         "matriz_confusao": {"tp": tp, "fp": fp, "tn": tn, "fn": fn},
     }
 
@@ -739,12 +768,15 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
     parametros["bootstrap_modelos"] = _modelos_bootstrap(treino)
     probs_validacao = [_probabilidade(x, parametros) for _, x, _, _ in validacao]
     calibracao = _ajustar_platt(probs_validacao, [y for _, _, y, _ in validacao])
+    probs_validacao_cal = [calibrar(p, calibracao) for p in probs_validacao]
+    alvos_validacao = [y for _, _, y, _ in validacao]
+    # Corte de decisão sintonizado na validação (as probabilidades calibradas ficam
+    # comprimidas; 0,5 degeneraria as previsões). Usado nas métricas e na inferência.
+    limiar = _limiar_otimo(probs_validacao_cal, alvos_validacao)
+    parametros["limiar_decisao"] = limiar
     probs_teste = [calibrar(_probabilidade(x, parametros), calibracao) for _, x, _, _ in teste]
-    metricas = _metricas(probs_teste, [y for _, _, y, _ in teste])
-    metricas["validacao"] = _metricas(
-        [calibrar(p, calibracao) for p in probs_validacao],
-        [y for _, _, y, _ in validacao],
-    )
+    metricas = _metricas(probs_teste, [y for _, _, y, _ in teste], limiar)
+    metricas["validacao"] = _metricas(probs_validacao_cal, alvos_validacao, limiar)
     versao = f"registrabilidade-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
     modelo = ModeloRegistrabilidade(
         versao=versao,
@@ -807,12 +839,17 @@ async def ativar_modelo(
     await session.commit()
 
 
-def _nivel_probabilidade(probabilidade: float) -> str:
-    if probabilidade >= 0.75:
+def _nivel_probabilidade(probabilidade: float, limiar: float = 0.5) -> str:
+    """Níveis espaçados em torno do corte de decisão do modelo (não do 0,5 fixo).
+
+    Como as probabilidades calibradas são comprimidas, ancorar os níveis no limiar
+    sintonizado evita que quase tudo caia em 'crítico'.
+    """
+    if probabilidade >= limiar + 0.12:
         return "favoravel"
-    if probabilidade >= 0.55:
+    if probabilidade >= limiar:
         return "atencao"
-    if probabilidade >= 0.35:
+    if probabilidade >= limiar - 0.08:
         return "alto_risco"
     return "critico"
 
@@ -875,11 +912,12 @@ def prever(atributos: dict[str, float], modelo: ModeloRegistrabilidade) -> Predi
             }
         )
     fatores.sort(key=lambda item: abs(item["impacto"]), reverse=True)
+    limiar = float(modelo.parametros.get("limiar_decisao", 0.5))
     return PredicaoModelo(
         probabilidade=probabilidade,
         probabilidade_inferior=probabilidade_inferior,
         probabilidade_superior=probabilidade_superior,
-        nivel=_nivel_probabilidade(probabilidade),
+        nivel=_nivel_probabilidade(probabilidade, limiar),
         confianca=confianca,
         confianca_rotulo=confianca_rotulo,
         cobertura_entrada=cobertura,

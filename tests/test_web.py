@@ -213,8 +213,18 @@ def test_menu_de_usuarios_existe_em_todas_as_paginas_admin() -> None:
         "admin-usuarios.html",
     ):
         conteudo = (web_dir / arquivo).read_text(encoding="utf-8")
-        assert "admin-shell.js?v=19" in conteudo
+        assert "admin-shell.js?v=20" in conteudo
         assert "styles.css?v=" in conteudo
+
+
+def test_consulta_de_marcas_no_menu_e_pagina_servida() -> None:
+    script = TestClient(app).get("/static/admin-shell.js")
+    assert 'label: "Consulta de marcas"' in script.text
+    assert 'href: "/admin/consulta"' in script.text
+    html = (web_dir / "admin-consulta.html").read_text(encoding="utf-8")
+    assert 'name="marca"' in html
+    assert 'name="atividade"' in html
+    assert "admin-shell.js?v=20" in html
 
 
 def test_central_de_analise_unifica_etapas_e_ajuda_contextual() -> None:

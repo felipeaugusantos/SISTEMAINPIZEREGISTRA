@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Consulta de marcas — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=19">
+  <script src="/static/admin-shell.js?v=20" defer></script>
+  <script src="/static/admin-consulta.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="consulta">
+  <main class="admin-main admin-dashboard">
+    <section class="admin-overview-hero">
+      <div>
+        <p class="eyebrow">Operação</p>
+        <h1>Consulta de marcas</h1>
+        <p>Rode a pesquisa de anterioridade em nome de um cliente e veja o prognóstico na hora.</p>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Nova consulta</p><h2>Marca e atividade</h2></div></header>
+      <form id="consulta-form" class="reliability-form">
+        <fieldset>
+          <legend>Pesquisa</legend>
+          <div class="user-fields">
+            <label class="field-full">Marca
+              <input name="marca" required minlength="2" maxlength="200" placeholder="Ex.: CAFÉ DO BRASIL">
+            </label>
+            <label class="field-full">Atividade do negócio
+              <input name="atividade" required minlength="3" maxlength="500" placeholder="Ex.: cafeteria e torrefação">
+            </label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Cliente (opcional — registra um lead do operador)</legend>
+          <div class="user-fields">
+            <label>Nome<input name="nome" maxlength="150" placeholder="Consulta operacional"></label>
+            <label>Empresa<input name="empresa" maxlength="200"></label>
+            <label>E-mail<input name="email" type="email" maxlength="254"></label>
+            <label>Telefone<input name="telefone" maxlength="30"></label>
+          </div>
+        </fieldset>
+        <button class="primary-button form-submit" type="submit">Pesquisar</button>
+      </form>
+      <div id="consulta-status" class="status-message" role="status" aria-live="polite" hidden></div>
+    </section>
+
+    <section id="resultado" class="overview-section" hidden>
+      <header><div><p class="eyebrow">Resultado</p><h2 id="res-marca"></h2></div></header>
+      <div id="res-metrics" class="overview-primary-metrics"></div>
+      <div id="res-prognostico"></div>
+      <div id="res-conclusao" class="report-classification"></div>
+    </section>
+  </main>
+</body>
+</html>

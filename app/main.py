@@ -15,6 +15,7 @@ from app.api.aprendizado import router as aprendizado_router
 from app.api.auth_routes import router as auth_router
 from app.api.confiabilidade import public_router as tenant_router
 from app.api.confiabilidade import router as confiabilidade_router
+from app.api.consulta import router as consulta_router
 from app.api.fase2 import router as fase2_router
 from app.api.fase3 import router as fase3_router
 from app.api.leads import router as leads_router
@@ -63,6 +64,7 @@ app.include_router(analises_router)
 app.include_router(producao_router)
 app.include_router(rpi_admin_router)
 app.include_router(aprendizado_router)
+app.include_router(consulta_router)
 app.include_router(auth_router)
 app.include_router(usuarios_router)
 app.include_router(saas_router)
@@ -108,6 +110,24 @@ async def painel_leads() -> FileResponse:
 )
 async def painel_administrativo() -> FileResponse:
     return FileResponse(web_dir / "admin.html")
+
+
+@app.get(
+    "/admin/consulta",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("leads.view"))],
+)
+async def painel_consulta() -> FileResponse:
+    return FileResponse(web_dir / "admin-consulta.html")
+
+
+@app.get(
+    "/admin/consulta/{pesquisa_id}",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("leads.view"))],
+)
+async def painel_consulta_relatorio(pesquisa_id: str) -> FileResponse:
+    return FileResponse(web_dir / "admin-consulta.html")
 
 
 @app.get(

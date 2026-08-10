@@ -182,7 +182,13 @@ async def obter_relatorio(
     ).scalar_one_or_none()
     if pesquisa is None:
         raise HTTPException(status_code=404, detail="Relatório não encontrado")
+    return await gerar_resumo_pesquisa(session, pesquisa)
 
+
+async def gerar_resumo_pesquisa(
+    session: AsyncSession, pesquisa: PesquisaMarca
+) -> ResumoPublicoMarcaResponse:
+    """Motor de geração do relatório, reutilizável pelo fluxo público e pelo admin."""
     total, ocorrencias, evidencias = await buscar_marcas(
         session,
         marca=pesquisa.marca,

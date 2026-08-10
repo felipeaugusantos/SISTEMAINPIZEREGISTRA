@@ -1,6 +1,11 @@
 const msg = document.querySelector("#reliability-message");
+const contexto = document.querySelector("#reliability-context");
 const form = document.querySelector("#reliability-form");
 const jobStatus = document.querySelector("#job-status");
+const mfaButton = document.querySelector("#enable-mfa");
+const mfaPanel = document.querySelector("#mfa-panel");
+const mfaRecovery = document.querySelector("#mfa-recovery");
+const mfaStatus = document.querySelector("#mfa-status");
 
 async function api(url, options = {}) {
   options.headers = { "Content-Type": "application/json", ...(options.headers || {}) };
@@ -10,27 +15,49 @@ async function api(url, options = {}) {
   return payload;
 }
 
+function definirStatus(el, texto, tipo) {
+  el.hidden = false;
+  el.textContent = texto;
+  el.className = `status-message ${tipo}`;
+}
+
+function cardMetrica(valor, rotulo, detalhe) {
+  const article = document.createElement("article");
+  const strong = document.createElement("strong");
+  strong.textContent = valor;
+  const span = document.createElement("span");
+  span.textContent = rotulo;
+  article.append(strong, span);
+  if (detalhe) {
+    const small = document.createElement("small");
+    small.textContent = detalhe;
+    article.append(small);
+  }
+  return article;
+}
+
 async function carregar() {
   try {
     const data = await api("/v1/admin/confiabilidade");
     const uso = data.uso;
-    document.querySelector("#reliability-metrics").innerHTML = `
-      <article><strong>${uso.usuarios}</strong><span>Usuários</span></article>
-      <article><strong>${uso.pesquisas}</strong><span>Pesquisas</span></article>
-      <article><strong>${uso.leads}</strong><span>Leads</span></article>
-      <article><strong>${data.fila.status}</strong><span>Fila · ${data.fila.pendentes ?? "—"} pendente(s)</span></article>`;
+    const metrics = document.querySelector("#reliability-metrics");
+    metrics.replaceChildren(
+      cardMetrica(uso.usuarios, "Usuários"),
+      cardMetrica(uso.pesquisas, "Pesquisas"),
+      cardMetrica(uso.leads, "Leads"),
+      cardMetrica(data.fila.status, "Fila", `${data.fila.pendentes ?? "—"} pendente(s)`),
+    );
     const org = data.organizacao;
     form.elements.nome_exibido.value = org.branding.nome_exibido || org.nome;
     form.elements.cor_primaria.value = org.branding.cor_primaria || "#006b4f";
     form.elements.logo_url.value = org.branding.logo_url || "";
     form.elements.retencao_dados_dias.value = org.retencao_dados_dias;
     form.elements.politica_privacidade_versao.value = org.politica_privacidade_versao;
-    msg.textContent = `${org.nome} · ${org.status} · ${org.assinatura_status}`;
-    msg.className = "status-message success";
+    contexto.textContent = `${org.nome} · ${org.status} · ${org.assinatura_status}`;
+    msg.hidden = true;
     return data;
   } catch (error) {
-    msg.textContent = error.message;
-    msg.className = "status-message error";
+    definirStatus(msg, error.message, "error");
     throw error;
   }
 }
@@ -51,11 +78,9 @@ form.addEventListener("submit", async event => {
         politica_privacidade_versao: dados.politica_privacidade_versao,
       }),
     });
-    msg.textContent = "Configuração salva.";
-    msg.className = "status-message success";
+    definirStatus(msg, "Configuração salva.", "success");
   } catch (error) {
-    msg.textContent = error.message;
-    msg.className = "status-message error";
+    definirStatus(msg, error.message, "error");
   }
 });
 
@@ -65,8 +90,7 @@ document.querySelectorAll("[data-job]").forEach(button => {
     const botoes = document.querySelectorAll("[data-job]");
     botoes.forEach(item => { item.disabled = true; });
     button.textContent = "Processando…";
-    jobStatus.textContent = `${label}: solicitação enviada para a fila…`;
-    jobStatus.className = "status-message loading";
+    definirStatus(jobStatus, `${label}: solicitação enviada para a fila…`, "loading");
     try {
       await api(`/v1/admin/confiabilidade/tarefas/${button.dataset.job}`, { method: "POST" });
       let dados = await carregar();
@@ -74,12 +98,12 @@ document.querySelectorAll("[data-job]").forEach(button => {
         await new Promise(resolve => setTimeout(resolve, 500));
         dados = await carregar();
       }
-      if (dados.fila.falhas > 0) throw new Error("A rotina terminou com falha. Consulte os alertas operacionais.");
-      jobStatus.textContent = `${label}: verificação concluída com sucesso.`;
-      jobStatus.className = "status-message success";
+      if (dados.fila.falhas > 0) {
+        throw new Error("A rotina terminou com falha. Consulte os alertas operacionais.");
+      }
+      definirStatus(jobStatus, `${label}: verificação concluída com sucesso.`, "success");
     } catch (error) {
-      jobStatus.textContent = `${label}: ${error.message}`;
-      jobStatus.className = "status-message error";
+      definirStatus(jobStatus, `${label}: ${error.message}`, "error");
     } finally {
       button.textContent = label;
       botoes.forEach(item => { item.disabled = false; });
@@ -87,21 +111,75 @@ document.querySelectorAll("[data-job]").forEach(button => {
   });
 });
 
-document.querySelector("#enable-mfa").addEventListener("click", async () => {
+async function copiar(texto, aoConfirmar) {
+  try {
+    await navigator.clipboard.writeText(texto);
+    aoConfirmar();
+  } catch {
+    definirStatus(mfaStatus, "Não foi possível copiar automaticamente. Copie manualmente.", "error");
+  }
+}
+
+mfaButton.addEventListener("click", async () => {
+  mfaButton.disabled = true;
   try {
     const inicio = await api("/v1/auth/mfa/iniciar", { method: "POST", body: "{}" });
-    const codigo = prompt(`Cadastre este segredo no autenticador:\n${inicio.segredo}\n\nDepois informe o código de 6 dígitos:`);
-    if (!codigo) return;
+    document.querySelector("#mfa-secret").textContent = inicio.segredo;
+    mfaPanel.hidden = false;
+    mfaRecovery.hidden = true;
+    definirStatus(mfaStatus, "Cadastre o segredo no app e confirme com o código de 6 dígitos.", "loading");
+    document.querySelector("#mfa-code").focus();
+  } catch (error) {
+    definirStatus(mfaStatus, error.message, "error");
+    mfaButton.disabled = false;
+  }
+});
+
+document.querySelector("#copy-secret").addEventListener("click", () => {
+  copiar(
+    document.querySelector("#mfa-secret").textContent,
+    () => definirStatus(mfaStatus, "Segredo copiado.", "success"),
+  );
+});
+
+document.querySelector("#confirm-mfa").addEventListener("click", async () => {
+  const codigo = document.querySelector("#mfa-code").value.trim();
+  if (!/^\d{6}$/.test(codigo)) {
+    definirStatus(mfaStatus, "Informe o código de 6 dígitos gerado pelo app.", "error");
+    return;
+  }
+  try {
     const fim = await api("/v1/auth/mfa/confirmar", {
       method: "POST",
       body: JSON.stringify({ codigo }),
     });
-    prompt("Guarde estes códigos de recuperação em local seguro:", fim.codigos_recuperacao.join(" "));
-    document.querySelector("#enable-mfa").textContent = "MFA ativo";
-    document.querySelector("#enable-mfa").disabled = true;
+    const lista = document.querySelector("#recovery-codes");
+    lista.replaceChildren(...fim.codigos_recuperacao.map(codigo => {
+      const li = document.createElement("li");
+      li.textContent = codigo;
+      return li;
+    }));
+    mfaPanel.hidden = true;
+    mfaRecovery.hidden = false;
+    definirStatus(mfaStatus, "MFA ativado. Guarde os códigos de recuperação.", "success");
+    mfaButton.textContent = "MFA ativo";
+    mfaButton.disabled = true;
   } catch (error) {
-    alert(error.message);
+    definirStatus(mfaStatus, error.message, "error");
   }
+});
+
+document.querySelector("#download-recovery").addEventListener("click", () => {
+  const codigos = [...document.querySelectorAll("#recovery-codes li")].map(li => li.textContent);
+  const blob = new Blob([`Códigos de recuperação MFA — Zé Registra\n\n${codigos.join("\n")}\n`], {
+    type: "text/plain",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "codigos-recuperacao-mfa.txt";
+  link.click();
+  URL.revokeObjectURL(url);
 });
 
 carregar();

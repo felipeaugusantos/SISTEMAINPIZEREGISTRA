@@ -1,3 +1,4 @@
+import json
 import math
 import random
 import re
@@ -5,6 +6,8 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from difflib import SequenceMatcher
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import delete, func, or_, select, text, update
@@ -57,6 +60,7 @@ ATRIBUTOS_MODELO = (
     "marca_token_unico",
     "marca_num_tokens_norm",
     "marca_comprimento_norm",
+    "marca_frequencia_max_norm",
     "quantidade_candidatos_norm",
 )
 ROTULOS_ATRIBUTOS = {
@@ -77,6 +81,7 @@ ROTULOS_ATRIBUTOS = {
     "marca_token_unico": "marca de termo único",
     "marca_num_tokens_norm": "quantidade de termos na marca",
     "marca_comprimento_norm": "comprimento da marca",
+    "marca_frequencia_max_norm": "termo mais comum no acervo de marcas",
     "quantidade_candidatos_norm": "volume de anterioridades",
 }
 
@@ -139,23 +144,54 @@ def _trigramas(valor: str) -> set[str]:
     return {texto[indice : indice + 3] for indice in range(max(0, len(texto) - 2))}
 
 
+_CAMINHO_LEXICO = Path(__file__).resolve().parent / "data" / "frequencia_tokens.json"
+# Frequência (em nº de marcas) na qual um token satura como "muito comum/descritivo".
+_ESCALA_FREQUENCIA_TOKEN = 20000.0
+# Palavras funcionais ignoradas na frequência: elas aparecem em quase toda marca
+# multivocabular e saturariam o sinal de descritividade sem informar distintividade.
+_STOPWORDS_FREQUENCIA = frozenset(
+    {"DE", "DO", "DA", "DOS", "DAS", "E", "O", "A", "OS", "AS", "EM", "NO", "NA",
+     "COM", "PARA", "POR", "UM", "UMA", "AO", "THE", "OF", "AND"}
+)
+
+
+@lru_cache(maxsize=1)
+def _frequencias_tokens() -> dict[str, int]:
+    """Léxico token -> nº de marcas que o contêm, gerado por app.cli.gerar_lexico_frequencia.
+
+    Ausente/vazio => a feature de frequência fica neutra (0), sem quebrar treino/serviço.
+    """
+    try:
+        return json.loads(_CAMINHO_LEXICO.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def distintividade_marca(marca: str) -> dict[str, float]:
-    """Sinais intrínsecos de distintividade da marca-alvo, derivados só do texto.
+    """Sinais intrínsecos de distintividade da marca-alvo, derivados do texto.
 
     Capturam o eixo de indeferimento por falta de distintividade (Art. 124), que as
-    features de conflito não enxergam. São propositalmente calculados apenas da string
-    (sem depender da atividade/classe) para serem simétricos entre treino e inferência —
-    a mesma lição do 'alto_renome' removido. Proxies fracos porém honestos: uma marca
-    curta e de token único tende a ser mais distintiva; frase longa e multi-token tende
-    a ser mais descritiva/fraca. Um sinal forte exigiria léxico/frequência de corpus.
+    features de conflito não enxergam. São calculados só da string + do léxico de
+    frequência de corpus, para serem simétricos entre treino e inferência — a mesma
+    lição do 'alto_renome' removido. Uma marca curta, de token único e com termos raros
+    tende a ser mais distintiva; frase longa, multi-token e com termos muito comuns
+    (descritivos/genéricos) tende a ser mais fraca.
     """
     norm = normalizar_texto(marca)
     tokens = norm.split()
     comprimento = len(norm.replace(" ", ""))
+    frequencias = _frequencias_tokens()
+    # O termo (não funcional) mais comum dirige a descritividade: se QUALQUER termo é
+    # genérico, a marca tende ao descritivo. Termo raro/inventado => frequência baixa.
+    frequencia_max = max(
+        (frequencias.get(token, 0) for token in tokens if token not in _STOPWORDS_FREQUENCIA),
+        default=0,
+    )
     return {
         "marca_token_unico": float(len(tokens) <= 1),
         "marca_num_tokens_norm": min(1.0, len(tokens) / 5.0),
         "marca_comprimento_norm": min(1.0, comprimento / 20.0),
+        "marca_frequencia_max_norm": min(1.0, frequencia_max / _ESCALA_FREQUENCIA_TOKEN),
     }
 
 
@@ -341,6 +377,7 @@ _ATRIBUTOS_NAO_PAREADOS = frozenset(
         "marca_token_unico",
         "marca_num_tokens_norm",
         "marca_comprimento_norm",
+        "marca_frequencia_max_norm",
     }
 )
 

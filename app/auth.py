@@ -109,13 +109,19 @@ async def obter_usuario_atual(
     agora = datetime.now(UTC)
     if sessao is None or sessao.revogada_em is not None or sessao.expira_em <= agora:
         raise _erro_nao_autenticado(request)
+    usuario = sessao.usuario
+    # RLS: aplica o contexto de tenant ANTES de qualquer escrita (revogacao por
+    # inatividade e atualizacao de ultimo_acesso). Sem isso a policy tenant_write
+    # de sessoes_operacoes bloqueia o UPDATE -> 0 linhas -> StaleDataError -> 500.
+    await aplicar_contexto_tenant(
+        session, usuario.organizacao_id, superadmin=usuario.superadmin
+    )
     limite_ocioso = agora - timedelta(minutes=get_settings().session_idle_minutes)
     if sessao.ultimo_acesso_em < limite_ocioso:
         sessao.revogada_em = agora
         sessao.motivo_revogacao = "inatividade"
         await session.commit()
         raise _erro_nao_autenticado(request)
-    usuario = sessao.usuario
     if not usuario.ativo or (usuario.bloqueado_ate and usuario.bloqueado_ate > agora):
         raise HTTPException(status_code=403, detail="Usuario bloqueado")
     if usuario.organizacao.status not in {"ativa", "trial"}:
@@ -128,9 +134,7 @@ async def obter_usuario_atual(
         superadmin=usuario.superadmin,
         modulos_plano=frozenset(usuario.organizacao.plano.modulos or []),
     )
-    await aplicar_contexto_tenant(
-        session, auth.organizacao_id, superadmin=auth.superadmin
-    )
+    # Contexto de tenant ja aplicado acima (antes das escritas); nada a refazer aqui.
     request.state.auth_user = auth
     if (agora - sessao.ultimo_acesso_em).total_seconds() > 60:
         sessao.ultimo_acesso_em = agora

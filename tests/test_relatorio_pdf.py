@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from io import BytesIO
 
 from fastapi.testclient import TestClient
@@ -12,8 +12,9 @@ from app.schemas import (
     AfinidadeClassesResponse,
     ClasseNiceCandidataResponse,
     ClassificacaoMarcaResponse,
-    EstimativaRegistrabilidadeResponse,
     MarcaRelatorioItem,
+    MotivoPrognosticoResponse,
+    PrognosticoRegistrabilidadeResponse,
     RelatorioMarcaResponse,
     TitularResponse,
 )
@@ -22,7 +23,7 @@ from tests.conftest import FakeResult, sessao_override
 
 
 def _relatorio_exemplo(
-    *, com_itens: bool = True, com_estimativa: bool = False
+    *, com_itens: bool = True, com_prognostico: bool = False
 ) -> RelatorioMarcaResponse:
     itens = []
     if com_itens:
@@ -82,21 +83,23 @@ def _relatorio_exemplo(
         total=1 if com_itens else 0,
         limite_exibido=1 if com_itens else 0,
         itens=itens,
-        estimativa_registrabilidade=(
-            EstimativaRegistrabilidadeResponse(
-                probabilidade_deferimento=0.68,
-                probabilidade_inferior=0.57,
-                probabilidade_superior=0.77,
-                nivel="atencao",
-                confianca=0.72,
-                confianca_rotulo="media",
-                cobertura_entrada=0.81,
-                modelo_versao="registrabilidade-teste",
-                amostras_referencia=500,
-                corte_dados=date(2026, 7, 14),
-                fatores_principais=[{"atributo": "classe_identica", "impacto": -0.7}],
+        prognostico_registrabilidade=(
+            PrognosticoRegistrabilidadeResponse(
+                veredito="desfavoravel",
+                titulo="Risco de indeferimento",
+                resumo="A triagem encontrou possíveis impedimentos no exame de mérito.",
+                motivos=[
+                    MotivoPrognosticoResponse(
+                        criterio="Disponibilidade e anterioridades",
+                        conclusao="Anterioridades com potencial impeditivo",
+                        referencia="Manual 5.11 e art. 124, XIX, da LPI",
+                    )
+                ],
+                pendencias=["Distintividade", "Liceidade"],
+                versao_matriz="teste",
+                ressalva="Prognóstico indicativo; não constitui garantia de registro.",
             )
-            if com_estimativa
+            if com_prognostico
             else None
         ),
         risco_pontuacao=69,
@@ -114,9 +117,8 @@ def test_gera_pdf_valido() -> None:
     assert pdf[:5] == b"%PDF-"
     assert len(pdf) > 1000
     texto = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
-    assert "Estimativa de registrabilidade" in texto
-    assert "Em validação interna" in texto
-    assert "Nenhuma probabilidade" in texto
+    # Sem prognóstico, a seção não aparece (a estimativa de ML foi aposentada do relatório).
+    assert "Prognóstico de registrabilidade" not in texto
 
 
 def test_gera_pdf_sem_ocorrencias() -> None:
@@ -124,24 +126,24 @@ def test_gera_pdf_sem_ocorrencias() -> None:
     assert pdf[:5] == b"%PDF-"
 
 
-def test_gera_pdf_com_estimativa_probabilistica_e_faixa() -> None:
-    pdf = gerar_pdf_relatorio(_relatorio_exemplo(com_estimativa=True))
+def test_gera_pdf_com_prognostico_deterministico() -> None:
+    pdf = gerar_pdf_relatorio(_relatorio_exemplo(com_prognostico=True))
     assert pdf[:5] == b"%PDF-"
     assert len(pdf) > 1000
     texto = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
-    assert "68% de deferimento estimado" in texto
-    assert "Chance estimada de registro" in texto
-    assert "57% a 77%" in texto
-    assert "não obrigatória" in texto
+    assert "Prognóstico de registrabilidade" in texto
+    assert "Risco de indeferimento" in texto
+    assert "Disponibilidade e anterioridades" in texto
+    assert "garantia de registro" in texto
 
 
 def test_resumo_cliente_tem_uma_pagina_e_nao_expoe_ocorrencias() -> None:
-    pdf = gerar_pdf_resumo_cliente(_relatorio_exemplo(com_estimativa=True))
+    pdf = gerar_pdf_resumo_cliente(_relatorio_exemplo(com_prognostico=True))
     leitor = PdfReader(BytesIO(pdf))
     texto = "\n".join(page.extract_text() or "" for page in leitor.pages)
 
     assert len(leitor.pages) == 1
-    assert "68% de deferimento estimado" in texto
+    assert "Prognóstico de registrabilidade" in texto
     assert "Análise técnica" in texto
     assert "69 pontos" in texto
     assert "risco alto" in texto

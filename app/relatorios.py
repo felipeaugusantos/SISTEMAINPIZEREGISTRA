@@ -420,79 +420,31 @@ def gerar_pdf_relatorio(
         )
         story.append(conclusao)
 
-    if relatorio.estimativa_registrabilidade:
-        estimativa = relatorio.estimativa_registrabilidade
-        nivel_estimativa = _rotulo_enum(estimativa.nivel)
-        limite_inferior = (
-            estimativa.probabilidade_inferior
-            if estimativa.probabilidade_inferior is not None
-            else estimativa.probabilidade_deferimento
+    if relatorio.prognostico_registrabilidade:
+        prognostico = relatorio.prognostico_registrabilidade
+        rotulos = {
+            "favoravel": "Favorável",
+            "atencao": "Atenção",
+            "desfavoravel": "Desfavorável",
+        }
+        story.append(Paragraph("Prognóstico de registrabilidade", estilos["secao"]))
+        motivos = "".join(
+            f"• <b>{_texto(item.criterio)}:</b> {_texto(item.conclusao)} "
+            f"({_texto(item.referencia)})<br/>"
+            for item in prognostico.motivos
         )
-        limite_superior = (
-            estimativa.probabilidade_superior
-            if estimativa.probabilidade_superior is not None
-            else estimativa.probabilidade_deferimento
-        )
-        story.append(Paragraph("Chance estimada de registro", estilos["secao"]))
-        fatores = ", ".join(
-            f"{item.get('rotulo') or str(item.get('atributo', 'fator')).replace('_', ' ')} "
-            f"({_rotulo_enum(item.get('efeito', 'influência'))})"
-            for item in estimativa.fatores_principais[:3]
-        )
-        revisao = "Revisão profissional recomendada, mas não obrigatória para esta estimativa."
-        story.append(
-            Paragraph(
-                f"<b>{round(estimativa.probabilidade_deferimento * 100)}% de deferimento "
-                f"estimado no exame de mérito</b> · faixa de incerteza de "
-                f"{round(limite_inferior * 100)}% a "
-                f"{round(limite_superior * 100)}%.<br/>"
-                f"<b>Nível:</b> {_texto(nivel_estimativa)} &nbsp;·&nbsp; "
-                f"<b>Confiança:</b> {_texto(estimativa.confianca_rotulo)} "
-                f"({round(estimativa.confianca * 100)}%) &nbsp;·&nbsp; "
-                f"<b>Cobertura:</b> {round(estimativa.cobertura_entrada * 100)}%.<br/>"
-                f"<b>Base:</b> {estimativa.amostras_referencia} decisões históricas; "
-                f"dados até {_formatar_data(estimativa.corte_dados)}; modelo "
-                f"{_texto(estimativa.modelo_versao)}.<br/>"
-                f"<b>Fatores com maior influência:</b> {_texto(fatores or 'não disponíveis')}.<br/>"
-                f"<b>{_texto(revisao)}</b><br/>"
-                f"{_texto(estimativa.aviso)}",
-                estilos["celula"],
-            )
-        )
-    else:
-        titulo_status = (
-            "Em validação interna"
-            if relatorio.estimativa_status == "validacao_interna"
-            else "Estimativa ainda indisponível"
-        )
-        story.append(Paragraph("Estimativa de registrabilidade", estilos["secao"]))
-        indisponivel = Table(
-            [
-                [Paragraph(f"<b>{_texto(titulo_status)}</b>", estilos["marca"])],
-                [Paragraph(_texto(relatorio.estimativa_mensagem), estilos["celula"])],
-                [
-                    Paragraph(
-                        "A pontuação de conflito e a conclusão indicativa não representam "
-                        "percentual de chance de registro.",
-                        estilos["celula_menor"],
-                    )
-                ],
-            ],
-            colWidths=[178 * mm],
-        )
-        indisponivel.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, -1), _COR_MENTA),
-                    ("BOX", (0, 0), (-1, -1), 0.5, _COR_LINHA),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                    ("TOPPADDING", (0, 0), (-1, -1), 5),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                ]
-            )
-        )
-        story.append(indisponivel)
+        pendencias = " · ".join(_texto(item) for item in prognostico.pendencias)
+        tendencia = _texto(rotulos.get(prognostico.veredito, prognostico.veredito))
+        partes = [
+            f"<b>Tendência: {tendencia}</b> — {_texto(prognostico.titulo)}<br/>",
+            f"{_texto(prognostico.resumo)}<br/>",
+        ]
+        if motivos:
+            partes.append(f"<b>Motivos identificados:</b><br/>{motivos}")
+        if pendencias:
+            partes.append(f"<b>Ainda dependem de avaliação:</b> {pendencias}.<br/>")
+        partes.append(_texto(prognostico.ressalva))
+        story.append(Paragraph("".join(partes), estilos["celula"]))
 
     if relatorio.qualidade_base:
         qualidade = relatorio.qualidade_base

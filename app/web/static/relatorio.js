@@ -51,28 +51,19 @@ async function loadReport() {
     document.querySelector("#conclusion-title").textContent = conclusion?.titulo || "Resultado meramente indicativo";
     document.querySelector("#conclusion-summary").textContent = conclusion?.resumo || "A pesquisa não substitui uma análise profissional.";
     document.querySelector("#conclusion-review").textContent = conclusion?.revisao_humana_recomendada ? "Revisão humana recomendada antes de qualquer decisão." : "A ausência de conflito evidente não garante o registro.";
-    const estimate = data.estimativa_registrabilidade;
-    if (estimate) {
+    const prognostico = data.prognostico_registrabilidade;
+    if (prognostico) {
+      const rotulos = { favoravel: "Favorável", atencao: "Atenção", desfavoravel: "Desfavorável" };
       const box = document.createElement("section");
-      box.className = "report-classification learning-client-estimate";
-      const factors = (estimate.fatores_principais || []).slice(0, 3).map((factor) => `${escapeHtml(factor.rotulo || (factor.atributo || "fator").replaceAll("_", " "))} (${escapeHtml(factor.efeito || "influência")})`).join(" · ");
-      const lower = estimate.probabilidade_inferior ?? estimate.probabilidade_deferimento;
-      const upper = estimate.probabilidade_superior ?? estimate.probabilidade_deferimento;
-      box.innerHTML = `<div><p class="eyebrow">Estimativa estatística preliminar</p><h2>${Math.round(estimate.probabilidade_deferimento * 100)}% de deferimento no exame de mérito</h2></div>
-        <p><strong>Faixa de incerteza:</strong> ${Math.round(lower * 100)}% a ${Math.round(upper * 100)}%.</p>
-        <p>Nível ${escapeHtml(estimate.nivel.replaceAll("_", " "))} · confiança ${escapeHtml(estimate.confianca_rotulo)} (${Math.round(estimate.confianca * 100)}%) · cobertura ${Math.round(estimate.cobertura_entrada * 100)}%.</p>
-        <p>Base: ${estimate.amostras_referencia} decisões · dados até ${dateLabel(estimate.corte_dados)} · modelo ${escapeHtml(estimate.modelo_versao)}.</p>
-        ${factors ? `<p><strong>Fatores com maior influência:</strong> ${factors}</p>` : ""}
-        <p class="status-message">Revisão profissional recomendada, mas não obrigatória para esta estimativa.</p>
-        <p class="matrix-status">${escapeHtml(estimate.aviso)}</p>`;
-      document.querySelector("#report-conclusion").after(box);
-    } else {
-      const box = document.createElement("section");
-      box.className = "report-classification learning-client-estimate unavailable";
-      const statusTitle = data.estimativa_status === "validacao_interna" ? "Em validação interna" : "Estimativa ainda indisponível";
-      box.innerHTML = `<div><p class="eyebrow">Estimativa de registrabilidade</p><h2>${escapeHtml(statusTitle)}</h2></div>
-        <p>${escapeHtml(data.estimativa_mensagem)}</p>
-        <p class="matrix-status">A pontuação de conflito e a conclusão indicativa não representam percentual de chance de registro.</p>`;
+      box.className = "report-classification prognostico";
+      box.dataset.veredito = prognostico.veredito;
+      const motivos = (prognostico.motivos || []).map((m) => `<li><strong>${escapeHtml(m.criterio)}:</strong> ${escapeHtml(m.conclusao)} <small>(${escapeHtml(m.referencia)})</small></li>`).join("");
+      const pendencias = (prognostico.pendencias || []).map((p) => escapeHtml(p)).join(" · ");
+      box.innerHTML = `<div><p class="eyebrow">Prognóstico de registrabilidade</p><h2>${escapeHtml(prognostico.titulo)}</h2><p class="prognostico-tag" data-veredito="${escapeHtml(prognostico.veredito)}">Tendência: ${escapeHtml(rotulos[prognostico.veredito] || prognostico.veredito)}</p></div>
+        <p>${escapeHtml(prognostico.resumo)}</p>
+        ${motivos ? `<p><strong>Motivos identificados:</strong></p><ul class="prognostico-motivos">${motivos}</ul>` : ""}
+        ${pendencias ? `<p><strong>Ainda dependem de avaliação:</strong> ${pendencias}.</p>` : ""}
+        <p class="matrix-status">${escapeHtml(prognostico.ressalva)}</p>`;
       document.querySelector("#report-conclusion").after(box);
     }
     const evidence = data.evidencias_busca;

@@ -332,6 +332,22 @@ class EstimativaRegistrabilidadeResponse(BaseModel):
     )
 
 
+class MotivoPrognosticoResponse(BaseModel):
+    criterio: str
+    conclusao: str
+    referencia: str
+
+
+class PrognosticoRegistrabilidadeResponse(BaseModel):
+    veredito: Literal["favoravel", "atencao", "desfavoravel"]
+    titulo: str
+    resumo: str
+    motivos: list[MotivoPrognosticoResponse] = Field(default_factory=list)
+    pendencias: list[str] = Field(default_factory=list)
+    versao_matriz: str | None = None
+    ressalva: str
+
+
 class MarcaRelatorioItem(ProcessoResumo):
     apresentacao: str | None
     natureza: str | None
@@ -380,12 +396,13 @@ class RelatorioMarcaResponse(BaseModel):
         "atendidos."
     )
     estimativa_registrabilidade: EstimativaRegistrabilidadeResponse | None = None
+    prognostico_registrabilidade: PrognosticoRegistrabilidadeResponse | None = None
 
 
 class ResumoPublicoMarcaResponse(BaseModel):
     id: str
     versao: int = 1
-    schema_versao: str = "resumo-publico-marca-1.1"
+    schema_versao: str = "resumo-publico-marca-1.2"
     gerado_em: datetime | None = None
     marca: str
     atividade: str
@@ -398,9 +415,9 @@ class ResumoPublicoMarcaResponse(BaseModel):
     conclusao: ConclusaoIndicativaResponse | None = None
     risco_pontuacao: int | None = Field(default=None, ge=0, le=100)
     risco_nivel: str | None = None
-    estimativa_status: Literal["disponivel", "validacao_interna", "indisponivel"]
-    estimativa_mensagem: str
-    estimativa_registrabilidade: EstimativaRegistrabilidadeResponse | None = None
+    # Prognóstico determinístico de deferido/indeferido (substitui a estimativa de ML,
+    # que não tinha poder preditivo e permanece apenas em modo sombra/interno).
+    prognostico_registrabilidade: PrognosticoRegistrabilidadeResponse | None = None
     detalhes_internos_disponiveis: bool = True
 
 
@@ -488,7 +505,7 @@ class Fase2AdminResponse(BaseModel):
 
 class AfinidadeRevisaoUpdate(BaseModel):
     status_revisao: Literal["aprovada", "rejeitada"]
-    revisor: str = Field(min_length=2, max_length=150)
+    revisor: str | None = Field(default=None, min_length=2, max_length=150)
     observacoes_revisao: str = Field(min_length=3, max_length=1000)
 
     @field_validator("revisor", "observacoes_revisao")
@@ -660,7 +677,15 @@ class AprendizadoRotuloResponse(BaseModel):
     fundamento: str
     confianca: float
     data_referencia: date
+    data_decisao: date | None
     numero_rpi: int | None
+    despacho_codigo: str | None
+    despacho_descricao: str | None
+    prioridade_revisao: Literal["alta", "media", "baixa"]
+    elegivel_treinamento: bool
+    motivo_inelegibilidade: str | None
+    classificador_versao: str
+    evidencias_classificacao: list[dict] = Field(default_factory=list)
     status_revisao: str
     revisor: str | None
 
@@ -714,6 +739,7 @@ class AprendizadoAdminResponse(BaseModel):
     rotulos_deferidos: int
     rotulos_indeferidos: int
     rotulos_revisados: int
+    rotulos_prioridade_alta: int
     total_pares: int
     total_previsoes: int
     previsoes_revisadas: int
@@ -743,6 +769,7 @@ class RevisaoRotuloUpdate(BaseModel):
     rotulo: Literal["deferida", "indeferida"]
     fundamento: Literal[
         "deferimento",
+        "deferimento_recurso",
         "conflito_anterior",
         "falta_distintividade",
         "outra_proibicao",

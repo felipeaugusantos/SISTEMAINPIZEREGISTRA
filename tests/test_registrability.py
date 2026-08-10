@@ -1,8 +1,50 @@
-from app.trademarks.registrability import construir_matriz_registrabilidade
+from app.trademarks.registrability import (
+    construir_matriz_registrabilidade,
+    construir_prognostico_registrabilidade,
+)
 
 
 def _por_codigo(matriz: dict) -> dict[str, dict]:
     return {regra["codigo"]: regra for regra in matriz["regras"]}
+
+
+def _matriz(nivel_risco: str, pontuacao: int, *, alto_renome: bool = False) -> dict:
+    return construir_matriz_registrabilidade(
+        marca="SINAL FANTASIA",
+        atividade="Consultoria",
+        classe_nice="35",
+        relatorio={
+            "total": 3 if alto_renome else 0,
+            "matriz_afinidade_status": "validada",
+            "classes_atividade": [{"codigo": "35"}],
+            "qualidade_base": {"status": "adequada", "avisos": []},
+            "itens": [{"numero": "1", "alto_renome": True}] if alto_renome else [],
+        },
+        pontuacao_risco=pontuacao,
+        nivel_risco=nivel_risco,
+    )
+
+
+def test_prognostico_desfavoravel_quando_ha_impedimento_substantivo() -> None:
+    prog = construir_prognostico_registrabilidade(_matriz("critico", 82, alto_renome=True))
+    assert prog["veredito"] == "desfavoravel"
+    criterios = {motivo["criterio"] for motivo in prog["motivos"]}
+    assert "Disponibilidade e anterioridades" in criterios
+    assert "Alto renome e proteção especial" in criterios
+
+
+def test_prognostico_atencao_quando_risco_moderado() -> None:
+    prog = construir_prognostico_registrabilidade(_matriz("moderado", 55))
+    assert prog["veredito"] == "atencao"
+
+
+def test_prognostico_favoravel_quando_sem_impedimento_substantivo() -> None:
+    prog = construir_prognostico_registrabilidade(_matriz("baixo", 10))
+    assert prog["veredito"] == "favoravel"
+    assert prog["motivos"] == []
+    # Critérios que dependem de declaração aparecem como pendências transparentes.
+    assert "Distintividade" in prog["pendencias"]
+    assert "garantia de registro" in prog["ressalva"]
 
 
 def test_matriz_aponta_disponibilidade_e_alto_renome_como_possiveis_impedimentos() -> None:

@@ -32,6 +32,7 @@ from app.schemas import (
     MarcaRelatorioItem,
     PesquisaMarcaCreate,
     PesquisaMarcaCriada,
+    PrognosticoRegistrabilidadeResponse,
     QualidadeBaseResponse,
     RelatorioMarcaResponse,
     ResumoPublicoMarcaResponse,
@@ -44,7 +45,10 @@ from app.trademarks.agent import registrar_execucao_agente
 from app.trademarks.learning import extrair_atributos_par, registrar_previsao_sombra
 from app.trademarks.nice import mapear_atividade
 from app.trademarks.quality import avaliar_qualidade_base
-from app.trademarks.registrability import construir_matriz_registrabilidade
+from app.trademarks.registrability import (
+    construir_matriz_registrabilidade,
+    construir_prognostico_registrabilidade,
+)
 from app.trademarks.relevance import (
     ORDEM_RELEVANCIA,
     classificar_relevancia,
@@ -156,9 +160,7 @@ def construir_resumo_publico(relatorio: RelatorioMarcaResponse) -> ResumoPublico
         conclusao=relatorio.conclusao,
         risco_pontuacao=relatorio.risco_pontuacao,
         risco_nivel=relatorio.risco_nivel,
-        estimativa_status=relatorio.estimativa_status,
-        estimativa_mensagem=relatorio.estimativa_mensagem,
-        estimativa_registrabilidade=relatorio.estimativa_registrabilidade,
+        prognostico_registrabilidade=relatorio.prognostico_registrabilidade,
     )
 
 
@@ -472,6 +474,14 @@ async def obter_relatorio(
         nivel_risco=avaliacao.nivel,
         previsao=previsao,
         modelo_versao=modelo_previsao.versao if modelo_previsao is not None else None,
+    )
+    prognostico = construir_prognostico_registrabilidade(matriz_registrabilidade)
+    relatorio = relatorio.model_copy(
+        update={
+            "prognostico_registrabilidade": PrognosticoRegistrabilidadeResponse.model_validate(
+                prognostico
+            )
+        }
     )
     relatorio_versionado = await versionar_relatorio(session, relatorio)
     await session.commit()

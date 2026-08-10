@@ -182,6 +182,46 @@
   margin: 4px 0 8px;
 }
 
+.report-classification.prognostico {
+  border-left-width: 6px;
+}
+.report-classification.prognostico[data-veredito="favoravel"] {
+  border-left-color: #1a7f4b;
+}
+.report-classification.prognostico[data-veredito="atencao"] {
+  border-left-color: #b8860b;
+}
+.report-classification.prognostico[data-veredito="desfavoravel"] {
+  border-left-color: #b3261e;
+}
+.prognostico-tag {
+  display: inline-block;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 3px 12px;
+  margin: 2px 0 6px;
+}
+.prognostico-tag[data-veredito="favoravel"] {
+  background: #e3f4ea;
+  color: #1a7f4b;
+}
+.prognostico-tag[data-veredito="atencao"] {
+  background: #fbf1d8;
+  color: #8a6400;
+}
+.prognostico-tag[data-veredito="desfavoravel"] {
+  background: #fbe4e2;
+  color: #b3261e;
+}
+.prognostico-motivos {
+  margin: 6px 0 10px;
+  padding-left: 20px;
+}
+.prognostico-motivos li {
+  margin-bottom: 4px;
+}
+
 .activity-classes {
   display: grid;
   gap: 12px;

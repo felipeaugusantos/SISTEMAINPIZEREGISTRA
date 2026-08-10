@@ -203,6 +203,82 @@ def _sim_nao(valor: bool | None) -> str:
     return "sim" if valor is True else "não" if valor is False else "não informado"
 
 
+# Regras que representam motivos substantivos de (in)deferimento no exame de mérito.
+# Excluem regras de estado do sistema/processo (afinidade, especificação, documentos,
+# oposições) que não devem, sozinhas, mover o veredito de deferido/indeferido.
+IMPEDIMENTO_CODIGOS = (
+    "disponibilidade",
+    "distintividade",
+    "liceidade",
+    "veracidade",
+    "alto_renome",
+    "direitos_terceiros",
+)
+
+_RESSALVA_PROGNOSTICO = (
+    "Prognóstico indicativo, baseado nos critérios automatizáveis do Manual de Marcas do "
+    "INPI. O exame de mérito possui etapas subjetivas (distintividade concreta, "
+    "interpretação do examinador) que não podem ser antecipadas com certeza. Não constitui "
+    "garantia de registro nem dispensa análise jurídica."
+)
+
+
+def construir_prognostico_registrabilidade(matriz: dict) -> dict:
+    """Traduz a matriz determinística num veredito claro de deferido/indeferido.
+
+    Usa apenas os critérios substantivos (IMPEDIMENTO_CODIGOS). Regras não analisadas
+    viram pendências transparentes, mas não forçam o veredito.
+    """
+    por_codigo = {regra.get("codigo"): regra for regra in matriz.get("regras") or []}
+    relevantes = [por_codigo[codigo] for codigo in IMPEDIMENTO_CODIGOS if codigo in por_codigo]
+    impedimentos = [r for r in relevantes if r["status"] == "possivel_impedimento"]
+    atencoes = [r for r in relevantes if r["status"] == "alerta"]
+    pendencias = [r["criterio"] for r in relevantes if r["status"] == "nao_analisado"]
+
+    if impedimentos:
+        veredito = "desfavoravel"
+        titulo = "Risco de indeferimento"
+        resumo = (
+            "A triagem encontrou possíveis impedimentos que, se confirmados no exame de "
+            "mérito do INPI, tendem ao indeferimento."
+        )
+        destaques = impedimentos
+    elif atencoes:
+        veredito = "atencao"
+        titulo = "Deferimento possível, com ressalvas"
+        resumo = (
+            "Não há impedimento evidente, mas existem pontos que precisam de ajuste ou "
+            "conferência para melhorar a chance de deferimento."
+        )
+        destaques = atencoes
+    else:
+        veredito = "favoravel"
+        titulo = "Tendência de deferimento"
+        resumo = (
+            "A triagem automática não encontrou anterioridades impeditivas nem impedimentos "
+            "legais aparentes nos critérios substantivos analisados."
+        )
+        destaques = []
+
+    motivos = [
+        {
+            "criterio": regra["criterio"],
+            "conclusao": regra["conclusao"],
+            "referencia": regra["referencia"],
+        }
+        for regra in destaques
+    ]
+    return {
+        "veredito": veredito,
+        "titulo": titulo,
+        "resumo": resumo,
+        "motivos": motivos,
+        "pendencias": pendencias,
+        "versao_matriz": matriz.get("versao"),
+        "ressalva": _RESSALVA_PROGNOSTICO,
+    }
+
+
 def construir_matriz_registrabilidade(
     *,
     marca: str,

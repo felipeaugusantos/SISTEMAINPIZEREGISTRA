@@ -1,4 +1,6 @@
 import shutil
+import time
+import urllib.error
 import urllib.request
 import zipfile
 from collections.abc import Callable
@@ -7,6 +9,9 @@ from pathlib import Path
 from app.models import TipoProcesso
 
 BASE_RPI = "https://revistas.inpi.gov.br/txt"
+# Códigos HTTP tratados como indisponibilidade transitória do portal do INPI.
+_HTTP_TRANSITORIOS = frozenset({500, 502, 503, 504})
+_TENTATIVAS_DOWNLOAD = 4
 
 
 def nome_zip(numero_rpi: int, tipo: TipoProcesso) -> str:
@@ -18,12 +23,25 @@ def _baixar_zip_atomico(url: str, arquivo_zip: Path) -> None:
     arquivo_temporario = arquivo_zip.with_suffix(f"{arquivo_zip.suffix}.part")
     requisicao = urllib.request.Request(url, headers={"User-Agent": "INPI-API/0.1"})
     try:
-        with urllib.request.urlopen(requisicao, timeout=120) as resposta:
-            with arquivo_temporario.open("wb") as destino:
-                shutil.copyfileobj(resposta, destino)
-        if not zipfile.is_zipfile(arquivo_temporario):
-            raise zipfile.BadZipFile(f"Download inválido recebido de {url}")
-        arquivo_temporario.replace(arquivo_zip)
+        for tentativa in range(_TENTATIVAS_DOWNLOAD):
+            try:
+                with urllib.request.urlopen(requisicao, timeout=120) as resposta:
+                    with arquivo_temporario.open("wb") as destino:
+                        shutil.copyfileobj(resposta, destino)
+                if not zipfile.is_zipfile(arquivo_temporario):
+                    raise zipfile.BadZipFile(f"Download inválido recebido de {url}")
+                arquivo_temporario.replace(arquivo_zip)
+                return
+            except (urllib.error.URLError, TimeoutError) as exc:
+                # 4xx (ex.: 404 = edição não publicada) falha na hora; 5xx/rede tentam de novo.
+                transitorio = (
+                    not isinstance(exc, urllib.error.HTTPError)
+                    or exc.code in _HTTP_TRANSITORIOS
+                )
+                if transitorio and tentativa < _TENTATIVAS_DOWNLOAD - 1:
+                    time.sleep(3 * (tentativa + 1))  # backoff: 3, 6, 9s
+                    continue
+                raise
     finally:
         arquivo_temporario.unlink(missing_ok=True)
 

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Processos monitorados — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=20">
+  <link rel="stylesheet" href="/static/admin-carteira.css?v=1">
+  <script src="/static/admin-shell.js?v=22" defer></script>
+  <script src="/static/admin-carteira.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="portfolio">
+  <main class="admin-main portfolio-main">
+    <section class="portfolio-hero">
+      <div><p class="eyebrow">CARTEIRA DE PROPRIEDADE INTELECTUAL</p><h1>Processos monitorados</h1><p>Cadastre processos da base RPI ou encontre todos os pedidos vinculados a um procurador. As movimentações futuras são atualizadas pela sincronização do INPI.</p></div>
+      <button id="open-manual" class="primary-button" type="button">Cadastrar processo</button>
+    </section>
+
+    <div id="portfolio-message" class="status-message" role="status" aria-live="polite" hidden></div>
+
+    <section class="portfolio-metrics" id="portfolio-metrics" aria-label="Resumo da carteira"></section>
+
+    <section class="portfolio-card attorney-search">
+      <header><div><p class="eyebrow">VÍNCULO AUTOMÁTICO</p><h2>Pesquisar por procurador</h2><p>Use preferencialmente a pesquisa exata após selecionar o nome sugerido.</p></div></header>
+      <form id="attorney-form" class="portfolio-form attorney-form">
+        <label class="wide"><span>Nome do procurador</span><input id="attorney-name" name="procurador" list="attorney-suggestions" minlength="2" maxlength="300" autocomplete="off" required><datalist id="attorney-suggestions"></datalist></label>
+        <label><span>Modo</span><select name="modo"><option value="exato">Nome exato</option><option value="contem">Contém o texto</option></select></label>
+        <button class="primary-button" type="submit">Pesquisar processos</button>
+      </form>
+      <div id="attorney-result" hidden>
+        <div class="portfolio-link-bar">
+          <strong id="attorney-total"></strong>
+          <label><span>Empresa/cliente</span><input id="attorney-company" list="company-suggestions" placeholder="Opcional"></label>
+          <label><span>Responsável</span><select id="attorney-owner"><option value="">Não atribuído</option></select></label>
+          <button id="link-selected" class="secondary-button" type="button">Vincular selecionados</button>
+          <button id="link-all" class="primary-button" type="button">Vincular todos encontrados</button>
+        </div>
+        <div class="portfolio-table-wrap"><table><thead><tr><th><input id="select-page" type="checkbox" aria-label="Selecionar página"></th><th>Processo</th><th>Marca</th><th>Situação</th><th>Depósito</th><th>Vínculo</th></tr></thead><tbody id="attorney-rows"></tbody></table></div>
+      </div>
+    </section>
+
+    <section class="portfolio-card">
+      <header><div><p class="eyebrow">ACOMPANHAMENTO</p><h2>Minha carteira</h2></div></header>
+      <form id="portfolio-filter" class="portfolio-form filter-form">
+        <label class="wide"><span>Buscar</span><input name="busca" placeholder="Número, marca, procurador ou empresa"></label>
+        <label><span>Status</span><select name="status"><option value="">Todos</option><option value="ativo">Ativos</option><option value="pausado">Pausados</option><option value="encerrado">Encerrados</option><option value="arquivado">Arquivados</option></select></label>
+        <button class="primary-button" type="submit">Filtrar</button>
+      </form>
+      <div id="portfolio-list" class="portfolio-list"></div>
+    </section>
+  </main>
+
+  <dialog id="manual-dialog" class="portfolio-dialog">
+    <form id="manual-form" method="dialog">
+      <header><div><p class="eyebrow">CADASTRO MANUAL</p><h2>Adicionar processo à carteira</h2></div><button id="close-manual" type="button" aria-label="Fechar">×</button></header>
+      <label><span>Número do processo no INPI</span><input name="numero" minlength="5" maxlength="50" placeholder="Ex.: 935977333" required></label>
+      <label><span>Empresa/cliente</span><input name="empresa_nome" list="company-suggestions" placeholder="Opcional"></label>
+      <label><span>Responsável</span><select name="responsavel_id" id="manual-owner"><option value="">Não atribuído</option></select></label>
+      <label><span>Observações</span><textarea name="observacoes" rows="4" maxlength="4000"></textarea></label>
+      <footer><button id="cancel-manual" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Adicionar à carteira</button></footer>
+    </form>
+  </dialog>
+  <datalist id="company-suggestions"></datalist>
+</body>
+</html>

@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>Consulta de marcas — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=21">
+  <link rel="stylesheet" href="/static/styles.css?v=22">
   <script src="/static/admin-shell.js?v=21" defer></script>
-  <script src="/static/admin-consulta.js?v=2" defer></script>
+  <script src="/static/admin-consulta.js?v=4" defer></script>
 </head>
 <body class="admin-body" data-admin-section="consulta">
   <main class="admin-main admin-dashboard">
@@ -29,7 +29,8 @@
               <input name="marca" required minlength="2" maxlength="200" placeholder="Ex.: CAFÉ DO BRASIL">
             </label>
             <label class="field-full">Atividade do negócio
-              <input name="atividade" required minlength="3" maxlength="500" placeholder="Ex.: cafeteria e torrefação">
+              <small>(opcional)</small>
+              <input name="atividade" maxlength="500" placeholder="Ex.: cafeteria e torrefação">
             </label>
           </div>
         </fieldset>
@@ -53,6 +54,9 @@
       <div id="res-metrics" class="overview-primary-metrics"></div>
       <div id="res-prognostico"></div>
       <div id="res-conclusao" class="report-classification"></div>
+      <div class="lead-research-actions">
+        <button id="delete-research" class="danger-button" type="button">Excluir pesquisa</button>
+      </div>
     </section>
 
     <section id="contatos-section" class="overview-section" hidden>
@@ -78,5 +82,22 @@
       <ul id="contatos-lista" class="contatos-lista"></ul>
     </section>
   </main>
+  <dialog id="delete-research-dialog" class="confirm-dialog">
+    <form id="delete-research-form">
+      <h2 id="delete-research-title">Excluir pesquisa?</h2>
+      <p id="delete-research-description"></p>
+      <label>Motivo
+        <textarea name="motivo" minlength="3" maxlength="1000" required></textarea>
+      </label>
+      <label id="delete-research-password-field">Confirme sua senha atual
+        <input name="senha" type="password" autocomplete="current-password">
+      </label>
+      <div id="delete-research-message" class="status-message" role="status" hidden></div>
+      <div>
+        <button id="cancel-delete-research" class="secondary-button" type="button">Cancelar</button>
+        <button class="danger-button" type="submit">Confirmar</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>

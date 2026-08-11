@@ -914,6 +914,11 @@ footer p {
 .confirm-dialog h2 { margin-top: 0; font: 500 2rem Georgia, serif; }
 .confirm-dialog p { color: var(--muted); line-height: 1.6; }
 .confirm-dialog form > div { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.confirm-dialog form > label { display: grid; gap: 7px; margin-top: 14px; font-weight: 700; }
+.confirm-dialog form > label input,
+.confirm-dialog form > label textarea { width: 100%; box-sizing: border-box; }
+.confirm-dialog form > label textarea { min-height: 96px; resize: vertical; }
+.confirm-dialog form > .status-message { display: block; margin-top: 14px; }
 
 @media (max-width: 1180px) {
   .admin-body .lead-metrics { grid-template-columns: repeat(3, 1fr); overflow: visible; }
@@ -4149,4 +4154,27 @@ footer p {
 @media (max-width: 520px) {
   .admin-body .lead-metrics, .admin-body .admin-filters { grid-template-columns: 1fr; }
   .admin-body .admin-filters label:first-child { grid-column: auto; }
+}
+
+.auth-password-rules {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px 14px;
+  margin: -7px 0 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #f2f5f1;
+  list-style: none;
+}
+.auth-password-rules li {
+  position: relative;
+  padding-left: 19px;
+  color: #6a756e;
+  font-size: .78rem;
+}
+.auth-password-rules li::before { position: absolute; left: 0; content: "○"; }
+.auth-password-rules li.met { color: #087052; font-weight: 700; }
+.auth-password-rules li.met::before { content: "✓"; }
+@media (max-width: 520px) {
+  .auth-password-rules { grid-template-columns: 1fr; }
 }

@@ -106,11 +106,38 @@ function renderRisk(data) {
   return step({ id: "risk", number: 2, title: "Motor determinístico de risco", subtitle: `Versão ${item.versao_motor} · ${item.modo}`, state: item.avaliado_em ? "completed" : "attention", stateLabel: item.avaliado_em ? "Parecer registrado" : "Aguardando parecer", body: `<div class="analysis-grid"><div class="analysis-stat"><span>Pontuação de risco</span><strong>${item.pontuacao} pontos</strong></div><div class="analysis-stat"><span>Nível calculado</span><strong>${escapeHtml(label(item.nivel))}</strong></div><div class="analysis-stat"><span>Avaliação humana</span><strong>${escapeHtml(label(item.nivel_humano || "pendente"))}</strong></div></div>${riskLegend(item)}${conflicts ? `<h3>Principais conflitos</h3><ul class="analysis-alerts">${conflicts}</ul>` : ""}${review}` });
 }
 
+function renderDeterministicLearning(data) {
+  const indicator = data.validacao?.indicador_deterministico;
+  const risk = data.risco;
+  const matrix = data.validacao?.matriz_registrabilidade;
+  const candidate = data.aprendizado?.modelo_status === "candidato" ? data.aprendizado : null;
+  const candidateReview = candidate && data.permissoes.aprendizado_revisar ? `
+    <section class="analysis-opinion">
+      <h3>Previsão candidata · somente uso interno</h3>
+      <div class="analysis-probability"><strong>${percent(candidate.probabilidade)}</strong><span>estimativa do modelo candidato<br>faixa ${percent(candidate.probabilidade_inferior)} a ${percent(candidate.probabilidade_superior)}</span></div>
+      <p>Esta estimativa não está liberada ao cliente. Registre a leitura humana para ampliar a validação do modelo.</p>
+      <form id="learning-review-form" class="analysis-action-form" data-id="${candidate.id}"><label>Leitura humana<select name="nivel_humano" required>${["favoravel","atencao","alto_risco","critico"].map(value => `<option value="${value}" ${candidate.nivel_humano === value ? "selected" : ""}>${label(value)}</option>`).join("")}</select></label><label>Avaliador<input name="avaliador" minlength="2" value="${escapeHtml(candidate.avaliador || data.usuario.nome)}" required></label><label class="wide">Observações<textarea name="observacoes_humanas" minlength="3" rows="4" required>${escapeHtml(candidate.observacoes_humanas || "")}</textarea></label><button class="primary-button" type="submit">Salvar leitura supervisionada</button></form>
+    </section>` : "";
+  const body = indicator ? `
+    <div class="analysis-probability deterministic"><strong>${indicator.indice}%</strong><span>índice indicativo de viabilidade<br>faixa técnica ${indicator.faixa_inferior}% a ${indicator.faixa_superior}%</span></div>
+    <div class="analysis-grid">
+      <div class="analysis-stat"><span>Motor de risco</span><strong>${risk ? `${risk.pontuacao} pontos · ${escapeHtml(label(risk.nivel))}` : "Aguardando cálculo"}</strong></div>
+      <div class="analysis-stat"><span>Matriz INPI</span><strong>${indicator.cobertura_percentual}% de cobertura</strong></div>
+      <div class="analysis-stat"><span>Leitura determinística</span><strong>${escapeHtml(indicator.titulo)}</strong></div>
+      <div class="analysis-stat"><span>Critérios pendentes</span><strong>${indicator.pendencias.length}</strong></div>
+    </div>
+    <p>${escapeHtml(indicator.resumo)}</p>
+    ${matrix ? `<div class="official-summary"><span class="atendido">${matrix.contagens.atendido || 0} atendidos</span><span class="alerta">${matrix.contagens.alerta || 0} alertas</span><span class="possivel_impedimento">${matrix.contagens.possivel_impedimento || 0} possíveis impedimentos</span><span class="nao_analisado">${matrix.contagens.nao_analisado || 0} não analisados</span></div>` : ""}
+    <p class="analysis-empty"><strong>Modelo supervisionado em validação.</strong> ${escapeHtml(indicator.aviso)}</p>${candidateReview}` : `
+    <p class="analysis-empty"><strong>Modelo supervisionado em validação.</strong> A análise determinística será apresentada assim que o snapshot técnico e o motor de risco forem calculados.</p>${candidateReview}`;
+  return step({ id: "learning", number: 3, title: "Aprendizado supervisionado", subtitle: "Probabilidade histórica e incerteza", state: "attention", stateLabel: "Modelo em validação", body });
+}
+
 function renderLearning(data) {
   const denied = permissionState(data.permissoes.aprendizado_visualizar);
   if (denied) return step({ id: "learning", number: 3, title: "Aprendizado supervisionado", subtitle: "Probabilidade histórica e incerteza", ...denied });
   const item = data.aprendizado;
-  if (!item) return step({ id: "learning", number: 3, title: "Aprendizado supervisionado", subtitle: "Probabilidade histórica e incerteza", state: "pending", stateLabel: "Sem previsão", body: `<p class="analysis-empty">Ainda não existe uma previsão supervisionada para esta pesquisa.</p>` });
+  if (!item || item.modelo_status !== "ativo") return renderDeterministicLearning(data);
   const alerts = item.alertas_qualidade || [];
   const review = data.permissoes.aprendizado_revisar ? `<form id="learning-review-form" class="analysis-action-form" data-id="${item.id}"><label>Leitura humana<select name="nivel_humano" required>${["favoravel","atencao","alto_risco","critico"].map(value => `<option value="${value}" ${item.nivel_humano === value ? "selected" : ""}>${label(value)}</option>`).join("")}</select></label><label>Avaliador<input name="avaliador" minlength="2" value="${escapeHtml(item.avaliador || data.usuario.nome)}" required></label><label class="wide">Observações<textarea name="observacoes_humanas" minlength="3" rows="4" required>${escapeHtml(item.observacoes_humanas || "")}</textarea></label><button class="primary-button" type="submit">Salvar leitura supervisionada</button></form>` : "";
   const reviewed = Boolean(item.avaliado_em);

@@ -128,6 +128,7 @@
 .analysis-probability { display: flex; align-items: baseline; gap: 10px; margin: 15px 0 2px; }
 .analysis-probability strong { color: #087252; font: 600 3.4rem/.9 Georgia,"Times New Roman",serif; }
 .analysis-probability span { color: #52645a; font-size: .8rem; }
+.analysis-probability.deterministic strong { color: #9a681b; }
 .analysis-opinion { margin-top: 13px; padding: 14px; border-radius: 12px; background: #eef5f0; color: #253b30; font-size: .76rem; line-height: 1.6; white-space: pre-wrap; }
 .analysis-empty { margin: 15px 0 0; padding: 15px; border: 1px dashed #cad3cc; border-radius: 12px; color: #66746c; background: #fafbf8; }
 .analysis-help-drawer { width: min(520px,100vw); height: 100dvh; max-height: none; margin: 0 0 0 auto; padding: 0; border: 0; color: #17271f; background: #fffefa; box-shadow: -24px 0 80px rgba(8,35,24,.25); }

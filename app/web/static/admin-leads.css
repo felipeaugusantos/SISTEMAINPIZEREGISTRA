@@ -158,6 +158,17 @@
   box-shadow: 0 5px 14px rgba(8, 114, 82, 0.2);
 }
 
+.lead-view-button.archived-view-button:not(.active) {
+  color: #765218;
+  background: #fff8e9;
+}
+
+.lead-view-button.archived-view-button.active {
+  color: white;
+  background: #9a681b;
+  box-shadow: 0 5px 14px rgba(154, 104, 27, 0.2);
+}
+
 .inline-history-button {
   display: block;
   width: fit-content;
@@ -256,6 +267,20 @@
   font-size: 0.61rem !important;
   font-weight: 850;
   text-transform: uppercase;
+}
+
+.duplicate-research-badge {
+  display: inline-flex !important;
+  width: fit-content;
+  padding: 3px 7px;
+  border: 1px solid #efb5a8;
+  border-radius: 999px;
+  color: #9b2f1d !important;
+  background: #fff0ec;
+  font-size: 0.61rem !important;
+  font-weight: 850;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .lead-status-readonly {
@@ -427,6 +452,74 @@
   gap: 12px 14px;
 }
 
+.lead-crm-form,
+.lead-readonly-note,
+.lead-contact-log { grid-column: 1; }
+
+.lead-history {
+  grid-column: 2;
+  grid-row: 2 / span 2;
+}
+
+.lead-contact-log {
+  padding: 18px;
+  border: 1px solid #dfe2da;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(24, 55, 42, 0.045);
+}
+
+.lead-contact-log > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 13px;
+}
+
+.lead-contact-log h3 { margin: 0; font: 500 1.35rem Georgia, "Times New Roman", serif; }
+.lead-contact-log > header > span { color: #65766d; font-size: 0.7rem; font-weight: 800; }
+.lead-contact-filter { display: grid; margin-bottom: 12px; gap: 6px; color: #263d32; font-size: 0.72rem; font-weight: 800; }
+.lead-contact-filter select,
+.lead-contact-form input,
+.lead-contact-form select,
+.lead-contact-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  border: 1px solid #ccd3cc;
+  border-radius: 10px;
+  color: #14271e;
+  background: #fcfcf9;
+  font: inherit;
+}
+
+.lead-contact-form {
+  display: grid;
+  margin-bottom: 15px;
+  padding: 14px;
+  border-radius: 13px;
+  background: #f2f7f3;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lead-contact-form label { display: grid; min-width: 0; gap: 5px; color: #263d32; font-size: 0.7rem; font-weight: 800; }
+.lead-contact-form .lead-contact-observation-field,
+.lead-contact-form > div { grid-column: 1 / -1; }
+.lead-contact-form > div { display: flex; align-items: center; gap: 10px; }
+#contact-save-message { color: #087252; font-size: 0.7rem; font-weight: 750; }
+
+.lead-contact-history { display: grid; margin: 0; padding: 0; list-style: none; gap: 8px; }
+.lead-contact-entry { padding: 12px; border: 1px solid #e0e5df; border-radius: 11px; background: #fffef9; }
+.lead-contact-entry > div { display: flex; justify-content: space-between; gap: 12px; }
+.lead-contact-entry time,
+.lead-contact-entry small { color: #6b776f; font-size: 0.67rem; }
+.lead-contact-entry p { margin: 6px 0 0; color: #263d32; font-size: 0.75rem; line-height: 1.45; }
+.lead-contact-entry .lead-contact-observation { color: #5d6d64; }
+.lead-contact-entry small { display: block; margin-top: 8px; }
+.lead-contact-empty { padding: 14px; border: 1px dashed #ccd6ce; border-radius: 10px; color: #66756c; font-size: 0.74rem; }
+
 .lead-crm-form::before {
   content: "Atendimento comercial";
   grid-column: 1 / -1;
@@ -574,6 +667,7 @@
   .quick-research-history li > a { grid-column: 2; grid-row: 1 / span 2; }
   .lead-dialog-content { grid-template-columns: 1fr; }
   .lead-contact-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lead-crm-form, .lead-readonly-note, .lead-contact-log, .lead-history { grid-column: 1; grid-row: auto; }
   .lead-history { min-height: auto; }
 }
 
@@ -592,7 +686,7 @@
   .lead-dialog-frame { max-height: 100dvh; }
   .lead-dialog-frame > header { min-height: 88px; padding: 20px; }
   .lead-dialog-content { padding: 18px; }
-  .lead-contact-summary, .lead-crm-form { grid-template-columns: 1fr; }
+  .lead-contact-summary, .lead-crm-form, .lead-contact-form { grid-template-columns: 1fr; }
   .lead-contact-summary > div { min-height: 64px; }
   .lead-crm-form, .lead-history { padding: 17px; }
   .lead-crm-form .primary-button { width: 100%; }

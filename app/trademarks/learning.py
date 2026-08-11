@@ -20,10 +20,12 @@ from app.models import (
     ModeloRegistrabilidade,
     Movimentacao,
     ParTreinamentoMarca,
+    PesquisaMarca,
     PrevisaoRegistrabilidade,
     Processo,
     RotuloHistoricoMarca,
     TipoProcesso,
+    VersaoRelatorioMarca,
 )
 from app.normalization import normalizar_numero_processo
 from app.search import normalizar_texto
@@ -439,7 +441,7 @@ async def construir_dataset_historico(
         text("SELECT set_limit(CAST(:limiar AS real))"),
         {"limiar": LIMIAR_SIMILARIDADE_CANDIDATOS},
     )
-    processos = (
+    processos_candidatos = (
         (
             await session.execute(
                 select(Processo)
@@ -461,12 +463,29 @@ async def construir_dataset_historico(
                 )
                 .distinct()
                 .order_by(Processo.data_deposito.desc().nullslast(), Processo.id)
-                .limit(limite)
+                .limit(limite * 3)
             )
         )
         .scalars()
         .all()
     )
+    por_classe: dict[bool, list[Processo]] = {True: [], False: []}
+    for processo in processos_candidatos:
+        extraido = extrair_rotulo(processo.movimentacoes)
+        if extraido is not None and processo.data_deposito is not None:
+            por_classe[extraido.alvo_deferimento].append(processo)
+    alvo_por_classe = max(1, limite // 2)
+    processos = por_classe[True][:alvo_por_classe] + por_classe[False][:alvo_por_classe]
+    if len(processos) < limite:
+        selecionados = {processo.id for processo in processos}
+        excedentes = [
+            processo
+            for processo in processos_candidatos
+            if processo.id not in selecionados
+            and extrair_rotulo(processo.movimentacoes) is not None
+            and processo.data_deposito is not None
+        ]
+        processos.extend(excedentes[: limite - len(processos)])
     matriz = (await session.execute(select(AfinidadeClasse))).scalars().all()
     afinidades = _pares_afinidade(list(matriz))
     rotulos_processados = 0
@@ -862,11 +881,25 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
         corte_validacao=amostras[min(validacao_fim - 1, len(amostras) - 1)][0],
     )
     controle = await obter_controle(session)
-    bloqueios_qualidade = validar_modelo_para_cliente(modelo, controle, 0)
+    revisoes_humanas = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(PrevisaoRegistrabilidade)
+            .where(PrevisaoRegistrabilidade.nivel_humano.is_not(None))
+        )
+        or 0
+    )
+    bloqueios_qualidade = validar_modelo_para_cliente(
+        modelo,
+        controle,
+        revisoes_humanas,
+        incluir_revisoes_humanas=False,
+    )
     modelo.status = "reprovado" if bloqueios_qualidade else "candidato"
     modelo.dataset = {
         **modelo.dataset,
         "bloqueios_qualidade": bloqueios_qualidade,
+        "revisoes_humanas": revisoes_humanas,
     }
     session.add(modelo)
     await session.commit()
@@ -876,7 +909,7 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
 
 async def ativar_modelo(
     session: AsyncSession, modelo: ModeloRegistrabilidade, administrador: str
-) -> None:
+) -> dict[str, Any]:
     controle = await obter_controle(session)
     revisoes = await session.scalar(
         select(func.count())
@@ -896,7 +929,9 @@ async def ativar_modelo(
     modelo.status = "ativo"
     modelo.ativado_em = datetime.now(UTC)
     modelo.ativado_por = administrador
-    await session.commit()
+    controle.inferencia_habilitada = True
+    await session.flush()
+    return await reprocessar_previsoes_pendentes(session)
 
 
 def _nivel_probabilidade(probabilidade: float, limiar: float = 0.5) -> str:
@@ -989,6 +1024,8 @@ def validar_modelo_para_cliente(
     modelo: ModeloRegistrabilidade | None,
     controle: ControleAprendizadoMarca,
     revisoes_humanas: int,
+    *,
+    incluir_revisoes_humanas: bool = True,
 ) -> list[str]:
     if modelo is None:
         return ["Nenhum modelo ativo"]
@@ -1007,6 +1044,11 @@ def validar_modelo_para_cliente(
         bloqueios.append("Amostras históricas insuficientes")
     if int(dataset.get("teste", 0)) < controle.minimo_amostras_teste:
         bloqueios.append("Amostras do teste temporal insuficientes")
+    if incluir_revisoes_humanas and revisoes_humanas < controle.minimo_revisoes_humanas:
+        bloqueios.append(
+            "Revisões humanas insuficientes "
+            f"({revisoes_humanas}/{controle.minimo_revisoes_humanas})"
+        )
     if int(dataset.get("bootstrap_modelos", 0)) < 10:
         bloqueios.append("Modelo sem intervalo bootstrap válido")
     positivos = int(dataset.get("positivos", 0))
@@ -1071,18 +1113,21 @@ async def registrar_previsao_sombra(
     pesquisa_id: str,
     pares: list[dict[str, float]],
     marca: str = "",
+    modelo_candidato: ModeloRegistrabilidade | None = None,
 ) -> PrevisaoRegistrabilidade | None:
     controle = await obter_controle(session)
-    if not controle.inferencia_habilitada:
+    if modelo_candidato is None and not controle.inferencia_habilitada:
         return None
-    modelo = (
-        await session.execute(
-            select(ModeloRegistrabilidade)
-            .where(ModeloRegistrabilidade.status == "ativo")
-            .order_by(ModeloRegistrabilidade.ativado_em.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    modelo = modelo_candidato
+    if modelo is None:
+        modelo = (
+            await session.execute(
+                select(ModeloRegistrabilidade)
+                .where(ModeloRegistrabilidade.status == "ativo")
+                .order_by(ModeloRegistrabilidade.ativado_em.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
     if modelo is None:
         return None
     atributos = agregar_atributos(pares, marca=marca)
@@ -1109,6 +1154,9 @@ async def registrar_previsao_sombra(
     previsao.modo, previsao.elegivel_cliente, motivos_inelegibilidade = decidir_exibicao_estimativa(
         controle, motivos_inelegibilidade
     )
+    if modelo_candidato is not None:
+        previsao.modo = "sombra"
+        previsao.elegivel_cliente = False
     previsao.probabilidade_deferimento = resultado.probabilidade
     previsao.probabilidade_inferior = resultado.probabilidade_inferior
     previsao.probabilidade_superior = resultado.probabilidade_superior
@@ -1125,3 +1173,145 @@ async def registrar_previsao_sombra(
     previsao.fatores_principais = resultado.fatores
     await session.flush()
     return previsao
+
+
+def _pares_de_relatorio(payload: dict[str, Any]) -> list[dict[str, float]]:
+    classes_atividade = [
+        str(item.get("codigo"))
+        for item in payload.get("classes_atividade") or []
+        if item.get("codigo")
+    ]
+    pares = []
+    for item in payload.get("itens") or []:
+        afinidade = item.get("afinidade_classes") or {}
+        classes_processo = [
+            str(classe.get("codigo"))
+            for classe in item.get("classificacoes") or []
+            if classe.get("sistema") == "nice" and classe.get("codigo")
+        ]
+        pares.append(
+            extrair_atributos_par(
+                str(payload.get("marca") or ""),
+                str(item.get("titulo") or ""),
+                classes_atividade,
+                classes_processo,
+                afinidade_conhecida=afinidade.get("nivel")
+                in {"identica", "alta", "moderada"},
+                candidata_ativa=item.get("relevancia_situacao") == "ativa",
+            )
+        )
+    return pares
+
+
+async def reprocessar_previsoes_pendentes(
+    session: AsyncSession,
+    *,
+    organizacao_id: int | None = None,
+    limite: int | None = None,
+    modelo_candidato: ModeloRegistrabilidade | None = None,
+) -> dict[str, Any]:
+    modelo = modelo_candidato
+    if modelo is None:
+        modelo = (
+            await session.execute(
+                select(ModeloRegistrabilidade)
+                .where(ModeloRegistrabilidade.status == "ativo")
+                .order_by(ModeloRegistrabilidade.ativado_em.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    if modelo is None:
+        return {
+            "status": "sem_modelo_ativo",
+            "processadas": 0,
+            "ignoradas_sem_relatorio": 0,
+        }
+    sem_previsao = ~select(PrevisaoRegistrabilidade.id).where(
+        PrevisaoRegistrabilidade.pesquisa_id == PesquisaMarca.id,
+        PrevisaoRegistrabilidade.modelo_id == modelo.id,
+    ).exists()
+    filtros = [sem_previsao]
+    if organizacao_id is not None:
+        filtros.append(PesquisaMarca.organizacao_id == organizacao_id)
+    consulta = select(PesquisaMarca).where(*filtros).order_by(PesquisaMarca.criado_em)
+    if limite is not None:
+        consulta = consulta.limit(limite)
+    pesquisas = (await session.execute(consulta)).scalars().all()
+    processadas = 0
+    ignoradas = 0
+    for pesquisa in pesquisas:
+        versao = (
+            await session.execute(
+                select(VersaoRelatorioMarca)
+                .where(VersaoRelatorioMarca.pesquisa_id == pesquisa.id)
+                .order_by(VersaoRelatorioMarca.numero_versao.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if versao is None:
+            ignoradas += 1
+            continue
+        previsao = await registrar_previsao_sombra(
+            session,
+            pesquisa_id=pesquisa.id,
+            pares=_pares_de_relatorio(versao.payload or {}),
+            marca=pesquisa.marca,
+            modelo_candidato=modelo_candidato,
+        )
+        processadas += int(previsao is not None)
+    await session.commit()
+    return {
+        "status": "concluido",
+        "modelo": modelo.versao,
+        "processadas": processadas,
+        "ignoradas_sem_relatorio": ignoradas,
+        "pendentes_consideradas": len(pesquisas),
+    }
+
+
+async def executar_pipeline_aprendizado(
+    session: AsyncSession,
+    *,
+    administrador: str,
+    limite_dataset: int = 3000,
+    candidatos_por_processo: int = 12,
+) -> dict[str, Any]:
+    rotulos, pares = await construir_dataset_historico(
+        session,
+        limite=limite_dataset,
+        candidatos_por_processo=candidatos_por_processo,
+    )
+    modelo = await treinar_modelo(session)
+    controle = await obter_controle(session)
+    revisoes_humanas = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(PrevisaoRegistrabilidade)
+            .where(PrevisaoRegistrabilidade.nivel_humano.is_not(None))
+        )
+        or 0
+    )
+    bloqueios_ativacao = validar_modelo_para_cliente(
+        modelo,
+        controle,
+        revisoes_humanas,
+    )
+    ativado = modelo.status == "candidato" and not bloqueios_ativacao
+    reprocessamento: dict[str, Any] = {"status": "modelo_reprovado", "processadas": 0}
+    if ativado:
+        reprocessamento = await ativar_modelo(session, modelo, administrador)
+    elif modelo.status == "candidato":
+        reprocessamento = await reprocessar_previsoes_pendentes(
+            session,
+            modelo_candidato=modelo,
+        )
+    return {
+        "rotulos_processados": rotulos,
+        "pares_processados": pares,
+        "modelo_id": modelo.id,
+        "modelo_versao": modelo.versao,
+        "modelo_status": modelo.status,
+        "ativado": ativado,
+        "bloqueios": bloqueios_ativacao,
+        "reprocessamento": reprocessamento,
+    }

@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from enum import StrEnum
 from uuid import uuid4
 
@@ -13,6 +14,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Table,
     Text,
@@ -509,12 +511,167 @@ class ClassificacaoMarca(Base):
     processo: Mapped[Processo] = relationship(back_populates="classificacoes")
 
 
+class EmpresaCRM(Base):
+    __tablename__ = "empresas_crm"
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "nome_normalizado", name="uq_empresa_crm_org_nome"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    nome: Mapped[str] = mapped_column(String(200), index=True)
+    nome_normalizado: Mapped[str] = mapped_column(String(200), index=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    leads: Mapped[list["Lead"]] = relationship(back_populates="empresa_registro")
+    pesquisas: Mapped[list["PesquisaMarca"]] = relationship(back_populates="empresa_registro")
+    contatos: Mapped[list["ContatoLead"]] = relationship(back_populates="empresa_registro")
+    processos_monitorados: Mapped[list["ProcessoMonitorado"]] = relationship(
+        back_populates="empresa_registro"
+    )
+    lancamentos_financeiros: Mapped[list["LancamentoFinanceiro"]] = relationship(
+        back_populates="empresa_registro"
+    )
+
+
+class CategoriaFinanceira(Base):
+    __tablename__ = "categorias_financeiras"
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "nome", "tipo", name="uq_categoria_financeira_org"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    nome: Mapped[str] = mapped_column(String(120), index=True)
+    tipo: Mapped[str] = mapped_column(String(12), default="ambos", index=True)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LancamentoFinanceiro(Base):
+    __tablename__ = "lancamentos_financeiros"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    empresa_id: Mapped[int | None] = mapped_column(
+        ForeignKey("empresas_crm.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    categoria_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categorias_financeiras.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    tipo: Mapped[str] = mapped_column(String(12), index=True)
+    descricao: Mapped[str] = mapped_column(String(240), index=True)
+    documento: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    competencia: Mapped[date] = mapped_column(Date, index=True)
+    valor_total: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    status: Mapped[str] = mapped_column(String(20), default="aberto", index=True)
+    observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    criado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
+    )
+    criado_por: Mapped[str] = mapped_column(String(254))
+    cancelado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    cancelamento_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    empresa_registro: Mapped[EmpresaCRM | None] = relationship(
+        back_populates="lancamentos_financeiros", lazy="selectin"
+    )
+    categoria: Mapped[CategoriaFinanceira | None] = relationship(lazy="selectin")
+    parcelas: Mapped[list["ParcelaFinanceira"]] = relationship(
+        back_populates="lancamento",
+        cascade="all, delete-orphan",
+        order_by="ParcelaFinanceira.numero",
+    )
+
+
+class ParcelaFinanceira(Base):
+    __tablename__ = "parcelas_financeiras"
+    __table_args__ = (
+        UniqueConstraint("lancamento_id", "numero", name="uq_parcela_financeira_numero"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    lancamento_id: Mapped[int] = mapped_column(
+        ForeignKey("lancamentos_financeiros.id", ondelete="CASCADE"), index=True
+    )
+    numero: Mapped[int] = mapped_column(Integer)
+    vencimento: Mapped[date] = mapped_column(Date, index=True)
+    valor: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    valor_pago: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    status: Mapped[str] = mapped_column(String(20), default="aberta", index=True)
+    pago_em: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    forma_pagamento: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    observacoes_baixa: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lancamento: Mapped[LancamentoFinanceiro] = relationship(back_populates="parcelas")
+
+
+class ProcessoMonitorado(Base):
+    """Processo da base RPI incluído na carteira de acompanhamento de um tenant."""
+
+    __tablename__ = "processos_monitorados"
+    __table_args__ = (
+        UniqueConstraint(
+            "organizacao_id",
+            "processo_id",
+            name="uq_processo_monitorado_org_processo",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    processo_id: Mapped[int] = mapped_column(
+        ForeignKey("processos.id", ondelete="CASCADE"), index=True
+    )
+    empresa_id: Mapped[int | None] = mapped_column(
+        ForeignKey("empresas_crm.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    responsavel_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="ativo", index=True)
+    origem: Mapped[str] = mapped_column(String(30), default="manual", index=True)
+    procurador_origem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    vinculado_por: Mapped[str] = mapped_column(String(254))
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    processo: Mapped[Processo] = relationship(lazy="selectin")
+    empresa_registro: Mapped[EmpresaCRM | None] = relationship(
+        back_populates="processos_monitorados", lazy="selectin"
+    )
+    responsavel: Mapped["UsuarioOperacoes | None"] = relationship(lazy="selectin")
+
+
 class Lead(Base):
     __tablename__ = "leads"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(
         ForeignKey("organizacoes.id", ondelete="RESTRICT"), index=True
+    )
+    empresa_id: Mapped[int | None] = mapped_column(
+        ForeignKey("empresas_crm.id", ondelete="SET NULL"), nullable=True, index=True
     )
     nome: Mapped[str] = mapped_column(String(150), index=True)
     email: Mapped[str] = mapped_column(String(254), index=True)
@@ -570,6 +727,7 @@ class Lead(Base):
     contatos: Mapped[list["ContatoLead"]] = relationship(
         back_populates="lead", cascade="all, delete-orphan", order_by="ContatoLead.criado_em.desc()"
     )
+    empresa_registro: Mapped["EmpresaCRM | None"] = relationship(back_populates="leads")
     responsavel: Mapped["UsuarioOperacoes | None"] = relationship()
 
 
@@ -591,6 +749,9 @@ class ContatoLead(Base):
         ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
     )
     lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    empresa_id: Mapped[int | None] = mapped_column(
+        ForeignKey("empresas_crm.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     pesquisa_id: Mapped[str | None] = mapped_column(
         ForeignKey("pesquisas_marca.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -615,6 +776,8 @@ class ContatoLead(Base):
         DateTime(timezone=True), server_default=func.now(), index=True
     )
     lead: Mapped[Lead] = relationship(back_populates="contatos")
+    empresa_registro: Mapped["EmpresaCRM | None"] = relationship(back_populates="contatos")
+    pesquisa: Mapped["PesquisaMarca | None"] = relationship(back_populates="contatos")
 
 
 class PesquisaMarca(Base):
@@ -627,12 +790,17 @@ class PesquisaMarca(Base):
     lead_id: Mapped[int | None] = mapped_column(
         ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    empresa_id: Mapped[int | None] = mapped_column(
+        ForeignKey("empresas_crm.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     marca: Mapped[str] = mapped_column(String(200), index=True)
     atividade: Mapped[str | None] = mapped_column(Text, nullable=True)
     tipo_pesquisa: Mapped[str] = mapped_column(String(20), index=True)
     classe_nice: Mapped[str | None] = mapped_column(String(2), nullable=True, index=True)
     duplicada: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    pesquisa_original_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    pesquisa_original_id: Mapped[str | None] = mapped_column(
+        ForeignKey("pesquisas_marca.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     dados_complementares_registrabilidade: Mapped[dict] = mapped_column(JSON, default=dict)
     relatorio_completo_gerado_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
@@ -641,11 +809,43 @@ class PesquisaMarca(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     lead: Mapped[Lead | None] = relationship(back_populates="pesquisas_marca")
+    empresa_registro: Mapped[EmpresaCRM | None] = relationship(back_populates="pesquisas")
+    contatos: Mapped[list[ContatoLead]] = relationship(back_populates="pesquisa")
     versoes_relatorio: Mapped[list["VersaoRelatorioMarca"]] = relationship(
         back_populates="pesquisa",
         cascade="all, delete-orphan",
         order_by="VersaoRelatorioMarca.numero_versao.desc()",
     )
+
+
+class SolicitacaoExclusaoPesquisa(Base):
+    __tablename__ = "solicitacoes_exclusao_pesquisa"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    pesquisa_id: Mapped[str | None] = mapped_column(
+        ForeignKey("pesquisas_marca.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    pesquisa_referencia: Mapped[str] = mapped_column(String(36), index=True)
+    marca: Mapped[str] = mapped_column(String(200), index=True)
+    lead_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    solicitado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    solicitado_por: Mapped[str] = mapped_column(String(254))
+    motivo: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    decidido_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    decidido_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    decisao_observacao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    decidido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class MarcaAltoRenome(Base):

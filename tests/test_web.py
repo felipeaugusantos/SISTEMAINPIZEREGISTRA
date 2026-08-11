@@ -135,7 +135,7 @@ def test_leads_exibe_status_e_acao_do_relatorio_completo() -> None:
     script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
     styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
 
-    assert "admin-leads.js?v=22" in page
+    assert "admin-leads.js?v=23" in page
     assert "Pipeline de atendimento" in page
     assert 'data-priority="atrasadas"' in page
     assert "Histórico de pesquisas" in page
@@ -159,8 +159,8 @@ def test_dossie_envia_e_exibe_leitura_supervisionada() -> None:
     page = (web_dir / "admin-analise.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-analise.js").read_text(encoding="utf-8")
 
-    assert "admin-analise.js?v=5" in page
-    assert "admin-analise.css?v=4" in page
+    assert "admin-analise.js?v=7" in page
+    assert "admin-analise.css?v=5" in page
     assert 'observacoes: values.get("observacoes_humanas")' in script
     assert "Boolean(item.avaliado_em)" in script
     assert "Leitura registrada" in script

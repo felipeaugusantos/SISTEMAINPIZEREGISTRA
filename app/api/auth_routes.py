@@ -57,9 +57,9 @@ class LoginInput(BaseModel):
 
 class TrocarSenhaInput(BaseModel):
     senha_atual: str = Field(min_length=1, max_length=200)
-    nova_senha: str = Field(min_length=TAMANHO_MINIMO_SENHA, max_length=200)
-
-    _senha_forte = field_validator("nova_senha")(validar_forca_senha)
+    # A validação ocorre dentro da rota para permitir mensagem simples e auditoria
+    # das recusas. Senhas nunca são incluídas no evento de auditoria.
+    nova_senha: str = Field(min_length=1, max_length=200)
 
 
 class RecuperacaoInput(BaseModel):
@@ -108,7 +108,13 @@ def _resposta_usuario(usuario: UsuarioOperacoes) -> dict:
 
 
 async def _auditar(
-    session: AsyncSession, request: Request, ator: str, acao: str, sucesso: bool, detalhes: dict
+    session: AsyncSession,
+    request: Request,
+    ator: str,
+    acao: str,
+    sucesso: bool,
+    detalhes: dict,
+    status_http: int | None = None,
 ) -> None:
     from app.auth import hash_ip
 
@@ -122,7 +128,7 @@ async def _auditar(
             acao=acao[:20],
             recurso="autenticacao",
             sucesso=sucesso,
-            status_http=200 if sucesso else 401,
+            status_http=status_http or (200 if sucesso else 401),
             ip_hash=hash_ip(cliente_ip(request)),
             detalhes=detalhes,
         )
@@ -268,10 +274,50 @@ async def trocar_senha(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     exigir_csrf(request, usuario)
+    erro_forca = None
+    if len(dados.nova_senha) < TAMANHO_MINIMO_SENHA:
+        erro_forca = f"A nova senha deve ter pelo menos {TAMANHO_MINIMO_SENHA} caracteres"
+    else:
+        try:
+            validar_forca_senha(dados.nova_senha)
+        except ValueError as exc:
+            erro_forca = str(exc)
+    if erro_forca:
+        await _auditar(
+            session,
+            request,
+            usuario.email,
+            "TROCA_SENHA_NEGADA",
+            False,
+            {"usuario_id": usuario.id, "motivo": "senha_fraca"},
+            status_http=422,
+        )
+        await session.commit()
+        raise HTTPException(status_code=422, detail=erro_forca)
     registro = await session.get(UsuarioOperacoes, usuario.id)
     if not registro or not verificar_senha(registro.senha_hash, dados.senha_atual):
-        raise HTTPException(status_code=400, detail="Senha atual invalida")
+        await _auditar(
+            session,
+            request,
+            usuario.email,
+            "TROCA_SENHA_NEGADA",
+            False,
+            {"usuario_id": usuario.id, "motivo": "senha_atual_invalida"},
+            status_http=400,
+        )
+        await session.commit()
+        raise HTTPException(status_code=400, detail="Senha atual inválida")
     if dados.nova_senha == dados.senha_atual:
+        await _auditar(
+            session,
+            request,
+            usuario.email,
+            "TROCA_SENHA_NEGADA",
+            False,
+            {"usuario_id": usuario.id, "motivo": "senha_reutilizada"},
+            status_http=400,
+        )
+        await session.commit()
         raise HTTPException(status_code=400, detail="A nova senha deve ser diferente")
     registro.senha_hash = hash_senha(dados.nova_senha)
     registro.alterar_senha = False

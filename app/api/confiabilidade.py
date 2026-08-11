@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import UsuarioAtualDep, exigir_csrf
 from app.database import get_session
 from app.models import (
+    AlertaSistema,
     EventoAuditoria,
     Lead,
     Organizacao,
@@ -69,6 +70,24 @@ async def painel(session: SessionDep, usuario: AdminDep) -> dict:
                 select(func.count()).select_from(modelo).where(modelo.organizacao_id == org_id)
             )
         ).scalar_one()
+    ultima_rotina = (
+        await session.execute(
+            select(AlertaSistema)
+            .where(
+                AlertaSistema.organizacao_id == org_id,
+                AlertaSistema.codigo.in_(
+                    {
+                        "PREVISOES_REPROCESSADAS",
+                        "MODELO_APRENDIZADO_ATIVADO",
+                        "MODELO_APRENDIZADO_AGUARDANDO_REVISOES",
+                        "MODELO_APRENDIZADO_REPROVADO",
+                    }
+                ),
+            )
+            .order_by(AlertaSistema.criado_em.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     return {
         "organizacao": {
             "id": org.id,
@@ -82,6 +101,19 @@ async def painel(session: SessionDep, usuario: AdminDep) -> dict:
         },
         "uso": contagens,
         "fila": await status_fila(),
+        "permissoes": {"superadmin": bool(usuario.superadmin)},
+        "ultima_rotina_aprendizado": (
+            {
+                "id": ultima_rotina.id,
+                "codigo": ultima_rotina.codigo,
+                "severidade": ultima_rotina.severidade,
+                "mensagem": ultima_rotina.mensagem,
+                "detalhes": ultima_rotina.detalhes or {},
+                "criado_em": ultima_rotina.criado_em,
+            }
+            if ultima_rotina is not None
+            else None
+        ),
     }
 
 
@@ -98,16 +130,24 @@ async def configurar(
 
 
 @router.post("/tarefas/{tipo}", status_code=202)
-async def criar_tarefa(tipo: str, request: Request, _: AdminDep) -> dict:
+async def criar_tarefa(tipo: str, request: Request, usuario: AdminDep) -> dict:
     permitidos = {
         "assinaturas.verificar",
         "privacidade.verificar_retencao",
         "registrabilidade.reconciliar_resultados",
+        "registrabilidade.reprocessar_previsoes",
+        "registrabilidade.pipeline_aprendizado",
     }
     if tipo not in permitidos:
         raise HTTPException(422, "Tarefa não permitida")
+    if tipo == "registrabilidade.pipeline_aprendizado" and not usuario.superadmin:
+        raise HTTPException(403, "Treinamento global exclusivo do superadministrador")
+    payload = {
+        "organizacao_id": usuario.organizacao_id,
+        "solicitado_por": usuario.email,
+    }
     try:
-        return {"status": "enfileirada", "job": await enfileirar(tipo)}
+        return {"status": "enfileirada", "job": await enfileirar(tipo, payload)}
     except Exception as exc:
         raise HTTPException(503, "Fila indisponível") from exc
 

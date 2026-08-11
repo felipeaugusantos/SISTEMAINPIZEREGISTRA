@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.crm import buscar_lead_ativo_por_email, obter_ou_criar_empresa
 from app.database import get_session
 from app.models import (
     AfinidadeClasse,
@@ -106,21 +107,14 @@ async def criar_pesquisa(
     if "consulta" not in organizacao.modulos:
         raise HTTPException(status_code=403, detail="Modulo de consulta indisponivel no plano")
     await validar_limite_pesquisas(session, organizacao)
-    lead = (
-        await session.execute(
-            select(Lead)
-            .where(
-                Lead.organizacao_id == organizacao.id,
-                Lead.arquivado_em.is_(None),
-                func.lower(Lead.email) == dados.email_corporativo.lower(),
-            )
-            .order_by(Lead.atualizado_em.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    empresa = await obter_ou_criar_empresa(session, organizacao.id, dados.empresa)
+    lead = await buscar_lead_ativo_por_email(
+        session, organizacao.id, dados.email_corporativo
+    )
     if lead is None:
         lead = Lead(
             organizacao_id=organizacao.id,
+            empresa_id=empresa.id if empresa else None,
             nome=dados.nome,
             empresa=dados.empresa,
             email=dados.email_corporativo,
@@ -137,7 +131,8 @@ async def criar_pesquisa(
         await session.flush()
     else:
         lead.nome = dados.nome
-        lead.empresa = dados.empresa or lead.empresa
+        lead.empresa_id = empresa.id if empresa else None
+        lead.empresa = empresa.nome if empresa else dados.empresa or lead.empresa
         lead.email = dados.email_corporativo
         lead.telefone = dados.telefone
         lead.marca = dados.marca
@@ -148,6 +143,7 @@ async def criar_pesquisa(
     pesquisa = PesquisaMarca(
         organizacao_id=organizacao.id,
         lead_id=lead.id,
+        empresa_id=empresa.id if empresa else lead.empresa_id,
         marca=dados.marca,
         atividade=dados.atividade,
         tipo_pesquisa="completa",
@@ -158,7 +154,13 @@ async def criar_pesquisa(
     session.add(pesquisa)
     await session.commit()
     await session.refresh(pesquisa)
-    return PesquisaMarcaCriada(id=pesquisa.id, relatorio_url=f"/relatorios/{pesquisa.id}")
+    return PesquisaMarcaCriada(
+        id=pesquisa.id,
+        relatorio_url=f"/relatorios/{pesquisa.id}",
+        lead_id=lead.id,
+        duplicada=pesquisa.duplicada,
+        pesquisa_original_id=pesquisa.pesquisa_original_id,
+    )
 
 
 def construir_resumo_publico(relatorio: RelatorioMarcaResponse) -> ResumoPublicoMarcaResponse:

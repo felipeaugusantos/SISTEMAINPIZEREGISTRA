@@ -105,7 +105,10 @@ def test_leitura_supervisionada_e_persistida() -> None:
     )
     usuario = usuario_teste()
     object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
-    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=previsao))
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(scalar=previsao),
+        FakeResult(scalar=1),
+    )
     app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
 
     resposta = TestClient(app).patch(

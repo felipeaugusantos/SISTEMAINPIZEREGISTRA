@@ -9,7 +9,11 @@ async function enviar(url, dados) {
   const resposta = await fetch(url, { method: "POST", headers, body: JSON.stringify(dados) });
   const payload = await resposta.json().catch(() => ({}));
   if (!resposta.ok) {
-    const mensagem = payload.detail || (resposta.status >= 500
+    const detalhe = payload.detail;
+    const mensagemValidacao = Array.isArray(detalhe)
+      ? detalhe.map(item => item?.msg || item?.message).filter(Boolean).join(" · ")
+      : (typeof detalhe === "object" && detalhe ? detalhe.msg || detalhe.message : detalhe);
+    const mensagem = mensagemValidacao || (resposta.status >= 500
       ? `Erro interno (${resposta.status}). Tente novamente em instantes.`
       : `Não foi possível concluir (${resposta.status}).`);
     throw new Error(mensagem);
@@ -142,14 +146,41 @@ redefinicao?.addEventListener("submit", async event => {
 });
 
 const senha = document.querySelector("#password-form");
+const regrasSenha = {
+  length: valor => valor.length >= 12,
+  lower: valor => /[a-z]/.test(valor),
+  upper: valor => /[A-Z]/.test(valor),
+  number: valor => /\d/.test(valor),
+  special: valor => /[^A-Za-z0-9]/.test(valor),
+};
+
+function avaliarSenha(valor) {
+  const resultado = Object.fromEntries(
+    Object.entries(regrasSenha).map(([regra, validar]) => [regra, validar(valor)])
+  );
+  document.querySelectorAll("[data-password-rule]").forEach(item => {
+    item.classList.toggle("met", resultado[item.dataset.passwordRule]);
+  });
+  return Object.values(resultado).every(Boolean);
+}
+
+senha?.elements.nova_senha.addEventListener("input", event => avaliarSenha(event.target.value));
 senha?.addEventListener("submit", async event => {
   event.preventDefault();
   const dados = Object.fromEntries(new FormData(senha));
   const msg = document.querySelector("#auth-message");
   if (dados.nova_senha !== dados.confirmacao) {
     msg.textContent = "As novas senhas não coincidem.";
+    msg.className = "status-message error";
     return;
   }
+  if (!avaliarSenha(dados.nova_senha)) {
+    msg.textContent = "A nova senha ainda não atende a todos os requisitos.";
+    msg.className = "status-message error";
+    return;
+  }
+  msg.textContent = "Salvando…";
+  msg.className = "status-message loading";
   try {
     const resposta = await enviar("/v1/auth/trocar-senha", { senha_atual: dados.senha_atual, nova_senha: dados.nova_senha });
     location.href = resposta.destino;

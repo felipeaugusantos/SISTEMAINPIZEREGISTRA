@@ -56,6 +56,7 @@ async function carregar() {
     form.elements.retencao_dados_dias.value = org.retencao_dados_dias;
     form.elements.politica_privacidade_versao.value = org.politica_privacidade_versao;
     contexto.textContent = `${org.nome} · ${org.status} · ${org.assinatura_status}`;
+    document.querySelector("#learning-pipeline-job").hidden = !data.permissoes?.superadmin;
     msg.hidden = true;
     return data;
   } catch (error) {
@@ -94,16 +95,31 @@ document.querySelectorAll("[data-job]").forEach(button => {
     button.textContent = "Processando…";
     definirStatus(jobStatus, `${label}: solicitação enviada para a fila…`, "loading");
     try {
+      const estadoAnterior = await carregar();
+      const falhasAnteriores = Number(estadoAnterior.fila.falhas || 0);
+      const rotinaAnteriorId = estadoAnterior.ultima_rotina_aprendizado?.id;
       await api(`/v1/admin/confiabilidade/tarefas/${button.dataset.job}`, { method: "POST" });
       let dados = await carregar();
-      for (let tentativa = 0; tentativa < 10 && dados.fila.pendentes > 0; tentativa += 1) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+      for (let tentativa = 0; tentativa < 180 && (dados.fila.pendentes > 0 || dados.fila.processando > 0); tentativa += 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
         dados = await carregar();
       }
-      if (dados.fila.falhas > 0) {
+      if (dados.fila.pendentes > 0 || dados.fila.processando > 0) {
+        throw new Error("A rotina continua em processamento. Acompanhe os alertas operacionais.");
+      }
+      if (Number(dados.fila.falhas || 0) > falhasAnteriores) {
         throw new Error("A rotina terminou com falha. Consulte os alertas operacionais.");
       }
-      definirStatus(jobStatus, `${label}: verificação concluída com sucesso.`, "success");
+      const rotina = dados.ultima_rotina_aprendizado;
+      if (rotina && rotina.id !== rotinaAnteriorId) {
+        definirStatus(
+          jobStatus,
+          `${label}: ${rotina.mensagem}`,
+          rotina.severidade === "aviso" ? "error" : "success",
+        );
+      } else {
+        definirStatus(jobStatus, `${label}: verificação concluída com sucesso.`, "success");
+      }
     } catch (error) {
       definirStatus(jobStatus, `${label}: ${error.message}`, "error");
     } finally {

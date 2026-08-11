@@ -18,6 +18,7 @@ from app.models import (
     Processo,
     RotuloHistoricoMarca,
 )
+from app.queueing import enfileirar
 from app.schemas import (
     AprendizadoAcaoResponse,
     AprendizadoAdminResponse,
@@ -422,7 +423,39 @@ async def revisar_previsao(
     previsao.observacoes_humanas = dados.observacoes
     previsao.avaliado_em = datetime.now(UTC)
     await session.commit()
-    return AprendizadoAcaoResponse(mensagem="Comparação humana registrada")
+    controle = await obter_controle(session)
+    revisoes = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(PrevisaoRegistrabilidade)
+                .where(PrevisaoRegistrabilidade.nivel_humano.is_not(None))
+            )
+        ).scalar_one()
+        or 0
+    )
+    minimo_revisoes = int(controle.minimo_revisoes_humanas or 30)
+    if revisoes >= minimo_revisoes:
+        try:
+            await enfileirar(
+                "registrabilidade.ativar_candidato",
+                {
+                    "organizacao_id": usuario.organizacao_id,
+                    "solicitado_por": "ativacao-automatica",
+                },
+            )
+        except Exception:
+            pass
+    return AprendizadoAcaoResponse(
+        mensagem=(
+            "Comparação humana registrada; validação automática enfileirada"
+            if revisoes >= minimo_revisoes
+            else (
+                "Comparação humana registrada "
+                f"({revisoes}/{minimo_revisoes} revisões mínimas)"
+            )
+        )
+    )
 
 
 @router.patch("/controle", response_model=AprendizadoControleResponse)

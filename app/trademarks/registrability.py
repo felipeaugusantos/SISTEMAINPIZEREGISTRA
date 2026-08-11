@@ -279,6 +279,40 @@ def construir_prognostico_registrabilidade(matriz: dict) -> dict:
     }
 
 
+def construir_indicador_deterministico(
+    matriz: dict,
+    pontuacao_risco: int | None,
+) -> dict:
+    """Produz um índice técnico auditável sem se apresentar como probabilidade estatística."""
+    prognostico = construir_prognostico_registrabilidade(matriz)
+    cobertura = int(matriz.get("cobertura_percentual") or 0)
+    risco = max(0, min(100, int(pontuacao_risco if pontuacao_risco is not None else 50)))
+    base = 100 - risco
+    fator_cobertura = max(0.25, min(1.0, cobertura / 100))
+    indice = round(50 + (base - 50) * fator_cobertura)
+    if prognostico["veredito"] == "desfavoravel":
+        indice = min(indice, 40)
+    elif prognostico["veredito"] == "favoravel":
+        indice = max(indice, 60)
+    else:
+        indice = max(41, min(59, indice))
+    incerteza = max(10, min(30, round(10 + (100 - cobertura) * 0.2)))
+    return {
+        "indice": indice,
+        "faixa_inferior": max(0, indice - incerteza),
+        "faixa_superior": min(100, indice + incerteza),
+        "cobertura_percentual": cobertura,
+        "veredito": prognostico["veredito"],
+        "titulo": prognostico["titulo"],
+        "resumo": prognostico["resumo"],
+        "pendencias": prognostico["pendencias"],
+        "aviso": (
+            "Índice de viabilidade técnica derivado das regras e evidências disponíveis. "
+            "Não é probabilidade histórica nem garantia de decisão do INPI."
+        ),
+    }
+
+
 def construir_matriz_registrabilidade(
     *,
     marca: str,

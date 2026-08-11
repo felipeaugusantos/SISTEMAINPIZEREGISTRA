@@ -1,4 +1,5 @@
 from app.trademarks.registrability import (
+    construir_indicador_deterministico,
     construir_matriz_registrabilidade,
     construir_prognostico_registrabilidade,
 )
@@ -145,3 +146,24 @@ def test_assistente_preenchido_conclui_criterios_aplicaveis() -> None:
     assert matriz["contagens"]["nao_analisado"] == 0
     assert matriz["contagens"]["nao_aplicavel"] == 1
     assert matriz["status_geral"] == "sem_impedimento_automatico"
+
+
+def test_indicador_deterministico_limita_cenario_desfavoravel() -> None:
+    indicador = construir_indicador_deterministico(
+        _matriz("critico", 82, alto_renome=True),
+        82,
+    )
+
+    assert indicador["veredito"] == "desfavoravel"
+    assert indicador["indice"] <= 40
+    assert indicador["faixa_inferior"] <= indicador["indice"]
+    assert indicador["faixa_superior"] >= indicador["indice"]
+    assert "Não é probabilidade histórica" in indicador["aviso"]
+
+
+def test_indicador_deterministico_preserva_leitura_favoravel() -> None:
+    indicador = construir_indicador_deterministico(_matriz("baixo", 10), 10)
+
+    assert indicador["veredito"] == "favoravel"
+    assert indicador["indice"] >= 60
+    assert indicador["cobertura_percentual"] > 0

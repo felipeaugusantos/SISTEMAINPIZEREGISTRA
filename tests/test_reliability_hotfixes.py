@@ -94,9 +94,18 @@ def test_modelo_desbalanceado_nao_pode_ser_ativado() -> None:
         maximo_ece=0.12,
         minimo_amostras_modelo=300,
         minimo_amostras_teste=50,
+        minimo_revisoes_humanas=30,
     )
     bloqueios = validar_modelo_para_cliente(modelo, controle, revisoes_humanas=0)
     assert any("desbalanceada" in item for item in bloqueios)
+    assert any("Revisões humanas insuficientes" in item for item in bloqueios)
+    bloqueios_candidato = validar_modelo_para_cliente(
+        modelo,
+        controle,
+        revisoes_humanas=0,
+        incluir_revisoes_humanas=False,
+    )
+    assert not any("Revisões humanas insuficientes" in item for item in bloqueios_candidato)
 
 
 def test_rate_limit_isola_escopos_e_informa_retry_after() -> None:

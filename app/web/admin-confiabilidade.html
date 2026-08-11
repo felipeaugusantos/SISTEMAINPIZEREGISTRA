@@ -7,7 +7,7 @@
   <title>Confiabilidade — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=20">
   <script src="/static/admin-shell.js?v=21" defer></script>
-  <script src="/static/admin-confiabilidade.js?v=3" defer></script>
+  <script src="/static/admin-confiabilidade.js?v=4" defer></script>
 </head>
 <body class="admin-body" data-admin-section="reliability">
   <main class="admin-main admin-dashboard">
@@ -111,6 +111,8 @@
       <div class="reliability-actions">
         <button class="secondary-button" type="button" data-job="privacidade.verificar_retencao" data-label="Verificar retenção">Verificar retenção</button>
         <button class="secondary-button" type="button" data-job="assinaturas.verificar" data-label="Verificar trials">Verificar trials</button>
+        <button class="secondary-button" type="button" data-job="registrabilidade.reprocessar_previsoes" data-label="Reprocessar previsões pendentes">Reprocessar previsões pendentes</button>
+        <button id="learning-pipeline-job" class="primary-button" type="button" data-job="registrabilidade.pipeline_aprendizado" data-label="Preparar, treinar e validar modelo">Preparar, treinar e validar modelo</button>
       </div>
       <div id="job-status" class="status-message" role="status" aria-live="polite">
         Selecione uma rotina para iniciar a verificação.

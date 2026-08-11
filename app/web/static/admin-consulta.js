@@ -1,6 +1,11 @@
 const form = document.querySelector("#consulta-form");
 const statusEl = document.querySelector("#consulta-status");
 const resultado = document.querySelector("#resultado");
+const deleteButton = document.querySelector("#delete-research");
+const deleteDialog = document.querySelector("#delete-research-dialog");
+const deleteForm = document.querySelector("#delete-research-form");
+let podeExcluirPesquisa = false;
+let exclusaoPendente = false;
 
 function setStatus(texto, tipo) {
   statusEl.hidden = false;
@@ -20,6 +25,15 @@ async function api(url, options = {}) {
   }
   return payload;
 }
+
+api("/v1/auth/me").then(usuario => {
+  podeExcluirPesquisa = Boolean(
+    usuario.superadmin
+    || usuario.perfil === "administrador"
+    || (usuario.permissoes || []).includes("leads.delete")
+  );
+  atualizarAcaoExclusao();
+}).catch(() => {});
 
 function card(valor, rotulo) {
   const article = document.createElement("article");
@@ -116,6 +130,7 @@ const contatosSection = document.querySelector("#contatos-section");
 const contatoForm = document.querySelector("#contato-form");
 const contatoStatus = document.querySelector("#contato-status");
 let leadAtual = null;
+let pesquisaAtual = null;
 
 function mostrarDuplicada(criada) {
   const badge = document.querySelector("#res-duplicada");
@@ -170,6 +185,7 @@ contatoForm.addEventListener("submit", async event => {
   event.preventDefault();
   if (!leadAtual) return;
   const dados = Object.fromEntries(new FormData(contatoForm));
+  dados.pesquisa_id = pesquisaAtual;
   try {
     await api(`/v1/admin/leads/${leadAtual}/contatos`, { method: "POST", body: JSON.stringify(dados) });
     contatoForm.reset();
@@ -187,9 +203,13 @@ contatoForm.addEventListener("submit", async event => {
 form.addEventListener("submit", async event => {
   event.preventDefault();
   const dados = Object.fromEntries(new FormData(form));
+  dados.atividade = dados.atividade.trim() || null;
   setStatus("Registrando consulta…", "loading");
   try {
     const criada = await api("/v1/admin/consulta", { method: "POST", body: JSON.stringify(dados) });
+    pesquisaAtual = criada.id;
+    exclusaoPendente = false;
+    atualizarAcaoExclusao();
     history.pushState(null, "", criada.relatorio_url);
     mostrarDuplicada(criada);
     await carregarRelatorio(criada.id);
@@ -201,5 +221,71 @@ form.addEventListener("submit", async event => {
 
 const deepLink = location.pathname.match(/\/admin\/consulta\/(.+)$/);
 if (deepLink) {
-  carregarRelatorio(decodeURIComponent(deepLink[1]));
+  pesquisaAtual = decodeURIComponent(deepLink[1]);
+  Promise.all([
+    carregarRelatorio(pesquisaAtual),
+    api(`/v1/admin/consulta/${encodeURIComponent(pesquisaAtual)}/contexto`),
+  ]).then(([, contexto]) => {
+    mostrarDuplicada(contexto);
+    exclusaoPendente = contexto.exclusao_status === "pendente";
+    podeExcluirPesquisa = Boolean(contexto.pode_excluir);
+    atualizarAcaoExclusao();
+    return abrirContatos(contexto.lead_id);
+  }).catch(error => setStatus(error.message, "error"));
 }
+
+function atualizarAcaoExclusao() {
+  deleteButton.disabled = exclusaoPendente || !pesquisaAtual;
+  deleteButton.textContent = exclusaoPendente
+    ? "Exclusão aguardando aprovação"
+    : podeExcluirPesquisa ? "Excluir pesquisa" : "Solicitar exclusão";
+}
+
+deleteButton.addEventListener("click", () => {
+  if (!pesquisaAtual || exclusaoPendente) return;
+  deleteForm.reset();
+  document.querySelector("#delete-research-password-field").hidden = !podeExcluirPesquisa;
+  deleteForm.elements.senha.required = podeExcluirPesquisa;
+  document.querySelector("#delete-research-title").textContent = podeExcluirPesquisa
+    ? "Excluir pesquisa permanentemente?" : "Solicitar exclusão da pesquisa?";
+  document.querySelector("#delete-research-description").textContent = podeExcluirPesquisa
+    ? "Relatório, análises e previsões vinculadas serão removidos. Confirme com sua senha atual."
+    : "A pesquisa permanecerá disponível até um administrador analisar a solicitação.";
+  document.querySelector("#delete-research-message").hidden = true;
+  deleteDialog.showModal();
+});
+
+document.querySelector("#cancel-delete-research").addEventListener("click", () => {
+  deleteDialog.close();
+});
+
+deleteForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const mensagem = document.querySelector("#delete-research-message");
+  const dados = Object.fromEntries(new FormData(deleteForm));
+  mensagem.hidden = false;
+  mensagem.className = "status-message loading";
+  mensagem.textContent = podeExcluirPesquisa ? "Excluindo pesquisa…" : "Enviando solicitação…";
+  try {
+    if (podeExcluirPesquisa) {
+      await api(`/v1/admin/pesquisas/${encodeURIComponent(pesquisaAtual)}`, {
+        method: "DELETE",
+        body: JSON.stringify({ senha: dados.senha, motivo: dados.motivo }),
+      });
+      deleteDialog.close();
+      location.href = "/admin/consulta";
+      return;
+    }
+    await api(`/v1/admin/pesquisas/${encodeURIComponent(pesquisaAtual)}/solicitar-exclusao`, {
+      method: "POST",
+      body: JSON.stringify({ motivo: dados.motivo }),
+    });
+    exclusaoPendente = true;
+    atualizarAcaoExclusao();
+    mensagem.className = "status-message success";
+    mensagem.textContent = "Solicitação enviada ao administrador.";
+  } catch (error) {
+    mensagem.className = "status-message error";
+    mensagem.textContent = error.message;
+  }
+});

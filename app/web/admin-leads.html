@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Painel de leads — Zé Registra</title>
-    <link rel="stylesheet" href="/static/styles.css?v=18" />
+    <link rel="stylesheet" href="/static/styles.css?v=22" />
     <link rel="stylesheet" href="/static/admin-leads.css?v=5" />
     <script src="/static/admin-shell.js?v=21" defer></script>
-    <script src="/static/admin-leads.js?v=22" defer></script>
+    <script src="/static/admin-leads.js?v=23" defer></script>
   </head>
   <body class="admin-body" data-admin-section="leads">
     <header class="topbar">
@@ -87,18 +87,25 @@
         <label><span>Desde</span><input id="lead-date-start" type="date" /></label>
         <label><span>Até</span><input id="lead-date-end" type="date" /></label>
         <label><span>Marketing</span><select id="lead-marketing-filter"><option value="">Todos</option><option value="true">Autorizado</option><option value="false">Não autorizado</option></select></label>
-        <label class="filter-check"><input id="lead-archived-filter" type="checkbox" /><span>Mostrar arquivados</span></label>
         <button class="primary-button" type="submit">Filtrar</button>
         <button id="clear-lead-filters" class="secondary-button" type="button">Limpar filtros</button>
       </form>
 
       <div id="admin-message" class="status-message" role="status"></div>
+      <section id="deletion-requests" class="overview-section" hidden>
+        <header>
+          <div><p class="eyebrow">Aprovação administrativa</p><h2>Solicitações de exclusão</h2></div>
+          <span id="deletion-request-count">0 pendentes</span>
+        </header>
+        <div id="deletion-request-list" class="learning-review-list"></div>
+      </section>
       <section class="lead-view-toolbar" aria-label="Visualização dos resultados">
         <div class="lead-view-switch" role="group" aria-label="Agrupar resultados">
           <button class="lead-view-button active" type="button" data-view="contacts" aria-pressed="true">Por contato</button>
           <button class="lead-view-button" type="button" data-view="researches" aria-pressed="false">Por pesquisa</button>
+          <button class="lead-view-button archived-view-button" type="button" data-view="archived" aria-pressed="false">Clientes arquivados</button>
         </div>
-        <p id="lead-view-description">Cada linha representa um contato e resume todo o seu histórico.</p>
+        <p id="lead-view-description">Cada linha representa um contato ativo e resume todo o seu histórico.</p>
       </section>
       <div class="leads-table-shell">
         <table class="leads-table">
@@ -135,6 +142,23 @@
         <h2>Arquivar contato?</h2>
         <p>O contato sairá da operação, mas todas as pesquisas e relatórios serão preservados.</p>
         <div><button class="secondary-button" value="cancel">Cancelar</button><button id="confirm-archive" class="danger-button" value="confirm">Arquivar</button></div>
+      </form>
+    </dialog>
+    <dialog id="research-delete-dialog" class="confirm-dialog">
+      <form id="research-delete-form">
+        <h2 id="research-delete-title">Excluir pesquisa?</h2>
+        <p id="research-delete-description"></p>
+        <label>Motivo ou observação
+          <textarea name="motivo" minlength="3" maxlength="1000" required></textarea>
+        </label>
+        <label id="research-delete-password-field">Confirme sua senha atual
+          <input name="senha" type="password" autocomplete="current-password">
+        </label>
+        <div id="research-delete-message" class="status-message" role="status" hidden></div>
+        <div>
+          <button id="cancel-research-delete" class="secondary-button" type="button">Cancelar</button>
+          <button class="danger-button" type="submit">Confirmar</button>
+        </div>
       </form>
     </dialog>
   </body>

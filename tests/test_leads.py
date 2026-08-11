@@ -172,7 +172,7 @@ def test_admin_abre_contato_com_historico_de_pesquisas() -> None:
 
     app.dependency_overrides[get_session] = sessao_override(
         FakeResult(scalar=lead),
-        FakeResult(itens=[(pesquisa, "alto", 72, True)]),
+        FakeResult(itens=[(pesquisa, "alto", 72, True, None)]),
     )
     app.dependency_overrides[obter_usuario_atual] = auth_override()
 

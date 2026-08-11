@@ -2,6 +2,8 @@ const adminSections = [
   { id: "overview", label: "Visão geral", href: "/admin", symbol: "VG", permission: "dashboard.view" },
   { id: "consulta", label: "Consulta de marcas", href: "/admin/consulta", symbol: "CM", permission: "leads.view" },
   { id: "leads", label: "Leads, pesquisas e análises", href: "/admin/pesquisas", symbol: "AN", permission: "leads.view" },
+  { id: "portfolio", label: "Processos monitorados", href: "/admin/processos-monitorados", symbol: "PM", permission: "portfolio.view" },
+  { id: "finance", label: "Financeiro", href: "/admin/financeiro", symbol: "FI", permission: "finance.view" },
   { id: "production", label: "Produção e auditoria", href: "/admin/producao", symbol: "PR", permission: "production.view" },
   { id: "reliability", label: "Confiabilidade e LGPD", href: "/admin/confiabilidade", symbol: "CF", permission: "production.manage" },
   { id: "users", label: "Usuários e acessos", href: "/admin/usuarios", symbol: "UA", permission: "users.view" },

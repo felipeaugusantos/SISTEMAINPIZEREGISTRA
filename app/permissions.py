@@ -26,6 +26,33 @@ PERMISSOES = (
         "Arquivar e restaurar contatos sem apagar pesquisas.",
     ),
     PermissaoDef(
+        "portfolio.view",
+        "Processos monitorados",
+        "Visualizar carteira",
+        "Consultar processos acompanhados e pesquisar por procurador.",
+    ),
+    PermissaoDef(
+        "portfolio.manage",
+        "Processos monitorados",
+        "Gerenciar carteira",
+        "Cadastrar, vincular e atualizar processos acompanhados.",
+    ),
+    PermissaoDef(
+        "finance.view", "Financeiro", "Visualizar financeiro", "Consultar contas e indicadores."
+    ),
+    PermissaoDef(
+        "finance.manage", "Financeiro", "Gerenciar lançamentos", "Criar contas e registrar baixas."
+    ),
+    PermissaoDef(
+        "finance.approve",
+        "Financeiro",
+        "Aprovar ajustes",
+        "Cancelar lançamentos e estornar baixas com justificativa.",
+    ),
+    PermissaoDef(
+        "finance.export", "Financeiro", "Exportar financeiro", "Exportar lançamentos em CSV."
+    ),
+    PermissaoDef(
         "validation.view", "Validacao", "Visualizar validacao", "Consultar classes e situacoes."
     ),
     PermissaoDef(
@@ -94,6 +121,11 @@ PERFIS = {
             "leads.pii.view",
             "leads.manage",
             "leads.export",
+            "portfolio.view",
+            "portfolio.manage",
+            "finance.view",
+            "finance.manage",
+            "finance.export",
             "risk.view",
         }
     ),
@@ -101,6 +133,8 @@ PERFIS = {
         {
             "dashboard.view",
             "leads.view",
+            "portfolio.view",
+            "finance.view",
             "validation.view",
             "risk.view",
             "learning.view",

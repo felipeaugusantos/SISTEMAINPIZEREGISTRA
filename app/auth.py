@@ -28,9 +28,17 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _password_hasher = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 _limitar_acoes = RateLimiter(limite=60, janela_segundos=60, escopo="sessao-admin")
 MODULO_POR_PERMISSAO = {
-    "leads": "leads", "validation": "validacao", "risk": "risco", "ai": "ia",
-    "learning": "aprendizado", "users": "usuarios", "rpi": "rpi",
-    "production": "producao", "audit": "producao",
+    "leads": "leads",
+    "validation": "validacao",
+    "risk": "risco",
+    "ai": "ia",
+    "learning": "aprendizado",
+    "users": "usuarios",
+    "rpi": "rpi",
+    "production": "producao",
+    "audit": "producao",
+    "portfolio": "leads",
+    "finance": "financeiro",
 }
 
 
@@ -48,10 +56,20 @@ class UsuarioAutenticado:
     organizacao_id: int = 1
     organizacao_slug: str = "ze-registra"
     superadmin: bool = False
-    modulos_plano: frozenset[str] = frozenset({
-        "consulta", "leads", "validacao", "risco", "ia", "aprendizado",
-        "usuarios", "rpi", "producao",
-    })
+    modulos_plano: frozenset[str] = frozenset(
+        {
+            "consulta",
+            "leads",
+            "validacao",
+            "risco",
+            "ia",
+            "aprendizado",
+            "usuarios",
+            "rpi",
+            "producao",
+            "financeiro",
+        }
+    )
 
     @property
     def ator(self) -> str:
@@ -114,9 +132,7 @@ async def obter_usuario_atual(
     # RLS: aplica o contexto de tenant ANTES de qualquer escrita (revogacao por
     # inatividade e atualizacao de ultimo_acesso). Sem isso a policy tenant_write
     # de sessoes_operacoes bloqueia o UPDATE -> 0 linhas -> StaleDataError -> 500.
-    await aplicar_contexto_tenant(
-        session, usuario.organizacao_id, superadmin=usuario.superadmin
-    )
+    await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
     limite_ocioso = agora - timedelta(minutes=get_settings().session_idle_minutes)
     if sessao.ultimo_acesso_em < limite_ocioso:
         sessao.revogada_em = agora
@@ -128,10 +144,17 @@ async def obter_usuario_atual(
     if usuario.organizacao.status not in {"ativa", "trial"}:
         raise HTTPException(status_code=403, detail="Organizacao suspensa")
     auth = UsuarioAutenticado(
-        id=usuario.id, nome=usuario.nome, usuario=usuario.usuario, email=usuario.email,
-        perfil=usuario.perfil, permissoes=frozenset(p.chave for p in usuario.permissoes),
-        alterar_senha=usuario.alterar_senha, sessao_id=sessao.id, csrf_hash=sessao.csrf_hash,
-        organizacao_id=usuario.organizacao_id, organizacao_slug=usuario.organizacao.slug,
+        id=usuario.id,
+        nome=usuario.nome,
+        usuario=usuario.usuario,
+        email=usuario.email,
+        perfil=usuario.perfil,
+        permissoes=frozenset(p.chave for p in usuario.permissoes),
+        alterar_senha=usuario.alterar_senha,
+        sessao_id=sessao.id,
+        csrf_hash=sessao.csrf_hash,
+        organizacao_id=usuario.organizacao_id,
+        organizacao_slug=usuario.organizacao.slug,
         superadmin=usuario.superadmin,
         modulos_plano=frozenset(usuario.organizacao.plano.modulos or []),
     )
@@ -194,7 +217,9 @@ def criar_sessao(usuario_id: int, request: Request) -> tuple[SessaoOperacoes, st
     token, csrf = gerar_credenciais_sessao()
     settings = get_settings()
     sessao = SessaoOperacoes(
-        usuario_id=usuario_id, token_hash=hash_token(token), csrf_hash=hash_token(csrf),
+        usuario_id=usuario_id,
+        token_hash=hash_token(token),
+        csrf_hash=hash_token(csrf),
         user_agent=request.headers.get("user-agent", "")[:500] or None,
         ip_hash=hash_ip(cliente_ip(request)),
         expira_em=datetime.now(UTC) + timedelta(hours=settings.session_duration_hours),

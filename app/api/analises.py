@@ -21,7 +21,10 @@ from app.models import (
 from app.proxy import cliente_ip
 from app.schemas import DadosComplementaresRegistrabilidadeUpdate
 from app.trademarks.agent import execucao_para_dict, reconciliar_resultados_reais
-from app.trademarks.registrability import construir_matriz_registrabilidade
+from app.trademarks.registrability import (
+    construir_indicador_deterministico,
+    construir_matriz_registrabilidade,
+)
 
 router = APIRouter(prefix="/v1/admin/analises", tags=["central de análise"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -200,6 +203,14 @@ async def obter_central_analise(
         if validacao_visivel
         else None
     )
+    indicador_deterministico = (
+        construir_indicador_deterministico(
+            matriz_registrabilidade,
+            avaliacao.pontuacao if avaliacao is not None else None,
+        )
+        if matriz_registrabilidade is not None
+        else None
+    )
 
     return {
         "pesquisa": {
@@ -236,6 +247,7 @@ async def obter_central_analise(
                 "total_ocorrencias": relatorio.get("total", 0),
                 "ocorrencias_exibidas": relatorio.get("limite_exibido", 0),
                 "matriz_registrabilidade": matriz_registrabilidade,
+                "indicador_deterministico": indicador_deterministico,
                 "dados_complementares": pesquisa.dados_complementares_registrabilidade or {},
                 "conflitos": [
                     {
@@ -288,7 +300,9 @@ async def obter_central_analise(
                 "confianca_rotulo": previsao.confianca_rotulo,
                 "cobertura": previsao.cobertura_entrada,
                 "modelo": modelo.versao,
+                "modelo_status": modelo.status,
                 "modo": previsao.modo,
+                "elegivel_cliente": previsao.elegivel_cliente,
                 "alertas_qualidade": previsao.motivos_inelegibilidade or [],
                 "fatores": previsao.fatores_principais or [],
                 "nivel_humano": previsao.nivel_humano,

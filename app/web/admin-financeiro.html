@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+  <title>Financeiro — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=20"><link rel="stylesheet" href="/static/admin-financeiro.css?v=1">
+  <script src="/static/admin-shell.js?v=23" defer></script><script src="/static/admin-financeiro.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="finance">
+  <main class="admin-main finance-main">
+    <section class="finance-hero">
+      <div><p class="eyebrow">GESTÃO OPERACIONAL</p><h1>Financeiro</h1><p>Controle contas a pagar e receber, vencimentos e baixas. Este módulo não substitui a contabilidade fiscal.</p></div>
+      <div class="hero-actions"><a class="secondary-button" href="/v1/admin/financeiro/exportar.csv">Exportar CSV</a><button id="new-category" class="secondary-button" type="button">Nova categoria</button><button id="new-entry" class="primary-button" type="button">Novo lançamento</button></div>
+    </section>
+    <div id="finance-message" class="status-message" hidden role="status" aria-live="polite"></div>
+    <section id="finance-metrics" class="finance-metrics"></section>
+    <section class="finance-card">
+      <form id="finance-filter" class="finance-filter">
+        <label class="wide"><span>Buscar</span><input name="busca" placeholder="Descrição, documento ou empresa"></label>
+        <label><span>Tipo</span><select name="tipo"><option value="">Todos</option><option value="receber">A receber</option><option value="pagar">A pagar</option></select></label>
+        <label><span>Status</span><select name="status"><option value="">Todos</option><option value="aberto">Em aberto</option><option value="parcial">Parcial</option><option value="pago">Liquidado</option><option value="cancelado">Cancelado</option></select></label>
+        <label><span>Vencimento inicial</span><input name="inicio" type="date"></label><label><span>Vencimento final</span><input name="fim" type="date"></label>
+        <button class="primary-button" type="submit">Filtrar</button>
+      </form>
+      <div id="finance-list" class="finance-list"></div>
+    </section>
+  </main>
+
+  <dialog id="entry-dialog" class="finance-dialog"><form id="entry-form">
+    <header><div><p class="eyebrow">NOVO LANÇAMENTO</p><h2>Registrar conta</h2></div><button type="button" data-close="entry-dialog" aria-label="Fechar">×</button></header>
+    <div class="dialog-grid">
+      <label><span>Tipo</span><select name="tipo" required><option value="receber">Conta a receber</option><option value="pagar">Conta a pagar</option></select></label>
+      <label class="wide"><span>Descrição</span><input name="descricao" minlength="3" maxlength="240" required></label>
+      <label><span>Cliente</span><select name="empresa_id"><option value="">Não vinculado</option></select><small>Proposta enviada, convertido ou com processo monitorado.</small></label>
+      <label><span>Categoria</span><select name="categoria_id"><option value="">Sem categoria</option></select></label>
+      <label><span>Documento</span><input name="documento" maxlength="80"></label>
+      <label><span>Competência</span><input name="competencia" type="date" required></label>
+      <label><span>Valor total (R$)</span><input name="valor_total" type="number" min="0.01" step="0.01" required></label>
+      <label><span>Primeiro vencimento</span><input name="primeiro_vencimento" type="date" required></label>
+      <label><span>Número de parcelas</span><input name="quantidade_parcelas" type="number" min="1" max="120" value="1" required></label>
+      <label class="wide"><span>Observações</span><textarea name="observacoes" rows="3" maxlength="4000"></textarea></label>
+    </div>
+    <footer><button class="secondary-button" type="button" data-close="entry-dialog">Cancelar</button><button class="primary-button" type="submit">Salvar lançamento</button></footer>
+  </form></dialog>
+
+  <dialog id="category-dialog" class="finance-dialog compact"><form id="category-form">
+    <header><div><p class="eyebrow">ORGANIZAÇÃO</p><h2>Nova categoria</h2></div><button type="button" data-close="category-dialog" aria-label="Fechar">×</button></header>
+    <label><span>Nome</span><input name="nome" minlength="2" maxlength="120" required></label>
+    <label><span>Disponível para</span><select name="tipo"><option value="ambos">Pagar e receber</option><option value="receber">Receber</option><option value="pagar">Pagar</option></select></label>
+    <footer><button class="secondary-button" type="button" data-close="category-dialog">Cancelar</button><button class="primary-button" type="submit">Criar categoria</button></footer>
+  </form></dialog>
+
+  <dialog id="payment-dialog" class="finance-dialog compact"><form id="payment-form">
+    <header><div><p class="eyebrow">BAIXA FINANCEIRA</p><h2>Confirmar liquidação</h2></div><button type="button" data-close="payment-dialog" aria-label="Fechar">×</button></header>
+    <input name="parcela_id" type="hidden"><label><span>Valor integral</span><input name="valor_pago" type="number" step="0.01" readonly required></label>
+    <label><span>Data da baixa</span><input name="pago_em" type="date" required></label><label><span>Forma</span><select name="forma_pagamento"><option>PIX</option><option>Boleto</option><option>Transferência</option><option>Cartão</option><option>Dinheiro</option><option>Outro</option></select></label>
+    <label><span>Observações</span><textarea name="observacoes" rows="3"></textarea></label>
+    <footer><button class="secondary-button" type="button" data-close="payment-dialog">Cancelar</button><button class="primary-button" type="submit">Confirmar baixa</button></footer>
+  </form></dialog>
+</body></html>

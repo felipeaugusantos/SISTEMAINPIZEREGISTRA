@@ -13,11 +13,14 @@ from app.api.admin import router as admin_router
 from app.api.analises import router as analises_router
 from app.api.aprendizado import router as aprendizado_router
 from app.api.auth_routes import router as auth_router
+from app.api.carteira import router as carteira_router
 from app.api.confiabilidade import public_router as tenant_router
 from app.api.confiabilidade import router as confiabilidade_router
 from app.api.consulta import router as consulta_router
+from app.api.exclusoes import router as exclusoes_router
 from app.api.fase2 import router as fase2_router
 from app.api.fase3 import router as fase3_router
+from app.api.financeiro import router as financeiro_router
 from app.api.leads import router as leads_router
 from app.api.pesquisas import router as pesquisas_router
 from app.api.processos import router as processos_router
@@ -68,7 +71,10 @@ app.include_router(analises_router)
 app.include_router(producao_router)
 app.include_router(rpi_admin_router)
 app.include_router(aprendizado_router)
+app.include_router(carteira_router)
 app.include_router(consulta_router)
+app.include_router(exclusoes_router)
+app.include_router(financeiro_router)
 app.include_router(auth_router)
 app.include_router(social_auth_router)
 app.include_router(usuarios_router)
@@ -152,6 +158,24 @@ async def painel_consulta_relatorio(pesquisa_id: str) -> FileResponse:
 )
 async def painel_pesquisas() -> FileResponse:
     return FileResponse(web_dir / "admin-leads.html")
+
+
+@app.get(
+    "/admin/processos-monitorados",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("portfolio.view"))],
+)
+async def painel_processos_monitorados() -> FileResponse:
+    return FileResponse(web_dir / "admin-carteira.html")
+
+
+@app.get(
+    "/admin/financeiro",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("finance.view"))],
+)
+async def painel_financeiro() -> FileResponse:
+    return FileResponse(web_dir / "admin-financeiro.html")
 
 
 @app.get(

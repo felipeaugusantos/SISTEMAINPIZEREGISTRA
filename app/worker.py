@@ -6,11 +6,16 @@ from sqlalchemy import select
 
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
 from app.database import session_factory
-from app.models import AlertaSistema, Lead, Organizacao
+from app.models import AlertaSistema, Lead, ModeloRegistrabilidade, Organizacao
 from app.queueing import FAILED_KEY, MAX_ATTEMPTS, PROCESSING_KEY, QUEUE_KEY, cliente_redis
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
 from app.trademarks.agent import reconciliar_resultados_reais
+from app.trademarks.learning import (
+    ativar_modelo,
+    executar_pipeline_aprendizado,
+    reprocessar_previsoes_pendentes,
+)
 
 
 async def processar(tipo: str, payload: dict) -> None:
@@ -78,6 +83,102 @@ async def processar(tipo: str, payload: dict) -> None:
                         )
         elif tipo == "registrabilidade.reconciliar_resultados":
             await reconciliar_resultados_reais(session)
+        elif tipo == "registrabilidade.reprocessar_previsoes":
+            resultado = await reprocessar_previsoes_pendentes(
+                session,
+                organizacao_id=payload.get("organizacao_id"),
+            )
+            sem_modelo = resultado["status"] == "sem_modelo_ativo"
+            session.add(
+                AlertaSistema(
+                    organizacao_id=payload.get("organizacao_id") or 1,
+                    severidade="aviso" if sem_modelo else "info",
+                    codigo="PREVISOES_REPROCESSADAS",
+                    mensagem=(
+                        "Nenhuma previsão foi criada: não existe modelo "
+                        "supervisionado ativo."
+                        if sem_modelo
+                        else (
+                            f"Reprocessamento concluído: {resultado['processadas']} "
+                            "previsão(ões) criada(s)."
+                        )
+                    ),
+                    detalhes=resultado,
+                )
+            )
+        elif tipo == "registrabilidade.pipeline_aprendizado":
+            resultado = await executar_pipeline_aprendizado(
+                session,
+                administrador=payload.get("solicitado_por") or "worker",
+                limite_dataset=int(payload.get("limite_dataset") or 3000),
+            )
+            aguardando_revisoes = (
+                resultado["modelo_status"] == "candidato"
+                and any(
+                    "Revisões humanas insuficientes" in bloqueio
+                    for bloqueio in resultado["bloqueios"]
+                )
+            )
+            session.add(
+                AlertaSistema(
+                    organizacao_id=payload.get("organizacao_id") or 1,
+                    severidade="info" if resultado["ativado"] else "aviso",
+                    codigo=(
+                        "MODELO_APRENDIZADO_ATIVADO"
+                        if resultado["ativado"]
+                        else (
+                            "MODELO_APRENDIZADO_AGUARDANDO_REVISOES"
+                            if aguardando_revisoes
+                            else "MODELO_APRENDIZADO_REPROVADO"
+                        )
+                    ),
+                    mensagem=(
+                        (
+                            f"Modelo candidato criado em modo sombra; "
+                            f"{resultado['reprocessamento']['processadas']} previsão(ões) "
+                            "interna(s) preparada(s). Ativação bloqueada: "
+                            + "; ".join(resultado["bloqueios"])
+                        )
+                        if aguardando_revisoes
+                        else (
+                            f"Pipeline concluído com o modelo {resultado['modelo_versao']}: "
+                            f"{resultado['modelo_status']}."
+                        )
+                    ),
+                    detalhes=resultado,
+                )
+            )
+        elif tipo == "registrabilidade.ativar_candidato":
+            modelo = (
+                await session.execute(
+                    select(ModeloRegistrabilidade)
+                    .where(ModeloRegistrabilidade.status == "candidato")
+                    .order_by(ModeloRegistrabilidade.treinado_em.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if modelo is not None:
+                try:
+                    reprocessamento = await ativar_modelo(
+                        session,
+                        modelo,
+                        payload.get("solicitado_por") or "ativacao-automatica",
+                    )
+                except ValueError:
+                    pass
+                else:
+                    session.add(
+                        AlertaSistema(
+                            organizacao_id=payload.get("organizacao_id") or 1,
+                            severidade="info",
+                            codigo="MODELO_APRENDIZADO_ATIVADO",
+                            mensagem=(
+                                f"Modelo {modelo.versao} ativado automaticamente; "
+                                f"{reprocessamento['processadas']} previsão(ões) reprocessada(s)."
+                            ),
+                            detalhes=reprocessamento,
+                        )
+                    )
         elif tipo == "alto_renome.sincronizar":
             await sincronizar_alto_renome(get_settings().alto_renome_page_url)
         else:

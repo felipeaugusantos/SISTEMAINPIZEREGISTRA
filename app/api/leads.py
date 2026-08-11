@@ -16,9 +16,11 @@ from app.models import (
     AvaliacaoRiscoMarca,
     CanalContato,
     ContatoLead,
+    EmpresaCRM,
     EventoAuditoria,
     Lead,
     PesquisaMarca,
+    SolicitacaoExclusaoPesquisa,
     StatusLead,
     UsuarioOperacoes,
     VersaoRelatorioMarca,
@@ -182,12 +184,15 @@ def _resumo_pesquisa(
     risco_nivel: str | None,
     risco_pontuacao: int | None,
     relatorio_disponivel: bool,
+    exclusao_status: str | None = None,
 ) -> PesquisaLeadResumo:
     return PesquisaLeadResumo(
         id=pesquisa.id,
         marca=pesquisa.marca,
         atividade=pesquisa.atividade,
         classe_nice=pesquisa.classe_nice,
+        duplicada=bool(pesquisa.duplicada),
+        pesquisa_original_id=pesquisa.pesquisa_original_id,
         criado_em=pesquisa.criado_em,
         risco_nivel=risco_nivel,
         risco_pontuacao=risco_pontuacao,
@@ -199,6 +204,7 @@ def _resumo_pesquisa(
         pdf_url=(
             f"/v1/pesquisas-marca/{pesquisa.id}/relatorio.pdf" if relatorio_disponivel else None
         ),
+        exclusao_status=exclusao_status,
     )
 
 
@@ -439,6 +445,15 @@ async def listar_leads(
                 VersaoRelatorioMarca.pesquisa_id == PesquisaMarca.id
             )
         )
+        exclusao_pendente = (
+            select(SolicitacaoExclusaoPesquisa.status)
+            .where(
+                SolicitacaoExclusaoPesquisa.pesquisa_id == PesquisaMarca.id,
+                SolicitacaoExclusaoPesquisa.status == "pendente",
+            )
+            .limit(1)
+            .scalar_subquery()
+        )
         linhas = (
             await session.execute(
                 select(
@@ -446,6 +461,7 @@ async def listar_leads(
                     AvaliacaoRiscoMarca.nivel,
                     AvaliacaoRiscoMarca.pontuacao,
                     relatorio_existe.label("relatorio_disponivel"),
+                    exclusao_pendente.label("exclusao_status"),
                 )
                 .outerjoin(
                     AvaliacaoRiscoMarca,
@@ -455,9 +471,11 @@ async def listar_leads(
                 .order_by(PesquisaMarca.criado_em.desc())
             )
         ).all()
-        for pesquisa, nivel, pontuacao, disponivel in linhas:
+        for pesquisa, nivel, pontuacao, disponivel, exclusao_status in linhas:
             pesquisas_por_lead.setdefault(pesquisa.lead_id, []).append(
-                _resumo_pesquisa(pesquisa, nivel, pontuacao, bool(disponivel))
+                _resumo_pesquisa(
+                    pesquisa, nivel, pontuacao, bool(disponivel), exclusao_status
+                )
             )
     por_status = {status.value: quantidade for status, quantidade in contagens}
     return LeadListResponse(
@@ -476,6 +494,7 @@ async def listar_leads(
             "arquivar": usuario.pode("leads.delete"),
             "exportar": usuario.pode("leads.export") and usuario.pode("leads.pii.view"),
             "ver_pii": usuario.pode("leads.pii.view"),
+            "excluir_pesquisa": usuario.pode("leads.delete"),
         },
     )
 
@@ -571,16 +590,23 @@ class ContatoInput(BaseModel):
     canal: CanalContato = CanalContato.TELEFONE
     resultado: str | None = Field(default=None, max_length=150)
     observacao: str | None = Field(default=None, max_length=2000)
-    pesquisa_id: str | None = Field(default=None, max_length=36)
+    pesquisa_id: str = Field(min_length=36, max_length=36)
 
 
-def _contato_response(contato: ContatoLead) -> dict:
+def _contato_response(
+    contato: ContatoLead,
+    pesquisa_marca: str | None = None,
+    empresa_nome: str | None = None,
+) -> dict:
     return {
         "id": contato.id,
         "canal": contato.canal,
         "resultado": contato.resultado,
         "observacao": contato.observacao,
         "pesquisa_id": contato.pesquisa_id,
+        "pesquisa_marca": pesquisa_marca,
+        "empresa_id": contato.empresa_id,
+        "empresa": empresa_nome,
         "operador": contato.operador_nome,
         "criado_em": contato.criado_em,
     }
@@ -596,16 +622,29 @@ async def _lead_do_operador(
 
 
 @router.get("/v1/admin/leads/{lead_id}/contatos")
-async def listar_contatos(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
+async def listar_contatos(
+    lead_id: int,
+    session: SessionDep,
+    usuario: LeadsViewDep,
+    pesquisa_id: str | None = Query(default=None, max_length=36),
+) -> dict:
     await _lead_do_operador(lead_id, session, usuario)
+    filtros = [ContatoLead.lead_id == lead_id]
+    if pesquisa_id:
+        filtros.append(ContatoLead.pesquisa_id == pesquisa_id)
     contatos = (
         await session.execute(
-            select(ContatoLead)
-            .where(ContatoLead.lead_id == lead_id)
+            select(ContatoLead, PesquisaMarca.marca, EmpresaCRM.nome)
+            .outerjoin(PesquisaMarca, PesquisaMarca.id == ContatoLead.pesquisa_id)
+            .outerjoin(EmpresaCRM, EmpresaCRM.id == ContatoLead.empresa_id)
+            .where(*filtros)
             .order_by(ContatoLead.criado_em.desc())
         )
-    ).scalars().all()
-    return {"total": len(contatos), "contatos": [_contato_response(c) for c in contatos]}
+    ).all()
+    return {
+        "total": len(contatos),
+        "contatos": [_contato_response(c, marca, empresa) for c, marca, empresa in contatos],
+    }
 
 
 @router.post("/v1/admin/leads/{lead_id}/contatos", status_code=status.HTTP_201_CREATED)
@@ -617,10 +656,27 @@ async def registrar_contato_lead(
     usuario: LeadsManageDep,
 ) -> dict:
     lead = await _lead_do_operador(lead_id, session, usuario)
+    pesquisa = (
+        await session.execute(
+            select(PesquisaMarca).where(
+                PesquisaMarca.id == dados.pesquisa_id,
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+                PesquisaMarca.lead_id == lead_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if pesquisa is None:
+        raise HTTPException(
+            status_code=422,
+            detail="A pesquisa informada nao pertence a este contato e empresa",
+        )
+    if lead.empresa_id != pesquisa.empresa_id:
+        raise HTTPException(status_code=422, detail="Pesquisa vinculada a outra empresa")
     contato = ContatoLead(
         organizacao_id=usuario.organizacao_id,
         lead_id=lead_id,
-        pesquisa_id=dados.pesquisa_id,
+        empresa_id=lead.empresa_id,
+        pesquisa_id=pesquisa.id,
         operador_id=usuario.id,
         operador_nome=usuario.nome,
         canal=dados.canal,
@@ -634,7 +690,7 @@ async def registrar_contato_lead(
     )
     await session.commit()
     await session.refresh(contato)
-    return _contato_response(contato)
+    return _contato_response(contato, pesquisa.marca, lead.empresa)
 
 
 @router.get("/v1/admin/leads-responsaveis")
@@ -676,6 +732,15 @@ async def detalhar_lead(
     relatorio_existe = exists(
         select(VersaoRelatorioMarca.id).where(VersaoRelatorioMarca.pesquisa_id == PesquisaMarca.id)
     )
+    exclusao_pendente = (
+        select(SolicitacaoExclusaoPesquisa.status)
+        .where(
+            SolicitacaoExclusaoPesquisa.pesquisa_id == PesquisaMarca.id,
+            SolicitacaoExclusaoPesquisa.status == "pendente",
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
     linhas = (
         await session.execute(
             select(
@@ -683,6 +748,7 @@ async def detalhar_lead(
                 AvaliacaoRiscoMarca.nivel,
                 AvaliacaoRiscoMarca.pontuacao,
                 relatorio_existe.label("relatorio_disponivel"),
+                exclusao_pendente.label("exclusao_status"),
             )
             .outerjoin(AvaliacaoRiscoMarca, AvaliacaoRiscoMarca.pesquisa_id == PesquisaMarca.id)
             .where(
@@ -693,8 +759,8 @@ async def detalhar_lead(
         )
     ).all()
     pesquisas = [
-        _resumo_pesquisa(pesquisa, nivel, pontuacao, bool(disponivel))
-        for pesquisa, nivel, pontuacao, disponivel in linhas
+        _resumo_pesquisa(pesquisa, nivel, pontuacao, bool(disponivel), exclusao_status)
+        for pesquisa, nivel, pontuacao, disponivel, exclusao_status in linhas
     ]
     base = _lead_response(lead, usuario, pesquisas)
     return LeadDetalheResponse.model_validate(base.model_dump())

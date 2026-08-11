@@ -1,71 +1,91 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.pesquisas import gerar_resumo_pesquisa
+from app.api.pesquisas import detectar_pesquisa_duplicada, gerar_resumo_pesquisa
 from app.auth import UsuarioAutenticado, exigir_permissao
+from app.crm import buscar_lead_ativo_por_email, obter_ou_criar_empresa
 from app.database import get_session
-from app.models import Lead, PesquisaMarca, StatusLead, TipoProcesso
+from app.models import (
+    Lead,
+    PesquisaMarca,
+    SolicitacaoExclusaoPesquisa,
+    StatusLead,
+    TipoProcesso,
+)
 from app.schemas import PesquisaMarcaCriada, ResumoPublicoMarcaResponse
 
 router = APIRouter(prefix="/v1/admin/consulta", tags=["consulta interna"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-# Consultar é uma ação de operador; reusa a permissão de leads (quem opera leads pesquisa).
 OperadorDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
 
 
 class ConsultaOperadorInput(BaseModel):
     marca: str = Field(min_length=2, max_length=200)
-    atividade: str = Field(min_length=3, max_length=500)
+    atividade: str | None = Field(default=None, max_length=500)
     nome: str = Field(default="Consulta operacional", max_length=150)
     empresa: str | None = Field(default=None, max_length=200)
     email: str = Field(default="", max_length=254)
     telefone: str = Field(default="", max_length=30)
+
+    @field_validator("marca")
+    @classmethod
+    def limpar_marca(cls, valor: str) -> str:
+        return valor.strip()
+
+    @field_validator("atividade")
+    @classmethod
+    def limpar_atividade(cls, valor: str | None) -> str | None:
+        return (valor or "").strip() or None
 
 
 @router.post("", response_model=PesquisaMarcaCriada, status_code=status.HTTP_201_CREATED)
 async def criar_consulta(
     dados: ConsultaOperadorInput, session: SessionDep, operador: OperadorDep
 ) -> PesquisaMarcaCriada:
-    lead = Lead(
-        organizacao_id=operador.organizacao_id,
-        nome=dados.nome.strip() or "Consulta operacional",
-        empresa=(dados.empresa or None),
-        email=dados.email.strip(),
-        telefone=dados.telefone.strip(),
-        marca=dados.marca,
-        atividade=dados.atividade,
-        origem="operador",
-        tipo_interesse=TipoProcesso.MARCA,
-        aceite_privacidade=True,
-        aceite_marketing=False,
-        responsavel_id=operador.id,
-        status=StatusLead.NOVO,
+    empresa = await obter_ou_criar_empresa(session, operador.organizacao_id, dados.empresa)
+    email = dados.email.strip().lower()
+    lead = await buscar_lead_ativo_por_email(session, operador.organizacao_id, email)
+    if email and lead is None:
+        lead = Lead(
+            organizacao_id=operador.organizacao_id,
+            empresa_id=empresa.id if empresa else None,
+            nome=dados.nome.strip() or "Consulta operacional",
+            empresa=empresa.nome if empresa else None,
+            email=email,
+            telefone=dados.telefone.strip(),
+            marca=dados.marca,
+            atividade=dados.atividade,
+            origem="operador",
+            tipo_interesse=TipoProcesso.MARCA,
+            aceite_privacidade=True,
+            aceite_marketing=False,
+            responsavel_id=operador.id,
+            status=StatusLead.NOVO,
+        )
+        session.add(lead)
+        await session.flush()
+    elif lead is not None:
+        lead.nome = dados.nome.strip() or lead.nome
+        lead.telefone = dados.telefone.strip() or lead.telefone
+        if empresa is not None:
+            lead.empresa_id = empresa.id
+            lead.empresa = empresa.nome
+        lead.marca = dados.marca
+        if dados.atividade is not None:
+            lead.atividade = dados.atividade
+        lead.responsavel_id = lead.responsavel_id or operador.id
+
+    original = await detectar_pesquisa_duplicada(
+        session, operador.organizacao_id, lead.id if lead else None, dados.marca
     )
-    session.add(lead)
-    await session.flush()
-    # Duplicata: mesma marca já pesquisada para o mesmo e-mail nesta organização.
-    original = None
-    if dados.email.strip():
-        original = (
-            await session.execute(
-                select(PesquisaMarca.id)
-                .join(Lead, Lead.id == PesquisaMarca.lead_id)
-                .where(
-                    PesquisaMarca.organizacao_id == operador.organizacao_id,
-                    func.lower(Lead.email) == dados.email.strip().lower(),
-                    func.lower(PesquisaMarca.marca) == dados.marca.strip().lower(),
-                )
-                .order_by(PesquisaMarca.criado_em)
-                .limit(1)
-            )
-        ).scalar_one_or_none()
     pesquisa = PesquisaMarca(
         organizacao_id=operador.organizacao_id,
-        lead_id=lead.id,
+        lead_id=lead.id if lead else None,
+        empresa_id=empresa.id if empresa else (lead.empresa_id if lead else None),
         marca=dados.marca,
         atividade=dados.atividade,
         tipo_pesquisa="completa",
@@ -79,10 +99,45 @@ async def criar_consulta(
     return PesquisaMarcaCriada(
         id=pesquisa.id,
         relatorio_url=f"/admin/consulta/{pesquisa.id}",
-        lead_id=lead.id,
+        lead_id=lead.id if lead else None,
         duplicada=pesquisa.duplicada,
         pesquisa_original_id=pesquisa.pesquisa_original_id,
     )
+
+
+@router.get("/{pesquisa_id}/contexto")
+async def contexto_consulta(
+    pesquisa_id: str, session: SessionDep, operador: OperadorDep
+) -> dict:
+    pesquisa = (
+        await session.execute(
+            select(PesquisaMarca).where(
+                PesquisaMarca.id == pesquisa_id,
+                PesquisaMarca.organizacao_id == operador.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if pesquisa is None:
+        raise HTTPException(status_code=404, detail="Consulta nao encontrada")
+    exclusao_status = (
+        await session.execute(
+            select(SolicitacaoExclusaoPesquisa.status)
+            .where(
+                SolicitacaoExclusaoPesquisa.pesquisa_id == pesquisa.id,
+                SolicitacaoExclusaoPesquisa.status == "pendente",
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return {
+        "pesquisa_id": pesquisa.id,
+        "lead_id": pesquisa.lead_id,
+        "empresa_id": pesquisa.empresa_id,
+        "duplicada": pesquisa.duplicada,
+        "pesquisa_original_id": pesquisa.pesquisa_original_id,
+        "exclusao_status": exclusao_status,
+        "pode_excluir": operador.pode("leads.delete"),
+    }
 
 
 @router.get("/{pesquisa_id}/relatorio", response_model=ResumoPublicoMarcaResponse)
@@ -100,5 +155,5 @@ async def relatorio_consulta(
         )
     ).scalar_one_or_none()
     if pesquisa is None:
-        raise HTTPException(status_code=404, detail="Consulta não encontrada")
+        raise HTTPException(status_code=404, detail="Consulta nao encontrada")
     return await gerar_resumo_pesquisa(session, pesquisa)

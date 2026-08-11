@@ -168,6 +168,7 @@ def _organizacao_padrao() -> OrganizacaoAtual:
                 "usuarios",
                 "rpi",
                 "producao",
+                "financeiro",
             }
         ),
         limites={"usuarios": 50, "pesquisas_mes": 10000},

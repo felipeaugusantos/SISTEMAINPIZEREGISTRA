@@ -169,6 +169,7 @@ class LeadResponse(BaseModel):
     nome: str
     email: str
     telefone: str
+    empresa_id: int | None = None
     empresa: str | None
     marca: str
     atividade: str | None
@@ -441,6 +442,8 @@ class PesquisaLeadResumo(BaseModel):
     marca: str
     atividade: str | None = None
     classe_nice: str | None = None
+    duplicada: bool = False
+    pesquisa_original_id: str | None = None
     criado_em: datetime
     risco_nivel: str | None = None
     risco_pontuacao: int | None = None
@@ -450,6 +453,7 @@ class PesquisaLeadResumo(BaseModel):
     relatorio_completo_gerado_por: str | None = None
     relatorio_url: str
     pdf_url: str | None = None
+    exclusao_status: str | None = None
 
 
 class LeadDetalheResponse(LeadResponse):

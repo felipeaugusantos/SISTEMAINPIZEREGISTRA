@@ -2,6 +2,16 @@ const overviewMessage = document.querySelector("#overview-message");
 const rpiActionMessage = document.querySelector("#rpi-action-message");
 const syncNowButton = document.querySelector("#rpi-sync-now");
 
+async function configureRecentExecutions() {
+  const response = await fetch("/v1/auth/me");
+  if (!response.ok) return;
+  const user = await response.json();
+  document.querySelector("#rpi-recent-executions").hidden = !["tech", "administrador"].includes(user.perfil);
+  if (user.perfil !== "administrador") {
+    document.querySelector(".overview-primary-metrics").before(document.querySelector("#overview-priorities"));
+  }
+}
+
 function formatNumber(value) {
   return new Intl.NumberFormat("pt-BR").format(value ?? 0);
 }
@@ -178,6 +188,7 @@ loadOverview().catch((error) => {
   overviewMessage.classList.remove("loading");
   overviewMessage.classList.add("error");
 });
+configureRecentExecutions().catch(() => {});
 loadRpiMonitor().catch((error) => {
   rpiActionMessage.textContent = error.message;
   rpiActionMessage.className = "status-message error";

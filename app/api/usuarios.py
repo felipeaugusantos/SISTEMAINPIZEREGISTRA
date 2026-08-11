@@ -17,7 +17,13 @@ from app.models import (
     SessaoOperacoes,
     UsuarioOperacoes,
 )
-from app.permissions import CHAVES_PERMISSAO, PERFIS, PERMISSOES, permissoes_do_perfil
+from app.permissions import (
+    CHAVES_PERMISSAO,
+    PERFIS,
+    PERMISSOES,
+    PERMISSOES_FINANCEIRO,
+    permissoes_do_perfil,
+)
 from app.tenancy import validar_limite_usuarios
 
 router = APIRouter(prefix="/v1/admin/usuarios", tags=["usuarios"])
@@ -67,7 +73,18 @@ def _validar(perfil: str, permissoes: list[str]) -> set[str]:
     desconhecidas = set(permissoes) - CHAVES_PERMISSAO
     if desconhecidas:
         raise HTTPException(422, f"Permissoes invalidas: {', '.join(sorted(desconhecidas))}")
-    return set(permissoes_do_perfil(perfil) if perfil != "operador" and not permissoes else permissoes)
+    if perfil == "financeiro":
+        extras = set(permissoes) - PERMISSOES_FINANCEIRO
+        if extras:
+            raise HTTPException(422, "O perfil financeiro aceita somente permissoes financeiras")
+        return set(PERMISSOES_FINANCEIRO)
+    if perfil in {"ceo", "tech"}:
+        return set(CHAVES_PERMISSAO)
+    return set(
+        permissoes_do_perfil(perfil)
+        if perfil != "operador" and not permissoes
+        else permissoes
+    )
 
 
 async def _objetos(session: AsyncSession, chaves: set[str]) -> list[PermissaoOperacoes]:
@@ -104,8 +121,12 @@ async def listar(session: SessionDep, ator: ViewDep) -> dict:
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def criar(dados: UsuarioInput, session: SessionDep, ator: ManageDep) -> dict:
-    if dados.perfil == "administrador" and ator.perfil != "administrador":
-        raise HTTPException(403, "Somente administrador pode criar outro administrador")
+    if dados.perfil in {"administrador", "ceo", "tech"} and ator.perfil not in {
+        "administrador",
+        "ceo",
+        "tech",
+    }:
+        raise HTTPException(403, "Somente um perfil de acesso total pode atribuir esse perfil")
     await validar_limite_usuarios(session, ator.organizacao_id)
     duplicado = (await session.execute(select(UsuarioOperacoes.id).where(or_(UsuarioOperacoes.usuario == dados.usuario.lower(), UsuarioOperacoes.email == str(dados.email).lower())))).scalar_one_or_none()
     if duplicado:
@@ -131,8 +152,12 @@ async def atualizar(usuario_id: int, dados: UsuarioUpdate, session: SessionDep, 
     if not alvo:
         raise HTTPException(404, "Usuario nao encontrado")
     novo_perfil = dados.perfil or alvo.perfil
-    if novo_perfil == "administrador" and ator.perfil != "administrador":
-        raise HTTPException(403, "Somente administrador pode atribuir esse perfil")
+    if novo_perfil in {"administrador", "ceo", "tech"} and ator.perfil not in {
+        "administrador",
+        "ceo",
+        "tech",
+    }:
+        raise HTTPException(403, "Somente um perfil de acesso total pode atribuir esse perfil")
     despromove = alvo.perfil == "administrador" and (novo_perfil != "administrador" or dados.ativo is False)
     if alvo.id == ator.id and despromove:
         raise HTTPException(409, "Nao e permitido remover o proprio acesso administrativo")

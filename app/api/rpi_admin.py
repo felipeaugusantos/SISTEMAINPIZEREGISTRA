@@ -23,6 +23,10 @@ SyncDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("rpi.sync"))]
 STATUS_ATIVOS = ("solicitada", "verificando", "importando")
 
 
+def pode_ver_execucoes_recentes(usuario: UsuarioAutenticado) -> bool:
+    return usuario.perfil in {"tech", "administrador"}
+
+
 def _execucao_response(item: RpiSyncExecucao) -> RpiSyncExecucaoResponse:
     progresso = (
         min(100.0, item.edicoes_processadas * 100 / item.edicoes_total)
@@ -94,7 +98,7 @@ async def _execucao_ativa(session: AsyncSession) -> RpiSyncExecucao | None:
 @router.get("", response_model=RpiSyncAdminResponse)
 async def obter_monitoramento_rpi(
     session: SessionDep,
-    _: AdminDep,
+    usuario: AdminDep,
 ) -> RpiSyncAdminResponse:
     settings = get_settings()
     estado = await session.get(RpiSyncEstado, 1)
@@ -141,7 +145,11 @@ async def obter_monitoramento_rpi(
         intervalo_segundos=settings.rpi_sync_interval_seconds,
         saude=RpiSyncSaudeResponse(api=True, banco=True, sincronizador=sincronizador_online),
         execucao_atual=_execucao_response(atual) if atual else None,
-        historico=[_execucao_response(item) for item in historico],
+        historico=(
+            [_execucao_response(item) for item in historico]
+            if pode_ver_execucoes_recentes(usuario)
+            else []
+        ),
     )
 
 

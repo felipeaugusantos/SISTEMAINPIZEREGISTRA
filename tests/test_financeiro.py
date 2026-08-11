@@ -3,11 +3,19 @@ from decimal import Decimal
 
 from fastapi.testclient import TestClient
 
-from app.api.financeiro import STATUS_CLIENTE, _empresa_cliente, _mes_seguinte, _parcelar
-from app.auth import obter_usuario_atual
+from app.api.financeiro import (
+    STATUS_CLIENTE,
+    _empresa_cliente,
+    _mes_seguinte,
+    _parcelar,
+    _validar_parcelamento,
+)
+from app.auth import hash_token, obter_usuario_atual
+from app.database import get_session
 from app.main import app
-from app.models import StatusLead
-from tests.conftest import auth_override, usuario_teste
+from app.models import FormaPagamentoFinanceira, LancamentoFinanceiro, ParcelaFinanceira, StatusLead
+from app.permissions import PERMISSOES_FINANCEIRO, destino_inicial, permissoes_do_perfil
+from tests.conftest import FakeResult, auth_override, sessao_override, usuario_teste
 
 
 def test_parcelamento_preserva_total_e_corre_datas() -> None:
@@ -28,8 +36,83 @@ def test_pagina_financeira_e_protegida_por_permissao() -> None:
         assert response.status_code == 200
         assert "Controle contas a pagar e receber" in response.text
         assert "Novo lançamento" in response.text
+        assert "admin-financeiro.css?v=6" in response.text
+        assert "admin-financeiro.js?v=7" in response.text
     finally:
         app.dependency_overrides.pop(obter_usuario_atual, None)
+
+
+def test_submenus_de_contas_financeiras_usam_a_mesma_protecao() -> None:
+    app.dependency_overrides[obter_usuario_atual] = auth_override(
+        usuario_teste(perfil="financeiro", permissoes={"finance.view"})
+    )
+    try:
+        with TestClient(app) as client:
+            pagar = client.get("/admin/financeiro/contas-a-pagar")
+            receber = client.get("/admin/financeiro/contas-a-receber")
+        assert pagar.status_code == 200
+        assert receber.status_code == 200
+        assert "Contas a pagar" in pagar.text
+        assert "Contas a receber" in receber.text
+    finally:
+        app.dependency_overrides.pop(obter_usuario_atual, None)
+
+
+def test_tela_de_formas_de_pagamento_usa_permissao_financeira() -> None:
+    app.dependency_overrides[obter_usuario_atual] = auth_override(
+        usuario_teste(perfil="financeiro", permissoes={"finance.view"})
+    )
+    try:
+        with TestClient(app) as client:
+            response = client.get("/admin/financeiro/formas-pagamento")
+        assert response.status_code == 200
+        assert "Formas de pagamento" in response.text
+        assert "Máximo de parcelas" in response.text
+        assert "admin-financeiro-formas.js?v=1" in response.text
+    finally:
+        app.dependency_overrides.pop(obter_usuario_atual, None)
+
+
+def test_log_financeiro_e_exclusivo_dos_perfis_autorizados() -> None:
+    for perfil in ("administrador", "tech", "ceo", "financeiro"):
+        app.dependency_overrides[obter_usuario_atual] = auth_override(
+            usuario_teste(perfil=perfil, permissoes={"finance.view"})
+        )
+        try:
+            response = TestClient(app).get("/admin/producao/log-financeiro")
+            assert response.status_code == 200
+            assert "Log Financeiro" in response.text
+            assert 'class="finance-log-table"' in response.text
+        finally:
+            app.dependency_overrides.clear()
+
+    app.dependency_overrides[obter_usuario_atual] = auth_override(
+        usuario_teste(perfil="operador", permissoes={"finance.view"})
+    )
+    try:
+        response = TestClient(app).get(
+            "/admin/producao/log-financeiro", follow_redirects=False
+        )
+        assert response.status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_forma_de_pagamento_limita_parcelamento() -> None:
+    import pytest
+    from fastapi import HTTPException
+
+    cartao = FormaPagamentoFinanceira(
+        nome="Cartão 10x",
+        tipo="cartao_credito",
+        permite_parcelamento=True,
+        maximo_parcelas=10,
+    )
+    _validar_parcelamento(cartao, 10)
+    with pytest.raises(HTTPException) as erro:
+        _validar_parcelamento(cartao, 11)
+    assert erro.value.status_code == 422
+    assert "no máximo 10" in erro.value.detail
 
 
 def test_perfil_comercial_recebe_operacao_financeira_sem_aprovacao() -> None:
@@ -38,6 +121,35 @@ def test_perfil_comercial_recebe_operacao_financeira_sem_aprovacao() -> None:
     permissoes = permissoes_do_perfil("comercial")
     assert {"finance.view", "finance.manage", "finance.export"} <= permissoes
     assert "finance.approve" not in permissoes
+
+
+def test_perfil_financeiro_tem_somente_o_modulo_financeiro() -> None:
+    permissoes = permissoes_do_perfil("financeiro")
+    assert permissoes == PERMISSOES_FINANCEIRO
+    assert all(chave.startswith("finance.") for chave in permissoes)
+    assert destino_inicial("financeiro", permissoes) == "/admin/financeiro"
+
+
+def test_perfil_financeiro_nao_aceita_permissao_de_outro_modulo() -> None:
+    import pytest
+    from fastapi import HTTPException
+
+    from app.api.usuarios import _validar
+
+    with pytest.raises(HTTPException) as erro:
+        _validar("financeiro", ["finance.view", "leads.view"])
+    assert erro.value.status_code == 422
+
+
+def test_cadastro_exibe_perfil_financeiro_com_matriz_restrita() -> None:
+    from pathlib import Path
+
+    script = Path("app/web/static/admin-usuarios.js").read_text(encoding="utf-8")
+    assert 'financeiro=perfil==="financeiro"' in script
+    assert 'p.chave.startsWith("finance.")' in script
+    assert "Perfil restrito: acesso exclusivo" in script
+    assert '["ceo","tech"]' in script
+    assert "Somente o perfil Tech visualiza Execuções recentes" in script
 
 
 def test_status_de_lead_que_formam_cliente_financeiro() -> None:
@@ -53,3 +165,137 @@ def test_processo_monitorado_tambem_compõe_criterio_de_cliente() -> None:
     assert "leads" in expressao
     assert "processos_monitorados" in expressao
     assert " OR " in expressao
+
+
+def test_interface_financeira_padroniza_tipografia_e_estados() -> None:
+    from pathlib import Path
+
+    script = Path("app/web/static/admin-financeiro.js").read_text(encoding="utf-8")
+    estilos = Path("app/web/static/admin-financeiro.css").read_text(encoding="utf-8")
+    assert 'class="finance-summary"' in script
+    assert 'cancelada:"Cancelada"' in script
+    assert 'item.status==="cancelado"?"cancelada":p.status' in script
+    assert ".finance-summary" in estilos
+    assert ".installment-value" in estilos
+    assert 'financeMode=location.pathname.endsWith("/contas-a-pagar")' in script
+    assert "renderExecutive(data)" in script
+    assert "Saldo projetado" in script
+    assert "Agenda de vencimentos" in script
+    assert 'method:editing?"PUT":"POST"' in script
+    assert 'data-edit="${item.id}"' in script
+    assert 'data-finance-tab="pagar"' in Path("app/web/admin-financeiro.html").read_text(
+        encoding="utf-8"
+    )
+    pagina = Path("app/web/admin-financeiro.html").read_text(encoding="utf-8")
+    assert 'id="finance-executive"' in pagina
+    assert 'id="finance-clear"' in pagina
+    assert 'id="finance-back"' in pagina
+    assert "← Voltar ao painel" in pagina
+    assert 'document.querySelector("#finance-back").hidden=financeMode==="overview"' in script
+    assert ".finance-executive" in estilos
+    assert ".projected-balance" in estilos
+    assert ".finance-list-heading" in estilos
+    assert ".cancel-entry:hover" in estilos
+    assert "background:#a83e2c" in estilos
+    assert 'id="history-dialog"' in pagina
+    assert 'data-history="${item.id}"' in script
+    assert "/historico`" in script
+    assert 'name="forma_pagamento_id"' in pagina
+    assert ".finance-history-item" in estilos
+    formas = Path("app/web/static/admin-financeiro-formas.js").read_text(encoding="utf-8")
+    assert "/v1/admin/financeiro/formas-pagamento" in formas
+    assert "permite_parcelamento" in formas
+    shell = Path("app/web/static/admin-shell.js").read_text(encoding="utf-8")
+    assert 'label: "Formas de pagamento"' in shell
+    assert 'label: "Log Financeiro"' in shell
+    assert 'profiles: ["administrador", "tech", "ceo", "financeiro"]' in shell
+    assert 'data-submenu-toggle="${section.id}"' in shell
+    assert 'label: "Contas a pagar"' in shell
+    assert 'label: "Contas a receber"' in shell
+    assert 'class="${section.parent ? "admin-nav-subitem ' in shell
+    assert 'data-submenu-toggle="${section.id}"' in shell
+    assert 'localStorage.setItem(`zr_admin_submenu_${parent}`' in shell
+    assert 'financeHasActiveChild' in shell
+
+
+def _lancamento_teste(status_parcela: str = "aberta") -> LancamentoFinanceiro:
+    lancamento = LancamentoFinanceiro(
+        id=10,
+        organizacao_id=1,
+        tipo="pagar",
+        descricao="Fornecedor de teste",
+        competencia=date(2026, 8, 1),
+        valor_total=Decimal("100.00"),
+        status="parcial" if status_parcela == "paga" else "aberto",
+        criado_por="admin",
+    )
+    lancamento.parcelas = [
+        ParcelaFinanceira(
+            id=20,
+            organizacao_id=1,
+            lancamento_id=10,
+            numero=1,
+            vencimento=date(2026, 8, 20),
+            valor=Decimal("100.00"),
+            valor_pago=Decimal("100.00") if status_parcela == "paga" else Decimal(0),
+            status=status_parcela,
+        )
+    ]
+    return lancamento
+
+
+def test_edicao_de_conta_financeira_e_auditada() -> None:
+    lancamento = _lancamento_teste()
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lancamento))
+    usuario = usuario_teste(perfil="financeiro", permissoes={"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    payload = {
+        "descricao": "Fornecedor atualizado",
+        "documento": "NF-10",
+        "competencia": "2026-08-01",
+        "valor_total": 125,
+        "primeiro_vencimento": "2026-08-20",
+        "quantidade_parcelas": 1,
+        "empresa_id": None,
+        "categoria_id": None,
+        "observacoes": "Conferido",
+    }
+    try:
+        resposta = TestClient(app).put(
+            "/v1/admin/financeiro/lancamentos/10",
+            json=payload,
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 200
+    assert resposta.json()["status"] == "atualizado"
+    assert lancamento.descricao == "Fornecedor atualizado"
+    assert lancamento.valor_total == Decimal("125")
+    assert lancamento.parcelas[0].valor == Decimal("125")
+
+
+def test_edicao_nao_reparcela_conta_que_ja_tem_baixa() -> None:
+    lancamento = _lancamento_teste("paga")
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lancamento))
+    usuario = usuario_teste(perfil="financeiro", permissoes={"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    payload = {
+        "descricao": "Fornecedor de teste",
+        "competencia": "2026-08-01",
+        "valor_total": 200,
+        "primeiro_vencimento": "2026-08-20",
+        "quantidade_parcelas": 1,
+    }
+    try:
+        resposta = TestClient(app).put(
+            "/v1/admin/financeiro/lancamentos/10",
+            json=payload,
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 409
+    assert "estorne primeiro" in resposta.json()["detail"]

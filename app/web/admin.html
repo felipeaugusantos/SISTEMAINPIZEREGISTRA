@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Centro de operações — Zé Registra</title>
-    <link rel="stylesheet" href="/static/styles.css?v=16" />
-    <script src="/static/admin-shell.js?v=21" defer></script>
-    <script src="/static/admin-dashboard.js?v=12" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=22" />
+    <script src="/static/admin-shell.js?v=30" defer></script>
+    <script src="/static/admin-dashboard.js?v=14" defer></script>
   </head>
   <body class="admin-body" data-admin-section="overview">
     <main class="admin-main admin-dashboard">
@@ -91,19 +91,21 @@
 
         <div id="rpi-error" class="rpi-error" hidden></div>
 
-        <div class="rpi-history-heading">
-          <div><p class="eyebrow">Histórico</p><h3>Execuções recentes</h3></div>
-          <small>Atualização automática a cada 10 segundos</small>
-        </div>
-        <div class="rpi-history-table-wrap">
-          <table class="rpi-history-table">
-            <thead><tr><th>Execução</th><th>Origem</th><th>Intervalo</th><th>Resultado</th><th>Volume</th><th>Duração</th><th></th></tr></thead>
-            <tbody id="rpi-history"><tr><td colspan="7">Carregando histórico…</td></tr></tbody>
-          </table>
+        <div id="rpi-recent-executions" hidden>
+          <div class="rpi-history-heading">
+            <div><p class="eyebrow">Histórico</p><h3>Execuções recentes</h3></div>
+            <small>Visível para os perfis Administrador e Tech</small>
+          </div>
+          <div class="rpi-history-table-wrap">
+            <table class="rpi-history-table">
+              <thead><tr><th>Execução</th><th>Origem</th><th>Intervalo</th><th>Resultado</th><th>Volume</th><th>Duração</th><th></th></tr></thead>
+              <tbody id="rpi-history"><tr><td colspan="7">Carregando histórico…</td></tr></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
-      <section class="overview-section">
+      <section id="overview-priorities" class="overview-section">
         <header>
           <div><p class="eyebrow">Prioridades</p><h2>Pendências que pedem atenção</h2></div>
           <span>Atualização em tempo real</span>
@@ -138,6 +140,7 @@
         </header>
         <div class="overview-module-grid">
           <a href="/admin/pesquisas"><span>AN</span><h3>Leads, pesquisas e análises</h3><p>Validação técnica, risco, probabilidade, parecer e relatório em uma única central por marca.</p></a>
+          <a href="/admin/crm"><span>CR</span><h3>CRM</h3><p>Histórico de ligações, mensagens, reuniões e e-mails registrados pela equipe.</p></a>
           <a href="/admin/producao"><span>PR</span><h3>Produção e auditoria</h3><p>Telemetria, versionamento, divergências e segurança administrativa.</p></a>
           <a href="/admin/confiabilidade"><span>CF</span><h3>Confiabilidade e LGPD</h3><p>Retenção, segurança, privacidade, filas e controles operacionais.</p></a>
           <a href="/admin/usuarios"><span>UA</span><h3>Usuários e acessos</h3><p>Perfis, permissões, sessões, MFA e rastreabilidade administrativa.</p></a>

@@ -232,5 +232,7 @@ def test_telas_expoem_exclusao_protegida_e_fila_administrativa() -> None:
     assert 'id="delete-research"' in consulta
     assert 'autocomplete="current-password"' in consulta
     assert 'id="deletion-requests"' in leads
+    assert "deletion-requests-section" in leads
+    assert "deletion-requests-empty" in script
     assert "Aprovar e excluir" in script
     assert "solicitar-exclusao" in script

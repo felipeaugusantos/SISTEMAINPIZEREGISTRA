@@ -64,7 +64,7 @@ def test_admin_leads_requires_authentication() -> None:
     assert response.status_code == 200
     assert "Leads e pesquisas" in response.text
     assert 'data-admin-section="leads"' in response.text
-    assert "/static/admin-leads.css?v=5" in response.text
+    assert "/static/admin-leads.css?v=7" in response.text
     assert client.get("/static/admin-leads.css").status_code == 200
     _limpar_auth()
 
@@ -82,6 +82,8 @@ def test_unified_admin_dashboard_requires_authentication() -> None:
     assert 'id="rpi-monitor"' in response.text
     assert 'id="rpi-sync-now"' in response.text
     assert 'id="rpi-history"' in response.text
+    assert 'id="rpi-recent-executions" hidden' in response.text
+    assert 'id="overview-priorities"' in response.text
 
     script = client.get("/static/admin-dashboard.js")
     assert script.status_code == 200
@@ -135,7 +137,7 @@ def test_leads_exibe_status_e_acao_do_relatorio_completo() -> None:
     script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
     styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
 
-    assert "admin-leads.js?v=23" in page
+    assert "admin-leads.js?v=27" in page
     assert "Pipeline de atendimento" in page
     assert 'data-priority="atrasadas"' in page
     assert "Histórico de pesquisas" in page
@@ -153,6 +155,13 @@ def test_leads_exibe_status_e_acao_do_relatorio_completo() -> None:
     assert "Ver pesquisas" in script
     assert 'fetch("/v1/admin/leads-crm")' in script
     assert 'params.set("prioridade", state.priority)' in script
+    assert 'class="danger-button request-delete-research"' in script
+    assert ".lead-row-actions .request-delete-research" in styles
+    assert "background: #b63f2d" in styles
+    assert 'form.elements.proxima_acao_em.value = ""' in script
+    assert 'form.elements.tags.value = ""' in script
+    assert 'form.elements.notas.value = ""' in script
+    assert "Formulário pronto para um novo registro" in script
 
 
 def test_dossie_envia_e_exibe_leitura_supervisionada() -> None:
@@ -213,7 +222,7 @@ def test_menu_de_usuarios_existe_em_todas_as_paginas_admin() -> None:
         "admin-usuarios.html",
     ):
         conteudo = (web_dir / arquivo).read_text(encoding="utf-8")
-        assert "admin-shell.js?v=21" in conteudo
+        assert "admin-shell.js?v=30" in conteudo
         assert "styles.css?v=" in conteudo
 
 
@@ -224,7 +233,7 @@ def test_consulta_de_marcas_no_menu_e_pagina_servida() -> None:
     html = (web_dir / "admin-consulta.html").read_text(encoding="utf-8")
     assert 'name="marca"' in html
     assert 'name="atividade"' in html
-    assert "admin-shell.js?v=21" in html
+    assert "admin-shell.js?v=30" in html
 
 
 def test_central_de_analise_unifica_etapas_e_ajuda_contextual() -> None:

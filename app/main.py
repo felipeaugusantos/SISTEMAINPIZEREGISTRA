@@ -17,9 +17,11 @@ from app.api.carteira import router as carteira_router
 from app.api.confiabilidade import public_router as tenant_router
 from app.api.confiabilidade import router as confiabilidade_router
 from app.api.consulta import router as consulta_router
+from app.api.crm_admin import router as crm_router
 from app.api.exclusoes import router as exclusoes_router
 from app.api.fase2 import router as fase2_router
 from app.api.fase3 import router as fase3_router
+from app.api.financeiro import exigir_acesso_log_financeiro
 from app.api.financeiro import router as financeiro_router
 from app.api.leads import router as leads_router
 from app.api.pesquisas import router as pesquisas_router
@@ -73,6 +75,7 @@ app.include_router(rpi_admin_router)
 app.include_router(aprendizado_router)
 app.include_router(carteira_router)
 app.include_router(consulta_router)
+app.include_router(crm_router)
 app.include_router(exclusoes_router)
 app.include_router(financeiro_router)
 app.include_router(auth_router)
@@ -170,12 +173,57 @@ async def painel_processos_monitorados() -> FileResponse:
 
 
 @app.get(
+    "/admin/crm",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("leads.view"))],
+)
+async def painel_crm() -> FileResponse:
+    return FileResponse(web_dir / "admin-crm.html")
+
+
+@app.get(
     "/admin/financeiro",
     include_in_schema=False,
     dependencies=[Depends(exigir_permissao("finance.view"))],
 )
 async def painel_financeiro() -> FileResponse:
     return FileResponse(web_dir / "admin-financeiro.html")
+
+
+@app.get(
+    "/admin/financeiro/contas-a-pagar",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("finance.view"))],
+)
+async def painel_contas_a_pagar() -> FileResponse:
+    return FileResponse(web_dir / "admin-financeiro.html")
+
+
+@app.get(
+    "/admin/financeiro/contas-a-receber",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("finance.view"))],
+)
+async def painel_contas_a_receber() -> FileResponse:
+    return FileResponse(web_dir / "admin-financeiro.html")
+
+
+@app.get(
+    "/admin/financeiro/formas-pagamento",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("finance.view"))],
+)
+async def painel_formas_pagamento() -> FileResponse:
+    return FileResponse(web_dir / "admin-financeiro-formas.html")
+
+
+@app.get(
+    "/admin/producao/log-financeiro",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_acesso_log_financeiro)],
+)
+async def painel_log_financeiro() -> FileResponse:
+    return FileResponse(web_dir / "admin-financeiro-log.html")
 
 
 @app.get(

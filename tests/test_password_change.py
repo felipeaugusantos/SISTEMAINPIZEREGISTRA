@@ -96,3 +96,37 @@ def test_tela_exibe_requisitos_e_trata_erros_estruturados() -> None:
     assert 'data-password-rule="special"' in pagina
     assert "mensagemValidacao" in script
     assert "avaliarSenha" in script
+
+
+def test_primeiro_acesso_financeiro_redireciona_para_o_modulo() -> None:
+    from app.permissions import permissoes_do_perfil
+
+    registro = UsuarioOperacoes(
+        id=1,
+        organizacao_id=1,
+        nome="Financeiro",
+        usuario="financeiro",
+        email="financeiro@teste.local",
+        perfil="financeiro",
+        senha_hash=hash_senha("Temporaria123!"),
+        alterar_senha=True,
+        criado_por="teste",
+    )
+
+    class SessionComUsuario(FakeSession):
+        async def get(self, *_args, **_kwargs):
+            return registro
+
+    usuario = usuario_teste("financeiro", set(permissoes_do_perfil("financeiro")))
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    session = SessionComUsuario()
+    session.info = {"organizacao_id": 1}
+    resposta = asyncio.run(
+        trocar_senha(
+            TrocarSenhaInput(senha_atual="Temporaria123!", nova_senha="NovaSenha456!"),
+            _request(),
+            usuario,
+            session,
+        )
+    )
+    assert resposta["destino"] == "/admin/financeiro"

@@ -29,6 +29,7 @@ from app.models import (
     TokenRecuperacaoSenha,
     UsuarioOperacoes,
 )
+from app.permissions import destino_inicial, permissoes_do_perfil
 from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
 from app.security_ext import (
@@ -87,13 +88,15 @@ class AceitarConviteInput(BaseModel):
 
 
 def _resposta_usuario(usuario: UsuarioOperacoes) -> dict:
+    permissoes = frozenset(p.chave for p in usuario.permissoes)
     return {
         "id": usuario.id,
         "nome": usuario.nome,
         "usuario": usuario.usuario,
         "email": usuario.email,
         "perfil": usuario.perfil,
-        "permissoes": sorted(p.chave for p in usuario.permissoes),
+        "permissoes": sorted(permissoes),
+        "destino": destino_inicial(usuario.perfil, permissoes),
         "alterar_senha": usuario.alterar_senha,
         "mfa_ativo": usuario.mfa_ativo,
         "superadmin": usuario.superadmin,
@@ -207,7 +210,13 @@ async def login(
     definir_cookies_sessao(response, token, csrf, request)
     return {
         "usuario": _resposta_usuario(usuario),
-        "destino": "/alterar-senha" if usuario.alterar_senha else "/admin",
+        "destino": (
+            "/alterar-senha"
+            if usuario.alterar_senha
+            else destino_inicial(
+                usuario.perfil, frozenset(p.chave for p in usuario.permissoes)
+            )
+        ),
     }
 
 
@@ -332,7 +341,10 @@ async def trocar_senha(
     )
     await _auditar(session, request, usuario.email, "TROCA_SENHA", True, {"usuario_id": usuario.id})
     await session.commit()
-    return {"status": "ok", "destino": "/admin"}
+    return {
+        "status": "ok",
+        "destino": destino_inicial(usuario.perfil, usuario.permissoes),
+    }
 
 
 @router.post("/recuperacao/solicitar")
@@ -541,12 +553,17 @@ async def aceitar_convite(
         alterar_senha=False,
         criado_por="convite",
     )
-    if convite.permissoes:
+    chaves_convite = (
+        permissoes_do_perfil(convite.perfil)
+        if convite.perfil in {"financeiro", "ceo", "tech"}
+        else frozenset(convite.permissoes or [])
+    )
+    if chaves_convite:
         registro.permissoes = list(
             (
                 await session.execute(
                     select(PermissaoOperacoes).where(
-                        PermissaoOperacoes.chave.in_(convite.permissoes)
+                        PermissaoOperacoes.chave.in_(chaves_convite)
                     )
                 )
             ).scalars()

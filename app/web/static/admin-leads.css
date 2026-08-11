@@ -636,6 +636,28 @@
 .lead-research-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 13px; }
 .lead-research-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .lead-research-actions .secondary-button { min-height: 36px; padding: 7px 11px; font-size: 0.72rem; }
+
+.lead-row-actions .request-delete-research {
+  display: inline-flex;
+  min-width: 112px;
+  align-items: center;
+  justify-content: center;
+  border-color: #a93426;
+  color: #fff;
+  background: #b63f2d;
+  box-shadow: 0 2px 5px rgba(125, 34, 24, 0.16);
+}
+
+.lead-row-actions .request-delete-research:hover {
+  border-color: #8f281d;
+  color: #fff;
+  background: #952f21;
+}
+
+.lead-row-actions .request-delete-research:focus-visible {
+  outline: 3px solid rgba(182, 63, 45, 0.28);
+  outline-offset: 2px;
+}
 .full-report-status {
   display: inline-flex;
   width: fit-content;
@@ -661,6 +683,46 @@
 .lead-research-meta .full-report-status { margin-top: 0; }
 .full-report-hint { align-self: center; color: #6c776f; font-size: 0.69rem; line-height: 1.35; }
 
+/* Aprovações são uma fila auxiliar; o bloco deve ser compacto quando estiver vazio. */
+.deletion-requests-section {
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid #d9dfd9;
+  border-radius: 14px;
+  background: #fffef9;
+}
+.deletion-requests-section > header {
+  align-items: center;
+  gap: 12px;
+}
+.deletion-requests-section > header .eyebrow {
+  margin: 0 0 3px;
+  font-size: 0.59rem;
+  letter-spacing: 0.12em;
+}
+.deletion-requests-section > header h2 {
+  font-size: clamp(1.25rem, 2vw, 1.55rem);
+  line-height: 1.05;
+}
+.deletion-requests-section > header > span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #eef2ee;
+  font-size: 0.64rem;
+  font-weight: 800;
+}
+.deletion-requests-section .learning-review-list {
+  display: grid;
+  gap: 9px;
+}
+.deletion-requests-empty {
+  margin: 0;
+  padding-top: 9px;
+  border-top: 1px solid #e4e8e4;
+  color: #68776f;
+  font-size: 0.76rem;
+}
+
 @media (max-width: 940px) {
   .quick-research-history li { grid-template-columns: 1fr auto; }
   .quick-research-meta { grid-column: 1; }
@@ -672,6 +734,7 @@
 }
 
 @media (max-width: 560px) {
+  .deletion-requests-section > header { align-items: flex-start; }
   .lead-view-toolbar { align-items: flex-start; flex-direction: column; }
   .lead-view-switch { width: 100%; }
   .lead-view-button { flex: 1; }

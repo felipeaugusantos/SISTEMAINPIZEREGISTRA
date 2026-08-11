@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+  <title>Log Financeiro — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=22"><link rel="stylesheet" href="/static/admin-financeiro-log.css?v=1">
+  <script src="/static/admin-shell.js?v=30" defer></script><script src="/static/admin-financeiro-log.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="finance-log">
+  <main class="admin-main finance-log-main">
+    <section class="admin-heading finance-log-heading">
+      <div><p class="eyebrow">PRODUÇÃO E AUDITORIA</p><h1>Log Financeiro</h1><p>Acompanhe baixas, estornos e cancelamentos com operador, data e justificativa.</p></div>
+      <a class="secondary-button" href="/admin/producao">← Voltar para Produção</a>
+    </section>
+    <div id="finance-log-message" class="status-message loading" role="status">Carregando movimentações…</div>
+    <section id="finance-log-metrics" class="finance-log-metrics" aria-label="Resumo dos eventos"></section>
+    <section class="overview-section finance-log-panel">
+      <form id="finance-log-filter" class="finance-log-filter">
+        <label><span>Buscar</span><input name="busca" placeholder="Lançamento, documento, operador ou descrição"></label>
+        <label><span>Ação</span><select name="acao"><option value="">Todas</option><option value="baixa">Baixa</option><option value="estorno">Estorno</option><option value="cancelamento">Cancelamento</option></select></label>
+        <label><span>Data inicial</span><input name="inicio" type="date"></label>
+        <label><span>Data final</span><input name="fim" type="date"></label>
+        <button class="primary-button" type="submit">Filtrar</button><button id="finance-log-clear" class="secondary-button" type="button">Limpar</button>
+      </form>
+      <header class="finance-log-table-heading"><div><p class="eyebrow">TRILHA FINANCEIRA</p><h2>Movimentações registradas</h2></div><strong id="finance-log-count">0 registros</strong></header>
+      <div class="finance-log-table-wrap">
+        <table class="finance-log-table">
+          <thead><tr><th>Data e hora</th><th>Ação</th><th>Lançamento</th><th>Parcela</th><th>Valor e forma</th><th>Operador</th><th>Motivo / observação</th></tr></thead>
+          <tbody id="finance-log-list"><tr><td colspan="7">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

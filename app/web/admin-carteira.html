@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>Processos monitorados — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20">
-  <link rel="stylesheet" href="/static/admin-carteira.css?v=1">
-  <script src="/static/admin-shell.js?v=22" defer></script>
-  <script src="/static/admin-carteira.js?v=1" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=22">
+  <link rel="stylesheet" href="/static/admin-carteira.css?v=3">
+  <script src="/static/admin-shell.js?v=30" defer></script>
+  <script src="/static/admin-carteira.js?v=3" defer></script>
 </head>
 <body class="admin-body" data-admin-section="portfolio">
   <main class="admin-main portfolio-main">
@@ -25,17 +25,18 @@
       <header><div><p class="eyebrow">VÍNCULO AUTOMÁTICO</p><h2>Pesquisar por procurador</h2><p>Use preferencialmente a pesquisa exata após selecionar o nome sugerido.</p></div></header>
       <form id="attorney-form" class="portfolio-form attorney-form">
         <label class="wide"><span>Nome do procurador</span><input id="attorney-name" name="procurador" list="attorney-suggestions" minlength="2" maxlength="300" autocomplete="off" required><datalist id="attorney-suggestions"></datalist></label>
-        <label><span>Modo</span><select name="modo"><option value="exato">Nome exato</option><option value="contem">Contém o texto</option></select></label>
+        <label><span>Tipo de pesquisa</span><select name="modo"><option value="exato">Nome exato</option><option value="contem">Contém a expressão</option><option value="variacoes">Incluir variações do nome</option></select></label>
         <button class="primary-button" type="submit">Pesquisar processos</button>
       </form>
       <div id="attorney-result" hidden>
         <div class="portfolio-link-bar">
-          <strong id="attorney-total"></strong>
+          <div id="attorney-total" class="attorney-summary"></div>
           <label><span>Empresa/cliente</span><input id="attorney-company" list="company-suggestions" placeholder="Opcional"></label>
           <label><span>Responsável</span><select id="attorney-owner"><option value="">Não atribuído</option></select></label>
           <button id="link-selected" class="secondary-button" type="button">Vincular selecionados</button>
           <button id="link-all" class="primary-button" type="button">Vincular todos encontrados</button>
         </div>
+        <div class="attorney-insights"><div><span>Variações encontradas nesta página</span><div id="attorney-variants" class="attorney-variants"></div></div><p id="attorney-coverage"></p></div>
         <div class="portfolio-table-wrap"><table><thead><tr><th><input id="select-page" type="checkbox" aria-label="Selecionar página"></th><th>Processo</th><th>Marca</th><th>Situação</th><th>Depósito</th><th>Vínculo</th></tr></thead><tbody id="attorney-rows"></tbody></table></div>
       </div>
     </section>

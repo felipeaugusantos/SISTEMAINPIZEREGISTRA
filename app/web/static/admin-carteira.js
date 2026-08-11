@@ -37,10 +37,10 @@ function renderPortfolio(data) {
   target.innerHTML = data.itens.map(item => {
     const movement = item.ultima_movimentacao;
     return `<article class="portfolio-item" data-id="${item.id}">
-      <div><a class="process-number" href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><h3>${escapeHtml(item.titulo || "Marca sem título")}</h3><p>${escapeHtml(item.empresa || "Sem empresa vinculada")} · ${escapeHtml(item.procurador || "Procurador não informado")}</p><small>Depósito: ${formatDate(item.data_deposito)} · origem: ${escapeHtml(item.origem)}</small></div>
-      <div><small>Situação no INPI</small><strong>${escapeHtml(item.situacao || "Não informada")}</strong><p>Responsável: ${escapeHtml(item.responsavel || "Não atribuído")}</p></div>
+      <div class="portfolio-process"><a class="process-number" href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><h3>${escapeHtml(item.titulo || "Marca sem título")}</h3><p>${escapeHtml(item.empresa || "Sem empresa vinculada")} · ${escapeHtml(item.procurador || "Procurador não informado")}</p><small>Depósito: ${formatDate(item.data_deposito)} · origem: ${escapeHtml(item.origem)}</small></div>
+      <div class="portfolio-inpi"><span class="portfolio-item-label">Situação no INPI</span><strong>${escapeHtml(item.situacao || "Não informada")}</strong><p><span>Responsável</span>${escapeHtml(item.responsavel || "Não atribuído")}</p></div>
       <div class="latest">${movement ? `<small>Última movimentação · RPI ${movement.numero_rpi}</small><strong>${formatDate(movement.data)}</strong><p>${escapeHtml(movement.descricao || "")}</p>` : `<small>Movimentações</small><strong>Nenhuma localizada</strong>`}</div>
-      <div class="portfolio-status"><label><small>Status interno</small><select data-status>${statusOptions(item.status)}</select></label><button class="secondary-button" data-save-status type="button">Salvar status</button></div>
+      <div class="portfolio-status"><label><span class="portfolio-item-label">Status interno</span><select data-status>${statusOptions(item.status)}</select></label><button class="secondary-button" data-save-status type="button">Salvar status</button></div>
     </article>`;
   }).join("");
 }
@@ -52,7 +52,10 @@ async function loadPortfolio() {
 function renderAttorney(data) {
   state.attorney = data; state.selected.clear();
   document.querySelector("#attorney-result").hidden = false;
-  document.querySelector("#attorney-total").textContent = `${data.total} processo(s) encontrado(s)`;
+  document.querySelector("#attorney-total").innerHTML = `<strong>${data.total_processos} processo${data.total_processos === 1 ? "" : "s"}</strong><span>${data.total_titulares} titular${data.total_titulares === 1 ? "" : "es"}/cliente${data.total_titulares === 1 ? "" : "s"} identificado${data.total_titulares === 1 ? "" : "s"}</span>`;
+  document.querySelector("#attorney-variants").innerHTML = data.variacoes.length ? data.variacoes.map(item => `<span>${escapeHtml(item.nome)} <b>${item.processos_na_pagina}</b></span>`).join("") : "<small>Nenhuma variação disponível.</small>";
+  const coverage = data.cobertura || {};
+  document.querySelector("#attorney-coverage").textContent = `${coverage.primeira_rpi && coverage.ultima_rpi ? `Cobertura sincronizada: RPI ${coverage.primeira_rpi} a ${coverage.ultima_rpi}. ` : ""}${coverage.aviso || ""}`;
   document.querySelector("#attorney-rows").innerHTML = data.itens.map(item => `<tr>
     <td><input type="checkbox" data-process-id="${item.processo_id}" ${item.monitorado_id ? "disabled" : ""}></td>
     <td><a href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><br><small>${escapeHtml(item.fonte)}</small></td>
@@ -79,7 +82,7 @@ document.querySelector("#link-selected").addEventListener("click", async () => {
   catch (error) { showMessage(error.message, "error"); }
 });
 document.querySelector("#link-all").addEventListener("click", async () => {
-  if (!state.attorney || !confirm(`Vincular até ${state.attorney.total} processo(s) encontrados?`)) return;
+  if (!state.attorney || !confirm(`Vincular até ${state.attorney.total_processos} processo(s) encontrados?`)) return;
   try { const result = await api("/v1/admin/carteira/vincular-procurador", { method: "POST", body: JSON.stringify({ procurador: state.attorney.procurador, modo: state.attorney.modo, ...payloadContext("#attorney-company", "#attorney-owner") }) }); showMessage(`${result.vinculados} processo(s) incluído(s); ${result.ja_vinculados} já estavam monitorados.`); document.querySelector("#attorney-form").requestSubmit(); await loadPortfolio(); }
   catch (error) { showMessage(error.message, "error"); }
 });

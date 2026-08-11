@@ -578,8 +578,34 @@ async def atualizar_status_lead(
         alteracoes["tags"] = dados.tags
         lead.tags = dados.tags
     if dados.registrar_contato:
-        lead.ultimo_contato_em = datetime.now(UTC)
+        agora = datetime.now(UTC)
+        lead.ultimo_contato_em = agora
         alteracoes["contato_registrado"] = True
+        pesquisa_id = (
+            await session.execute(
+                select(PesquisaMarca.id)
+                .where(
+                    PesquisaMarca.lead_id == lead.id,
+                    PesquisaMarca.organizacao_id == usuario.organizacao_id,
+                )
+                .order_by(PesquisaMarca.criado_em.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        session.add(
+            ContatoLead(
+                organizacao_id=usuario.organizacao_id,
+                lead_id=lead.id,
+                empresa_id=lead.empresa_id,
+                pesquisa_id=pesquisa_id,
+                operador_id=usuario.id,
+                operador_nome=usuario.nome,
+                canal=CanalContato.OUTRO,
+                resultado="Atendimento atualizado",
+                observacao=dados.notas or lead.notas,
+                criado_em=agora,
+            )
+        )
     _auditar(session, usuario, request, "alterar", f"lead:{lead.id}", alteracoes)
     await session.commit()
     await session.refresh(lead)

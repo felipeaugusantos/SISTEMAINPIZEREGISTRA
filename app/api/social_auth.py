@@ -30,6 +30,7 @@ from app.models import (
     TentativaOAuth,
     UsuarioOperacoes,
 )
+from app.permissions import destino_inicial
 from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
 from app.security_ext import revelar_segredo, validar_totp
@@ -392,6 +393,14 @@ async def _concluir_sessao(
     response.headers["Location"] = destino
 
 
+def _destino_da_conta(usuario: UsuarioOperacoes, solicitado: str) -> str:
+    if solicitado != "/admin":
+        return solicitado
+    return destino_inicial(
+        usuario.perfil, frozenset(p.chave for p in usuario.permissoes)
+    )
+
+
 @router.api_route("/{provedor}/callback", methods=["GET", "POST"])
 async def callback(
     provedor: str,
@@ -521,9 +530,10 @@ async def callback(
         )
         resposta.delete_cookie(OAUTH_BROWSER_COOKIE, path="/v1/auth/social")
         return resposta
-    resposta = RedirectResponse(tentativa.destino, 303)
+    destino = _destino_da_conta(usuario, tentativa.destino)
+    resposta = RedirectResponse(destino, 303)
     await _concluir_sessao(
-        session, request, resposta, usuario, provedor, tentativa.destino
+        session, request, resposta, usuario, provedor, destino
     )
     resposta.delete_cookie(OAUTH_BROWSER_COOKIE, path="/v1/auth/social")
     return resposta
@@ -562,11 +572,10 @@ async def concluir_mfa(
         raise HTTPException(status_code=401, detail="Codigo MFA invalido")
     await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
     tentativa.mfa_token_hash = None
-    await _concluir_sessao(
-        session, request, response, usuario, tentativa.provedor, tentativa.destino
-    )
+    destino = _destino_da_conta(usuario, tentativa.destino)
+    await _concluir_sessao(session, request, response, usuario, tentativa.provedor, destino)
     response.delete_cookie(MFA_COOKIE, path="/v1/auth/social")
-    return {"status": "ok", "destino": tentativa.destino}
+    return {"status": "ok", "destino": destino}
 
 
 @router.get("/identities/me")

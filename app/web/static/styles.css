@@ -4156,6 +4156,66 @@ footer p {
   .admin-body .admin-filters label:first-child { grid-column: auto; }
 }
 
+.admin-sidebar-nav a.admin-nav-subitem {
+  min-height: 38px;
+  margin-left: 20px;
+  padding-left: 9px;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0 9px 9px 0;
+  font-size: 0.74rem;
+}
+
+.admin-sidebar-nav a.admin-nav-subitem .admin-nav-symbol {
+  width: 23px;
+  height: 23px;
+  border-radius: 7px;
+  font-size: 0.5rem;
+}
+
+.admin-nav-parent-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 3px;
+}
+
+.admin-nav-parent-row > a {
+  min-width: 0;
+}
+
+.admin-submenu-toggle {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: rgba(236, 245, 239, 0.78);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+}
+
+.admin-submenu-toggle:hover,
+.admin-submenu-toggle:focus-visible {
+  color: white;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.admin-submenu-toggle span {
+  font-size: 1rem;
+  line-height: 1;
+  transition: transform 160ms ease;
+}
+
+.admin-submenu-toggle[aria-expanded="false"] span {
+  transform: rotate(-90deg);
+}
+
+.admin-sidebar-nav a[hidden] {
+  display: none;
+}
+
 .auth-password-rules {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -540,6 +540,7 @@ class Lead(Base):
             name="status_lead",
             native_enum=False,
             create_constraint=True,
+            length=20,
             values_callable=lambda members: [member.value for member in members],
         ),
         default=StatusLead.NOVO,

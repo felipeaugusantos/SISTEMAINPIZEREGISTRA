@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.pesquisas import gerar_resumo_pesquisa
@@ -47,6 +47,22 @@ async def criar_consulta(
     )
     session.add(lead)
     await session.flush()
+    # Duplicata: mesma marca já pesquisada para o mesmo e-mail nesta organização.
+    original = None
+    if dados.email.strip():
+        original = (
+            await session.execute(
+                select(PesquisaMarca.id)
+                .join(Lead, Lead.id == PesquisaMarca.lead_id)
+                .where(
+                    PesquisaMarca.organizacao_id == operador.organizacao_id,
+                    func.lower(Lead.email) == dados.email.strip().lower(),
+                    func.lower(PesquisaMarca.marca) == dados.marca.strip().lower(),
+                )
+                .order_by(PesquisaMarca.criado_em)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
     pesquisa = PesquisaMarca(
         organizacao_id=operador.organizacao_id,
         lead_id=lead.id,
@@ -54,11 +70,19 @@ async def criar_consulta(
         atividade=dados.atividade,
         tipo_pesquisa="completa",
         classe_nice=None,
+        duplicada=original is not None,
+        pesquisa_original_id=original,
     )
     session.add(pesquisa)
     await session.commit()
     await session.refresh(pesquisa)
-    return PesquisaMarcaCriada(id=pesquisa.id, relatorio_url=f"/admin/consulta/{pesquisa.id}")
+    return PesquisaMarcaCriada(
+        id=pesquisa.id,
+        relatorio_url=f"/admin/consulta/{pesquisa.id}",
+        lead_id=lead.id,
+        duplicada=pesquisa.duplicada,
+        pesquisa_original_id=pesquisa.pesquisa_original_id,
+    )
 
 
 @router.get("/{pesquisa_id}/relatorio", response_model=ResumoPublicoMarcaResponse)

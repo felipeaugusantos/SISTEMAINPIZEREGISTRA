@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>Consulta de marcas — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20">
+  <link rel="stylesheet" href="/static/styles.css?v=21">
   <script src="/static/admin-shell.js?v=21" defer></script>
-  <script src="/static/admin-consulta.js?v=1" defer></script>
+  <script src="/static/admin-consulta.js?v=2" defer></script>
 </head>
 <body class="admin-body" data-admin-section="consulta">
   <main class="admin-main admin-dashboard">
@@ -49,9 +49,33 @@
 
     <section id="resultado" class="overview-section" hidden>
       <header><div><p class="eyebrow">Resultado</p><h2 id="res-marca"></h2></div></header>
+      <p id="res-duplicada" class="dup-badge" hidden></p>
       <div id="res-metrics" class="overview-primary-metrics"></div>
       <div id="res-prognostico"></div>
       <div id="res-conclusao" class="report-classification"></div>
+    </section>
+
+    <section id="contatos-section" class="overview-section" hidden>
+      <header><div><p class="eyebrow">Relacionamento</p><h2>Histórico de contatos</h2></div></header>
+      <p class="section-hint">Registre cada contato feito com esta empresa; o histórico fica separado por empresa/pesquisa.</p>
+      <form id="contato-form" class="reliability-form">
+        <div class="user-fields">
+          <label>Canal
+            <select name="canal">
+              <option value="telefone">Telefone</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="email">E-mail</option>
+              <option value="reuniao">Reunião</option>
+              <option value="outro">Outro</option>
+            </select>
+          </label>
+          <label>Resultado<input name="resultado" maxlength="150" placeholder="Ex.: interessado, sem retorno"></label>
+          <label class="field-full">Observação<input name="observacao" maxlength="2000" placeholder="O que foi conversado"></label>
+        </div>
+        <button class="primary-button form-submit" type="submit">Registrar contato</button>
+      </form>
+      <div id="contato-status" class="status-message" role="status" aria-live="polite" hidden></div>
+      <ul id="contatos-lista" class="contatos-lista"></ul>
     </section>
   </main>
 </body>

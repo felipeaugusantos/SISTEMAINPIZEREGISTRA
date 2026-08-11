@@ -252,6 +252,9 @@ class PesquisaMarcaCreate(BaseModel):
 class PesquisaMarcaCriada(BaseModel):
     id: str
     relatorio_url: str
+    lead_id: int | None = None
+    duplicada: bool = False
+    pesquisa_original_id: str | None = None
 
 
 class ClasseNiceCandidataResponse(BaseModel):

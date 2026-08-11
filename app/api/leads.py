@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -13,6 +14,8 @@ from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import get_session
 from app.models import (
     AvaliacaoRiscoMarca,
+    CanalContato,
+    ContatoLead,
     EventoAuditoria,
     Lead,
     PesquisaMarca,
@@ -562,6 +565,76 @@ async def atualizar_status_lead(
     await session.commit()
     await session.refresh(lead)
     return _lead_response(lead, usuario)
+
+
+class ContatoInput(BaseModel):
+    canal: CanalContato = CanalContato.TELEFONE
+    resultado: str | None = Field(default=None, max_length=150)
+    observacao: str | None = Field(default=None, max_length=2000)
+    pesquisa_id: str | None = Field(default=None, max_length=36)
+
+
+def _contato_response(contato: ContatoLead) -> dict:
+    return {
+        "id": contato.id,
+        "canal": contato.canal,
+        "resultado": contato.resultado,
+        "observacao": contato.observacao,
+        "pesquisa_id": contato.pesquisa_id,
+        "operador": contato.operador_nome,
+        "criado_em": contato.criado_em,
+    }
+
+
+async def _lead_do_operador(
+    lead_id: int, session: AsyncSession, usuario: UsuarioAutenticado
+) -> Lead:
+    lead = await session.get(Lead, lead_id)
+    if lead is None or lead.organizacao_id != usuario.organizacao_id:
+        raise HTTPException(status_code=404, detail="Lead nao encontrado")
+    return lead
+
+
+@router.get("/v1/admin/leads/{lead_id}/contatos")
+async def listar_contatos(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
+    await _lead_do_operador(lead_id, session, usuario)
+    contatos = (
+        await session.execute(
+            select(ContatoLead)
+            .where(ContatoLead.lead_id == lead_id)
+            .order_by(ContatoLead.criado_em.desc())
+        )
+    ).scalars().all()
+    return {"total": len(contatos), "contatos": [_contato_response(c) for c in contatos]}
+
+
+@router.post("/v1/admin/leads/{lead_id}/contatos", status_code=status.HTTP_201_CREATED)
+async def registrar_contato_lead(
+    lead_id: int,
+    dados: ContatoInput,
+    request: Request,
+    session: SessionDep,
+    usuario: LeadsManageDep,
+) -> dict:
+    lead = await _lead_do_operador(lead_id, session, usuario)
+    contato = ContatoLead(
+        organizacao_id=usuario.organizacao_id,
+        lead_id=lead_id,
+        pesquisa_id=dados.pesquisa_id,
+        operador_id=usuario.id,
+        operador_nome=usuario.nome,
+        canal=dados.canal,
+        resultado=dados.resultado,
+        observacao=dados.observacao,
+    )
+    session.add(contato)
+    lead.ultimo_contato_em = datetime.now(UTC)
+    _auditar(
+        session, usuario, request, "registrar_contato", f"lead:{lead_id}", {"canal": dados.canal}
+    )
+    await session.commit()
+    await session.refresh(contato)
+    return _contato_response(contato)
 
 
 @router.get("/v1/admin/leads-responsaveis")

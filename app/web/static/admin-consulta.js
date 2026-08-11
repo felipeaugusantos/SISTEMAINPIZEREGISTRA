@@ -112,6 +112,78 @@ async function carregarRelatorio(id) {
   }
 }
 
+const contatosSection = document.querySelector("#contatos-section");
+const contatoForm = document.querySelector("#contato-form");
+const contatoStatus = document.querySelector("#contato-status");
+let leadAtual = null;
+
+function mostrarDuplicada(criada) {
+  const badge = document.querySelector("#res-duplicada");
+  if (criada.duplicada) {
+    badge.hidden = false;
+    badge.textContent = "⚠ Pesquisa duplicada — esta marca já foi pesquisada para este contato.";
+  } else {
+    badge.hidden = true;
+  }
+}
+
+function itemContato(contato) {
+  const li = document.createElement("li");
+  const cabecalho = document.createElement("strong");
+  const data = new Date(contato.criado_em).toLocaleString("pt-BR");
+  cabecalho.textContent = `${contato.canal}${contato.resultado ? ` · ${contato.resultado}` : ""}`;
+  const meta = document.createElement("small");
+  meta.textContent = `${data}${contato.operador ? ` · ${contato.operador}` : ""}`;
+  li.append(cabecalho, meta);
+  if (contato.observacao) {
+    li.append(paragrafo(contato.observacao));
+  }
+  return li;
+}
+
+async function carregarContatos(leadId) {
+  const dados = await api(`/v1/admin/leads/${leadId}/contatos`);
+  const lista = document.querySelector("#contatos-lista");
+  lista.replaceChildren(...dados.contatos.map(itemContato));
+  if (!dados.contatos.length) {
+    lista.replaceChildren(paragrafo("Nenhum contato registrado ainda."));
+  }
+}
+
+async function abrirContatos(leadId) {
+  leadAtual = leadId;
+  if (!leadId) {
+    contatosSection.hidden = true;
+    return;
+  }
+  contatosSection.hidden = false;
+  try {
+    await carregarContatos(leadId);
+  } catch (error) {
+    contatoStatus.hidden = false;
+    contatoStatus.textContent = error.message;
+    contatoStatus.className = "status-message error";
+  }
+}
+
+contatoForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!leadAtual) return;
+  const dados = Object.fromEntries(new FormData(contatoForm));
+  try {
+    await api(`/v1/admin/leads/${leadAtual}/contatos`, { method: "POST", body: JSON.stringify(dados) });
+    contatoForm.reset();
+    contatoStatus.hidden = false;
+    contatoStatus.textContent = "Contato registrado.";
+    contatoStatus.className = "status-message success";
+    await carregarContatos(leadAtual);
+  } catch (error) {
+    contatoStatus.hidden = false;
+    contatoStatus.textContent = error.message;
+    contatoStatus.className = "status-message error";
+  }
+});
+
 form.addEventListener("submit", async event => {
   event.preventDefault();
   const dados = Object.fromEntries(new FormData(form));
@@ -119,7 +191,9 @@ form.addEventListener("submit", async event => {
   try {
     const criada = await api("/v1/admin/consulta", { method: "POST", body: JSON.stringify(dados) });
     history.pushState(null, "", criada.relatorio_url);
+    mostrarDuplicada(criada);
     await carregarRelatorio(criada.id);
+    await abrirContatos(criada.lead_id);
   } catch (error) {
     setStatus(error.message, "error");
   }

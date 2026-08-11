@@ -4111,6 +4111,32 @@ footer p {
 @media (max-width: 760px) {
   .reliability-context { text-align: left; white-space: normal; }
 }
+
+/* Consulta: duplicata + histórico de contatos */
+.dup-badge {
+  background: #fbe4e2;
+  color: #9c1f18;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.contatos-lista {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.contatos-lista li {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 2px;
+}
+.contatos-lista li small { color: var(--muted); font-size: 0.78rem; }
+.contatos-lista li p { margin: 4px 0 0; }
 .admin-body .lead-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .admin-body .admin-filters { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
 .admin-body .admin-filters label:first-child { grid-column: span 2; }

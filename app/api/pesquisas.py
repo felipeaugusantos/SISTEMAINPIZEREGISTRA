@@ -69,6 +69,26 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 limitar_pesquisas = RateLimiter(limite=10, janela_segundos=60, escopo="pesquisas-publicas")
 
 
+async def detectar_pesquisa_duplicada(
+    session: AsyncSession, organizacao_id: int, lead_id: int | None, marca: str
+) -> str | None:
+    """Id da 1ª pesquisa do mesmo lead com a mesma marca (case-insensitive), se existir."""
+    if lead_id is None:
+        return None
+    return (
+        await session.execute(
+            select(PesquisaMarca.id)
+            .where(
+                PesquisaMarca.organizacao_id == organizacao_id,
+                PesquisaMarca.lead_id == lead_id,
+                func.lower(PesquisaMarca.marca) == marca.strip().lower(),
+            )
+            .order_by(PesquisaMarca.criado_em)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 @router.post(
     "",
     response_model=PesquisaMarcaCriada,
@@ -124,6 +144,7 @@ async def criar_pesquisa(
         lead.atividade = dados.atividade
         lead.aceite_marketing = lead.aceite_marketing or dados.aceite_marketing
 
+    original = await detectar_pesquisa_duplicada(session, organizacao.id, lead.id, dados.marca)
     pesquisa = PesquisaMarca(
         organizacao_id=organizacao.id,
         lead_id=lead.id,
@@ -131,6 +152,8 @@ async def criar_pesquisa(
         atividade=dados.atividade,
         tipo_pesquisa="completa",
         classe_nice=None,
+        duplicada=original is not None,
+        pesquisa_original_id=original,
     )
     session.add(pesquisa)
     await session.commit()

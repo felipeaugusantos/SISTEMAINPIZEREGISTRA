@@ -567,7 +567,54 @@ class Lead(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     pesquisas_marca: Mapped[list["PesquisaMarca"]] = relationship(back_populates="lead")
+    contatos: Mapped[list["ContatoLead"]] = relationship(
+        back_populates="lead", cascade="all, delete-orphan", order_by="ContatoLead.criado_em.desc()"
+    )
     responsavel: Mapped["UsuarioOperacoes | None"] = relationship()
+
+
+class CanalContato(StrEnum):
+    TELEFONE = "telefone"
+    EMAIL = "email"
+    WHATSAPP = "whatsapp"
+    REUNIAO = "reuniao"
+    OUTRO = "outro"
+
+
+class ContatoLead(Base):
+    """Registro de uma interação do operador com a empresa (histórico de contatos)."""
+
+    __tablename__ = "contatos_lead"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    pesquisa_id: Mapped[str | None] = mapped_column(
+        ForeignKey("pesquisas_marca.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    operador_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    operador_nome: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    canal: Mapped[CanalContato] = mapped_column(
+        Enum(
+            CanalContato,
+            name="canal_contato",
+            native_enum=False,
+            create_constraint=True,
+            length=20,
+            values_callable=lambda members: [member.value for member in members],
+        ),
+        default=CanalContato.TELEFONE,
+    )
+    resultado: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    observacao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    lead: Mapped[Lead] = relationship(back_populates="contatos")
 
 
 class PesquisaMarca(Base):
@@ -584,6 +631,8 @@ class PesquisaMarca(Base):
     atividade: Mapped[str | None] = mapped_column(Text, nullable=True)
     tipo_pesquisa: Mapped[str] = mapped_column(String(20), index=True)
     classe_nice: Mapped[str | None] = mapped_column(String(2), nullable=True, index=True)
+    duplicada: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    pesquisa_original_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     dados_complementares_registrabilidade: Mapped[dict] = mapped_column(JSON, default=dict)
     relatorio_completo_gerado_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True

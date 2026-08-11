@@ -55,6 +55,7 @@ function createAdminShell() {
       <small id="admin-current-user">Carregando conta…</small>
       <button id="admin-logout" type="button">Sair</button>
       <a href="/" target="_blank" rel="noopener">Abrir consulta pública</a>
+      <a href="/docs" target="_blank" rel="noopener">API (documentação)</a>
     </div>
   `;
 

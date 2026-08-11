@@ -270,7 +270,7 @@ async def _processar_execucao(
                     """
                     UPDATE rpi_sync_execucoes
                     SET rpi_atual=$2, heartbeat_em=now(),
-                        mensagem='Importando RPI ' || $2::text
+                        mensagem=concat('Importando RPI ', $2::int)
                     WHERE id=$1
                     """,
                     execucao_id,

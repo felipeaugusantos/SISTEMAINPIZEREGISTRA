@@ -100,8 +100,14 @@ PERMISSOES = (
 
 CHAVES_PERMISSAO = frozenset(p.chave for p in PERMISSOES)
 
+PERMISSOES_FINANCEIRO = frozenset(
+    {"finance.view", "finance.manage", "finance.approve", "finance.export"}
+)
+
 PERFIS = {
     "administrador": CHAVES_PERMISSAO,
+    "ceo": CHAVES_PERMISSAO,
+    "tech": CHAVES_PERMISSAO,
     "supervisor": CHAVES_PERMISSAO
     - {"users.manage", "users.reset_password", "users.revoke_sessions", "leads.delete"},
     "tecnico": frozenset(
@@ -129,6 +135,7 @@ PERFIS = {
             "risk.view",
         }
     ),
+    "financeiro": PERMISSOES_FINANCEIRO,
     "auditor": frozenset(
         {
             "dashboard.view",
@@ -150,3 +157,22 @@ PERFIS = {
 
 def permissoes_do_perfil(perfil: str) -> frozenset[str]:
     return PERFIS.get(perfil, PERFIS["operador"])
+
+
+def destino_inicial(perfil: str, permissoes: set[str] | frozenset[str]) -> str:
+    """Retorna a primeira tela que a conta efetivamente pode acessar."""
+    if perfil == "financeiro":
+        return "/admin/financeiro"
+    if perfil == "administrador" or "dashboard.view" in permissoes:
+        return "/admin"
+    destinos = (
+        ("finance.view", "/admin/financeiro"),
+        ("leads.view", "/admin/pesquisas"),
+        ("portfolio.view", "/admin/processos-monitorados"),
+        ("validation.view", "/admin/validacao"),
+        ("risk.view", "/admin/risco"),
+        ("learning.view", "/admin/aprendizado"),
+        ("production.view", "/admin/producao"),
+        ("users.view", "/admin/usuarios"),
+    )
+    return next((pagina for chave, pagina in destinos if chave in permissoes), "/admin")

@@ -553,6 +553,26 @@ class CategoriaFinanceira(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class FormaPagamentoFinanceira(Base):
+    __tablename__ = "formas_pagamento_financeiras"
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "nome", name="uq_forma_pagamento_financeira_org"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    nome: Mapped[str] = mapped_column(String(120), index=True)
+    tipo: Mapped[str] = mapped_column(String(30), default="outro", index=True)
+    permite_parcelamento: Mapped[bool] = mapped_column(Boolean, default=False)
+    maximo_parcelas: Mapped[int] = mapped_column(Integer, default=1)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class LancamentoFinanceiro(Base):
     __tablename__ = "lancamentos_financeiros"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -564,6 +584,11 @@ class LancamentoFinanceiro(Base):
     )
     categoria_id: Mapped[int | None] = mapped_column(
         ForeignKey("categorias_financeiras.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    forma_pagamento_id: Mapped[int | None] = mapped_column(
+        ForeignKey("formas_pagamento_financeiras.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     tipo: Mapped[str] = mapped_column(String(12), index=True)
     descricao: Mapped[str] = mapped_column(String(240), index=True)
@@ -589,6 +614,7 @@ class LancamentoFinanceiro(Base):
         back_populates="lancamentos_financeiros", lazy="selectin"
     )
     categoria: Mapped[CategoriaFinanceira | None] = relationship(lazy="selectin")
+    forma_pagamento: Mapped[FormaPagamentoFinanceira | None] = relationship(lazy="selectin")
     parcelas: Mapped[list["ParcelaFinanceira"]] = relationship(
         back_populates="lancamento",
         cascade="all, delete-orphan",
@@ -614,9 +640,35 @@ class ParcelaFinanceira(Base):
     valor_pago: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     status: Mapped[str] = mapped_column(String(20), default="aberta", index=True)
     pago_em: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    forma_pagamento_id: Mapped[int | None] = mapped_column(
+        ForeignKey("formas_pagamento_financeiras.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     forma_pagamento: Mapped[str | None] = mapped_column(String(50), nullable=True)
     observacoes_baixa: Mapped[str | None] = mapped_column(Text, nullable=True)
     lancamento: Mapped[LancamentoFinanceiro] = relationship(back_populates="parcelas")
+
+
+class HistoricoFinanceiro(Base):
+    __tablename__ = "historicos_financeiros"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    lancamento_id: Mapped[int] = mapped_column(
+        ForeignKey("lancamentos_financeiros.id", ondelete="CASCADE"), index=True
+    )
+    parcela_id: Mapped[int | None] = mapped_column(
+        ForeignKey("parcelas_financeiras.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    acao: Mapped[str] = mapped_column(String(30), index=True)
+    ator: Mapped[str] = mapped_column(String(254), index=True)
+    descricao: Mapped[str] = mapped_column(String(500))
+    detalhes: Mapped[dict] = mapped_column(JSON, default=dict)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
 
 
 class ProcessoMonitorado(Base):

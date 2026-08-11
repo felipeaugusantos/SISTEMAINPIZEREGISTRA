@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+  <title>Formas de pagamento — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=22"><link rel="stylesheet" href="/static/admin-financeiro.css?v=6">
+  <script src="/static/admin-shell.js?v=30" defer></script><script src="/static/admin-financeiro-formas.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="finance">
+  <main class="admin-main finance-main">
+    <section class="finance-hero">
+      <div><p class="eyebrow">CONFIGURAÇÃO FINANCEIRA</p><h1>Formas de pagamento</h1><p>Defina os meios aceitos e o limite de parcelamento de cada opção.</p></div>
+      <div class="hero-actions"><a class="secondary-button" href="/admin/financeiro">← Voltar ao painel</a><button id="new-payment-method" class="primary-button" type="button">Nova forma de pagamento</button></div>
+    </section>
+    <nav class="finance-tabs" aria-label="Áreas do financeiro"><a href="/admin/financeiro">Visão geral</a><a href="/admin/financeiro/contas-a-pagar">Contas a pagar</a><a href="/admin/financeiro/contas-a-receber">Contas a receber</a><a class="active" href="/admin/financeiro/formas-pagamento" aria-current="page">Formas de pagamento</a></nav>
+    <div id="payment-method-message" class="status-message" hidden role="status" aria-live="polite"></div>
+    <section id="payment-method-metrics" class="finance-metrics compact"></section>
+    <section class="finance-card">
+      <header class="finance-list-heading"><div><p class="eyebrow">CADASTRO</p><h2>Meios disponíveis</h2><p>Formas inativas são preservadas no histórico, mas não aparecem em novos lançamentos.</p></div><strong id="payment-method-count">0 registros</strong></header>
+      <div id="payment-method-list" class="payment-method-list"></div>
+    </section>
+  </main>
+  <dialog id="payment-method-dialog" class="finance-dialog compact"><form id="payment-method-form">
+    <header><div><p class="eyebrow">FORMA DE PAGAMENTO</p><h2 id="payment-method-title">Nova forma</h2></div><button type="button" data-close="payment-method-dialog" aria-label="Fechar">×</button></header>
+    <input name="id" type="hidden">
+    <label><span>Nome</span><input name="nome" minlength="2" maxlength="120" placeholder="Ex.: Cartão de crédito" required></label>
+    <label><span>Tipo</span><select name="tipo"><option value="pix">PIX</option><option value="boleto">Boleto</option><option value="transferencia">Transferência</option><option value="cartao_credito">Cartão de crédito</option><option value="cartao_debito">Cartão de débito</option><option value="dinheiro">Dinheiro</option><option value="outro">Outro</option></select></label>
+    <label class="finance-check"><input name="permite_parcelamento" type="checkbox"><span>Permite parcelamento</span></label>
+    <label id="payment-method-installments"><span>Máximo de parcelas</span><input name="maximo_parcelas" type="number" min="1" max="120" value="1" required><small>Exemplo: informe 10 para permitir cartão em até 10x.</small></label>
+    <label class="finance-check"><input name="ativo" type="checkbox" checked><span>Forma de pagamento ativa</span></label>
+    <footer><button class="secondary-button" type="button" data-close="payment-method-dialog">Cancelar</button><button class="primary-button" type="submit">Salvar forma</button></footer>
+  </form></dialog>
+</body></html>

@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
@@ -16,8 +16,10 @@ from app.models import (
     Movimentacao,
     Processo,
     ProcessoMonitorado,
+    RpiImportacao,
     TipoProcesso,
     UsuarioOperacoes,
+    processo_titulares,
 )
 from app.normalization import normalizar_numero_processo
 from app.proxy import cliente_ip
@@ -68,7 +70,7 @@ class VinculoLote(VinculoBase):
 
 class VinculoProcurador(VinculoBase):
     procurador: str = Field(min_length=2, max_length=300)
-    modo: Literal["exato", "contem"] = "exato"
+    modo: Literal["exato", "contem", "variacoes"] = "exato"
     maximo: int = Field(default=5000, ge=1, le=5000)
 
 
@@ -406,7 +408,11 @@ async def sugerir_procuradores(
 def _filtro_procurador(procurador: str, modo: str):
     normalizado = _normalizar_busca(procurador)
     expressao = _expressao_procurador()
-    return expressao == normalizado if modo == "exato" else expressao.ilike(f"%{normalizado}%")
+    if modo == "exato":
+        return expressao == normalizado
+    if modo == "variacoes":
+        return and_(*(expressao.ilike(f"%{termo}%") for termo in normalizado.split()))
+    return expressao.ilike(f"%{normalizado}%")
 
 
 @router.get("/buscar-procurador")
@@ -414,19 +420,35 @@ async def buscar_por_procurador(
     session: SessionDep,
     usuario: ViewDep,
     procurador: Annotated[str, Query(min_length=2, max_length=300)],
-    modo: Literal["exato", "contem"] = "exato",
+    modo: Literal["exato", "contem", "variacoes"] = "exato",
     limite: Annotated[int, Query(ge=1, le=100)] = 50,
     deslocamento: Annotated[int, Query(ge=0)] = 0,
 ) -> dict:
     filtro = _filtro_procurador(procurador, modo)
     filtros = [Processo.tipo == TipoProcesso.MARCA, filtro]
-    total = int(
-        (
-            await session.execute(
-                select(func.count()).select_from(Processo).where(*filtros)
+    total, titulares = (
+        await session.execute(
+            select(
+                func.count(func.distinct(Processo.id)),
+                func.count(func.distinct(processo_titulares.c.titular_id)),
             )
-        ).scalar_one()
-    )
+            .select_from(Processo)
+            .outerjoin(
+                processo_titulares,
+                processo_titulares.c.processo_id == Processo.id,
+            )
+            .where(*filtros)
+        )
+    ).one()
+    primeira_rpi, ultima_rpi, rpis_importadas = (
+        await session.execute(
+            select(
+                func.min(RpiImportacao.numero_rpi),
+                func.max(RpiImportacao.numero_rpi),
+                func.count(),
+            ).where(RpiImportacao.tipo == "marca")
+        )
+    ).one()
     vinculo = (
         select(ProcessoMonitorado.id)
         .where(
@@ -445,10 +467,33 @@ async def buscar_por_procurador(
             .offset(deslocamento)
         )
     ).all()
+    variacoes: dict[str, int] = {}
+    for processo, _ in linhas:
+        if processo.procurador:
+            variacoes[processo.procurador] = variacoes.get(processo.procurador, 0) + 1
     return {
-        "total": total,
+        "total": int(total or 0),
+        "total_processos": int(total or 0),
+        "total_titulares": int(titulares or 0),
         "limite": limite,
         "deslocamento": deslocamento,
+        "modo": modo,
+        "variacoes": [
+            {"nome": nome, "processos_na_pagina": quantidade}
+            for nome, quantidade in sorted(
+                variacoes.items(),
+                key=lambda item: (-item[1], item[0].casefold()),
+            )
+        ],
+        "cobertura": {
+            "primeira_rpi": primeira_rpi,
+            "ultima_rpi": ultima_rpi,
+            "rpis_importadas": int(rpis_importadas or 0),
+            "aviso": (
+                "O resultado depende do nome do procurador publicado nas RPIs e pode não "
+                "representar toda a carteira histórica existente no INPI."
+            ),
+        },
         "itens": [
             {
                 "processo_id": processo.id,

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+  <title>CRM — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=22"><link rel="stylesheet" href="/static/admin-crm.css?v=1">
+  <script src="/static/admin-shell.js?v=30" defer></script><script src="/static/admin-crm.js?v=2" defer></script>
+</head>
+<body class="admin-body" data-admin-section="crm">
+  <main class="admin-main crm-main">
+    <section class="crm-hero">
+      <div><p class="eyebrow">RELACIONAMENTO COM CLIENTES</p><h1>CRM</h1><p>Linha do tempo auditável das ligações, reuniões, mensagens e e-mails registrados pela equipe.</p></div>
+      <a class="primary-button" href="/admin/pesquisas">Abrir contatos e registrar interação</a>
+    </section>
+    <div id="crm-message" class="status-message" hidden role="status" aria-live="polite"></div>
+    <section id="crm-metrics" class="crm-metrics" aria-label="Indicadores do histórico"></section>
+    <section class="crm-card">
+      <form id="crm-filter" class="crm-filter">
+        <label class="wide"><span>Buscar no histórico</span><input name="busca" type="search" maxlength="120" placeholder="Cliente, empresa, marca, resultado ou observação"></label>
+        <label><span>Canal</span><select name="canal"><option value="">Todos</option></select></label>
+        <label><span>Operador</span><select name="operador_id"><option value="">Todos</option></select></label>
+        <label><span>Desde</span><input name="inicio" type="date"></label>
+        <label><span>Até</span><input name="fim" type="date"></label>
+        <button class="primary-button" type="submit">Filtrar</button><button id="crm-clear" class="secondary-button" type="button">Limpar</button>
+      </form>
+    </section>
+    <section class="crm-card crm-history-card">
+      <header><div><p class="eyebrow">HISTÓRICO DE ATENDIMENTO</p><h2>Linha do tempo</h2></div><strong id="crm-total">0 registros</strong></header>
+      <ol id="crm-history" class="crm-history"></ol>
+      <nav class="crm-pagination" aria-label="Paginação do histórico"><button id="crm-prev" class="secondary-button" type="button">Anterior</button><span id="crm-page">Página 1</span><button id="crm-next" class="secondary-button" type="button">Próxima</button></nav>
+    </section>
+  </main>
+</body>
+</html>

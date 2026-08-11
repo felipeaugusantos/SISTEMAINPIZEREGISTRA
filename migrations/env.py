@@ -25,7 +25,9 @@ target_metadata = Base.metadata
 
 INDEXES_SQL_MANUAL = {
     "ix_processos_titulo_trgm",
+    "ix_processos_procurador_unaccent_trgm",
     "ix_titulares_nome_trgm",
+    "uq_exclusao_pesquisa_pendente",
     "uq_leads_org_email_ativos",
 }
 

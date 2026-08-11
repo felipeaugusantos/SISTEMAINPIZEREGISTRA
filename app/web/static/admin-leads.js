@@ -121,7 +121,7 @@ function deletionAction(item) {
     return `<span class="full-report-status pending">Exclusão aguardando aprovação</span>`;
   }
   const label = state.canDeleteResearch ? "Excluir pesquisa" : "Solicitar exclusão";
-  return `<button class="danger-link request-delete-research" type="button" data-research-id="${escapeHtml(item.id)}">${label}</button>`;
+  return `<button class="danger-button request-delete-research" type="button" data-research-id="${escapeHtml(item.id)}">${label}</button>`;
 }
 
 function contactChannelLabel(value) {
@@ -274,7 +274,7 @@ async function loadDeletionRequests() {
           <button class="secondary-button decide-deletion" data-decision="reject" type="button">Rejeitar</button>
           <button class="danger-button decide-deletion" data-decision="approve" type="button">Aprovar e excluir</button>
         </div>
-      </article>`).join("") : "<p>Nenhuma solicitação pendente.</p>";
+      </article>`).join("") : '<p class="deletion-requests-empty">Nenhuma solicitação pendente.</p>';
   } catch (error) {
     showMessage(error.message, "error");
   }
@@ -624,12 +624,29 @@ dialogContent.addEventListener("submit", async event => {
     proxima_acao_em: data.get("proxima_acao_em") ? new Date(data.get("proxima_acao_em")).toISOString() : null,
     notas: data.get("notas") || null,
     tags: String(data.get("tags") || "").split(",").map(item => item.trim()).filter(Boolean),
+    registrar_contato: true,
   };
   const saveMessage = document.querySelector("#lead-save-message");
   saveMessage.textContent = "Salvando…";
   const response = await fetch(`/v1/admin/leads/${form.dataset.leadId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  saveMessage.textContent = response.ok ? "Atendimento salvo." : "Não foi possível salvar.";
-  if (response.ok) await Promise.all([loadLeads(), loadCrmSummary()]);
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    saveMessage.textContent = detail.detail || "Não foi possível salvar.";
+    return;
+  }
+  form.elements.proxima_acao_em.value = "";
+  form.elements.tags.value = "";
+  form.elements.notas.value = "";
+  saveMessage.textContent = "Atendimento salvo. Formulário pronto para um novo registro.";
+  await Promise.all([
+    loadLeadContacts(Number(form.dataset.leadId)),
+    loadLeads(),
+    loadCrmSummary(),
+  ]);
 });
 
-loadOwners().then(() => Promise.all([loadLeads(), loadCrmSummary()]));
+loadOwners().then(async () => {
+  await Promise.all([loadLeads(), loadCrmSummary()]);
+  const leadId = new URLSearchParams(location.search).get("lead_id");
+  if (/^\d+$/.test(leadId || "")) await openLead(Number(leadId));
+});

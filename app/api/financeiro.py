@@ -1,7 +1,7 @@
 import calendar
 import csv
 import io
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_DOWN, Decimal
 from typing import Annotated, Literal
 
@@ -18,6 +18,8 @@ from app.models import (
     CategoriaFinanceira,
     EmpresaCRM,
     EventoAuditoria,
+    FormaPagamentoFinanceira,
+    HistoricoFinanceiro,
     LancamentoFinanceiro,
     Lead,
     ParcelaFinanceira,
@@ -33,11 +35,33 @@ ManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("finance.mana
 ApproveDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("finance.approve"))]
 ExportDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("finance.export"))]
 STATUS_CLIENTE = frozenset({StatusLead.PROPOSTA_ENVIADA, StatusLead.CONVERTIDO})
+PERFIS_LOG_FINANCEIRO = frozenset({"administrador", "tech", "ceo", "financeiro"})
+
+
+async def exigir_acesso_log_financeiro(usuario: ViewDep) -> UsuarioAutenticado:
+    if usuario.perfil not in PERFIS_LOG_FINANCEIRO:
+        raise HTTPException(
+            403, "Log financeiro disponível somente para Administrador, Tech, CEO e Financeiro"
+        )
+    return usuario
+
+
+LogDep = Annotated[UsuarioAutenticado, Depends(exigir_acesso_log_financeiro)]
 
 
 class CategoriaCreate(BaseModel):
     nome: str = Field(min_length=2, max_length=120)
     tipo: Literal["pagar", "receber", "ambos"] = "ambos"
+
+
+class FormaPagamentoCreate(BaseModel):
+    nome: str = Field(min_length=2, max_length=120)
+    tipo: Literal[
+        "pix", "boleto", "transferencia", "cartao_credito", "cartao_debito", "dinheiro", "outro"
+    ] = "outro"
+    permite_parcelamento: bool = False
+    maximo_parcelas: int = Field(default=1, ge=1, le=120)
+    ativo: bool = True
 
 
 class LancamentoCreate(BaseModel):
@@ -50,13 +74,27 @@ class LancamentoCreate(BaseModel):
     quantidade_parcelas: int = Field(default=1, ge=1, le=120)
     empresa_id: int | None = None
     categoria_id: int | None = None
+    forma_pagamento_id: int | None = None
+    observacoes: str | None = Field(default=None, max_length=4000)
+
+
+class LancamentoUpdate(BaseModel):
+    descricao: str = Field(min_length=3, max_length=240)
+    documento: str | None = Field(default=None, max_length=80)
+    competencia: date
+    valor_total: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    primeiro_vencimento: date
+    quantidade_parcelas: int = Field(default=1, ge=1, le=120)
+    empresa_id: int | None = None
+    categoria_id: int | None = None
+    forma_pagamento_id: int | None = None
     observacoes: str | None = Field(default=None, max_length=4000)
 
 
 class BaixaCreate(BaseModel):
     valor_pago: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
     pago_em: date
-    forma_pagamento: str = Field(min_length=2, max_length=50)
+    forma_pagamento_id: int
     observacoes: str | None = Field(default=None, max_length=1000)
 
 
@@ -84,6 +122,57 @@ def _auditar(
             detalhes=detalhes,
         )
     )
+
+
+def _registrar_historico(
+    session: AsyncSession,
+    usuario: UsuarioAutenticado,
+    lancamento_id: int,
+    acao: str,
+    descricao: str,
+    detalhes: dict,
+    parcela_id: int | None = None,
+) -> None:
+    session.add(
+        HistoricoFinanceiro(
+            organizacao_id=usuario.organizacao_id,
+            lancamento_id=lancamento_id,
+            parcela_id=parcela_id,
+            acao=acao,
+            ator=usuario.ator,
+            descricao=descricao[:500],
+            detalhes=detalhes,
+        )
+    )
+
+
+async def _forma_pagamento(
+    session: AsyncSession,
+    usuario: UsuarioAutenticado,
+    forma_id: int | None,
+    *,
+    exigir_ativa: bool = True,
+) -> FormaPagamentoFinanceira | None:
+    if not forma_id:
+        return None
+    filtros = [
+        FormaPagamentoFinanceira.id == forma_id,
+        FormaPagamentoFinanceira.organizacao_id == usuario.organizacao_id,
+    ]
+    if exigir_ativa:
+        filtros.append(FormaPagamentoFinanceira.ativo.is_(True))
+    forma = (await session.execute(select(FormaPagamentoFinanceira).where(*filtros))).scalar_one_or_none()
+    if not forma:
+        raise HTTPException(404, "Forma de pagamento não encontrada ou inativa")
+    return forma
+
+
+def _validar_parcelamento(forma: FormaPagamentoFinanceira | None, quantidade: int) -> None:
+    if not forma:
+        return
+    limite = forma.maximo_parcelas if forma.permite_parcelamento else 1
+    if quantidade > limite:
+        raise HTTPException(422, f"{forma.nome} permite no máximo {limite} parcela(s)")
 
 
 def _mes_seguinte(valor: date, meses: int) -> date:
@@ -115,6 +204,48 @@ def _empresa_cliente(usuario: UsuarioAutenticado):
         )
     )
     return or_(lead_elegivel, processo_monitorado)
+
+
+async def _validar_referencias(
+    session: AsyncSession,
+    usuario: UsuarioAutenticado,
+    tipo: str,
+    empresa_id: int | None,
+    categoria_id: int | None,
+) -> None:
+    if empresa_id:
+        filtros_empresa = [
+            EmpresaCRM.id == empresa_id,
+            EmpresaCRM.organizacao_id == usuario.organizacao_id,
+        ]
+        if tipo == "receber":
+            filtros_empresa.append(_empresa_cliente(usuario))
+        cliente_elegivel = (
+            await session.execute(
+                select(EmpresaCRM.id).where(*filtros_empresa)
+            )
+        ).scalar_one_or_none()
+        if not cliente_elegivel:
+            detalhe = (
+                "Empresa ainda não é cliente: requer proposta enviada, "
+                "conversão ou processo monitorado"
+                if tipo == "receber"
+                else "Empresa ou fornecedor não encontrado"
+            )
+            raise HTTPException(422, detalhe)
+    if categoria_id:
+        categoria = (
+            await session.execute(
+                select(CategoriaFinanceira).where(
+                    CategoriaFinanceira.id == categoria_id,
+                    CategoriaFinanceira.organizacao_id == usuario.organizacao_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not categoria:
+            raise HTTPException(404, "Categoria não encontrada")
+        if categoria.tipo not in {"ambos", tipo}:
+            raise HTTPException(422, "Categoria incompatível com o tipo do lançamento")
 
 
 async def _atualizar_status(lancamento: LancamentoFinanceiro) -> None:
@@ -153,6 +284,8 @@ def _serializar(lancamento: LancamentoFinanceiro) -> dict:
         "empresa": lancamento.empresa_registro.nome if lancamento.empresa_registro else None,
         "categoria_id": lancamento.categoria_id,
         "categoria": lancamento.categoria.nome if lancamento.categoria else None,
+        "forma_pagamento_id": lancamento.forma_pagamento_id,
+        "forma_pagamento": lancamento.forma_pagamento.nome if lancamento.forma_pagamento else None,
         "observacoes": lancamento.observacoes,
         "criado_em": lancamento.criado_em,
         "parcelas": parcelas,
@@ -206,6 +339,7 @@ async def listar(
             selectinload(LancamentoFinanceiro.parcelas),
             selectinload(LancamentoFinanceiro.empresa_registro),
             selectinload(LancamentoFinanceiro.categoria),
+            selectinload(LancamentoFinanceiro.forma_pagamento),
         )
         .outerjoin(EmpresaCRM, EmpresaCRM.id == LancamentoFinanceiro.empresa_id)
         .outerjoin(ParcelaFinanceira, ParcelaFinanceira.lancamento_id == LancamentoFinanceiro.id)
@@ -216,14 +350,17 @@ async def listar(
     )
     itens = (await session.execute(consulta)).scalars().all()
     hoje = date.today()
+    resumo_filtros = [
+        ParcelaFinanceira.organizacao_id == usuario.organizacao_id,
+        LancamentoFinanceiro.status != "cancelado",
+    ]
+    if tipo:
+        resumo_filtros.append(LancamentoFinanceiro.tipo == tipo)
     todas = (
         await session.execute(
             select(ParcelaFinanceira, LancamentoFinanceiro.tipo)
             .join(LancamentoFinanceiro)
-            .where(
-                ParcelaFinanceira.organizacao_id == usuario.organizacao_id,
-                LancamentoFinanceiro.status != "cancelado",
-            )
+            .where(*resumo_filtros)
         )
     ).all()
     resumo = {
@@ -232,6 +369,13 @@ async def listar(
         "recebido_mes": Decimal(0),
         "pago_mes": Decimal(0),
         "vencido": Decimal(0),
+        "receber_vencido": Decimal(0),
+        "pagar_vencido": Decimal(0),
+        "vence_hoje": Decimal(0),
+        "vence_7_dias": Decimal(0),
+        "parcelas_vencidas": 0,
+        "parcelas_hoje": 0,
+        "parcelas_7_dias": 0,
     }
     for parcela, natureza in todas:
         restante = Decimal(parcela.valor) - Decimal(parcela.valor_pago or 0)
@@ -239,6 +383,14 @@ async def listar(
             resumo[f"{natureza}_aberto"] += restante
             if parcela.vencimento < hoje:
                 resumo["vencido"] += restante
+                resumo[f"{natureza}_vencido"] += restante
+                resumo["parcelas_vencidas"] += 1
+            elif parcela.vencimento == hoje:
+                resumo["vence_hoje"] += restante
+                resumo["parcelas_hoje"] += 1
+            elif parcela.vencimento <= hoje + timedelta(days=7):
+                resumo["vence_7_dias"] += restante
+                resumo["parcelas_7_dias"] += 1
         elif (
             parcela.pago_em
             and parcela.pago_em.year == hoje.year
@@ -248,22 +400,28 @@ async def listar(
                 parcela.valor_pago
             )
     return {
-        "resumo": {k: float(v) for k, v in resumo.items()},
+        "resumo": {
+            k: int(v) if k.startswith("parcelas_") else float(v) for k, v in resumo.items()
+        },
         "itens": [_serializar(x) for x in itens],
         "total": len(itens),
     }
 
 
 @router.get("/referencias")
-async def referencias(session: SessionDep, usuario: ViewDep) -> dict:
+async def referencias(
+    session: SessionDep,
+    usuario: ViewDep,
+    tipo: Literal["pagar", "receber"] = "receber",
+) -> dict:
+    filtros_empresas = [EmpresaCRM.organizacao_id == usuario.organizacao_id]
+    if tipo == "receber":
+        filtros_empresas.append(_empresa_cliente(usuario))
     empresas = (
         (
             await session.execute(
                 select(EmpresaCRM)
-                .where(
-                    EmpresaCRM.organizacao_id == usuario.organizacao_id,
-                    _empresa_cliente(usuario),
-                )
+                .where(*filtros_empresas)
                 .distinct()
                 .order_by(EmpresaCRM.nome)
                 .limit(300)
@@ -286,10 +444,125 @@ async def referencias(session: SessionDep, usuario: ViewDep) -> dict:
         .scalars()
         .all()
     )
+    formas = (
+        (
+            await session.execute(
+                select(FormaPagamentoFinanceira)
+                .where(
+                    FormaPagamentoFinanceira.organizacao_id == usuario.organizacao_id,
+                    FormaPagamentoFinanceira.ativo.is_(True),
+                )
+                .order_by(FormaPagamentoFinanceira.nome)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return {
         "empresas": [{"id": x.id, "nome": x.nome} for x in empresas],
         "categorias": [{"id": x.id, "nome": x.nome, "tipo": x.tipo} for x in categorias],
+        "formas_pagamento": [
+            {
+                "id": x.id,
+                "nome": x.nome,
+                "tipo": x.tipo,
+                "permite_parcelamento": x.permite_parcelamento,
+                "maximo_parcelas": x.maximo_parcelas,
+            }
+            for x in formas
+        ],
     }
+
+
+@router.get("/formas-pagamento")
+async def listar_formas_pagamento(session: SessionDep, usuario: ViewDep) -> dict:
+    formas = (
+        (
+            await session.execute(
+                select(FormaPagamentoFinanceira)
+                .where(FormaPagamentoFinanceira.organizacao_id == usuario.organizacao_id)
+                .order_by(FormaPagamentoFinanceira.ativo.desc(), FormaPagamentoFinanceira.nome)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "itens": [
+            {
+                "id": x.id,
+                "nome": x.nome,
+                "tipo": x.tipo,
+                "permite_parcelamento": x.permite_parcelamento,
+                "maximo_parcelas": x.maximo_parcelas,
+                "ativo": x.ativo,
+                "criado_em": x.criado_em,
+            }
+            for x in formas
+        ]
+    }
+
+
+async def _salvar_forma_pagamento(
+    dados: FormaPagamentoCreate,
+    request: Request,
+    session: AsyncSession,
+    usuario: UsuarioAutenticado,
+    forma: FormaPagamentoFinanceira | None = None,
+) -> FormaPagamentoFinanceira:
+    nome = dados.nome.strip()
+    duplicada = (
+        await session.execute(
+            select(FormaPagamentoFinanceira.id).where(
+                FormaPagamentoFinanceira.organizacao_id == usuario.organizacao_id,
+                func.lower(FormaPagamentoFinanceira.nome) == nome.lower(),
+                *([FormaPagamentoFinanceira.id != forma.id] if forma else []),
+            )
+        )
+    ).scalar_one_or_none()
+    if duplicada:
+        raise HTTPException(409, "Forma de pagamento já cadastrada")
+    maximo = dados.maximo_parcelas if dados.permite_parcelamento else 1
+    if forma is None:
+        forma = FormaPagamentoFinanceira(organizacao_id=usuario.organizacao_id)
+        session.add(forma)
+    forma.nome = nome
+    forma.tipo = dados.tipo
+    forma.permite_parcelamento = dados.permite_parcelamento
+    forma.maximo_parcelas = maximo
+    forma.ativo = dados.ativo
+    await session.flush()
+    _auditar(
+        session,
+        request,
+        usuario,
+        "salvar_forma_pgto",
+        f"forma-pagamento:{forma.id}",
+        {"nome": nome, "tipo": dados.tipo, "maximo_parcelas": maximo, "ativo": dados.ativo},
+    )
+    await session.commit()
+    return forma
+
+
+@router.post("/formas-pagamento", status_code=201)
+async def criar_forma_pagamento(
+    dados: FormaPagamentoCreate, request: Request, session: SessionDep, usuario: ManageDep
+) -> dict:
+    forma = await _salvar_forma_pagamento(dados, request, session, usuario)
+    return {"id": forma.id, "status": "criada"}
+
+
+@router.put("/formas-pagamento/{forma_id}")
+async def editar_forma_pagamento(
+    forma_id: int,
+    dados: FormaPagamentoCreate,
+    request: Request,
+    session: SessionDep,
+    usuario: ManageDep,
+) -> dict:
+    forma = await _forma_pagamento(session, usuario, forma_id, exigir_ativa=False)
+    await _salvar_forma_pagamento(dados, request, session, usuario, forma)
+    return {"id": forma.id, "status": "atualizada"}
 
 
 @router.post("/categorias", status_code=201)
@@ -328,39 +601,16 @@ async def criar_categoria(
 async def criar_lancamento(
     dados: LancamentoCreate, request: Request, session: SessionDep, usuario: ManageDep
 ) -> dict:
-    if dados.empresa_id:
-        cliente_elegivel = (
-            await session.execute(
-                select(EmpresaCRM.id).where(
-                    EmpresaCRM.id == dados.empresa_id,
-                    EmpresaCRM.organizacao_id == usuario.organizacao_id,
-                    _empresa_cliente(usuario),
-                )
-            )
-        ).scalar_one_or_none()
-        if not cliente_elegivel:
-            raise HTTPException(
-                422,
-                "Empresa ainda não é cliente: requer proposta enviada, "
-                "conversão ou processo monitorado",
-            )
-    if dados.categoria_id:
-        categoria = (
-            await session.execute(
-                select(CategoriaFinanceira).where(
-                    CategoriaFinanceira.id == dados.categoria_id,
-                    CategoriaFinanceira.organizacao_id == usuario.organizacao_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if not categoria:
-            raise HTTPException(404, "Categoria não encontrada")
-        if categoria.tipo not in {"ambos", dados.tipo}:
-            raise HTTPException(422, "Categoria incompatível com o tipo do lançamento")
+    await _validar_referencias(
+        session, usuario, dados.tipo, dados.empresa_id, dados.categoria_id
+    )
+    forma = await _forma_pagamento(session, usuario, dados.forma_pagamento_id)
+    _validar_parcelamento(forma, dados.quantidade_parcelas)
     lancamento = LancamentoFinanceiro(
         organizacao_id=usuario.organizacao_id,
         empresa_id=dados.empresa_id,
         categoria_id=dados.categoria_id,
+        forma_pagamento_id=dados.forma_pagamento_id,
         tipo=dados.tipo,
         descricao=dados.descricao.strip(),
         documento=(dados.documento or "").strip() or None,
@@ -399,6 +649,110 @@ async def criar_lancamento(
     return {"id": lancamento.id, "status": "criado"}
 
 
+@router.put("/lancamentos/{lancamento_id}")
+async def editar_lancamento(
+    lancamento_id: int,
+    dados: LancamentoUpdate,
+    request: Request,
+    session: SessionDep,
+    usuario: ManageDep,
+) -> dict:
+    lancamento = (
+        await session.execute(
+            select(LancamentoFinanceiro)
+            .options(selectinload(LancamentoFinanceiro.parcelas))
+            .where(
+                LancamentoFinanceiro.id == lancamento_id,
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not lancamento:
+        raise HTTPException(404, "Lançamento não encontrado")
+    if lancamento.status == "cancelado":
+        raise HTTPException(409, "Lançamento cancelado não pode ser alterado")
+
+    await _validar_referencias(
+        session, usuario, lancamento.tipo, dados.empresa_id, dados.categoria_id
+    )
+    forma = await _forma_pagamento(session, usuario, dados.forma_pagamento_id)
+    _validar_parcelamento(forma, dados.quantidade_parcelas)
+    parcelas_pagas = any(parcela.status == "paga" for parcela in lancamento.parcelas)
+    estrutura_alterada = (
+        Decimal(lancamento.valor_total) != dados.valor_total
+        or len(lancamento.parcelas) != dados.quantidade_parcelas
+        or not lancamento.parcelas
+        or lancamento.parcelas[0].vencimento != dados.primeiro_vencimento
+    )
+    if parcelas_pagas and estrutura_alterada:
+        raise HTTPException(
+            409,
+            "Valor, quantidade e vencimentos não podem mudar após uma baixa; estorne primeiro",
+        )
+
+    anterior = {
+        "descricao": lancamento.descricao,
+        "valor_total": str(lancamento.valor_total),
+        "parcelas": len(lancamento.parcelas),
+    }
+    lancamento.descricao = dados.descricao.strip()
+    lancamento.documento = (dados.documento or "").strip() or None
+    lancamento.competencia = dados.competencia
+    lancamento.empresa_id = dados.empresa_id
+    lancamento.categoria_id = dados.categoria_id
+    lancamento.forma_pagamento_id = dados.forma_pagamento_id
+    lancamento.observacoes = (dados.observacoes or "").strip() or None
+    lancamento.atualizado_em = datetime.now(UTC)
+
+    if estrutura_alterada:
+        lancamento.valor_total = dados.valor_total
+        parcelas_atuais = list(lancamento.parcelas)
+        novos_valores = _parcelar(dados.valor_total, dados.quantidade_parcelas)
+        for indice, valor in enumerate(novos_valores):
+            if indice < len(parcelas_atuais):
+                parcela = parcelas_atuais[indice]
+                parcela.numero = indice + 1
+                parcela.vencimento = _mes_seguinte(dados.primeiro_vencimento, indice)
+                parcela.valor = valor
+                parcela.valor_pago = Decimal(0)
+                parcela.status = "aberta"
+                parcela.pago_em = None
+                parcela.forma_pagamento = None
+                parcela.observacoes_baixa = None
+            else:
+                lancamento.parcelas.append(
+                    ParcelaFinanceira(
+                        organizacao_id=usuario.organizacao_id,
+                        numero=indice + 1,
+                        vencimento=_mes_seguinte(dados.primeiro_vencimento, indice),
+                        valor=valor,
+                        valor_pago=Decimal(0),
+                    )
+                )
+        for parcela in parcelas_atuais[len(novos_valores) :]:
+            lancamento.parcelas.remove(parcela)
+            await session.delete(parcela)
+        lancamento.status = "aberto"
+
+    _auditar(
+        session,
+        request,
+        usuario,
+        "editar_lancamento",
+        f"lancamento-financeiro:{lancamento.id}",
+        {
+            "anterior": anterior,
+            "novo": {
+                "descricao": lancamento.descricao,
+                "valor_total": str(dados.valor_total),
+                "parcelas": dados.quantidade_parcelas,
+            },
+        },
+    )
+    await session.commit()
+    return {"id": lancamento.id, "status": "atualizado"}
+
+
 async def _parcela(
     session: AsyncSession, usuario: UsuarioAutenticado, parcela_id: int
 ) -> ParcelaFinanceira:
@@ -430,11 +784,13 @@ async def baixar(
         raise HTTPException(409, "Parcela não pode ser baixada")
     if dados.valor_pago != Decimal(parcela.valor):
         raise HTTPException(422, "Neste MVP, a baixa deve usar o valor integral da parcela")
+    forma = await _forma_pagamento(session, usuario, dados.forma_pagamento_id)
     parcela.valor_pago, parcela.pago_em, parcela.forma_pagamento = (
         dados.valor_pago,
         dados.pago_em,
-        dados.forma_pagamento.strip(),
+        forma.nome,
     )
+    parcela.forma_pagamento_id = forma.id
     parcela.observacoes_baixa, parcela.status = (dados.observacoes or "").strip() or None, "paga"
     await _atualizar_status(parcela.lancamento)
     _auditar(
@@ -444,6 +800,20 @@ async def baixar(
         "baixar_parcela",
         f"parcela-financeira:{parcela.id}",
         {"valor": str(dados.valor_pago), "data": str(dados.pago_em)},
+    )
+    _registrar_historico(
+        session,
+        usuario,
+        parcela.lancamento_id,
+        "baixa",
+        f"Baixa da {parcela.numero}ª parcela registrada",
+        {
+            "valor": str(dados.valor_pago),
+            "data": str(dados.pago_em),
+            "forma_pagamento": forma.nome,
+            "observacoes": dados.observacoes,
+        },
+        parcela.id,
     )
     await session.commit()
     return {"status": "paga"}
@@ -461,7 +831,9 @@ async def estornar(
     if parcela.status != "paga":
         raise HTTPException(409, "Somente parcelas pagas podem ser estornadas")
     anterior = str(parcela.valor_pago)
+    forma_anterior = parcela.forma_pagamento
     parcela.valor_pago, parcela.pago_em, parcela.forma_pagamento = Decimal(0), None, None
+    parcela.forma_pagamento_id = None
     parcela.observacoes_baixa, parcela.status = None, "aberta"
     await _atualizar_status(parcela.lancamento)
     _auditar(
@@ -471,6 +843,19 @@ async def estornar(
         "estornar_baixa",
         f"parcela-financeira:{parcela.id}",
         {"valor_anterior": anterior, "motivo": dados.motivo},
+    )
+    _registrar_historico(
+        session,
+        usuario,
+        parcela.lancamento_id,
+        "estorno",
+        f"Baixa da {parcela.numero}ª parcela estornada",
+        {
+            "valor_anterior": anterior,
+            "forma_pagamento": forma_anterior,
+            "motivo": dados.motivo.strip(),
+        },
+        parcela.id,
     )
     await session.commit()
     return {"status": "aberta"}
@@ -508,12 +893,132 @@ async def cancelar(
         f"lancamento-financeiro:{lancamento.id}",
         {"motivo": dados.motivo},
     )
+    _registrar_historico(
+        session,
+        usuario,
+        lancamento.id,
+        "cancelamento",
+        "Lançamento cancelado",
+        {"motivo": dados.motivo.strip()},
+    )
     await session.commit()
     return {"status": "cancelado"}
 
 
+@router.get("/lancamentos/{lancamento_id}/historico")
+async def historico_lancamento(
+    lancamento_id: int, session: SessionDep, usuario: ViewDep
+) -> dict:
+    existe = (
+        await session.execute(
+            select(LancamentoFinanceiro.id).where(
+                LancamentoFinanceiro.id == lancamento_id,
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not existe:
+        raise HTTPException(404, "Lançamento não encontrado")
+    eventos = (
+        (
+            await session.execute(
+                select(HistoricoFinanceiro)
+                .where(
+                    HistoricoFinanceiro.lancamento_id == lancamento_id,
+                    HistoricoFinanceiro.organizacao_id == usuario.organizacao_id,
+                )
+                .order_by(HistoricoFinanceiro.criado_em.desc(), HistoricoFinanceiro.id.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "itens": [
+            {
+                "id": x.id,
+                "acao": x.acao,
+                "descricao": x.descricao,
+                "ator": x.ator,
+                "parcela_id": x.parcela_id,
+                "detalhes": x.detalhes,
+                "criado_em": x.criado_em,
+            }
+            for x in eventos
+        ]
+    }
+
+
+@router.get("/logs")
+async def listar_logs_financeiros(
+    session: SessionDep,
+    usuario: LogDep,
+    acao: Literal["baixa", "estorno", "cancelamento"] | None = None,
+    inicio: date | None = None,
+    fim: date | None = None,
+    busca: Annotated[str | None, Query(max_length=120)] = None,
+    limite: Annotated[int, Query(ge=1, le=500)] = 200,
+) -> dict:
+    filtros = [HistoricoFinanceiro.organizacao_id == usuario.organizacao_id]
+    if acao:
+        filtros.append(HistoricoFinanceiro.acao == acao)
+    if inicio:
+        filtros.append(func.date(HistoricoFinanceiro.criado_em) >= inicio)
+    if fim:
+        filtros.append(func.date(HistoricoFinanceiro.criado_em) <= fim)
+    if busca:
+        termo = f"%{busca.strip()}%"
+        filtros.append(
+            or_(
+                LancamentoFinanceiro.descricao.ilike(termo),
+                LancamentoFinanceiro.documento.ilike(termo),
+                HistoricoFinanceiro.ator.ilike(termo),
+                HistoricoFinanceiro.descricao.ilike(termo),
+            )
+        )
+    linhas = (
+        await session.execute(
+            select(HistoricoFinanceiro, LancamentoFinanceiro)
+            .join(
+                LancamentoFinanceiro,
+                LancamentoFinanceiro.id == HistoricoFinanceiro.lancamento_id,
+            )
+            .where(*filtros)
+            .order_by(HistoricoFinanceiro.criado_em.desc(), HistoricoFinanceiro.id.desc())
+            .limit(limite)
+        )
+    ).all()
+    return {
+        "itens": [
+            {
+                "id": evento.id,
+                "acao": evento.acao,
+                "descricao": evento.descricao,
+                "ator": evento.ator,
+                "detalhes": evento.detalhes,
+                "criado_em": evento.criado_em,
+                "lancamento_id": lancamento.id,
+                "lancamento": lancamento.descricao,
+                "documento": lancamento.documento,
+                "tipo": lancamento.tipo,
+                "parcela_id": evento.parcela_id,
+            }
+            for evento, lancamento in linhas
+        ],
+        "total": len(linhas),
+        "limite": limite,
+    }
+
+
 @router.get("/exportar.csv")
-async def exportar(session: SessionDep, usuario: ExportDep) -> StreamingResponse:
+async def exportar(
+    session: SessionDep,
+    usuario: ExportDep,
+    tipo: Literal["pagar", "receber"] | None = None,
+) -> StreamingResponse:
+    filtros = [LancamentoFinanceiro.organizacao_id == usuario.organizacao_id]
+    if tipo:
+        filtros.append(LancamentoFinanceiro.tipo == tipo)
     itens = (
         (
             await session.execute(
@@ -523,7 +1028,7 @@ async def exportar(session: SessionDep, usuario: ExportDep) -> StreamingResponse
                     selectinload(LancamentoFinanceiro.empresa_registro),
                     selectinload(LancamentoFinanceiro.categoria),
                 )
-                .where(LancamentoFinanceiro.organizacao_id == usuario.organizacao_id)
+                .where(*filtros)
                 .order_by(LancamentoFinanceiro.id)
             )
         )

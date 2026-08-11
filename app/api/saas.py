@@ -98,7 +98,8 @@ class CredencialInput(BaseModel):
 class ConviteInput(BaseModel):
     email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=254)
     perfil: str = Field(
-        default="operador", pattern=r"^(administrador|gestor|analista|operador|auditor)$"
+        default="operador",
+        pattern=r"^(administrador|ceo|tech|gestor|analista|operador|auditor|financeiro)$",
     )
     permissoes: list[str] = []
 

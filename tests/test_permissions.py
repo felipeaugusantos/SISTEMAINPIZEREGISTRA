@@ -34,6 +34,28 @@ def test_rota_negada_para_operador_sem_permissao() -> None:
         app.dependency_overrides.clear()
 
 
+def test_perfil_financeiro_acessa_apenas_pagina_financeira() -> None:
+    from app.permissions import permissoes_do_perfil
+
+    usuario = usuario_teste("financeiro", set(permissoes_do_perfil("financeiro")))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        cliente = TestClient(app)
+        assert cliente.get("/admin/financeiro").status_code == 200
+        assert cliente.get("/admin", follow_redirects=False).status_code == 403
+        assert cliente.get("/admin/pesquisas", follow_redirects=False).status_code == 403
+        assert cliente.get("/admin/usuarios", follow_redirects=False).status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_perfis_ceo_e_tech_possuem_acesso_integral() -> None:
+    from app.permissions import CHAVES_PERMISSAO, permissoes_do_perfil
+
+    assert permissoes_do_perfil("ceo") == CHAVES_PERMISSAO
+    assert permissoes_do_perfil("tech") == CHAVES_PERMISSAO
+
+
 def test_http_basic_foi_removido() -> None:
     resposta = TestClient(app).get("/v1/admin/leads", auth=("admin", "qualquer-senha"))
     assert resposta.status_code == 401

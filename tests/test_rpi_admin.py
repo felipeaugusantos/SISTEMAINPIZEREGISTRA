@@ -3,11 +3,12 @@ from datetime import UTC, datetime, timedelta
 from app.api.rpi_admin import (
     _aparencia_status,
     _execucao_response,
+    pode_ver_execucoes_recentes,
     solicitar_sincronizacao,
     tentar_novamente,
 )
 from app.models import RpiSyncExecucao
-from tests.conftest import FakeSession
+from tests.conftest import FakeSession, usuario_teste
 
 
 def test_cores_do_monitoramento_refletem_saude_e_atraso() -> None:
@@ -41,6 +42,12 @@ def test_execucao_calcula_progresso_e_duracao() -> None:
     assert resposta.progresso_percentual == 50.0
     assert resposta.duracao_segundos is not None
     assert resposta.duracao_segundos >= 90
+
+
+def test_execucoes_recentes_sao_exclusivas_de_tech_e_administrador() -> None:
+    assert pode_ver_execucoes_recentes(usuario_teste(perfil="tech"))
+    assert pode_ver_execucoes_recentes(usuario_teste(perfil="administrador"))
+    assert not pode_ver_execucoes_recentes(usuario_teste(perfil="ceo"))
 
 
 async def test_solicitacao_manual_entra_na_fila() -> None:

@@ -11,7 +11,7 @@ from app.models import TipoProcesso
 BASE_RPI = "https://revistas.inpi.gov.br/txt"
 # Códigos HTTP tratados como indisponibilidade transitória do portal do INPI.
 _HTTP_TRANSITORIOS = frozenset({500, 502, 503, 504})
-_TENTATIVAS_DOWNLOAD = 4
+_TENTATIVAS_DOWNLOAD = 5
 
 
 def nome_zip(numero_rpi: int, tipo: TipoProcesso) -> str:
@@ -29,17 +29,20 @@ def _baixar_zip_atomico(url: str, arquivo_zip: Path) -> None:
                     with arquivo_temporario.open("wb") as destino:
                         shutil.copyfileobj(resposta, destino)
                 if not zipfile.is_zipfile(arquivo_temporario):
+                    # O portal do INPI às vezes responde 200 com HTML de erro no lugar do
+                    # ZIP; tratamos como transitório e tentamos de novo.
                     raise zipfile.BadZipFile(f"Download inválido recebido de {url}")
                 arquivo_temporario.replace(arquivo_zip)
                 return
-            except (urllib.error.URLError, TimeoutError) as exc:
-                # 4xx (ex.: 404 = edição não publicada) falha na hora; 5xx/rede tentam de novo.
+            except (urllib.error.URLError, TimeoutError, zipfile.BadZipFile) as exc:
+                # 4xx (ex.: 404 = edição não publicada) falha na hora; 5xx, rede e
+                # conteúdo inválido (BadZipFile) são transitórios e tentam de novo.
                 transitorio = (
                     not isinstance(exc, urllib.error.HTTPError)
                     or exc.code in _HTTP_TRANSITORIOS
                 )
                 if transitorio and tentativa < _TENTATIVAS_DOWNLOAD - 1:
-                    time.sleep(3 * (tentativa + 1))  # backoff: 3, 6, 9s
+                    time.sleep(3 * (tentativa + 1))  # backoff: 3, 6, 9, 12s
                     continue
                 raise
     finally:

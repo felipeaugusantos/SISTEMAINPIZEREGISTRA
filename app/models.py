@@ -713,6 +713,127 @@ class ProcessoMonitorado(Base):
         back_populates="processos_monitorados", lazy="selectin"
     )
     responsavel: Mapped["UsuarioOperacoes | None"] = relationship(lazy="selectin")
+    prazos_juridicos: Mapped[list["PrazoJuridico"]] = relationship(
+        back_populates="processo_monitorado",
+        cascade="all, delete-orphan",
+        order_by="PrazoJuridico.vencimento_em",
+    )
+
+
+class PrazoJuridico(Base):
+    """Prazo operacional vinculado a um processo monitorado."""
+
+    __tablename__ = "prazos_juridicos"
+    __table_args__ = (
+        UniqueConstraint(
+            "organizacao_id",
+            "processo_monitorado_id",
+            "movimentacao_origem_id",
+            name="uq_prazo_juridico_movimentacao",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    processo_monitorado_id: Mapped[int] = mapped_column(
+        ForeignKey("processos_monitorados.id", ondelete="CASCADE"), index=True
+    )
+    movimentacao_origem_id: Mapped[int | None] = mapped_column(
+        ForeignKey("movimentacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    responsavel_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    escalonar_para_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    titulo: Mapped[str] = mapped_column(String(180))
+    descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tipo: Mapped[str] = mapped_column(String(40), default="manifestacao", index=True)
+    origem: Mapped[str] = mapped_column(String(20), default="manual", index=True)
+    contagem: Mapped[str] = mapped_column(String(20), default="corridos")
+    data_base: Mapped[date] = mapped_column(Date, index=True)
+    dias_prazo: Mapped[int] = mapped_column(Integer)
+    vencimento_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(30), default="pendente", index=True)
+    prioridade: Mapped[str] = mapped_column(String(10), default="media", index=True)
+    confirmado: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    antecedencia_dias: Mapped[int] = mapped_column(Integer, default=7)
+    escalonar_dias_antes: Mapped[int] = mapped_column(Integer, default=2)
+    escalonado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    concluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    concluido_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    criado_por: Mapped[str] = mapped_column(String(254))
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    processo_monitorado: Mapped[ProcessoMonitorado] = relationship(
+        back_populates="prazos_juridicos", lazy="selectin"
+    )
+    responsavel: Mapped["UsuarioOperacoes | None"] = relationship(
+        foreign_keys=[responsavel_id], lazy="selectin"
+    )
+    escalonar_para: Mapped["UsuarioOperacoes | None"] = relationship(
+        foreign_keys=[escalonar_para_id], lazy="selectin"
+    )
+
+
+class NotificacaoJuridica(Base):
+    __tablename__ = "notificacoes_juridicas"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    prazo_id: Mapped[int] = mapped_column(
+        ForeignKey("prazos_juridicos.id", ondelete="CASCADE"), index=True
+    )
+    destinatario_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    chave: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    tipo: Mapped[str] = mapped_column(String(30), index=True)
+    titulo: Mapped[str] = mapped_column(String(180))
+    mensagem: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="nova", index=True)
+    lida_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lida_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+    prazo: Mapped[PrazoJuridico] = relationship(lazy="selectin")
+    destinatario: Mapped["UsuarioOperacoes | None"] = relationship(lazy="selectin")
+
+
+class EventoJuridico(Base):
+    """Trilha imutável de criação, alteração, entrega e leitura jurídica."""
+
+    __tablename__ = "eventos_juridicos"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    prazo_id: Mapped[int | None] = mapped_column(
+        ForeignKey("prazos_juridicos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    processo_monitorado_id: Mapped[int] = mapped_column(
+        ForeignKey("processos_monitorados.id", ondelete="CASCADE"), index=True
+    )
+    tipo: Mapped[str] = mapped_column(String(30), index=True)
+    ator: Mapped[str] = mapped_column(String(254), index=True)
+    descricao: Mapped[str] = mapped_column(String(500))
+    detalhes: Mapped[dict] = mapped_column(JSON, default=dict)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
 
 
 class Lead(Base):

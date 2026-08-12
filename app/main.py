@@ -23,6 +23,7 @@ from app.api.fase2 import router as fase2_router
 from app.api.fase3 import router as fase3_router
 from app.api.financeiro import exigir_acesso_log_financeiro
 from app.api.financeiro import router as financeiro_router
+from app.api.juridico import router as juridico_router
 from app.api.leads import router as leads_router
 from app.api.pesquisas import router as pesquisas_router
 from app.api.processos import router as processos_router
@@ -74,6 +75,7 @@ app.include_router(producao_router)
 app.include_router(rpi_admin_router)
 app.include_router(aprendizado_router)
 app.include_router(carteira_router)
+app.include_router(juridico_router)
 app.include_router(consulta_router)
 app.include_router(crm_router)
 app.include_router(exclusoes_router)
@@ -170,6 +172,15 @@ async def painel_pesquisas() -> FileResponse:
 )
 async def painel_processos_monitorados() -> FileResponse:
     return FileResponse(web_dir / "admin-carteira.html")
+
+
+@app.get(
+    "/admin/operacao-juridica",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("legal.view"))],
+)
+async def painel_operacao_juridica() -> FileResponse:
+    return FileResponse(web_dir / "admin-juridico.html")
 
 
 @app.get(

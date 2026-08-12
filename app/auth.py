@@ -38,6 +38,7 @@ MODULO_POR_PERMISSAO = {
     "production": "producao",
     "audit": "producao",
     "portfolio": "leads",
+    "legal": "leads",
     "finance": "financeiro",
 }
 

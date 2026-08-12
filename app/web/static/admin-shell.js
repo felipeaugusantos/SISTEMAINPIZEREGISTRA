@@ -4,6 +4,7 @@ const adminSections = [
   { id: "leads", label: "Leads, pesquisas e análises", href: "/admin/pesquisas", symbol: "AN", permission: "leads.view" },
   { id: "crm", label: "CRM", href: "/admin/crm", symbol: "CR", permission: "leads.view" },
   { id: "portfolio", label: "Processos monitorados", href: "/admin/processos-monitorados", symbol: "PM", permission: "portfolio.view" },
+  { id: "legal", label: "Operação jurídica", href: "/admin/operacao-juridica", symbol: "OJ", permission: "legal.view" },
   { id: "finance", label: "Financeiro", href: "/admin/financeiro", symbol: "FI", permission: "finance.view" },
   { id: "finance-payable", label: "Contas a pagar", href: "/admin/financeiro/contas-a-pagar", symbol: "CP", permission: "finance.view", parent: "finance" },
   { id: "finance-receivable", label: "Contas a receber", href: "/admin/financeiro/contas-a-receber", symbol: "CR", permission: "finance.view", parent: "finance" },

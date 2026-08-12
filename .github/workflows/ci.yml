@@ -91,7 +91,7 @@ jobs:
           psql -U inpi -d inpi -v ON_ERROR_STOP=1 -c
           "DO \$\$ DECLARE faltantes text; BEGIN
           SELECT string_agg(relname, ', ') INTO faltantes FROM pg_class
-          WHERE relname IN ('leads','pesquisas_marca','usuarios_operacoes','sessoes_operacoes','versoes_relatorio_marca','previsoes_registrabilidade','lembretes_crm')
+          WHERE relname IN ('leads','pesquisas_marca','usuarios_operacoes','sessoes_operacoes','versoes_relatorio_marca','previsoes_registrabilidade','lembretes_crm','prazos_juridicos','notificacoes_juridicas','eventos_juridicos')
           AND (NOT relrowsecurity OR NOT relforcerowsecurity);
           IF faltantes IS NOT NULL THEN RAISE EXCEPTION 'RLS incompleto: %', faltantes; END IF;
           IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='inpi_app' AND rolbypassrls)

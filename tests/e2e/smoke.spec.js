@@ -38,4 +38,10 @@ test("o administrador entra pelo formulário e acessa a visão geral", async ({ 
   await expect(page.getByRole("heading", { name: "Pendências da equipe" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Novo lembrete" })).toBeVisible();
   await expect(page.getByLabel("Status do cliente")).toBeVisible();
+
+  await page.goto("/admin/operacao-juridica");
+  await expect(page.getByRole("heading", { name: "Operação jurídica" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Executar motor de prazos" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Novo prazo" })).toBeVisible();
+  await expect(page.getByText("CENTRAL DE NOTIFICAÇÕES")).toBeVisible();
 });

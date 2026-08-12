@@ -54,6 +54,15 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 - acompanhamento da situação no INPI e da última movimentação da RPI;
 - filtros por número, marca, procurador, empresa e status interno.
 
+### Operação jurídica
+
+- motor de prazos com contagem em dias corridos ou úteis;
+- sugestões extraídas das movimentações da RPI, sempre sujeitas a confirmação humana;
+- agenda por processo, responsável, período, prioridade e status;
+- alertas de antecedência, vencimento e escalonamento automático;
+- central de notificações com registro individual de leitura;
+- histórico auditável de criação, alteração, entrega, protocolo, escalonamento e leitura.
+
 ### Financeiro
 
 - painel com indicadores e pendências;
@@ -169,6 +178,7 @@ docker compose logs -f worker
 | Leads e pesquisas | <http://localhost:8000/admin/pesquisas> |
 | CRM | <http://localhost:8000/admin/crm> |
 | Processos monitorados | <http://localhost:8000/admin/processos-monitorados> |
+| Operação jurídica | <http://localhost:8000/admin/operacao-juridica> |
 | Financeiro | <http://localhost:8000/admin/financeiro> |
 | Contas a pagar | <http://localhost:8000/admin/financeiro/contas-a-pagar> |
 | Contas a receber | <http://localhost:8000/admin/financeiro/contas-a-receber> |

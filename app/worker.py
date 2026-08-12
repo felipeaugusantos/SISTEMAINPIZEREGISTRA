@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
+from app.api.juridico import executar_motor_organizacao
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
 from app.database import session_factory
 from app.models import AlertaSistema, Lead, ModeloRegistrabilidade, Organizacao
@@ -197,6 +198,14 @@ async def processar(tipo: str, payload: dict) -> None:
                     )
         elif tipo == "alto_renome.sincronizar":
             await sincronizar_alto_renome(get_settings().alto_renome_page_url)
+        elif tipo == "juridico.executar_motor":
+            organizacoes = (
+                await session.execute(
+                    select(Organizacao.id).where(Organizacao.status != "suspensa")
+                )
+            ).scalars()
+            for organizacao_id in organizacoes:
+                await executar_motor_organizacao(session, organizacao_id)
         else:
             raise ValueError(f"Tipo de trabalho desconhecido: {tipo}")
         await session.commit()
@@ -219,6 +228,7 @@ async def main() -> None:
                     "assinaturas.verificar",
                     "privacidade.verificar_retencao",
                     "registrabilidade.reconciliar_resultados",
+                    "juridico.executar_motor",
                 ):
                     try:
                         await processar(tarefa, {})

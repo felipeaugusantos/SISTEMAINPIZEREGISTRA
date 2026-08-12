@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Operação jurídica — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=22">
+  <link rel="stylesheet" href="/static/admin-juridico.css?v=1">
+  <script src="/static/admin-shell.js?v=31" defer></script>
+  <script src="/static/admin-juridico.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="legal">
+  <main class="admin-main legal-main">
+    <section class="legal-hero">
+      <div>
+        <p class="eyebrow">GESTÃO JURÍDICA E PROPRIEDADE INTELECTUAL</p>
+        <h1>Operação jurídica</h1>
+        <p>Centralize prazos, agenda, responsáveis, escalonamentos, notificações e evidências de entrega dos processos monitorados.</p>
+      </div>
+      <div class="legal-hero-actions">
+        <button id="run-legal-engine" class="secondary-button" type="button">Executar motor de prazos</button>
+        <button id="new-legal-deadline" class="primary-button" type="button">Novo prazo</button>
+      </div>
+    </section>
+
+    <div id="legal-message" class="status-message" role="status" aria-live="polite" hidden></div>
+    <section id="legal-metrics" class="legal-metrics" aria-label="Indicadores jurídicos"></section>
+
+    <section class="legal-card legal-notification-center">
+      <header>
+        <div><p class="eyebrow">CENTRAL DE NOTIFICAÇÕES</p><h2>Alertas da equipe</h2></div>
+        <span id="legal-notification-count" class="legal-count"></span>
+      </header>
+      <div id="legal-notifications" class="legal-notifications"></div>
+    </section>
+
+    <section class="legal-card">
+      <header><div><p class="eyebrow">AGENDA E RESPONSÁVEIS</p><h2>Prazos jurídicos</h2></div></header>
+      <form id="legal-filter" class="legal-filter">
+        <label class="wide"><span>Buscar</span><input name="busca" placeholder="Processo, marca, empresa ou tarefa"></label>
+        <label><span>Status</span><select name="status_prazo"><option value="">Todos</option><option value="aguardando_confirmacao">Aguardando confirmação</option><option value="pendente">Pendente</option><option value="em_andamento">Em andamento</option><option value="concluido">Concluído</option><option value="cancelado">Cancelado</option></select></label>
+        <label><span>Responsável</span><select name="responsavel_id"><option value="">Todos</option></select></label>
+        <label><span>De</span><input type="date" name="inicio"></label>
+        <label><span>Até</span><input type="date" name="fim"></label>
+        <button class="primary-button" type="submit">Filtrar</button>
+        <button id="clear-legal-filter" class="secondary-button" type="button">Limpar</button>
+      </form>
+      <div id="legal-deadlines" class="legal-deadlines"></div>
+    </section>
+
+    <section class="legal-card">
+      <header><div><p class="eyebrow">TRILHA AUDITÁVEL</p><h2>Entregas, leituras e alterações</h2></div></header>
+      <div id="legal-history" class="legal-history"></div>
+    </section>
+  </main>
+
+  <dialog id="deadline-dialog" class="legal-dialog">
+    <form id="deadline-form">
+      <header><div><p class="eyebrow">AGENDA JURÍDICA</p><h2>Novo prazo</h2></div><button type="button" data-close-dialog aria-label="Fechar">×</button></header>
+      <label class="full"><span>Processo monitorado</span><select name="processo_monitorado_id" required></select></label>
+      <label class="full"><span>Título da tarefa</span><input name="titulo" minlength="3" maxlength="180" required></label>
+      <label><span>Tipo</span><select name="tipo"></select></label>
+      <label><span>Prioridade</span><select name="prioridade"><option value="baixa">Baixa</option><option value="media" selected>Média</option><option value="alta">Alta</option><option value="critica">Crítica</option></select></label>
+      <label><span>Data-base</span><input type="date" name="data_base" required></label>
+      <label><span>Quantidade de dias</span><input type="number" name="dias_prazo" min="0" max="3650" required></label>
+      <label><span>Contagem</span><select name="contagem"><option value="corridos">Dias corridos</option><option value="uteis">Dias úteis (sem feriados)</option></select></label>
+      <label><span>Responsável</span><select name="responsavel_id"><option value="">Não atribuído</option></select></label>
+      <label><span>Escalonar para</span><select name="escalonar_para_id"><option value="">Sem escalonamento</option></select></label>
+      <label><span>Alertar com antecedência</span><input type="number" name="antecedencia_dias" value="7" min="0" max="365"></label>
+      <label><span>Escalonar faltando</span><input type="number" name="escalonar_dias_antes" value="2" min="0" max="365"></label>
+      <label class="full"><span>Orientações</span><textarea name="descricao" rows="4" maxlength="4000"></textarea></label>
+      <p class="legal-disclaimer full">A contagem automática é operacional e não substitui a conferência da publicação, da legislação aplicável, de feriados ou do profissional responsável.</p>
+      <footer class="full"><button class="secondary-button" type="button" data-close-dialog>Cancelar</button><button class="primary-button" type="submit">Salvar prazo</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="delivery-dialog" class="legal-dialog compact">
+    <form id="delivery-form">
+      <header><div><p class="eyebrow">EVIDÊNCIA AUDITÁVEL</p><h2>Registrar entrega</h2></div><button type="button" data-close-delivery aria-label="Fechar">×</button></header>
+      <input type="hidden" name="prazo_id">
+      <label><span>Descrição da entrega</span><textarea name="descricao" rows="4" minlength="3" maxlength="500" required></textarea></label>
+      <label><span>Número do protocolo</span><input name="protocolo" maxlength="120"></label>
+      <label><span>Documento ou referência</span><input name="documento" maxlength="500"></label>
+      <footer><button class="secondary-button" type="button" data-close-delivery>Cancelar</button><button class="primary-button" type="submit">Registrar</button></footer>
+    </form>
+  </dialog>
+</body>
+</html>

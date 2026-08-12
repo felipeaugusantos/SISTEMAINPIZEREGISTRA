@@ -38,6 +38,18 @@ PERMISSOES = (
         "Cadastrar, vincular e atualizar processos acompanhados.",
     ),
     PermissaoDef(
+        "legal.view",
+        "Operacao juridica",
+        "Visualizar operacao juridica",
+        "Consultar agenda, prazos, notificacoes e historico juridico.",
+    ),
+    PermissaoDef(
+        "legal.manage",
+        "Operacao juridica",
+        "Gerenciar operacao juridica",
+        "Criar, confirmar, atribuir e concluir prazos juridicos.",
+    ),
+    PermissaoDef(
         "finance.view", "Financeiro", "Visualizar financeiro", "Consultar contas e indicadores."
     ),
     PermissaoDef(
@@ -129,6 +141,8 @@ PERFIS = {
             "leads.export",
             "portfolio.view",
             "portfolio.manage",
+            "legal.view",
+            "legal.manage",
             "finance.view",
             "finance.manage",
             "finance.export",
@@ -141,6 +155,7 @@ PERFIS = {
             "dashboard.view",
             "leads.view",
             "portfolio.view",
+            "legal.view",
             "finance.view",
             "validation.view",
             "risk.view",
@@ -169,6 +184,7 @@ def destino_inicial(perfil: str, permissoes: set[str] | frozenset[str]) -> str:
         ("finance.view", "/admin/financeiro"),
         ("leads.view", "/admin/pesquisas"),
         ("portfolio.view", "/admin/processos-monitorados"),
+        ("legal.view", "/admin/operacao-juridica"),
         ("validation.view", "/admin/validacao"),
         ("risk.view", "/admin/risco"),
         ("learning.view", "/admin/aprendizado"),

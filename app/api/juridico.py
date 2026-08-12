@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
@@ -14,6 +14,7 @@ from app.models import (
     EmpresaCRM,
     EventoAuditoria,
     EventoJuridico,
+    ItemChecklistPrazo,
     Movimentacao,
     NotificacaoJuridica,
     PrazoJuridico,
@@ -140,6 +141,74 @@ class EntregaInput(BaseModel):
     descricao: str = Field(min_length=3, max_length=500)
     protocolo: str | None = Field(default=None, max_length=120)
     documento: str | None = Field(default=None, max_length=500)
+
+
+class ChecklistItemInput(BaseModel):
+    descricao: str = Field(min_length=2, max_length=300)
+
+
+class ChecklistItemUpdate(BaseModel):
+    concluido: bool
+
+
+# Checklist operacional padrão por tipo de prazo (LPI/prática de marcas).
+CHECKLIST_PADRAO: dict[str, list[str]] = {
+    "oposicao": [
+        "Conferir prazo, marca e partes envolvidas",
+        "Levantar fundamentos e anterioridades",
+        "Elaborar a peça de oposição/manifestação",
+        "Emitir e pagar a GRU",
+        "Protocolar no INPI",
+        "Arquivar o comprovante de protocolo",
+    ],
+    "recurso": [
+        "Analisar o despacho de indeferimento",
+        "Levantar os argumentos do recurso",
+        "Elaborar as razões de recurso",
+        "Emitir e pagar a GRU",
+        "Protocolar o recurso no INPI",
+        "Arquivar o comprovante",
+    ],
+    "exigencia": [
+        "Ler o teor da exigência no parecer",
+        "Reunir os documentos/correções exigidos",
+        "Elaborar a petição de cumprimento",
+        "Emitir e pagar a GRU (se aplicável)",
+        "Protocolar o cumprimento no INPI",
+        "Arquivar o comprovante",
+    ],
+    "pagamento": [
+        "Emitir a GRU de concessão/retribuição",
+        "Conferir o valor e o código de serviço",
+        "Efetuar o pagamento dentro do prazo",
+        "Protocolar o comprovante no INPI",
+        "Arquivar o comprovante",
+    ],
+    "manifestacao": [
+        "Conferir o objeto da manifestação",
+        "Levantar subsídios e provas",
+        "Elaborar a manifestação",
+        "Protocolar no INPI",
+        "Arquivar o comprovante",
+    ],
+}
+CHECKLIST_GENERICO = [
+    "Analisar o prazo e o processo",
+    "Preparar a providência necessária",
+    "Protocolar/registrar no INPI",
+    "Arquivar o comprovante",
+]
+
+
+def _serializar_item_checklist(item: ItemChecklistPrazo) -> dict:
+    return {
+        "id": item.id,
+        "descricao": item.descricao,
+        "concluido": item.concluido,
+        "ordem": item.ordem,
+        "concluido_em": item.concluido_em,
+        "concluido_por": item.concluido_por,
+    }
 
 
 def _auditar(
@@ -542,6 +611,149 @@ async def registrar_entrega(
     _auditar(session, request, usuario, "registrar_entrega", f"prazo:{prazo.id}", detalhes)
     await session.commit()
     return {"registrado": True}
+
+
+async def _obter_item_checklist(
+    session: AsyncSession, usuario: UsuarioAutenticado, item_id: int
+) -> ItemChecklistPrazo:
+    item = (
+        await session.execute(
+            select(ItemChecklistPrazo).where(
+                ItemChecklistPrazo.id == item_id,
+                ItemChecklistPrazo.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(404, "Item de checklist não encontrado")
+    return item
+
+
+async def _listar_checklist(
+    session: AsyncSession, usuario: UsuarioAutenticado, prazo_id: int
+) -> dict:
+    itens = (
+        await session.execute(
+            select(ItemChecklistPrazo)
+            .where(
+                ItemChecklistPrazo.prazo_id == prazo_id,
+                ItemChecklistPrazo.organizacao_id == usuario.organizacao_id,
+            )
+            .order_by(ItemChecklistPrazo.ordem, ItemChecklistPrazo.id)
+        )
+    ).scalars().all()
+    return {
+        "itens": [_serializar_item_checklist(item) for item in itens],
+        "total": len(itens),
+        "concluidos": sum(1 for item in itens if item.concluido),
+    }
+
+
+@router.get("/checklists/resumo")
+async def resumo_checklists(session: SessionDep, usuario: ViewDep) -> dict:
+    """Progresso de checklist por prazo (para os cartões do Kanban)."""
+    linhas = (
+        await session.execute(
+            select(
+                ItemChecklistPrazo.prazo_id,
+                func.count(),
+                func.count().filter(ItemChecklistPrazo.concluido),
+            )
+            .where(ItemChecklistPrazo.organizacao_id == usuario.organizacao_id)
+            .group_by(ItemChecklistPrazo.prazo_id)
+        )
+    ).all()
+    return {
+        str(prazo_id): {"total": total, "concluidos": feitos}
+        for prazo_id, total, feitos in linhas
+    }
+
+
+@router.get("/prazos/{prazo_id}/checklist")
+async def obter_checklist(prazo_id: int, session: SessionDep, usuario: ViewDep) -> dict:
+    await _obter_prazo(session, usuario, prazo_id)
+    return await _listar_checklist(session, usuario, prazo_id)
+
+
+@router.post("/prazos/{prazo_id}/checklist", status_code=status.HTTP_201_CREATED)
+async def adicionar_item_checklist(
+    prazo_id: int, dados: ChecklistItemInput, session: SessionDep, usuario: ManageDep
+) -> dict:
+    await _obter_prazo(session, usuario, prazo_id)
+    ordem = (
+        await session.execute(
+            select(func.coalesce(func.max(ItemChecklistPrazo.ordem), 0)).where(
+                ItemChecklistPrazo.prazo_id == prazo_id
+            )
+        )
+    ).scalar_one()
+    session.add(
+        ItemChecklistPrazo(
+            organizacao_id=usuario.organizacao_id,
+            prazo_id=prazo_id,
+            descricao=dados.descricao,
+            ordem=ordem + 1,
+        )
+    )
+    await session.commit()
+    return await _listar_checklist(session, usuario, prazo_id)
+
+
+@router.post("/prazos/{prazo_id}/checklist/padrao", status_code=status.HTTP_201_CREATED)
+async def aplicar_checklist_padrao(
+    prazo_id: int, session: SessionDep, usuario: ManageDep
+) -> dict:
+    prazo = await _obter_prazo(session, usuario, prazo_id)
+    existentes = (
+        await session.execute(
+            select(func.count())
+            .select_from(ItemChecklistPrazo)
+            .where(ItemChecklistPrazo.prazo_id == prazo_id)
+        )
+    ).scalar_one()
+    if existentes:
+        raise HTTPException(409, "Este prazo já possui itens de checklist.")
+    modelo = CHECKLIST_PADRAO.get(prazo.tipo, CHECKLIST_GENERICO)
+    for ordem, descricao in enumerate(modelo, start=1):
+        session.add(
+            ItemChecklistPrazo(
+                organizacao_id=usuario.organizacao_id,
+                prazo_id=prazo_id,
+                descricao=descricao,
+                ordem=ordem,
+            )
+        )
+    _evento(
+        session,
+        usuario,
+        prazo.processo_monitorado_id,
+        "checklist_padrao",
+        f"Checklist padrão aplicado ({len(modelo)} itens)",
+        prazo.id,
+    )
+    await session.commit()
+    return await _listar_checklist(session, usuario, prazo_id)
+
+
+@router.patch("/checklist/{item_id}")
+async def atualizar_item_checklist(
+    item_id: int, dados: ChecklistItemUpdate, session: SessionDep, usuario: ManageDep
+) -> dict:
+    item = await _obter_item_checklist(session, usuario, item_id)
+    item.concluido = dados.concluido
+    item.concluido_em = datetime.now(UTC) if dados.concluido else None
+    item.concluido_por = usuario.ator if dados.concluido else None
+    await session.commit()
+    return _serializar_item_checklist(item)
+
+
+@router.delete("/checklist/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remover_item_checklist(
+    item_id: int, session: SessionDep, usuario: ManageDep
+) -> None:
+    item = await _obter_item_checklist(session, usuario, item_id)
+    await session.delete(item)
+    await session.commit()
 
 
 @router.patch("/notificacoes/{notificacao_id}")

@@ -1,13 +1,18 @@
 import asyncio
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 from starlette.requests import Request
 
 from app.api.juridico import (
+    CHECKLIST_GENERICO,
+    CHECKLIST_PADRAO,
     PADRAO_PRAZO,
+    ChecklistItemUpdate,
     PrazoInput,
     _classificar_despacho,
+    atualizar_item_checklist,
     calcular_vencimento,
     criar_prazo,
 )
@@ -126,3 +131,42 @@ def test_tela_juridica_expoe_fluxos_principais() -> None:
     assert "Registrar entrega" in html
     assert "/v1/admin/juridico/motor/executar" in javascript
     assert "/admin/operacao-juridica" in shell
+
+
+def test_checklist_padrao_cobre_todos_os_tipos() -> None:
+    for tipo in ("oposicao", "recurso", "exigencia", "pagamento", "manifestacao"):
+        assert CHECKLIST_PADRAO[tipo], f"template vazio para {tipo}"
+    assert CHECKLIST_GENERICO
+
+
+def test_checklist_tipo_desconhecido_usa_generico() -> None:
+    assert CHECKLIST_PADRAO.get("inexistente", CHECKLIST_GENERICO) is CHECKLIST_GENERICO
+
+
+def test_marcar_item_registra_autor_e_data() -> None:
+    item = SimpleNamespace(
+        id=5, descricao="Protocolar no INPI", concluido=False, ordem=1,
+        concluido_em=None, concluido_por=None,
+    )
+    session = FakeSession([FakeResult(scalar=item)])
+    usuario = usuario_teste()
+    resultado = asyncio.run(
+        atualizar_item_checklist(5, ChecklistItemUpdate(concluido=True), session, usuario)
+    )
+    assert resultado["concluido"] is True
+    assert resultado["concluido_por"] == usuario.ator
+    assert item.concluido_em is not None
+
+
+def test_desmarcar_item_limpa_autor_e_data() -> None:
+    item = SimpleNamespace(
+        id=5, descricao="Protocolar no INPI", concluido=True, ordem=1,
+        concluido_em=object(), concluido_por="alguem",
+    )
+    session = FakeSession([FakeResult(scalar=item)])
+    resultado = asyncio.run(
+        atualizar_item_checklist(5, ChecklistItemUpdate(concluido=False), session, usuario_teste())
+    )
+    assert resultado["concluido"] is False
+    assert item.concluido_em is None
+    assert item.concluido_por is None

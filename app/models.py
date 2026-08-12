@@ -784,6 +784,26 @@ class PrazoJuridico(Base):
     )
 
 
+class ItemChecklistPrazo(Base):
+    """Etapa de conferência de um prazo jurídico (checklist operacional)."""
+
+    __tablename__ = "itens_checklist_prazo"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    prazo_id: Mapped[int] = mapped_column(
+        ForeignKey("prazos_juridicos.id", ondelete="CASCADE"), index=True
+    )
+    descricao: Mapped[str] = mapped_column(String(300))
+    concluido: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    ordem: Mapped[int] = mapped_column(Integer, default=0)
+    concluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    concluido_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class NotificacaoJuridica(Base):
     __tablename__ = "notificacoes_juridicas"
 

@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Operação jurídica — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=22">
-  <link rel="stylesheet" href="/static/admin-juridico.css?v=1">
+  <link rel="stylesheet" href="/static/admin-juridico.css?v=2">
   <script src="/static/admin-shell.js?v=32" defer></script>
-  <script src="/static/admin-juridico.js?v=1" defer></script>
+  <script src="/static/admin-juridico.js?v=2" defer></script>
 </head>
 <body class="admin-body" data-admin-section="legal">
   <main class="admin-main legal-main">
@@ -36,7 +36,13 @@
     </section>
 
     <section class="legal-card">
-      <header><div><p class="eyebrow">AGENDA E RESPONSÁVEIS</p><h2>Prazos jurídicos</h2></div></header>
+      <header>
+        <div><p class="eyebrow">AGENDA E RESPONSÁVEIS</p><h2>Prazos jurídicos</h2></div>
+        <div class="legal-view-toggle" role="group" aria-label="Modo de visualização">
+          <button id="view-list" class="view-tab active" type="button" aria-pressed="true">Lista</button>
+          <button id="view-kanban" class="view-tab" type="button" aria-pressed="false">Kanban</button>
+        </div>
+      </header>
       <form id="legal-filter" class="legal-filter">
         <label class="wide"><span>Buscar</span><input name="busca" placeholder="Processo, marca, empresa ou tarefa"></label>
         <label><span>Status</span><select name="status_prazo"><option value="">Todos</option><option value="aguardando_confirmacao">Aguardando confirmação</option><option value="pendente">Pendente</option><option value="em_andamento">Em andamento</option><option value="concluido">Concluído</option><option value="cancelado">Cancelado</option></select></label>
@@ -47,6 +53,7 @@
         <button id="clear-legal-filter" class="secondary-button" type="button">Limpar</button>
       </form>
       <div id="legal-deadlines" class="legal-deadlines"></div>
+      <div id="legal-kanban" class="legal-kanban" hidden></div>
     </section>
 
     <section class="legal-card">
@@ -84,6 +91,20 @@
       <label><span>Documento ou referência</span><input name="documento" maxlength="500"></label>
       <footer><button class="secondary-button" type="button" data-close-delivery>Cancelar</button><button class="primary-button" type="submit">Registrar</button></footer>
     </form>
+  </dialog>
+
+  <dialog id="checklist-dialog" class="legal-dialog compact">
+    <div class="checklist-frame">
+      <header><div><p class="eyebrow">CHECKLIST OPERACIONAL</p><h2 id="checklist-title">Etapas do prazo</h2></div><button type="button" data-close-checklist aria-label="Fechar">×</button></header>
+      <div class="checklist-progress"><div class="checklist-progress-bar"><i id="checklist-bar"></i></div><span id="checklist-progress-label">—</span></div>
+      <ul id="checklist-items" class="checklist-items"></ul>
+      <div id="checklist-empty" class="legal-empty" hidden>Nenhuma etapa cadastrada. Aplique um checklist padrão ou adicione etapas manualmente.</div>
+      <form id="checklist-add" class="checklist-add">
+        <input name="descricao" minlength="2" maxlength="300" placeholder="Nova etapa (ex.: Protocolar no INPI)" required>
+        <button class="secondary-button" type="submit">Adicionar</button>
+      </form>
+      <footer><button id="checklist-default" class="secondary-button" type="button">Aplicar checklist padrão</button><button class="primary-button" type="button" data-close-checklist>Concluir</button></footer>
+    </div>
   </dialog>
 </body>
 </html>

@@ -1,4 +1,4 @@
-const legalState = { references: null, canManage: false };
+const legalState = { references: null, canManage: false, checklists: {} };
 const legalMessage = document.querySelector("#legal-message");
 const deadlineDialog = document.querySelector("#deadline-dialog");
 const deadlineForm = document.querySelector("#deadline-form");
@@ -68,7 +68,7 @@ function deadlineActions(item) {
 }
 function renderDeadlines(items) {
   document.querySelector("#legal-deadlines").innerHTML = items.length
-    ? items.map((item) => `<article class="legal-deadline ${deadlineClass(item)}"><div><div class="legal-badges"><span class="legal-badge">${escapeHtml(item.tipo_nome)}</span><span class="legal-badge ${item.prioridade === "critica" ? "critical" : ""}">${escapeHtml(item.prioridade)}</span>${!item.confirmado ? '<span class="legal-badge critical">Conferência obrigatória</span>' : ""}</div><h3>${escapeHtml(item.titulo)}</h3><p><strong>${escapeHtml(item.numero)}</strong> · ${escapeHtml(item.marca || "Sem título")} · ${escapeHtml(item.empresa || "Sem empresa vinculada")}</p><small>${escapeHtml(item.descricao || "Sem orientações adicionais")}</small></div><div class="legal-deadline-date"><span>Vencimento</span><strong>${dateOnly.format(new Date(item.vencimento_em))}</strong><span>${item.vencido ? `Vencido há ${Math.abs(item.dias_restantes)} dia(s)` : `${item.dias_restantes} dia(s) restante(s)`} · ${escapeHtml(item.contagem)}</span></div><div class="legal-deadline-owner"><span>Responsável</span><strong>${escapeHtml(item.responsavel || "Não atribuído")}</strong><span>Escalonamento: ${escapeHtml(item.escalonar_para || "não definido")}</span><span>Status: ${escapeHtml(item.status.replaceAll("_", " "))}</span></div><div class="legal-actions">${deadlineActions(item)}</div></article>`).join("")
+    ? items.map((item) => `<article class="legal-deadline ${deadlineClass(item)}"><div><div class="legal-badges"><span class="legal-badge">${escapeHtml(item.tipo_nome)}</span><span class="legal-badge ${item.prioridade === "critica" ? "critical" : ""}">${escapeHtml(item.prioridade)}</span>${!item.confirmado ? '<span class="legal-badge critical">Conferência obrigatória</span>' : ""}</div><h3>${escapeHtml(item.titulo)}</h3><p><strong>${escapeHtml(item.numero)}</strong> · ${escapeHtml(item.marca || "Sem título")} · ${escapeHtml(item.empresa || "Sem empresa vinculada")}</p><small>${escapeHtml(item.descricao || "Sem orientações adicionais")}</small></div><div class="legal-deadline-date"><span>Vencimento</span><strong>${dateOnly.format(new Date(item.vencimento_em))}</strong><span>${item.vencido ? `Vencido há ${Math.abs(item.dias_restantes)} dia(s)` : `${item.dias_restantes} dia(s) restante(s)`} · ${escapeHtml(item.contagem)}</span></div><div class="legal-deadline-owner"><span>Responsável</span><strong>${escapeHtml(item.responsavel || "Não atribuído")}</strong><span>Escalonamento: ${escapeHtml(item.escalonar_para || "não definido")}</span><span>Status: ${escapeHtml(item.status.replaceAll("_", " "))}</span></div><div class="legal-actions">${deadlineActions(item)}<button class="secondary-button open-checklist" data-id="${item.id}" data-tipo="${escapeHtml(item.tipo_nome)}" type="button">Checklist${checklistBadge(item.id)}</button></div></article>`).join("")
     : '<div class="legal-empty">Nenhum prazo encontrado. Cadastre um prazo ou execute o motor para procurar sugestões nas publicações da RPI.</div>';
 }
 function renderHistory(items) {
@@ -77,13 +77,18 @@ function renderHistory(items) {
     : '<div class="legal-empty">O histórico será formado por criações, alterações, entregas, escalonamentos e leituras.</div>';
 }
 async function loadDashboard() {
-  const data = await api(`/v1/admin/juridico/painel?${queryParams()}`);
+  const [data, checklists] = await Promise.all([
+    api(`/v1/admin/juridico/painel?${queryParams()}`),
+    api("/v1/admin/juridico/checklists/resumo").catch(() => ({})),
+  ]);
   legalState.canManage = data.acoes.gerenciar;
+  legalState.checklists = checklists || {};
   document.querySelector("#new-legal-deadline").hidden = !legalState.canManage;
   document.querySelector("#run-legal-engine").hidden = !legalState.canManage;
   renderMetrics(data.metricas);
   renderNotifications(data.notificacoes);
   renderDeadlines(data.prazos);
+  renderKanban(data.prazos);
   renderHistory(data.historico);
 }
 async function loadReferences() {
@@ -165,3 +170,143 @@ deliveryForm.addEventListener("submit", async (event) => {
 });
 
 Promise.all([loadReferences(), loadDashboard()]).catch((error) => showMessage(error.message));
+
+/* ===== Checklist + Kanban ===== */
+const KANBAN_COLUNAS = [
+  ["aguardando_confirmacao", "Aguardando"],
+  ["pendente", "Pendente"],
+  ["em_andamento", "Em andamento"],
+  ["concluido", "Concluído"],
+  ["cancelado", "Cancelado"],
+];
+
+function checklistBadge(id) {
+  const resumo = legalState.checklists[id];
+  if (!resumo || !resumo.total) return "";
+  const done = resumo.concluidos === resumo.total;
+  return ` <span class="checklist-chip ${done ? "done" : ""}">&#9745; ${resumo.concluidos}/${resumo.total}</span>`;
+}
+
+function kanbanCard(item) {
+  const draggable = legalState.canManage && !["concluido", "cancelado"].includes(item.status);
+  return `<article class="kanban-card ${deadlineClass(item)}" draggable="${draggable}" data-id="${item.id}" data-status="${item.status}">
+    <div class="kanban-card-badges"><span class="legal-badge">${escapeHtml(item.tipo_nome)}</span>${!item.confirmado ? '<span class="legal-badge critical">Sugestão</span>' : ""}${checklistBadge(item.id)}</div>
+    <h4>${escapeHtml(item.titulo)}</h4>
+    <p>${escapeHtml(item.numero)} · ${escapeHtml(item.marca || "—")}</p>
+    <small>Vence ${dateOnly.format(new Date(item.vencimento_em))} · ${escapeHtml(item.responsavel || "sem responsável")}</small>
+    <button class="secondary-button open-checklist" data-id="${item.id}" data-tipo="${escapeHtml(item.tipo_nome)}" type="button">Checklist</button>
+  </article>`;
+}
+
+// innerHTML abaixo: conteúdo montado com literais + valores via escapeHtml/numéricos.
+function renderKanban(items) {
+  document.querySelector("#legal-kanban").innerHTML = KANBAN_COLUNAS.map(([status, label]) => {
+    const cards = items.filter((item) => item.status === status);
+    return `<div class="kanban-column" data-status="${status}"><header><span>${label}</span><b>${cards.length}</b></header><div class="kanban-dropzone">${cards.map(kanbanCard).join("") || '<p class="kanban-empty">—</p>'}</div></div>`;
+  }).join("");
+}
+
+function transicaoKanban(from, to) {
+  if (from === "aguardando_confirmacao") {
+    if (to === "pendente") return { confirmar: true };
+    if (to === "cancelado") return { status: "cancelado", descricao_evento: "Sugestão descartada no Kanban" };
+    return null;
+  }
+  if (["pendente", "em_andamento", "concluido", "cancelado"].includes(to)) return { status: to };
+  return null;
+}
+
+function setLegalView(view) {
+  const list = view === "list";
+  document.querySelector("#legal-deadlines").hidden = !list;
+  document.querySelector("#legal-kanban").hidden = list;
+  document.querySelector("#view-list").classList.toggle("active", list);
+  document.querySelector("#view-kanban").classList.toggle("active", !list);
+  document.querySelector("#view-list").setAttribute("aria-pressed", String(list));
+  document.querySelector("#view-kanban").setAttribute("aria-pressed", String(!list));
+}
+document.querySelector("#view-list").addEventListener("click", () => setLegalView("list"));
+document.querySelector("#view-kanban").addEventListener("click", () => setLegalView("kanban"));
+
+const kanbanBoard = document.querySelector("#legal-kanban");
+kanbanBoard.addEventListener("dragstart", (event) => {
+  const card = event.target.closest(".kanban-card[draggable='true']");
+  if (!card) return;
+  event.dataTransfer.setData("text/plain", JSON.stringify({ id: card.dataset.id, from: card.dataset.status }));
+  card.classList.add("dragging");
+});
+kanbanBoard.addEventListener("dragend", (event) => event.target.closest(".kanban-card")?.classList.remove("dragging"));
+kanbanBoard.addEventListener("dragover", (event) => {
+  const column = event.target.closest(".kanban-column");
+  if (column) { event.preventDefault(); column.classList.add("drag-over"); }
+});
+kanbanBoard.addEventListener("dragleave", (event) => event.target.closest(".kanban-column")?.classList.remove("drag-over"));
+kanbanBoard.addEventListener("drop", async (event) => {
+  const column = event.target.closest(".kanban-column");
+  if (!column) return;
+  event.preventDefault();
+  column.classList.remove("drag-over");
+  let payload;
+  try { payload = JSON.parse(event.dataTransfer.getData("text/plain")); } catch { return; }
+  if (!payload || payload.from === column.dataset.status) return;
+  const patch = transicaoKanban(payload.from, column.dataset.status);
+  if (!patch) { showMessage("Transição não permitida. Confirme ou descarte a sugestão primeiro.", "error"); return; }
+  try { await updateDeadline(payload.id, patch); showMessage("Prazo movido para " + column.dataset.status.replaceAll("_", " ") + "."); }
+  catch (error) { showMessage(error.message, "error"); }
+});
+
+const checklistDialog = document.querySelector("#checklist-dialog");
+let checklistPrazoId = null;
+// innerHTML abaixo: descrições via escapeHtml, ids numéricos.
+function renderChecklist(data) {
+  document.querySelector("#checklist-empty").hidden = data.total > 0;
+  const pct = data.total ? Math.round((data.concluidos / data.total) * 100) : 0;
+  document.querySelector("#checklist-bar").style.width = `${pct}%`;
+  document.querySelector("#checklist-progress-label").textContent = `${data.concluidos}/${data.total} concluídas`;
+  document.querySelector("#checklist-items").innerHTML = data.itens.map((item) =>
+    `<li class="${item.concluido ? "done" : ""}"><label><input type="checkbox" data-item="${item.id}" ${item.concluido ? "checked" : ""} ${legalState.canManage ? "" : "disabled"}><span>${escapeHtml(item.descricao)}</span></label>${legalState.canManage ? `<button class="checklist-remove" data-item="${item.id}" type="button" aria-label="Remover etapa">×</button>` : ""}</li>`
+  ).join("");
+}
+async function loadChecklist() {
+  renderChecklist(await api(`/v1/admin/juridico/prazos/${checklistPrazoId}/checklist`));
+}
+async function openChecklist(id, tipo) {
+  checklistPrazoId = id;
+  document.querySelector("#checklist-title").textContent = `Etapas · ${tipo || "prazo"}`;
+  document.querySelector("#checklist-add").hidden = !legalState.canManage;
+  document.querySelector("#checklist-default").hidden = !legalState.canManage;
+  checklistDialog.showModal();
+  await loadChecklist();
+}
+document.addEventListener("click", (event) => {
+  const button = event.target.closest(".open-checklist");
+  if (!button) return;
+  openChecklist(button.dataset.id, button.dataset.tipo).catch((error) => showMessage(error.message, "error"));
+});
+document.querySelectorAll("[data-close-checklist]").forEach((button) => button.addEventListener("click", () => checklistDialog.close()));
+document.querySelector("#checklist-items").addEventListener("change", async (event) => {
+  const checkbox = event.target.closest("input[data-item]");
+  if (!checkbox) return;
+  try {
+    await api(`/v1/admin/juridico/checklist/${checkbox.dataset.item}`, { method: "PATCH", body: JSON.stringify({ concluido: checkbox.checked }) });
+    await loadChecklist(); await loadDashboard();
+  } catch (error) { showMessage(error.message, "error"); await loadChecklist(); }
+});
+document.querySelector("#checklist-items").addEventListener("click", async (event) => {
+  const button = event.target.closest(".checklist-remove");
+  if (!button) return;
+  try { await api(`/v1/admin/juridico/checklist/${button.dataset.item}`, { method: "DELETE" }); await loadChecklist(); await loadDashboard(); }
+  catch (error) { showMessage(error.message, "error"); }
+});
+document.querySelector("#checklist-add").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = event.currentTarget.elements.descricao;
+  try {
+    await api(`/v1/admin/juridico/prazos/${checklistPrazoId}/checklist`, { method: "POST", body: JSON.stringify({ descricao: input.value }) });
+    input.value = ""; await loadChecklist(); await loadDashboard();
+  } catch (error) { showMessage(error.message, "error"); }
+});
+document.querySelector("#checklist-default").addEventListener("click", async () => {
+  try { await api(`/v1/admin/juridico/prazos/${checklistPrazoId}/checklist/padrao`, { method: "POST" }); await loadChecklist(); await loadDashboard(); }
+  catch (error) { showMessage(error.message, "error"); }
+});

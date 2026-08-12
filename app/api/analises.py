@@ -20,7 +20,11 @@ from app.models import (
 )
 from app.proxy import cliente_ip
 from app.schemas import DadosComplementaresRegistrabilidadeUpdate
-from app.trademarks.agent import execucao_para_dict, reconciliar_resultados_reais
+from app.trademarks.agent import (
+    execucao_para_dict,
+    executar_agente_para_pesquisa,
+    reconciliar_resultados_reais,
+)
 from app.trademarks.registrability import (
     construir_indicador_deterministico,
     construir_matriz_registrabilidade,
@@ -326,6 +330,36 @@ async def obter_central_analise(
             "gerado_por": pesquisa.relatorio_completo_gerado_por,
         },
     }
+
+
+@router.post("/{pesquisa_id}/executar-agente")
+async def executar_agente(
+    pesquisa_id: str,
+    session: SessionDep,
+    usuario: AnalysisDep,
+) -> dict:
+    if not _modulo_liberado(usuario, "validacao", "validation.view"):
+        raise HTTPException(status_code=403, detail="Acesso à validação não autorizado")
+
+    pesquisa = (
+        await session.execute(
+            select(PesquisaMarca).where(
+                PesquisaMarca.id == pesquisa_id,
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if pesquisa is None:
+        raise HTTPException(status_code=404, detail="Pesquisa não encontrada")
+
+    execucao = await executar_agente_para_pesquisa(session, pesquisa)
+    if execucao is None:
+        raise HTTPException(
+            status_code=409,
+            detail="O resultado da pesquisa ainda não possui um snapshot técnico",
+        )
+    await session.commit()
+    return execucao_para_dict(execucao)
 
 
 @router.post("/{pesquisa_id}/reconciliar-resultado")

@@ -8,6 +8,7 @@ from app.database import get_session
 from app.main import app
 from app.models import (
     EventoAuditoria,
+    ExecucaoAgenteRegistrabilidade,
     Lead,
     PesquisaMarca,
     PrevisaoRegistrabilidade,
@@ -88,6 +89,64 @@ def test_api_da_central_consolida_pesquisa_e_status_do_relatorio() -> None:
     assert data["risco"] is None
     assert data["relatorio_completo"]["gerado"] is False
     assert data["permissoes"]["relatorio_gerar"] is True
+
+
+def test_central_executa_e_persiste_agente_com_snapshot_atual() -> None:
+    agora = datetime.now(UTC)
+    pesquisa = PesquisaMarca(
+        id="pesquisa-agente",
+        organizacao_id=1,
+        marca="ACME",
+        atividade="Tecnologia",
+        tipo_pesquisa="completa",
+        criado_em=agora,
+    )
+    versao = VersaoRelatorioMarca(
+        pesquisa_id=pesquisa.id,
+        numero_versao=1,
+        schema_versao="relatorio-marca-4.2",
+        conteudo_hash="hash-agente",
+        payload={
+            "ultima_rpi": 2900,
+            "total": 0,
+            "limite_exibido": 0,
+            "matriz_afinidade_status": "validada",
+            "qualidade_base": {"status": "adequada", "avisos": []},
+            "classes_atividade": [],
+            "itens": [],
+        },
+        gerado_em=agora,
+    )
+    sessao = FakeSession(
+        [
+            FakeResult(scalar=pesquisa),
+            FakeResult(scalar=versao),
+            FakeResult(scalar=None),
+            FakeResult(itens=[]),
+            FakeResult(scalar=None),
+        ]
+    )
+
+    async def override_session():
+        yield sessao
+
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/analises/pesquisa-agente/executar-agente",
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 200, resposta.text
+    assert resposta.json()["decisao"] == "dados_insuficientes"
+    assert resposta.json()["motivos"][-1] == "modelo estatístico indisponível"
+    assert any(
+        isinstance(item, ExecucaoAgenteRegistrabilidade) for item in sessao.adicionados
+    )
+    assert sessao.commits == 1
 
 
 def test_leitura_supervisionada_e_persistida() -> None:

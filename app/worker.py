@@ -10,7 +10,7 @@ from app.models import AlertaSistema, Lead, ModeloRegistrabilidade, Organizacao
 from app.queueing import FAILED_KEY, MAX_ATTEMPTS, PROCESSING_KEY, QUEUE_KEY, cliente_redis
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
-from app.trademarks.agent import reconciliar_resultados_reais
+from app.trademarks.agent import reconciliar_resultados_reais, reprocessar_agentes_pendentes
 from app.trademarks.learning import (
     ativar_modelo,
     executar_pipeline_aprendizado,
@@ -102,6 +102,22 @@ async def processar(tipo: str, payload: dict) -> None:
                             f"Reprocessamento concluído: {resultado['processadas']} "
                             "previsão(ões) criada(s)."
                         )
+                    ),
+                    detalhes=resultado,
+                )
+            )
+        elif tipo == "registrabilidade.reprocessar_agentes":
+            resultado = await reprocessar_agentes_pendentes(
+                session,
+                organizacao_id=payload.get("organizacao_id"),
+            )
+            session.add(
+                AlertaSistema(
+                    organizacao_id=payload.get("organizacao_id") or 1,
+                    severidade="info",
+                    codigo="AGENTES_REPROCESSADOS",
+                    mensagem=(
+                        f"Agentes atualizados: {resultado['processadas']} pesquisa(s) processada(s)."
                     ),
                     detalhes=resultado,
                 )

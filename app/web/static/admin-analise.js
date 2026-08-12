@@ -148,7 +148,7 @@ function renderLearning(data) {
 
 function renderAgent(data) {
   const item = data.agente_registrabilidade;
-  if (!item) return step({ id: "agent", number: 4, title: "Agente de Registrabilidade", subtitle: "Consolidação auditável de regras, risco e histórico", state: "pending", stateLabel: "Aguardando execução", body: `<p class="analysis-empty">Abra ou atualize o resultado da pesquisa para executar o agente com o snapshot mais recente.</p>` });
+  if (!item) return step({ id: "agent", number: 4, title: "Agente de Registrabilidade", subtitle: "Consolidação auditável de regras, risco e histórico", state: data.agente_erro ? "attention" : "pending", stateLabel: data.agente_erro ? "Execução indisponível" : "Aguardando dados", body: `<p class="analysis-empty">${escapeHtml(data.agente_erro || "Gere ou atualize o resultado da pesquisa para preparar o snapshot técnico.")}</p>` });
   const state = item.abstencao ? "attention" : item.status === "concluida" ? "completed" : "attention";
   const probability = item.probabilidade_deferimento === null ? "Não calculada" : percent(item.probabilidade_deferimento);
   const interval = item.probabilidade_inferior === null ? "—" : `${percent(item.probabilidade_inferior)} a ${percent(item.probabilidade_superior)}`;
@@ -198,8 +198,16 @@ async function load() {
   showMessage("Carregando análise consolidada…");
   const response = await fetch(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}`);
   if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.detail || "Não foi possível carregar a análise."); }
-  render(await response.json());
-  showMessage("");
+  const data = await response.json();
+  if (data.permissoes.validacao_visualizar && data.validacao?.disponivel) {
+    try {
+      data.agente_registrabilidade = await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/executar-agente`, { method: "POST" });
+    } catch (error) {
+      data.agente_erro = error.message;
+    }
+  }
+  render(data);
+  showMessage(data.agente_erro ? `Agente de Registrabilidade: ${data.agente_erro}` : "", data.agente_erro ? "error" : "");
 }
 async function sendJson(url, options) {
   const response = await fetch(url, options);

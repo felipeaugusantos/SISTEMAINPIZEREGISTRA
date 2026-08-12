@@ -6,17 +6,21 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    AvaliacaoRiscoMarca,
     ExecucaoAgenteRegistrabilidade,
+    ModeloRegistrabilidade,
     PesquisaMarca,
     PrevisaoRegistrabilidade,
     Processo,
+    VersaoRelatorioMarca,
 )
 from app.normalization import normalizar_numero_processo
 from app.trademarks.learning import extrair_rotulo
+from app.trademarks.registrability import construir_matriz_registrabilidade
 
 VERSAO_AGENTE = "registrabilidade-1.0"
 COBERTURA_MINIMA = 0.60
@@ -204,6 +208,101 @@ async def registrar_execucao_agente(
     session.add(execucao)
     await session.flush()
     return execucao
+
+
+async def executar_agente_para_pesquisa(
+    session: AsyncSession,
+    pesquisa: PesquisaMarca,
+) -> ExecucaoAgenteRegistrabilidade | None:
+    """Cria ou reutiliza a execução correspondente ao snapshot técnico mais recente."""
+    versao = (
+        await session.execute(
+            select(VersaoRelatorioMarca)
+            .where(VersaoRelatorioMarca.pesquisa_id == pesquisa.id)
+            .order_by(VersaoRelatorioMarca.numero_versao.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if versao is None:
+        return None
+
+    avaliacao = (
+        await session.execute(
+            select(AvaliacaoRiscoMarca)
+            .where(AvaliacaoRiscoMarca.pesquisa_id == pesquisa.id)
+            .order_by(AvaliacaoRiscoMarca.calculado_em.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    previsao_linha = (
+        await session.execute(
+            select(PrevisaoRegistrabilidade, ModeloRegistrabilidade)
+            .join(
+                ModeloRegistrabilidade,
+                ModeloRegistrabilidade.id == PrevisaoRegistrabilidade.modelo_id,
+            )
+            .where(PrevisaoRegistrabilidade.pesquisa_id == pesquisa.id)
+            .order_by(PrevisaoRegistrabilidade.calculado_em.desc())
+            .limit(1)
+        )
+    ).first()
+    previsao, modelo = previsao_linha if previsao_linha is not None else (None, None)
+    relatorio = versao.payload or {}
+    matriz = construir_matriz_registrabilidade(
+        marca=pesquisa.marca,
+        atividade=pesquisa.atividade,
+        classe_nice=pesquisa.classe_nice,
+        relatorio=relatorio,
+        pontuacao_risco=avaliacao.pontuacao if avaliacao is not None else None,
+        nivel_risco=avaliacao.nivel if avaliacao is not None else None,
+        dados_complementares=pesquisa.dados_complementares_registrabilidade or {},
+    )
+    return await registrar_execucao_agente(
+        session,
+        pesquisa=pesquisa,
+        matriz=matriz,
+        relatorio=relatorio,
+        pontuacao_risco=avaliacao.pontuacao if avaliacao is not None else None,
+        nivel_risco=avaliacao.nivel if avaliacao is not None else None,
+        previsao=previsao,
+        modelo_versao=modelo.versao if modelo is not None else None,
+    )
+
+
+async def reprocessar_agentes_pendentes(
+    session: AsyncSession,
+    *,
+    organizacao_id: int | None = None,
+) -> dict[str, int | str]:
+    """Preenche pesquisas que têm relatório, mas ainda não possuem execução do agente."""
+    consulta = select(PesquisaMarca).where(
+        exists(
+            select(VersaoRelatorioMarca.id).where(
+                VersaoRelatorioMarca.pesquisa_id == PesquisaMarca.id
+            )
+        ),
+        ~exists(
+            select(ExecucaoAgenteRegistrabilidade.id).where(
+                ExecucaoAgenteRegistrabilidade.pesquisa_id == PesquisaMarca.id
+            )
+        ),
+    )
+    if organizacao_id is not None:
+        consulta = consulta.where(PesquisaMarca.organizacao_id == organizacao_id)
+    pesquisas = list(
+        (await session.execute(consulta.order_by(PesquisaMarca.criado_em))).scalars().all()
+    )
+
+    processadas = 0
+    for pesquisa in pesquisas:
+        if await executar_agente_para_pesquisa(session, pesquisa) is not None:
+            processadas += 1
+    await session.flush()
+    return {
+        "status": "concluido",
+        "pendentes_encontradas": len(pesquisas),
+        "processadas": processadas,
+    }
 
 
 def execucao_para_dict(execucao: ExecucaoAgenteRegistrabilidade) -> dict[str, Any]:

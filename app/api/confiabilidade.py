@@ -78,6 +78,7 @@ async def painel(session: SessionDep, usuario: AdminDep) -> dict:
                 AlertaSistema.codigo.in_(
                     {
                         "PREVISOES_REPROCESSADAS",
+                        "AGENTES_REPROCESSADOS",
                         "MODELO_APRENDIZADO_ATIVADO",
                         "MODELO_APRENDIZADO_AGUARDANDO_REVISOES",
                         "MODELO_APRENDIZADO_REPROVADO",
@@ -136,6 +137,7 @@ async def criar_tarefa(tipo: str, request: Request, usuario: AdminDep) -> dict:
         "privacidade.verificar_retencao",
         "registrabilidade.reconciliar_resultados",
         "registrabilidade.reprocessar_previsoes",
+        "registrabilidade.reprocessar_agentes",
         "registrabilidade.pipeline_aprendizado",
     }
     if tipo not in permitidos:

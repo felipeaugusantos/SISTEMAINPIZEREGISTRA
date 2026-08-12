@@ -168,7 +168,7 @@ def test_dossie_envia_e_exibe_leitura_supervisionada() -> None:
     page = (web_dir / "admin-analise.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-analise.js").read_text(encoding="utf-8")
 
-    assert "admin-analise.js?v=7" in page
+    assert "admin-analise.js?v=8" in page
     assert "admin-analise.css?v=5" in page
     assert 'observacoes: values.get("observacoes_humanas")' in script
     assert "Boolean(item.avaliado_em)" in script
@@ -304,3 +304,11 @@ def test_institutional_pages() -> None:
     assert "Clareza antes de dar o próximo passo" in sobre.text
     assert contato.status_code == 200
     assert "contato@zeregistra.com.br" in contato.text
+
+
+def test_confiabilidade_expoe_reprocessamento_dos_agentes() -> None:
+    pagina = (web_dir / "admin-confiabilidade.html").read_text(encoding="utf-8")
+
+    assert "admin-confiabilidade.js?v=5" in pagina
+    assert 'data-job="registrabilidade.reprocessar_agentes"' in pagina
+    assert "Reprocessar agentes pendentes" in pagina

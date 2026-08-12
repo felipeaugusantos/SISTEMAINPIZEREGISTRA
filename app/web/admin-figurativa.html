@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Busca figurativa — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=22">
+  <script src="/static/admin-shell.js?v=32" defer></script>
+  <script src="/static/admin-figurativa.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="figurativa">
+  <main class="admin-main admin-dashboard">
+    <section class="admin-overview-hero">
+      <div>
+        <p class="eyebrow">Operação</p>
+        <h1>Busca figurativa (Classificação de Viena)</h1>
+        <p>Encontre anterioridades pela dimensão figurativa da marca — o elemento visual — que a busca por nome não alcança.</p>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Nova busca</p><h2>Códigos de Viena</h2></div></header>
+      <form id="figurativa-form" class="reliability-form">
+        <fieldset>
+          <legend>Elementos figurativos</legend>
+          <div class="user-fields">
+            <label class="field-full">Códigos de Viena
+              <small>(separados por vírgula — ex.: 27.5.1, 26.4.5)</small>
+              <input name="codigos" required minlength="1" maxlength="500" placeholder="Ex.: 27.5.1, 26.4.5" autocomplete="off">
+            </label>
+            <label>Máx. de resultados
+              <select name="limite">
+                <option>25</option>
+                <option selected>50</option>
+                <option>100</option>
+              </select>
+            </label>
+          </div>
+        </fieldset>
+        <button class="primary-button form-submit" type="submit">Buscar anterioridades</button>
+      </form>
+      <p class="section-hint">Os códigos de Viena de uma marca aparecem na página de detalhe do processo. Copie-os de uma marca de referência e cole aqui para achar marcas com elementos figurativos parecidos.</p>
+      <div id="figurativa-status" class="status-message" role="status" aria-live="polite" hidden></div>
+    </section>
+
+    <section id="figurativa-resultado" class="overview-section" hidden>
+      <header><div><p class="eyebrow">Resultado</p><h2 id="fig-resumo"></h2></div></header>
+      <div class="leads-table-shell">
+        <table class="leads-table">
+          <thead>
+            <tr>
+              <th>Marca</th>
+              <th>Processo</th>
+              <th>Apresentação</th>
+              <th>Depósito</th>
+              <th>Em comum</th>
+              <th>Códigos de Viena</th>
+            </tr>
+          </thead>
+          <tbody id="figurativa-lista"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

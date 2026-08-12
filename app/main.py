@@ -159,6 +159,15 @@ async def painel_consulta_relatorio(pesquisa_id: str) -> FileResponse:
 
 
 @app.get(
+    "/admin/figurativa",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("leads.view"))],
+)
+async def painel_figurativa() -> FileResponse:
+    return FileResponse(web_dir / "admin-figurativa.html")
+
+
+@app.get(
     "/admin/pesquisas",
     include_in_schema=False,
     dependencies=[Depends(exigir_permissao("leads.view"))],

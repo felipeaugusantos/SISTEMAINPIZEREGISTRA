@@ -4,7 +4,13 @@ from pathlib import Path
 
 from starlette.requests import Request
 
-from app.api.juridico import PADRAO_PRAZO, PrazoInput, calcular_vencimento, criar_prazo
+from app.api.juridico import (
+    PADRAO_PRAZO,
+    PrazoInput,
+    _classificar_despacho,
+    calcular_vencimento,
+    criar_prazo,
+)
 from app.models import EventoJuridico, PrazoJuridico, ProcessoMonitorado
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
@@ -38,6 +44,43 @@ def test_motor_reconhece_prazo_numerico_com_texto_por_extenso() -> None:
     match = PADRAO_PRAZO.search(texto)
     assert match is not None
     assert match.group(1) == "60"
+
+
+def test_classifica_indeferimento_como_recurso_60_dias() -> None:
+    assert _classificar_despacho("Indeferimento do pedido") == (
+        60,
+        "recurso",
+        "Recurso contra indeferimento",
+    )
+
+
+def test_classifica_publicacao_para_oposicao() -> None:
+    dias, tipo, _ = _classificar_despacho(
+        "Publicação de pedido de registro para oposição (exame formal concluído)"
+    )
+    assert (dias, tipo) == (60, "oposicao")
+
+
+def test_classifica_deferimento_do_pedido_como_pagamento() -> None:
+    dias, tipo, _ = _classificar_despacho("Deferimento do pedido")
+    assert (dias, tipo) == (60, "pagamento")
+
+
+def test_texto_soletrado_tem_prioridade_sobre_prazo_legal() -> None:
+    dias, tipo, _ = _classificar_despacho(
+        "Exigência Formal Preliminar. Prazo para cumprimento - 30 (Trinta) dias corridos."
+    )
+    assert (dias, tipo) == (30, "exigencia")
+
+
+def test_despachos_terminais_nao_geram_prazo() -> None:
+    assert _classificar_despacho("Concessão de registro") is None
+    assert _classificar_despacho("Arquivamento definitivo de pedido de registro") is None
+    assert _classificar_despacho("Recurso não provido (decisão mantida)") is None
+
+
+def test_deferimento_de_peticao_nao_e_confundido_com_pedido() -> None:
+    assert _classificar_despacho("Deferimento da petição") is None
 
 
 def test_criar_prazo_vincula_processo_e_registra_historico() -> None:

@@ -39,9 +39,54 @@ TIPOS_PRAZO = {
 }
 STATUS_ATIVOS = {"aguardando_confirmacao", "pendente", "em_andamento"}
 PADRAO_PRAZO = re.compile(
-    r"prazo\s+de\s+(\d{1,3})\s*(?:\([^)]*\)\s*)?(?:dias?|dia)",
+    # "prazo de 60 (sessenta) dias", "Prazo para cumprimento - 30 (Trinta) dias
+    # corridos": o número aparece perto da palavra "prazo", antes de "dias",
+    # sem cruzar o fim da frase.
+    r"prazo\b[^.\n]{0,40}?(\d{1,3})\s*(?:\([^)]*\)\s*)?dias?",
     re.IGNORECASE,
 )
+# Prazo legal (dias corridos) por tipo de despacho de marca, aplicado quando o
+# texto da publicação não soletra o número de dias. Ordem importa: o primeiro
+# padrão que casar vence. Base: LPI (Lei 9.279/96); o prazo administrativo de
+# marca é de 60 dias na quase totalidade dos casos. Despachos terminais
+# (concessão, arquivamento, extinção, recurso julgado) não constam de propósito
+# e não geram prazo.
+DESPACHOS_PRAZO: tuple[tuple[re.Pattern[str], int, str, str], ...] = (
+    (re.compile(r"instaura[çc][ãa]o de processo de nulidade", re.IGNORECASE),
+     60, "manifestacao", "Manifestação em processo de nulidade"),
+    (re.compile(r"notifica[çc][ãa]o de oposi[çc][ãa]o", re.IGNORECASE),
+     60, "oposicao", "Manifestação sobre oposição"),
+    (re.compile(r"para oposi[çc][ãa]o", re.IGNORECASE),
+     60, "oposicao", "Janela de oposição"),
+    (re.compile(r"notifica[çc][ãa]o de recurso", re.IGNORECASE),
+     60, "recurso", "Contrarrazões de recurso"),
+    (re.compile(r"indeferimento do pedido", re.IGNORECASE),
+     60, "recurso", "Recurso contra indeferimento"),
+    (re.compile(r"exig[êe]ncia", re.IGNORECASE),
+     60, "exigencia", "Cumprimento de exigência"),
+    (re.compile(r"deferimento do pedido", re.IGNORECASE),
+     60, "pagamento", "Pagamento da taxa de concessão"),
+)
+
+
+def _classificar_despacho(descricao: str | None) -> tuple[int, str, str] | None:
+    """Deriva (dias, tipo, ação) de uma movimentação de RPI de marca.
+
+    O número soletrado no texto ("prazo de N dias") tem prioridade; na ausência
+    dele, aplica-se o prazo legal do tipo de despacho. Retorna ``None`` para
+    despachos terminais ou sem prazo processual mapeado.
+    """
+    texto = descricao or ""
+    match = PADRAO_PRAZO.search(texto)
+    dias_texto = int(match.group(1)) if match else None
+    if dias_texto is not None and not 1 <= dias_texto <= 365:
+        dias_texto = None
+    for padrao, dias_legal, tipo, acao in DESPACHOS_PRAZO:
+        if padrao.search(texto):
+            return (dias_texto or dias_legal), tipo, acao
+    if dias_texto is not None:
+        return dias_texto, "outro", "Prazo indicado no texto da publicação"
+    return None
 
 
 def calcular_vencimento(data_base: date, dias: int, contagem: str) -> datetime:
@@ -658,20 +703,20 @@ async def executar_motor_organizacao(
     ).all()
     sugeridos = 0
     for monitorado, movimentacao in candidatos:
-        match = PADRAO_PRAZO.search(movimentacao.descricao or "")
-        if not match:
+        if movimentacao.data_rpi is None:
             continue
-        dias = int(match.group(1))
-        if not 1 <= dias <= 365:
+        classificacao = _classificar_despacho(movimentacao.descricao)
+        if classificacao is None:
             continue
+        dias, tipo, acao = classificacao
         prazo = PrazoJuridico(
             organizacao_id=organizacao_id,
             processo_monitorado_id=monitorado.id,
             movimentacao_origem_id=movimentacao.id,
             responsavel_id=monitorado.responsavel_id,
-            titulo=f"Revisar prazo sugerido pela RPI {movimentacao.numero_rpi}",
-            descricao=movimentacao.descricao[:4000],
-            tipo="exigencia",
+            titulo=f"Revisar: {acao} (RPI {movimentacao.numero_rpi})"[:180],
+            descricao=(movimentacao.descricao or "")[:4000],
+            tipo=tipo,
             origem="motor_rpi",
             contagem="corridos",
             data_base=movimentacao.data_rpi,
@@ -689,9 +734,9 @@ async def executar_motor_organizacao(
             motor_usuario,
             monitorado.id,
             "prazo_sugerido",
-            "Prazo sugerido pelo motor a partir do texto da RPI; requer confirmação humana",
+            "Prazo sugerido pelo motor a partir do despacho da RPI; requer confirmação humana",
             prazo.id,
-            {"movimentacao_id": movimentacao.id, "dias_extraidos": dias},
+            {"movimentacao_id": movimentacao.id, "dias_prazo": dias, "tipo": tipo},
         )
         sugeridos += 1
     return {

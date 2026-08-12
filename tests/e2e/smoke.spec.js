@@ -33,4 +33,9 @@ test("o administrador entra pelo formulário e acessa a visão geral", async ({ 
   const me = await page.request.get("/v1/auth/me");
   expect(me.ok()).toBeTruthy();
   expect((await me.json()).usuario).toBe(process.env.E2E_ADMIN_USERNAME || "admin");
+
+  await page.goto("/admin/crm");
+  await expect(page.getByRole("heading", { name: "Pendências da equipe" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Novo lembrete" })).toBeVisible();
+  await expect(page.getByLabel("Status do cliente")).toBeVisible();
 });

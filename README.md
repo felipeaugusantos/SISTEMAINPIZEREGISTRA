@@ -39,6 +39,9 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 - pipeline comercial, responsável, próxima ação, tags e observações;
 - histórico de ligações, reuniões, WhatsApp, e-mails e outros contatos;
 - linha do tempo auditável por cliente, empresa e pesquisa;
+- busca por nome, empresa, marca, e-mail, telefone, CPF/CNPJ e status;
+- alertas para cadastros sem atualização e lembretes com prazo, prioridade e responsável;
+- agenda de retornos, propostas, documentos, processos e atualizações cadastrais;
 - arquivamento e restauração de contatos;
 - exclusão de pesquisas mediante senha ou aprovação administrativa.
 

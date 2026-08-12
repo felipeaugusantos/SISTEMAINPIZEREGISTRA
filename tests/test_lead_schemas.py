@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas import LeadCreate
+from app.schemas import LeadCreate, LeadStatusUpdate
 
 
 def test_valid_lead() -> None:
@@ -28,3 +28,8 @@ def test_lead_requires_valid_phone_and_consent() -> None:
             marca="Minha Marca",
             aceite_privacidade=False,
         )
+
+
+def test_atualizacao_lead_normaliza_cpf_cnpj() -> None:
+    assert LeadStatusUpdate(documento="123.456.789-01").documento == "12345678901"
+    assert LeadStatusUpdate(documento="12.345.678/0001-99").documento == "12345678000199"

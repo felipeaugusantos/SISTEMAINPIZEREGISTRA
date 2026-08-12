@@ -79,6 +79,13 @@ def _mascarar_telefone(telefone: str) -> str:
     return f"***{digitos[-4:]}" if digitos else "***"
 
 
+def _mascarar_documento(documento: str | None) -> str | None:
+    if not documento:
+        return None
+    digitos = "".join(caractere for caractere in documento if caractere.isdigit())
+    return f"***{digitos[-4:]}" if digitos else "***"
+
+
 def _valor_csv(valor: object) -> str:
     texto = "" if valor is None else str(valor)
     if texto.lstrip().startswith(("=", "+", "-", "@")):
@@ -130,6 +137,7 @@ def _filtros_lead(
                 Lead.nome.ilike(termo, escape="\\"),
                 Lead.email.ilike(termo, escape="\\"),
                 Lead.telefone.ilike(termo, escape="\\"),
+                Lead.documento.ilike(termo, escape="\\"),
                 Lead.empresa.ilike(termo, escape="\\"),
                 Lead.marca.ilike(termo, escape="\\"),
                 Lead.atividade.ilike(termo, escape="\\"),
@@ -283,6 +291,7 @@ def _lead_response(
     if not usuario.pode("leads.pii.view"):
         dados.email = _mascarar_email(dados.email)
         dados.telefone = _mascarar_telefone(dados.telefone)
+        dados.documento = _mascarar_documento(dados.documento)
     dados.responsavel_nome = getattr(getattr(lead, "responsavel", None), "nome", None)
     dados.total_pesquisas = len(pesquisas)
     dados.ultima_pesquisa = pesquisas[0] if pesquisas else None
@@ -577,6 +586,9 @@ async def atualizar_status_lead(
     if dados.tags is not None:
         alteracoes["tags"] = dados.tags
         lead.tags = dados.tags
+    if "documento" in dados.model_fields_set:
+        alteracoes["documento_atualizado"] = True
+        lead.documento = dados.documento
     if dados.registrar_contato:
         agora = datetime.now(UTC)
         lead.ultimo_contato_em = agora

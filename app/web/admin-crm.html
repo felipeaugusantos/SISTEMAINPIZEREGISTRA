@@ -3,22 +3,34 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>CRM — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=22"><link rel="stylesheet" href="/static/admin-crm.css?v=1">
-  <script src="/static/admin-shell.js?v=30" defer></script><script src="/static/admin-crm.js?v=2" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=22"><link rel="stylesheet" href="/static/admin-crm.css?v=1"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=1">
+  <script src="/static/admin-shell.js?v=30" defer></script><script src="/static/admin-crm.js?v=3" defer></script>
 </head>
 <body class="admin-body" data-admin-section="crm">
   <main class="admin-main crm-main">
     <section class="crm-hero">
       <div><p class="eyebrow">RELACIONAMENTO COM CLIENTES</p><h1>CRM</h1><p>Linha do tempo auditável das ligações, reuniões, mensagens e e-mails registrados pela equipe.</p></div>
-      <a class="primary-button" href="/admin/pesquisas">Abrir contatos e registrar interação</a>
+      <div class="crm-hero-actions"><button id="new-reminder" class="primary-button" type="button">Novo lembrete</button><a class="secondary-button" href="/admin/pesquisas">Abrir contatos</a></div>
     </section>
     <div id="crm-message" class="status-message" hidden role="status" aria-live="polite"></div>
     <section id="crm-metrics" class="crm-metrics" aria-label="Indicadores do histórico"></section>
+    <section class="crm-card crm-reminder-card">
+      <header><div><p class="eyebrow">ALERTAS E LEMBRETES</p><h2>Pendências da equipe</h2><p>Organize retornos, propostas, documentos, processos e atualizações cadastrais.</p></div><div id="crm-reminder-metrics" class="crm-reminder-metrics"></div></header>
+      <form id="crm-reminder-filter" class="crm-reminder-filter">
+        <label><span>Situação</span><select name="status"><option value="pendente">Pendentes</option><option value="concluido">Concluídos</option><option value="cancelado">Cancelados</option><option value="">Todos</option></select></label>
+        <label><span>Tipo</span><select name="tipo"><option value="">Todos</option></select></label>
+        <label><span>Responsável</span><select name="responsavel_id"><option value="">Todos</option></select></label>
+        <button class="secondary-button" type="submit">Atualizar</button>
+      </form>
+      <div id="crm-customer-alerts"></div>
+      <div id="crm-reminders" class="crm-reminders"></div>
+    </section>
     <section class="crm-card">
       <form id="crm-filter" class="crm-filter">
         <label class="wide"><span>Buscar no histórico</span><input name="busca" type="search" maxlength="120" placeholder="Cliente, empresa, marca, resultado ou observação"></label>
         <label><span>Canal</span><select name="canal"><option value="">Todos</option></select></label>
         <label><span>Operador</span><select name="operador_id"><option value="">Todos</option></select></label>
+        <label><span>Status do cliente</span><select name="status_cliente"><option value="">Todos</option></select></label>
         <label><span>Desde</span><input name="inicio" type="date"></label>
         <label><span>Até</span><input name="fim" type="date"></label>
         <button class="primary-button" type="submit">Filtrar</button><button id="crm-clear" class="secondary-button" type="button">Limpar</button>
@@ -30,5 +42,19 @@
       <nav class="crm-pagination" aria-label="Paginação do histórico"><button id="crm-prev" class="secondary-button" type="button">Anterior</button><span id="crm-page">Página 1</span><button id="crm-next" class="secondary-button" type="button">Próxima</button></nav>
     </section>
   </main>
+  <dialog id="reminder-dialog" class="crm-reminder-dialog">
+    <form id="reminder-form" method="dialog">
+      <header><div><p class="eyebrow">AGENDA DO CRM</p><h2>Novo lembrete</h2></div><button id="close-reminder" class="dialog-close" type="button" aria-label="Fechar">×</button></header>
+      <label class="wide"><span>Cliente</span><select name="lead_id" required><option value="">Selecione</option></select></label>
+      <label><span>Tipo</span><select name="tipo" required></select></label>
+      <label><span>Prioridade</span><select name="prioridade" required></select></label>
+      <label><span>Responsável</span><select name="responsavel_id"><option value="">Não atribuído</option></select></label>
+      <label><span>Data e hora do alerta</span><input name="lembrar_em" type="datetime-local" required></label>
+      <label class="wide"><span>Título</span><input name="titulo" minlength="3" maxlength="180" required placeholder="Ex.: confirmar documentos do pedido"></label>
+      <label class="wide"><span>Descrição</span><textarea name="descricao" maxlength="2000" rows="4"></textarea></label>
+      <div id="reminder-message" class="status-message" hidden role="status"></div>
+      <footer><button id="cancel-reminder" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Salvar lembrete</button></footer>
+    </form>
+  </dialog>
 </body>
 </html>

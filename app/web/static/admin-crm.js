@@ -1,18 +1,112 @@
-const crmState={offset:0,limit:50,total:0};
-const form=document.querySelector("#crm-filter");
-const message=document.querySelector("#crm-message");
-const channels={telefone:"Telefone",whatsapp:"WhatsApp",email:"E-mail",reuniao:"Reunião",outro:"Atendimento"};
-const dateTime=new Intl.DateTimeFormat("pt-BR",{dateStyle:"short",timeStyle:"short"});
-function esc(value){const node=document.createElement("span");node.textContent=value??"";return node.innerHTML}
-function show(text,kind="error"){message.hidden=!text;message.textContent=text;message.className=`status-message ${kind}`}
-async function api(url){const response=await fetch(url);const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||`Não foi possível concluir (${response.status})`);return data}
-function params(){const values=new FormData(form),query=new URLSearchParams();for(const [key,value] of values){if(!value)continue;if(key==="inicio")query.set(key,new Date(`${value}T00:00:00`).toISOString());else if(key==="fim")query.set(key,new Date(`${value}T23:59:59.999`).toISOString());else query.set(key,value)}query.set("limite",crmState.limit);query.set("deslocamento",crmState.offset);return query}
-function renderMetrics(data){const rows=[["Total filtrado",data.total],["Ligações",data.por_canal.telefone||0],["WhatsApp",data.por_canal.whatsapp||0],["E-mails",data.por_canal.email||0],["Reuniões",data.por_canal.reuniao||0],["Atendimentos",data.por_canal.outro||0]];document.querySelector("#crm-metrics").innerHTML=rows.map(([label,value])=>`<article><span>${label}</span><strong>${value}</strong></article>`).join("")}
-function render(data){crmState.total=data.total;renderMetrics(data);document.querySelector("#crm-total").textContent=`${data.total} registro${data.total===1?"":"s"}`;const target=document.querySelector("#crm-history");target.innerHTML=data.itens.length?data.itens.map(item=>`<li class="crm-entry"><div class="crm-entry-marker ${esc(item.canal)}" aria-hidden="true"></div><article><header><div><span class="crm-channel ${esc(item.canal)}">${esc(channels[item.canal]||item.canal)}</span><h3>${esc(item.cliente)}</h3><p>${esc(item.empresa||"Empresa não informada")} · ${esc(item.marca||"Sem pesquisa vinculada")}</p></div><time datetime="${esc(item.criado_em)}">${dateTime.format(new Date(item.criado_em))}</time></header><div class="crm-entry-result"><strong>${esc(item.resultado||"Sem resultado informado")}</strong>${item.observacao?`<p>${esc(item.observacao)}</p>`:""}</div><footer><span>Registrado por ${esc(item.operador||"Operador não informado")}</span><span>${esc(item.email)} · ${esc(item.telefone)}</span><a href="/admin/pesquisas?lead_id=${item.lead_id}">Abrir contato</a></footer></article></li>`).join(""):`<li class="crm-empty"><strong>Nenhum atendimento foi registrado.</strong><p>Abra um contato em Leads e salve o atendimento ou registre uma interação detalhada.</p><a class="primary-button" href="/admin/pesquisas">Ir para Leads</a></li>`;const page=Math.floor(crmState.offset/crmState.limit)+1;document.querySelector("#crm-page").textContent=`Página ${page}`;document.querySelector("#crm-prev").disabled=crmState.offset===0;document.querySelector("#crm-next").disabled=!data.tem_mais}
-async function load(){show("");render(await api(`/v1/admin/crm/historico?${params()}`))}
-async function references(){const data=await api("/v1/admin/crm/referencias");form.elements.canal.innerHTML='<option value="">Todos</option>'+data.canais.map(item=>`<option value="${esc(item.id)}">${esc(channels[item.id]||item.nome)}</option>`).join("");form.elements.operador_id.innerHTML='<option value="">Todos</option>'+data.operadores.map(item=>`<option value="${item.id}">${esc(item.nome)}</option>`).join("")}
-form.addEventListener("submit",event=>{event.preventDefault();crmState.offset=0;load().catch(error=>show(error.message))});
-document.querySelector("#crm-clear").addEventListener("click",()=>{form.reset();crmState.offset=0;load().catch(error=>show(error.message))});
-document.querySelector("#crm-prev").addEventListener("click",()=>{crmState.offset=Math.max(0,crmState.offset-crmState.limit);load().catch(error=>show(error.message))});
-document.querySelector("#crm-next").addEventListener("click",()=>{if(crmState.offset+crmState.limit<crmState.total){crmState.offset+=crmState.limit;load().catch(error=>show(error.message))}});
-references().then(load).catch(error=>show(error.message));
+const crmState = { offset: 0, limit: 50, total: 0, references: null, canManage: false };
+const form = document.querySelector("#crm-filter");
+const reminderFilter = document.querySelector("#crm-reminder-filter");
+const reminderDialog = document.querySelector("#reminder-dialog");
+const reminderForm = document.querySelector("#reminder-form");
+const message = document.querySelector("#crm-message");
+const channels = { telefone: "Telefone", whatsapp: "WhatsApp", email: "E-mail", reuniao: "Reunião", outro: "Atendimento" };
+const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
+
+function esc(value) { const node = document.createElement("span"); node.textContent = value ?? ""; return node.innerHTML; }
+function show(text, kind = "error") { message.hidden = !text; message.textContent = text; message.className = `status-message ${kind}`; }
+async function api(url, options = {}) {
+  const response = await fetch(url, { headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = Array.isArray(data.detail) ? data.detail.map(item => item.msg).join(" · ") : data.detail;
+    throw new Error(detail || `Não foi possível concluir (${response.status})`);
+  }
+  return data;
+}
+function options(items, selected = "") { return items.map(item => `<option value="${esc(item.id)}"${String(item.id) === String(selected) ? " selected" : ""}>${esc(item.nome)}</option>`).join(""); }
+function params() {
+  const values = new FormData(form), query = new URLSearchParams();
+  for (const [key, value] of values) {
+    if (!value) continue;
+    if (key === "inicio") query.set(key, new Date(`${value}T00:00:00`).toISOString());
+    else if (key === "fim") query.set(key, new Date(`${value}T23:59:59.999`).toISOString());
+    else query.set(key, value);
+  }
+  query.set("limite", crmState.limit); query.set("deslocamento", crmState.offset); return query;
+}
+function renderMetrics(data) {
+  const rows = [["Total filtrado", data.total], ["Ligações", data.por_canal.telefone || 0], ["WhatsApp", data.por_canal.whatsapp || 0], ["E-mails", data.por_canal.email || 0], ["Reuniões", data.por_canal.reuniao || 0], ["Atendimentos", data.por_canal.outro || 0]];
+  document.querySelector("#crm-metrics").innerHTML = rows.map(([label, value]) => `<article><span>${label}</span><strong>${value}</strong></article>`).join("");
+}
+function renderHistory(data) {
+  crmState.total = data.total; renderMetrics(data);
+  document.querySelector("#crm-total").textContent = `${data.total} registro${data.total === 1 ? "" : "s"}`;
+  const target = document.querySelector("#crm-history");
+  target.innerHTML = data.itens.length ? data.itens.map(item => `<li class="crm-entry"><div class="crm-entry-marker ${esc(item.canal)}" aria-hidden="true"></div><article><header><div><span class="crm-channel ${esc(item.canal)}">${esc(channels[item.canal] || item.canal)}</span><span class="crm-client-status status-${esc(item.status_cliente)}">${esc(String(item.status_cliente).replaceAll("_", " "))}</span><h3>${esc(item.cliente)}</h3><p>${esc(item.empresa || "Empresa não informada")} · ${esc(item.marca || "Sem pesquisa vinculada")}</p></div><time datetime="${esc(item.criado_em)}">${dateTime.format(new Date(item.criado_em))}</time></header><div class="crm-entry-result"><strong>${esc(item.resultado || "Sem resultado informado")}</strong>${item.observacao ? `<p>${esc(item.observacao)}</p>` : ""}</div><footer><span>Registrado por ${esc(item.operador || "Operador não informado")}</span><span>${esc(item.email)} · ${esc(item.telefone)}${item.documento ? ` · ${esc(item.documento)}` : ""}</span><a href="/admin/pesquisas?lead_id=${item.lead_id}">Abrir contato</a></footer></article></li>`).join("") : `<li class="crm-empty"><strong>Nenhum atendimento foi encontrado.</strong><p>Revise nome, documento, telefone, status ou período informado.</p><a class="primary-button" href="/admin/pesquisas">Ir para Leads</a></li>`;
+  const page = Math.floor(crmState.offset / crmState.limit) + 1;
+  document.querySelector("#crm-page").textContent = `Página ${page}`;
+  document.querySelector("#crm-prev").disabled = crmState.offset === 0;
+  document.querySelector("#crm-next").disabled = !data.tem_mais;
+}
+async function loadHistory() { show(""); renderHistory(await api(`/v1/admin/crm/historico?${params()}`)); }
+
+function reminderParams() {
+  const query = new URLSearchParams(new FormData(reminderFilter));
+  [...query].forEach(([key, value]) => { if (!value) query.delete(key); });
+  return query;
+}
+function renderReminderMetrics(metrics) {
+  document.querySelector("#crm-reminder-metrics").innerHTML = [["Vencidos", metrics.vencidos, "danger"], ["Próximos 7 dias", metrics.proximos_7_dias, "warning"], ["Pendentes", metrics.pendentes, "normal"], ["Cadastros a revisar", metrics.cadastros_para_atualizar, "info"]].map(([label, value, kind]) => `<span class="${kind}"><strong>${value}</strong>${label}</span>`).join("");
+}
+function renderCustomerAlerts(items) {
+  const target = document.querySelector("#crm-customer-alerts");
+  target.innerHTML = items.length ? `<details class="crm-customer-alert"><summary>${items.length} cadastro${items.length === 1 ? "" : "s"} sem atualização há mais de 90 dias</summary><div>${items.map(item => `<article><span><strong>${esc(item.cliente)}</strong><small>${esc(item.empresa || "Empresa não informada")} · última atualização ${dateTime.format(new Date(item.atualizado_em))}</small></span><button class="secondary-button create-update-reminder" type="button" data-lead-id="${item.lead_id}">Criar alerta</button></article>`).join("")}</div></details>` : "";
+}
+function renderReminders(data) {
+  crmState.canManage = data.acoes.gerenciar; renderReminderMetrics(data.metricas); renderCustomerAlerts(data.cadastros_para_atualizar);
+  document.querySelector("#new-reminder").hidden = !crmState.canManage;
+  document.querySelector("#crm-reminders").innerHTML = data.itens.length ? data.itens.map(item => `<article class="crm-reminder ${item.vencido ? "overdue" : ""} priority-${esc(item.prioridade)}"><div><span class="crm-reminder-type">${esc(item.tipo_nome)}</span><h3>${esc(item.titulo)}</h3><p>${esc(item.cliente)}${item.empresa ? ` · ${esc(item.empresa)}` : ""}</p>${item.descricao ? `<small>${esc(item.descricao)}</small>` : ""}</div><div class="crm-reminder-due"><span>${item.vencido ? "Vencido" : "Alerta"}</span><strong>${dateTime.format(new Date(item.lembrar_em))}</strong><small>${esc(item.responsavel || "Não atribuído")} · prioridade ${esc(item.prioridade)}</small></div>${crmState.canManage && item.status === "pendente" ? `<div class="crm-reminder-actions"><button class="primary-button complete-reminder" data-id="${item.id}" type="button">Concluir</button><button class="secondary-button postpone-reminder" data-id="${item.id}" type="button">Adiar 1 dia</button><button class="text-button cancel-reminder-item" data-id="${item.id}" type="button">Cancelar</button></div>` : `<span class="crm-reminder-state">${esc(item.status)}</span>`}</article>`).join("") : `<div class="crm-empty"><strong>Nenhum lembrete neste filtro.</strong><p>Crie alertas para que retornos e tarefas não dependam da memória da equipe.</p></div>`;
+}
+async function loadReminders() { renderReminders(await api(`/v1/admin/crm/lembretes?${reminderParams()}`)); }
+
+async function references() {
+  const data = await api("/v1/admin/crm/referencias"); crmState.references = data;
+  form.elements.canal.innerHTML = '<option value="">Todos</option>' + options(data.canais);
+  form.elements.operador_id.innerHTML = '<option value="">Todos</option>' + options(data.operadores);
+  form.elements.status_cliente.innerHTML = '<option value="">Todos</option>' + options(data.status_clientes);
+  reminderFilter.elements.tipo.innerHTML = '<option value="">Todos</option>' + options(data.tipos_lembrete);
+  reminderFilter.elements.responsavel_id.innerHTML = '<option value="">Todos</option>' + options(data.operadores);
+  reminderForm.elements.lead_id.innerHTML = '<option value="">Selecione</option>' + data.clientes.map(item => `<option value="${item.id}">${esc(item.nome)}${item.empresa ? ` · ${esc(item.empresa)}` : ""}</option>`).join("");
+  reminderForm.elements.tipo.innerHTML = options(data.tipos_lembrete);
+  reminderForm.elements.prioridade.innerHTML = options(data.prioridades, "media");
+  reminderForm.elements.responsavel_id.innerHTML = '<option value="">Não atribuído</option>' + options(data.operadores);
+}
+function openReminder(leadId = "", type = "retorno") {
+  reminderForm.reset(); reminderForm.elements.lead_id.value = leadId; reminderForm.elements.tipo.value = type; reminderForm.elements.prioridade.value = "media";
+  const due = new Date(Date.now() + 24 * 60 * 60 * 1000); due.setMinutes(due.getMinutes() - due.getTimezoneOffset()); reminderForm.elements.lembrar_em.value = due.toISOString().slice(0, 16);
+  if (type === "atualizar_cadastro") reminderForm.elements.titulo.value = "Atualizar dados cadastrais do cliente";
+  document.querySelector("#reminder-message").hidden = true; reminderDialog.showModal();
+}
+async function updateReminder(id, payload) { await api(`/v1/admin/crm/lembretes/${id}`, { method: "PATCH", body: JSON.stringify(payload) }); await loadReminders(); }
+
+form.addEventListener("submit", event => { event.preventDefault(); crmState.offset = 0; loadHistory().catch(error => show(error.message)); });
+reminderFilter.addEventListener("submit", event => { event.preventDefault(); loadReminders().catch(error => show(error.message)); });
+document.querySelector("#crm-clear").addEventListener("click", () => { form.reset(); crmState.offset = 0; loadHistory().catch(error => show(error.message)); });
+document.querySelector("#crm-prev").addEventListener("click", () => { crmState.offset = Math.max(0, crmState.offset - crmState.limit); loadHistory().catch(error => show(error.message)); });
+document.querySelector("#crm-next").addEventListener("click", () => { if (crmState.offset + crmState.limit < crmState.total) { crmState.offset += crmState.limit; loadHistory().catch(error => show(error.message)); } });
+document.querySelector("#new-reminder").addEventListener("click", () => openReminder());
+document.querySelector("#close-reminder").addEventListener("click", () => reminderDialog.close());
+document.querySelector("#cancel-reminder").addEventListener("click", () => reminderDialog.close());
+document.querySelector("#crm-customer-alerts").addEventListener("click", event => { const button = event.target.closest(".create-update-reminder"); if (button) openReminder(button.dataset.leadId, "atualizar_cadastro"); });
+document.querySelector("#crm-reminders").addEventListener("click", event => {
+  const complete = event.target.closest(".complete-reminder"), postpone = event.target.closest(".postpone-reminder"), cancel = event.target.closest(".cancel-reminder-item");
+  if (complete) updateReminder(complete.dataset.id, { status: "concluido" }).catch(error => show(error.message));
+  if (postpone) updateReminder(postpone.dataset.id, { lembrar_em: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), status: "pendente" }).catch(error => show(error.message));
+  if (cancel) updateReminder(cancel.dataset.id, { status: "cancelado" }).catch(error => show(error.message));
+});
+reminderForm.addEventListener("submit", async event => {
+  event.preventDefault(); const data = Object.fromEntries(new FormData(reminderForm));
+  data.lead_id = Number(data.lead_id); data.responsavel_id = Number(data.responsavel_id) || null; data.lembrar_em = new Date(data.lembrar_em).toISOString(); data.descricao = data.descricao || null;
+  const statusBox = document.querySelector("#reminder-message"); statusBox.hidden = false; statusBox.className = "status-message loading"; statusBox.textContent = "Salvando…";
+  try { await api("/v1/admin/crm/lembretes", { method: "POST", body: JSON.stringify(data) }); reminderDialog.close(); show("Lembrete criado e incluído na agenda da equipe.", "success"); await loadReminders(); }
+  catch (error) { statusBox.className = "status-message error"; statusBox.textContent = error.message; }
+});
+
+references().then(() => Promise.all([loadHistory(), loadReminders()])).then(() => {
+  const leadId = new URLSearchParams(location.search).get("lead_id"); if (/^\d+$/.test(leadId || "") && crmState.canManage) openReminder(leadId);
+}).catch(error => show(error.message));

@@ -1,0 +1,29 @@
+.crm-hero-actions{display:flex;flex-wrap:wrap;gap:10px}
+.crm-reminder-card{display:grid;gap:18px}
+.crm-reminder-card>header{display:flex;align-items:end;justify-content:space-between;gap:20px}
+.crm-reminder-card h2{margin:4px 0;font:500 2rem/1 Georgia,serif}
+.crm-reminder-card header p{margin:4px 0;color:var(--muted)}
+.crm-reminder-metrics{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.crm-reminder-metrics>span{display:grid;min-width:100px;padding:10px 12px;border-radius:12px;background:#eef3ef;color:var(--muted);font-size:.68rem;font-weight:800;text-transform:uppercase}
+.crm-reminder-metrics strong{color:var(--ink);font-size:1.2rem}
+.crm-reminder-metrics .danger{background:#fee9e3}.crm-reminder-metrics .warning{background:#fff1ce}.crm-reminder-metrics .info{background:#e5f2ef}
+.crm-reminder-filter{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr)) auto;gap:10px;align-items:end}
+.crm-reminder-filter label{display:grid;gap:6px}.crm-reminder-filter span{font-size:.74rem;font-weight:800}
+.crm-reminder-filter select{padding:11px;border:1px solid #cbd4cd;border-radius:10px;background:#fff;font:inherit}
+.crm-reminders{display:grid;gap:10px}
+.crm-reminder{display:grid;grid-template-columns:minmax(260px,1fr) minmax(210px,.5fr) auto;gap:18px;align-items:center;padding:16px;border:1px solid #d8dfd9;border-left:5px solid #7c988b;border-radius:14px;background:#fff}
+.crm-reminder.priority-alta{border-left-color:#c44732}.crm-reminder.priority-baixa{border-left-color:#3e876d}.crm-reminder.overdue{background:#fff8f5}
+.crm-reminder h3{margin:5px 0}.crm-reminder p,.crm-reminder small{display:block;margin:3px 0;color:var(--muted)}
+.crm-reminder-type{font-size:.68rem;font-weight:900;text-transform:uppercase;color:var(--green)}
+.crm-reminder-due{display:grid;gap:3px}.crm-reminder-due>span{color:#a33128;font-size:.68rem;font-weight:900;text-transform:uppercase}
+.crm-reminder-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px}.crm-reminder-actions button{padding:9px 12px}
+.crm-reminder-state,.crm-client-status{display:inline-flex;width:max-content;padding:4px 8px;border-radius:999px;background:#edf1ee;font-size:.66rem;font-weight:800;text-transform:capitalize}.crm-client-status{margin-left:6px}
+.crm-customer-alert{border:1px solid #edcf8e;border-radius:12px;background:#fff9e9}.crm-customer-alert summary{padding:13px 15px;cursor:pointer;font-weight:800}
+.crm-customer-alert>div{display:grid;padding:0 12px 12px}.crm-customer-alert article{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:10px;border-top:1px solid #eadfbe}.crm-customer-alert small{display:block;color:var(--muted)}
+.crm-reminder-dialog{width:min(760px,calc(100% - 30px));border:0;border-radius:20px;padding:0}.crm-reminder-dialog::backdrop{background:#10251dbb}
+.crm-reminder-dialog form{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;padding:26px}.crm-reminder-dialog header,.crm-reminder-dialog footer,.crm-reminder-dialog .wide,.crm-reminder-dialog .status-message{grid-column:1/-1}
+.crm-reminder-dialog header,.crm-reminder-dialog footer{display:flex;align-items:center;justify-content:space-between;gap:12px}.crm-reminder-dialog h2{margin:3px 0;font:500 2rem Georgia,serif}
+.crm-reminder-dialog label{display:grid;gap:6px}.crm-reminder-dialog input,.crm-reminder-dialog select,.crm-reminder-dialog textarea{box-sizing:border-box;width:100%;padding:11px;border:1px solid #b9c5bd;border-radius:10px;font:inherit}.crm-reminder-dialog footer{justify-content:flex-end}
+.text-button{border:0;background:none;color:#a33128;font-weight:800;cursor:pointer}
+@media(max-width:1150px){.crm-reminder{grid-template-columns:1fr 1fr}.crm-reminder-actions{grid-column:1/-1;justify-content:flex-start}}
+@media(max-width:700px){.crm-reminder-card>header{align-items:stretch;flex-direction:column}.crm-reminder-filter,.crm-reminder,.crm-reminder-dialog form{grid-template-columns:1fr}.crm-reminder-dialog header,.crm-reminder-dialog footer,.crm-reminder-dialog .wide,.crm-reminder-dialog .status-message{grid-column:auto}.crm-reminder-metrics{justify-content:flex-start}}

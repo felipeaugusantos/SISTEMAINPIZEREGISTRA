@@ -169,6 +169,7 @@ class LeadResponse(BaseModel):
     nome: str
     email: str
     telefone: str
+    documento: str | None = None
     empresa_id: int | None = None
     empresa: str | None
     marca: str
@@ -467,6 +468,17 @@ class LeadStatusUpdate(BaseModel):
     proxima_acao_em: datetime | None = None
     tags: list[str] | None = Field(default=None, max_length=20)
     registrar_contato: bool = False
+    documento: str | None = Field(default=None, max_length=30)
+
+    @field_validator("documento")
+    @classmethod
+    def limpar_documento(cls, valor: str | None) -> str | None:
+        if valor is None:
+            return None
+        digitos = "".join(item for item in valor if item.isdigit())
+        if digitos and len(digitos) not in (11, 14):
+            raise ValueError("Informe um CPF com 11 dígitos ou CNPJ com 14 dígitos")
+        return digitos or None
 
     @field_validator("notas")
     @classmethod

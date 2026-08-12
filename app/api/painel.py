@@ -1,0 +1,278 @@
+"""Painel executivo e central de notificações da tela de visão geral.
+
+Consolida, em uma única tela, os indicadores que hoje estão espalhados pelas
+rotinas (financeiro, jurídico, risco, comercial, aprendizado) e reúne as
+notificações pendentes do sistema. Cada bloco respeita a permissão do módulo:
+o CEO — que tem todas — vê tudo; um operador vê apenas o que lhe cabe.
+"""
+
+from datetime import UTC, date, datetime, timedelta
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
+from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.juridico import STATUS_ATIVOS
+from app.auth import UsuarioAutenticado, exigir_permissao
+from app.database import get_session
+from app.models import (
+    AlertaSistema,
+    AvaliacaoRiscoMarca,
+    LancamentoFinanceiro,
+    Lead,
+    ModeloRegistrabilidade,
+    NotificacaoJuridica,
+    ParcelaFinanceira,
+    PesquisaMarca,
+    PrazoJuridico,
+    StatusLead,
+)
+
+router = APIRouter(prefix="/v1/admin", tags=["painel executivo"])
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+DashboardDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("dashboard.view"))]
+
+# Alerta do sistema (código) -> tela onde o CEO resolve a pendência.
+_DESTINO_ALERTA = {
+    "RETENCAO_PENDENTE": "/admin/confiabilidade",
+    "TRIAL_EXPIRADO": "/admin/saas",
+    "PREVISOES_REPROCESSADAS": "/admin/aprendizado",
+    "AGENTES_REPROCESSADOS": "/admin/aprendizado",
+    "MODELO_APRENDIZADO_ATIVADO": "/admin/aprendizado",
+    "MODELO_APRENDIZADO_AGUARDANDO_REVISOES": "/admin/aprendizado",
+    "MODELO_APRENDIZADO_REPROVADO": "/admin/aprendizado",
+}
+
+
+async def _bloco_financeiro(session: AsyncSession, organizacao_id: int) -> dict:
+    hoje = date.today()
+    restante = ParcelaFinanceira.valor - func.coalesce(ParcelaFinanceira.valor_pago, 0)
+    em_aberto = ParcelaFinanceira.status != "paga"
+    linha = (
+        await session.execute(
+            select(
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(em_aberto, LancamentoFinanceiro.tipo == "receber"),
+                                restante,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(em_aberto, LancamentoFinanceiro.tipo == "pagar"), restante),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(em_aberto, ParcelaFinanceira.vencimento < hoje),
+                                restante,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.count().filter(
+                    and_(em_aberto, ParcelaFinanceira.vencimento < hoje)
+                ),
+            )
+            .select_from(ParcelaFinanceira)
+            .join(
+                LancamentoFinanceiro,
+                LancamentoFinanceiro.id == ParcelaFinanceira.lancamento_id,
+            )
+            .where(
+                ParcelaFinanceira.organizacao_id == organizacao_id,
+                LancamentoFinanceiro.status != "cancelado",
+            )
+        )
+    ).one()
+    return {
+        "receber_aberto": float(linha[0]),
+        "pagar_aberto": float(linha[1]),
+        "vencido": float(linha[2]),
+        "parcelas_vencidas": int(linha[3]),
+        "url": "/admin/financeiro",
+    }
+
+
+async def _bloco_juridico(session: AsyncSession, organizacao_id: int) -> dict:
+    agora = datetime.now(UTC)
+    hoje = agora.date()
+    ativo = PrazoJuridico.status.in_(STATUS_ATIVOS)
+    venc = func.date(PrazoJuridico.vencimento_em)
+    linha = (
+        await session.execute(
+            select(
+                func.count().filter(and_(ativo, PrazoJuridico.vencimento_em < agora)),
+                func.count().filter(and_(ativo, venc == hoje)),
+                func.count().filter(
+                    and_(ativo, venc > hoje, venc <= hoje + timedelta(days=7))
+                ),
+                func.count().filter(
+                    and_(ativo, PrazoJuridico.confirmado.is_(False))
+                ),
+            ).where(PrazoJuridico.organizacao_id == organizacao_id)
+        )
+    ).one()
+    return {
+        "vencidos": int(linha[0]),
+        "vence_hoje": int(linha[1]),
+        "proximos_7_dias": int(linha[2]),
+        "aguardando_confirmacao": int(linha[3]),
+        "url": "/admin/operacao-juridica",
+    }
+
+
+async def _bloco_comercial(session: AsyncSession, organizacao_id: int) -> dict:
+    linha = (
+        await session.execute(
+            select(
+                select(func.count())
+                .select_from(Lead)
+                .where(Lead.organizacao_id == organizacao_id)
+                .scalar_subquery(),
+                select(func.count())
+                .select_from(Lead)
+                .where(Lead.organizacao_id == organizacao_id, Lead.status == StatusLead.NOVO)
+                .scalar_subquery(),
+                select(func.count())
+                .select_from(PesquisaMarca)
+                .where(PesquisaMarca.organizacao_id == organizacao_id)
+                .scalar_subquery(),
+            )
+        )
+    ).one()
+    return {
+        "leads_total": int(linha[0]),
+        "leads_novos": int(linha[1]),
+        "pesquisas_total": int(linha[2]),
+        "url": "/admin/pesquisas",
+    }
+
+
+async def _bloco_risco(session: AsyncSession, organizacao_id: int) -> dict:
+    linha = (
+        await session.execute(
+            select(
+                func.count().filter(AvaliacaoRiscoMarca.nivel.in_(["alto", "critico"])),
+                func.count().filter(AvaliacaoRiscoMarca.nivel_humano.is_(None)),
+            )
+            .select_from(AvaliacaoRiscoMarca)
+            .join(PesquisaMarca, PesquisaMarca.id == AvaliacaoRiscoMarca.pesquisa_id)
+            .where(PesquisaMarca.organizacao_id == organizacao_id)
+        )
+    ).one()
+    return {
+        "elevados": int(linha[0]),
+        "pendentes_revisao": int(linha[1]),
+        "url": "/admin/pesquisas",
+    }
+
+
+async def _bloco_aprendizado(session: AsyncSession) -> dict:
+    modelo = (
+        await session.execute(
+            select(ModeloRegistrabilidade)
+            .where(ModeloRegistrabilidade.status == "ativo")
+            .order_by(ModeloRegistrabilidade.treinado_em.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return {
+        "modelo_ativo": modelo is not None,
+        "versao": modelo.versao if modelo else None,
+        "url": "/admin/aprendizado",
+    }
+
+
+@router.get("/painel-executivo")
+async def painel_executivo(session: SessionDep, usuario: DashboardDep) -> dict:
+    """Resumo cruzado das rotinas para a visão geral (cards por módulo permitido)."""
+    organizacao_id = getattr(usuario, "organizacao_id", 1)
+    painel: dict = {"comercial": await _bloco_comercial(session, organizacao_id)}
+    if usuario.pode("finance.view"):
+        painel["financeiro"] = await _bloco_financeiro(session, organizacao_id)
+    if usuario.pode("legal.view"):
+        painel["juridico"] = await _bloco_juridico(session, organizacao_id)
+    if usuario.pode("risk.view"):
+        painel["risco"] = await _bloco_risco(session, organizacao_id)
+    if usuario.pode("learning.view"):
+        painel["aprendizado"] = await _bloco_aprendizado(session)
+    return painel
+
+
+@router.get("/notificacoes")
+async def listar_notificacoes(session: SessionDep, usuario: DashboardDep) -> dict:
+    """Notificações pendentes do sistema, unificando jurídico e alertas gerais."""
+    organizacao_id = getattr(usuario, "organizacao_id", 1)
+    itens: list[dict] = []
+
+    if usuario.pode("legal.view"):
+        juridicas = (
+            await session.execute(
+                select(NotificacaoJuridica)
+                .where(
+                    NotificacaoJuridica.organizacao_id == organizacao_id,
+                    NotificacaoJuridica.lida_em.is_(None),
+                    NotificacaoJuridica.status != "arquivada",
+                    or_(
+                        NotificacaoJuridica.destinatario_id.is_(None),
+                        NotificacaoJuridica.destinatario_id == usuario.id,
+                    ),
+                )
+                .order_by(NotificacaoJuridica.criado_em.desc())
+                .limit(50)
+            )
+        ).scalars().all()
+        for item in juridicas:
+            itens.append(
+                {
+                    "fonte": "juridico",
+                    "severidade": "aviso" if item.tipo in {"vencido", "escalonado"} else "info",
+                    "titulo": item.titulo,
+                    "mensagem": item.mensagem,
+                    "criado_em": item.criado_em,
+                    "url": "/admin/operacao-juridica",
+                }
+            )
+
+    if usuario.pode("production.manage"):
+        alertas = (
+            await session.execute(
+                select(AlertaSistema)
+                .where(
+                    AlertaSistema.organizacao_id == organizacao_id,
+                    AlertaSistema.resolvido_em.is_(None),
+                )
+                .order_by(AlertaSistema.criado_em.desc())
+                .limit(50)
+            )
+        ).scalars().all()
+        for item in alertas:
+            itens.append(
+                {
+                    "fonte": "sistema",
+                    "severidade": item.severidade,
+                    "titulo": item.codigo.replace("_", " ").capitalize(),
+                    "mensagem": item.mensagem,
+                    "criado_em": item.criado_em,
+                    "url": _DESTINO_ALERTA.get(item.codigo, "/admin/producao"),
+                }
+            )
+
+    itens.sort(key=lambda x: x["criado_em"] or datetime.min.replace(tzinfo=UTC), reverse=True)
+    return {"total": len(itens), "itens": itens}

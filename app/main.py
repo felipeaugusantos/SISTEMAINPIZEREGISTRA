@@ -26,6 +26,7 @@ from app.api.financeiro import exigir_acesso_log_financeiro
 from app.api.financeiro import router as financeiro_router
 from app.api.juridico import router as juridico_router
 from app.api.leads import router as leads_router
+from app.api.painel import router as painel_router
 from app.api.pesquisas import router as pesquisas_router
 from app.api.processos import router as processos_router
 from app.api.producao import router as producao_router
@@ -71,6 +72,7 @@ app.include_router(
 app.include_router(fase2_router)
 app.include_router(fase3_router)
 app.include_router(admin_router)
+app.include_router(painel_router)
 app.include_router(analises_router)
 app.include_router(producao_router)
 app.include_router(rpi_admin_router)

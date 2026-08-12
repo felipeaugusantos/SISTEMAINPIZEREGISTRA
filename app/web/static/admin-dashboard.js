@@ -69,6 +69,126 @@ async function loadOverview() {
   overviewMessage.classList.remove("loading");
 }
 
+function formatCurrency(value) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value ?? 0);
+}
+
+function execCard({ url, icon, title, metrics }) {
+  const cells = metrics
+    .map(
+      (m) =>
+        `<div class="${m.tone ? `tone-${m.tone}` : ""}"><strong>${escapeHtml(m.value)}</strong><span>${escapeHtml(m.label)}</span></div>`,
+    )
+    .join("");
+  return `<a class="exec-card" href="${url}"><div class="exec-card-head"><span aria-hidden="true">${icon}</span><h3>${escapeHtml(title)}</h3></div><div class="exec-card-metrics">${cells}</div></a>`;
+}
+
+function buildExecCards(data) {
+  const cards = [];
+  if (data.comercial) {
+    const c = data.comercial;
+    cards.push(execCard({
+      url: c.url, icon: "AN", title: "Comercial",
+      metrics: [
+        { value: formatNumber(c.pesquisas_total), label: "Pesquisas" },
+        { value: formatNumber(c.leads_novos), label: "Leads novos", tone: c.leads_novos ? "warn" : "" },
+        { value: formatNumber(c.leads_total), label: "Leads totais" },
+      ],
+    }));
+  }
+  if (data.financeiro) {
+    const f = data.financeiro;
+    cards.push(execCard({
+      url: f.url, icon: "FI", title: "Financeiro",
+      metrics: [
+        { value: formatCurrency(f.receber_aberto), label: "A receber" },
+        { value: formatCurrency(f.pagar_aberto), label: "A pagar" },
+        { value: formatCurrency(f.vencido), label: `Vencido (${formatNumber(f.parcelas_vencidas)})`, tone: f.vencido ? "danger" : "" },
+      ],
+    }));
+  }
+  if (data.juridico) {
+    const j = data.juridico;
+    cards.push(execCard({
+      url: j.url, icon: "OJ", title: "Jurídico",
+      metrics: [
+        { value: formatNumber(j.vencidos), label: "Vencidos", tone: j.vencidos ? "danger" : "" },
+        { value: formatNumber(j.proximos_7_dias), label: "Próx. 7 dias", tone: j.proximos_7_dias ? "warn" : "" },
+        { value: formatNumber(j.aguardando_confirmacao), label: "A confirmar", tone: j.aguardando_confirmacao ? "warn" : "" },
+      ],
+    }));
+  }
+  if (data.risco) {
+    const r = data.risco;
+    cards.push(execCard({
+      url: r.url, icon: "MR", title: "Risco",
+      metrics: [
+        { value: formatNumber(r.elevados), label: "Elevados", tone: r.elevados ? "danger" : "" },
+        { value: formatNumber(r.pendentes_revisao), label: "Sem parecer", tone: r.pendentes_revisao ? "warn" : "" },
+      ],
+    }));
+  }
+  if (data.aprendizado) {
+    const a = data.aprendizado;
+    cards.push(execCard({
+      url: a.url, icon: "AP", title: "Aprendizado",
+      metrics: [
+        { value: a.modelo_ativo ? "Ativo" : "Em sombra", label: "Modelo", tone: a.modelo_ativo ? "" : "warn" },
+        { value: a.versao || "—", label: "Versão" },
+      ],
+    }));
+  }
+  return cards;
+}
+
+async function loadExecPanel() {
+  const response = await fetch("/v1/admin/painel-executivo");
+  if (!response.ok) return;
+  const data = await response.json();
+  const cards = buildExecCards(data);
+  if (!cards.length) return;
+  // Conteúdo montado apenas com literais e valores passados por escapeHtml/formatadores.
+  document.querySelector("#exec-grid").innerHTML = cards.join("");
+  document.querySelector("#exec-panel").hidden = false;
+}
+
+function notifItem(item) {
+  const sev = { info: "info", aviso: "warn", critico: "danger", critica: "danger" }[item.severidade] || "info";
+  const fonte = item.fonte === "juridico" ? "Jurídico" : "Sistema";
+  return `<li><a href="${item.url || "#"}"><span class="notif-dot sev-${sev}" aria-hidden="true"></span><div><strong>${escapeHtml(item.titulo)}</strong><p>${escapeHtml(item.mensagem)}</p><small>${fonte} · ${formatDate(item.criado_em)}</small></div></a></li>`;
+}
+
+async function loadNotifications() {
+  const response = await fetch("/v1/admin/notificacoes");
+  if (!response.ok) return;
+  const data = await response.json();
+  const badge = document.querySelector("#notif-badge");
+  const count = document.querySelector("#notif-count");
+  const list = document.querySelector("#notif-list");
+  badge.hidden = data.total === 0;
+  badge.textContent = data.total > 99 ? "99+" : String(data.total);
+  count.textContent = data.total === 0 ? "Tudo em dia" : `${data.total} pendente(s)`;
+  // Itens montados com literais + escapeHtml; URLs vêm de constantes do backend.
+  list.innerHTML = data.total
+    ? data.itens.map(notifItem).join("")
+    : '<li class="notif-empty">Nenhuma notificação pendente. 🎉</li>';
+}
+
+const notifToggle = document.querySelector("#notif-toggle");
+const notifPanel = document.querySelector("#notif-panel");
+notifToggle.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const open = notifPanel.hidden;
+  notifPanel.hidden = !open;
+  notifToggle.setAttribute("aria-expanded", String(open));
+});
+document.addEventListener("click", (event) => {
+  if (!notifPanel.hidden && !event.target.closest(".notif-wrap")) {
+    notifPanel.hidden = true;
+    notifToggle.setAttribute("aria-expanded", "false");
+  }
+});
+
 function renderHealth(id, healthy) {
   const element = document.querySelector(id);
   element.classList.toggle("healthy", healthy);
@@ -188,6 +308,9 @@ loadOverview().catch((error) => {
   overviewMessage.classList.remove("loading");
   overviewMessage.classList.add("error");
 });
+loadExecPanel().catch(() => {});
+loadNotifications().catch(() => {});
+setInterval(() => loadNotifications().catch(() => {}), 60_000);
 configureRecentExecutions().catch(() => {});
 loadRpiMonitor().catch((error) => {
   rpiActionMessage.textContent = error.message;

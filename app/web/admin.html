@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Centro de operações — Zé Registra</title>
-    <link rel="stylesheet" href="/static/styles.css?v=22" />
+    <link rel="stylesheet" href="/static/styles.css?v=24" />
     <script src="/static/admin-shell.js?v=32" defer></script>
-    <script src="/static/admin-dashboard.js?v=14" defer></script>
+    <script src="/static/admin-dashboard.js?v=15" defer></script>
   </head>
   <body class="admin-body" data-admin-section="overview">
     <main class="admin-main admin-dashboard">
@@ -17,9 +17,21 @@
           <h1>Visão geral</h1>
           <p>Acompanhe pesquisas, validações e análises em um único lugar.</p>
         </div>
-        <div class="admin-system-state">
-          <span class="system-live"><i aria-hidden="true"></i> Sistema operacional</span>
-          <small id="overview-model">Carregando configurações…</small>
+        <div class="overview-hero-aside">
+          <div class="notif-wrap">
+            <button id="notif-toggle" class="notif-button" type="button" aria-expanded="false" aria-label="Notificações pendentes">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+              <span id="notif-badge" class="notif-badge" hidden>0</span>
+            </button>
+            <div id="notif-panel" class="notif-panel" hidden role="dialog" aria-label="Notificações pendentes">
+              <header><h3>Notificações</h3><span id="notif-count">—</span></header>
+              <ul id="notif-list" class="notif-list"></ul>
+            </div>
+          </div>
+          <div class="admin-system-state">
+            <span class="system-live"><i aria-hidden="true"></i> Sistema operacional</span>
+            <small id="overview-model">Carregando configurações…</small>
+          </div>
         </div>
       </section>
 
@@ -46,6 +58,14 @@
           <strong id="overview-high-renown">—</strong>
           <small>Registros sincronizados</small>
         </article>
+      </section>
+
+      <section id="exec-panel" class="overview-section" hidden>
+        <header>
+          <div><p class="eyebrow">Resumo executivo</p><h2>Panorama das rotinas</h2></div>
+          <span>Consolidado por módulo</span>
+        </header>
+        <div id="exec-grid" class="exec-grid"></div>
       </section>
 
       <section class="overview-section rpi-monitor" id="rpi-monitor">

@@ -6,6 +6,8 @@ O sistema consulta exclusivamente a **Seção V — Marcas** da Revista da Propr
 
 > **Aviso importante:** os resultados são indicativos. Eles não substituem a busca oficial, o exame de mérito do INPI, a correta especificação de produtos e serviços nem uma análise jurídica especializada. Nenhuma pontuação ou probabilidade representa garantia de registro.
 
+O escopo comercial auditado, incluindo recursos parciais e ainda não implementados, está documentado na [matriz “prometido × implementado”](docs/matriz-prometido-implementado.md).
+
 ## Funcionalidades
 
 ### Pesquisa de marcas

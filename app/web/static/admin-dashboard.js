@@ -155,7 +155,7 @@ async function loadExecPanel() {
 function notifItem(item) {
   const sev = { info: "info", aviso: "warn", critico: "danger", critica: "danger" }[item.severidade] || "info";
   const fonte = item.fonte === "juridico" ? "Jurídico" : "Sistema";
-  return `<li><a href="${item.url || "#"}"><span class="notif-dot sev-${sev}" aria-hidden="true"></span><div><strong>${escapeHtml(item.titulo)}</strong><p>${escapeHtml(item.mensagem)}</p><small>${fonte} · ${formatDate(item.criado_em)}</small></div></a></li>`;
+  return `<li><a href="${item.url || "#"}" data-fonte="${item.fonte}" data-id="${item.id}" data-url="${item.url || ""}"><span class="notif-dot sev-${sev}" aria-hidden="true"></span><div><strong>${escapeHtml(item.titulo)}</strong><p>${escapeHtml(item.mensagem)}</p><small>${fonte} · ${formatDate(item.criado_em)}</small></div></a></li>`;
 }
 
 async function loadNotifications() {
@@ -173,6 +173,22 @@ async function loadNotifications() {
     ? data.itens.map(notifItem).join("")
     : '<li class="notif-empty">Nenhuma notificação pendente. 🎉</li>';
 }
+
+const notifList = document.querySelector("#notif-list");
+notifList.addEventListener("click", async (event) => {
+  const link = event.target.closest("a[data-id]");
+  if (!link) return;
+  event.preventDefault();
+  const { fonte, id, url } = link.dataset;
+  try {
+    await fetch(`/v1/admin/notificacoes/${encodeURIComponent(fonte)}/${encodeURIComponent(id)}/lida`, { method: "POST" });
+  } catch (_) { /* segue para a tela mesmo se a marcação falhar */ }
+  if (url) {
+    window.location.href = url;
+    return;
+  }
+  await loadNotifications().catch(() => {});
+});
 
 const notifToggle = document.querySelector("#notif-toggle");
 const notifPanel = document.querySelector("#notif-panel");

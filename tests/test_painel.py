@@ -2,8 +2,9 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
-from app.api.painel import listar_notificacoes, painel_executivo
+from app.api.painel import listar_notificacoes, marcar_notificacao_lida, painel_executivo
 from app.permissions import permissoes_do_perfil
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
@@ -41,12 +42,14 @@ async def test_painel_executivo_ceo_ve_todos_os_blocos() -> None:
 @pytest.mark.asyncio
 async def test_notificacoes_unifica_e_ordena_por_data() -> None:
     juridica = SimpleNamespace(
+        id=1,
         tipo="vencido",
         titulo="Prazo vencido",
         mensagem="Venceu ontem",
         criado_em=datetime(2026, 8, 10, tzinfo=UTC),
     )
     alerta = SimpleNamespace(
+        id=2,
         severidade="aviso",
         codigo="RETENCAO_PENDENTE",
         mensagem="10 leads excedem a retenção",
@@ -69,3 +72,46 @@ async def test_notificacoes_operador_sem_permissao_nao_ve_nada() -> None:
     usuario = usuario_teste(perfil="operador", permissoes={"dashboard.view"})
     resposta = await listar_notificacoes(session, usuario)
     assert resposta == {"total": 0, "itens": []}
+
+
+@pytest.mark.asyncio
+async def test_marcar_juridica_como_lida_registra_autor_e_data() -> None:
+    item = SimpleNamespace(status="nova", lida_em=None, lida_por=None)
+    session = FakeSession([FakeResult(scalar=item)])
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+    resultado = await marcar_notificacao_lida("juridico", 7, session, usuario)
+    assert resultado == {"lida": True}
+    assert item.status == "lida"
+    assert item.lida_em is not None
+    assert item.lida_por == usuario.ator
+
+
+@pytest.mark.asyncio
+async def test_marcar_alerta_sistema_como_resolvido() -> None:
+    item = SimpleNamespace(resolvido_em=None)
+    session = FakeSession([FakeResult(scalar=item)])
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+    await marcar_notificacao_lida("sistema", 3, session, usuario)
+    assert item.resolvido_em is not None
+
+
+@pytest.mark.asyncio
+async def test_marcar_sem_permissao_retorna_404() -> None:
+    session = FakeSession([])
+    usuario = usuario_teste(perfil="operador", permissoes={"dashboard.view"})
+    with pytest.raises(HTTPException) as erro:
+        await marcar_notificacao_lida("sistema", 3, session, usuario)
+    assert erro.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_notificacoes_incluem_id_e_fonte() -> None:
+    juridica = SimpleNamespace(
+        id=42, tipo="vencido", titulo="Prazo", mensagem="x",
+        criado_em=datetime(2026, 8, 10, tzinfo=UTC),
+    )
+    session = FakeSession([FakeResult(itens=[juridica]), FakeResult(itens=[])])
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+    resposta = await listar_notificacoes(session, usuario)
+    assert resposta["itens"][0]["id"] == 42
+    assert resposta["itens"][0]["fonte"] == "juridico"

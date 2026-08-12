@@ -9,7 +9,7 @@ o CEO — que tem todas — vê tudo; um operador vê apenas o que lhe cabe.
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -241,6 +241,7 @@ async def listar_notificacoes(session: SessionDep, usuario: DashboardDep) -> dic
         for item in juridicas:
             itens.append(
                 {
+                    "id": item.id,
                     "fonte": "juridico",
                     "severidade": "aviso" if item.tipo in {"vencido", "escalonado"} else "info",
                     "titulo": item.titulo,
@@ -265,6 +266,7 @@ async def listar_notificacoes(session: SessionDep, usuario: DashboardDep) -> dic
         for item in alertas:
             itens.append(
                 {
+                    "id": item.id,
                     "fonte": "sistema",
                     "severidade": item.severidade,
                     "titulo": item.codigo.replace("_", " ").capitalize(),
@@ -276,3 +278,46 @@ async def listar_notificacoes(session: SessionDep, usuario: DashboardDep) -> dic
 
     itens.sort(key=lambda x: x["criado_em"] or datetime.min.replace(tzinfo=UTC), reverse=True)
     return {"total": len(itens), "itens": itens}
+
+
+@router.post("/notificacoes/{fonte}/{item_id}/lida")
+async def marcar_notificacao_lida(
+    fonte: str, item_id: int, session: SessionDep, usuario: DashboardDep
+) -> dict:
+    """Marca uma notificação da central como lida/resolvida, respeitando a fonte."""
+    organizacao_id = getattr(usuario, "organizacao_id", 1)
+    agora = datetime.now(UTC)
+    if fonte == "juridico" and usuario.pode("legal.view"):
+        item = (
+            await session.execute(
+                select(NotificacaoJuridica).where(
+                    NotificacaoJuridica.id == item_id,
+                    NotificacaoJuridica.organizacao_id == organizacao_id,
+                    or_(
+                        NotificacaoJuridica.destinatario_id.is_(None),
+                        NotificacaoJuridica.destinatario_id == usuario.id,
+                    ),
+                )
+            )
+        ).scalar_one_or_none()
+        if item is None:
+            raise HTTPException(404, "Notificação não encontrada")
+        item.status = "lida"
+        item.lida_em = agora
+        item.lida_por = usuario.ator
+    elif fonte == "sistema" and usuario.pode("production.manage"):
+        item = (
+            await session.execute(
+                select(AlertaSistema).where(
+                    AlertaSistema.id == item_id,
+                    AlertaSistema.organizacao_id == organizacao_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if item is None:
+            raise HTTPException(404, "Notificação não encontrada")
+        item.resolvido_em = agora
+    else:
+        raise HTTPException(404, "Notificação não encontrada")
+    await session.commit()
+    return {"lida": True}

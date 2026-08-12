@@ -1,112 +1,225 @@
-# Pesquisa de Marcas INPI
+# Zé Registra — Pesquisa e Gestão de Marcas INPI
 
-Aplicação para pesquisa indicativa de anterioridade em processos de marcas publicados pelo INPI. O escopo de consulta é exclusivo da **Seção V — Marcas** da Revista da Propriedade Industrial (RPI).
+Plataforma para pesquisa indicativa de anterioridade, análise de registrabilidade e gestão operacional de marcas publicadas pelo Instituto Nacional da Propriedade Industrial (INPI).
 
-O visitante informa a marca, a atividade do negócio e seus dados de contato. A aplicação executa automaticamente a pesquisa exata e a pesquisa ampliada por radicais e variações ortográficas ou fonéticas, consolida os resultados sem duplicidade e libera um relatório com ocorrências, titulares, situação, depósito, classes e histórico publicado.
+O sistema consulta exclusivamente a **Seção V — Marcas** da Revista da Propriedade Industrial (RPI), organiza os resultados encontrados e oferece recursos internos para atendimento comercial, acompanhamento de processos, análise técnica, aprendizado supervisionado e gestão financeira.
 
-## Executar com Docker
+> **Aviso importante:** os resultados são indicativos. Eles não substituem a busca oficial, o exame de mérito do INPI, a correta especificação de produtos e serviços nem uma análise jurídica especializada. Nenhuma pontuação ou probabilidade representa garantia de registro.
 
-Pré-requisito: Docker Desktop com WSL 2 funcional.
+## Funcionalidades
+
+### Pesquisa de marcas
+
+- pesquisa exata e ampliada executadas automaticamente;
+- busca por expressão completa, termos isolados, radicais e variações;
+- consolidação de ocorrências sem duplicidade;
+- classificação por relevância e situação processual;
+- identificação de titulares, procuradores, classes Nice e movimentações;
+- consulta limitada à Seção V — Marcas da RPI;
+- resumo público e relatório completo interno versionado;
+- geração de PDF com pontuação, chance indicativa e critérios analisados.
+
+### Central de análise
+
+- validação técnica de situações, classes, afinidades e alto renome;
+- motor determinístico de risco com regras e evidências auditáveis;
+- matriz de registrabilidade baseada nos critérios do INPI;
+- estimativa supervisionada com faixa de incerteza e cobertura;
+- parecer humano separado da estimativa automática;
+- agente de registrabilidade baseado em dados estruturados;
+- versionamento e histórico dos relatórios.
+
+### Leads e CRM
+
+- captura de nome, empresa, e-mail, telefone e autorização de marketing;
+- agrupamento de várias pesquisas no mesmo contato;
+- prevenção e identificação de pesquisas duplicadas;
+- pipeline comercial, responsável, próxima ação, tags e observações;
+- histórico de ligações, reuniões, WhatsApp, e-mails e outros contatos;
+- linha do tempo auditável por cliente, empresa e pesquisa;
+- arquivamento e restauração de contatos;
+- exclusão de pesquisas mediante senha ou aprovação administrativa.
+
+### Processos monitorados
+
+- cadastro manual de processos;
+- pesquisa em massa por procurador;
+- vinculação dos resultados encontrados à carteira;
+- associação com empresas e responsáveis internos;
+- acompanhamento da situação no INPI e da última movimentação da RPI;
+- filtros por número, marca, procurador, empresa e status interno.
+
+### Financeiro
+
+- painel com indicadores e pendências;
+- contas a pagar e contas a receber;
+- cadastro e manutenção de lançamentos;
+- parcelas, vencimentos e pagamentos parciais ou integrais;
+- cadastro de formas de pagamento e limite de parcelas;
+- baixas, cancelamentos e estornos com justificativa;
+- log financeiro em formato de tabela;
+- exportação de dados conforme as permissões do usuário.
+
+### Administração SaaS
+
+- organizações independentes no mesmo banco de dados;
+- isolamento por organização com Row Level Security (RLS);
+- planos, limites, períodos de teste e suspensão;
+- branding por organização;
+- convites, sessões e permissões específicas;
+- chaves de integração revogáveis;
+- domínios verificados;
+- auditoria de ações administrativas e operacionais.
+
+## Perfis e acessos
+
+O acesso ao Centro de Operações é individual. Além do perfil inicial, as permissões podem ser ajustadas por módulo e ação.
+
+| Perfil | Acesso principal |
+| --- | --- |
+| Superadministrador | Administração global das organizações e todos os módulos |
+| Administrador | Acesso operacional completo, incluindo visão geral e log financeiro |
+| CEO | Visão executiva e acesso funcional completo, sem execuções técnicas recentes |
+| Tech | Acesso completo, incluindo execuções técnicas recentes |
+| Financeiro | Módulo financeiro e respectivo log |
+| Supervisor | Operação ampla, com restrições para usuários e exclusões |
+| Técnico | Validação, risco e sincronização da RPI |
+| Comercial | Leads, CRM, carteira e operação financeira comercial |
+| Auditor | Consulta aos módulos e trilhas de auditoria |
+| Operador | Acesso mínimo, ampliável pela matriz de permissões |
+
+## Arquitetura local
+
+O ambiente Docker é composto pelos seguintes serviços:
+
+| Serviço | Responsabilidade |
+| --- | --- |
+| `api` | API FastAPI e páginas web |
+| `db` | PostgreSQL 16 |
+| `redis` | cache, rate limit e fila de tarefas |
+| `worker` | execução de tarefas assíncronas |
+| `rpi-sync` | atualização automática das RPIs |
+| `mailpit` | captura local de e-mails de teste |
+| `migrate` | aplicação das migrações Alembic antes da API |
+
+Banco, Redis, API e Mailpit são publicados somente em `127.0.0.1` no ambiente local.
+
+## Requisitos
+
+- Windows 10/11, Linux ou macOS;
+- Docker Desktop com WSL 2 funcional no Windows;
+- Git;
+- Python 3.11 e `uv` apenas para desenvolvimento fora do Docker.
+
+## Início rápido com Docker
+
+1. Clone o repositório:
 
 ```powershell
-docker compose up --build -d
+git clone https://github.com/felipeaugusantos/SISTEMAINPIZEREGISTRA.git
+cd SISTEMAINPIZEREGISTRA
 ```
 
-As migrações são aplicadas automaticamente quando o contêiner inicia. Acesse:
-
-- Pesquisa: http://localhost:8000
-- Painel administrativo unificado: http://localhost:8000/admin
-- Leads e pesquisas: http://localhost:8000/admin/pesquisas
-- Validação técnica: http://localhost:8000/admin/validacao
-- Motor de risco em modo sombra: http://localhost:8000/admin/risco
-- Produção e auditoria: http://localhost:8000/admin/producao
-- Usuários e acessos: http://localhost:8000/admin/usuarios
-- Empresas, planos e integrações (superadministrador): http://localhost:8000/admin/saas
-- Swagger: http://localhost:8000/docs
-- Saúde: http://localhost:8000/health
-
-### Iniciar acesso externo automaticamente no Windows
-
-Execute uma vez no PowerShell:
+2. Crie o arquivo local de configuração:
 
 ```powershell
-cd C:\Users\Enzo\Documents\INPI
-powershell -ExecutionPolicy Bypass -File .\scripts\instalar-inicializacao.ps1
+Copy-Item .env.example .env
 ```
 
-A tarefa `ZeRegistra-AcessoExterno` será executada depois do login no Windows. Ela aguarda o Docker Desktop, sobe os contêineres, substitui o Quick Tunnel anterior, valida o novo endereço e registra o link em `%LOCALAPPDATA%\ZeRegistra\ultimo-link.txt`.
+3. No `.env`, defina pelo menos valores próprios para:
 
-Para enviar o novo endereço pelo WhatsApp, preencha `%LOCALAPPDATA%\ZeRegistra\whatsapp.env` com o token permanente, o ID do número remetente, o destinatário com DDI e o nome de um modelo aprovado no WhatsApp Cloud API. Segredos ficam fora do repositório. O histórico da automação fica em `%LOCALAPPDATA%\ZeRegistra\acesso-externo.log`.
+```dotenv
+APP_DB_PASSWORD=troque-esta-senha
+ADMIN_USERNAME=admin
+ADMIN_EMAIL=seu-email@empresa.com.br
+ADMIN_PASSWORD=troque-esta-senha
+AUDIT_IP_SALT=troque-este-segredo
+SECURITY_MASTER_KEY=troque-esta-chave
+```
 
-## Lógica de pesquisa
-
-O cliente não precisa escolher parâmetros técnicos. Toda solicitação combina internamente a expressão completa, elementos isolados, radicais e variações ortográficas ou fonéticas, prioriza as correspondências exatas e remove processos repetidos. Cada ocorrência informa por que foi localizada. A classificação Nice permanece disponível nos dados apresentados, mas não é exigida no formulário.
-
-O relatório também apresenta classes candidatas extraídas da atividade informada, situação processual padronizada e uma matriz inicial de afinidade. O despacho oficial permanece visível. Relações de afinidade pendentes aparecem como preliminares até aprovação nominal no painel de validação técnica.
-
-Cada versão registra o termo, a expressão completa, os radicais, as variações, as contagens por critério, a versão do algoritmo e a qualidade da base. As ocorrências são ordenadas em quatro faixas de relevância explicáveis. A conclusão é sempre indicativa e nunca declara que uma marca está disponível ou que seu registro é garantido.
-
-Os resultados são meramente indicativos e não substituem a busca oficial, a análise fonética, a especificação correta de produtos e serviços ou uma opinião jurídica.
-
-## Alto renome
-
-A lista de marcas de alto renome é obtida da página oficial do INPI. Para sincronizar inclusões e expirações:
+4. Construa e inicie os serviços:
 
 ```powershell
-docker compose exec api /app/.venv/bin/python -m app.cli.sincronizar_alto_renome
+docker compose up -d --build
+docker compose ps
 ```
 
-O sistema identifica o número de processo oficial e também nomes nominativos legíveis na lista. Marcas mistas ou figurativas sem nome textual no PDF só são confirmadas pelo respectivo número de processo.
+As migrações são aplicadas pelo serviço `migrate` antes da inicialização da API.
 
-## Motor de risco em modo sombra
+5. Verifique os logs, se necessário:
 
-Ao gerar um relatório, o sistema calcula internamente uma pontuação determinística de 0 a 100 e classifica o caso em quatro níveis: baixo, moderado, alto ou crítico. O cálculo combina:
+```powershell
+docker compose logs -f api
+docker compose logs -f rpi-sync
+docker compose logs -f worker
+```
 
-- grau de correspondência do nome;
-- relevância da situação processual;
-- identidade ou afinidade entre classes;
-- coincidência com alto renome.
+## Endereços locais
 
-Cada ponto fica associado à regra e à evidência que o originou. A pontuação e os principais conflitos são armazenados com a versão do motor, mas não fazem parte da resposta pública do relatório.
+| Recurso | Endereço |
+| --- | --- |
+| Pesquisa pública | <http://localhost:8000> |
+| Login administrativo | <http://localhost:8000/login> |
+| Centro de Operações | <http://localhost:8000/admin> |
+| Leads e pesquisas | <http://localhost:8000/admin/pesquisas> |
+| CRM | <http://localhost:8000/admin/crm> |
+| Processos monitorados | <http://localhost:8000/admin/processos-monitorados> |
+| Financeiro | <http://localhost:8000/admin/financeiro> |
+| Contas a pagar | <http://localhost:8000/admin/financeiro/contas-a-pagar> |
+| Contas a receber | <http://localhost:8000/admin/financeiro/contas-a-receber> |
+| Formas de pagamento | <http://localhost:8000/admin/financeiro/formas-pagamento> |
+| Log financeiro | <http://localhost:8000/admin/producao/log-financeiro> |
+| Usuários e acessos | <http://localhost:8000/admin/usuarios> |
+| Empresas e planos | <http://localhost:8000/admin/saas> |
+| Mailpit | <http://localhost:8025> |
+| Swagger | <http://localhost:8000/docs> |
+| Saúde da aplicação | <http://localhost:8000/health> |
 
-No painel `/admin/fase3`, um especialista pode registrar sua própria classificação e fundamentação. O sistema mede concordância simples entre o nível determinístico e o nível humano, sem alterar pesos ou calibrar o motor automaticamente.
+## Fluxo operacional recomendado
 
-## Governança de produção
+1. O visitante informa a marca e os dados de contato.
+2. O sistema executa automaticamente as estratégias de busca configuradas.
+3. O cliente recebe um resumo indicativo de uma página.
+4. A pesquisa entra no painel de Leads e no histórico do contato.
+5. Um operador revisa validação técnica, risco, matriz INPI e estimativas disponíveis.
+6. O especialista registra o parecer humano quando necessário.
+7. O relatório completo é gerado internamente e utilizado no contato comercial.
+8. Quando convertido, o cliente pode ser associado à carteira de processos e ao financeiro.
 
-O painel acompanha tempo e erros das operações nas últimas 24 horas, divergências entre motor e avaliação humana, quantidade de versões de relatório e eventos administrativos. Senhas nunca entram na auditoria e o endereço de origem é armazenado somente como hash com `AUDIT_IP_SALT`.
+## Atualização automática da RPI
 
-Relatórios públicos recebem número de versão, versão de esquema, data de geração e hash de conteúdo. Conteúdo idêntico reutiliza o snapshot anterior; mudanças nos dados públicos criam uma nova versão.
+O serviço `rpi-sync` consulta periodicamente novas edições e importa somente a Seção V — Marcas. O intervalo padrão é de seis horas.
 
-## Dados corporativos e privacidade
+Configurações disponíveis no `.env`:
 
-Nome, empresa, e-mail de contato e telefone contextualizam e liberam o relatório. O aceite do aviso de privacidade é obrigatório. Consentimento para marketing é separado e opcional.
+```dotenv
+RPI_SYNC_INTERVAL_SECONDS=21600
+RPI_SYNC_START_NUMBER=2900
+RPI_SYNC_POLL_SECONDS=10
+```
 
-São aceitos tanto e-mails empresariais quanto endereços pessoais de provedores como Gmail, Hotmail, Outlook e Yahoo. Os dados pessoais não são enviados pela URL; o relatório usa um identificador UUID aleatório.
+Para acompanhar a execução:
 
-Defina `ADMIN_USERNAME` e `ADMIN_PASSWORD` no arquivo `.env` antes de publicar. Em produção, use HTTPS e informe o canal real do controlador no aviso de privacidade.
+```powershell
+docker compose logs -f rpi-sync
+```
 
-## Painel administrativo
+Para executar uma faixa manualmente:
 
-### Operação SaaS multiempresa
+```powershell
+docker compose exec api /app/.venv/bin/python -m app.cli.sincronizar_rpis `
+  --inicio 2818 --fim 2897 --tipo marca
+```
 
-O banco usa um catálogo compartilhado para os dados públicos do INPI e separa por organização os usuários, leads, pesquisas, avaliações, relatórios e eventos de auditoria. A migração cria a organização inicial `ze-registra`, associa os registros existentes a ela e promove o primeiro administrador atual a superadministrador.
+Após importar um histórico, consolide a situação mais recente:
 
-No menu **Empresas e planos**, o superadministrador pode cadastrar uma empresa com seu administrador inicial, atribuir plano e limites, suspender ou reativar o acesso, cadastrar domínio e emitir uma chave de integração. A senha inicial e a chave são mostradas uma única vez. O administrador de cada empresa continua gerenciando somente sua própria equipe em **Usuários e acessos**.
+```powershell
+docker compose exec api /app/.venv/bin/python -m app.cli.consolidar_situacoes_marcas
+```
 
-Para integrar um site externo, envie a chave no cabeçalho `X-Integration-Key`. Também é aceito `Authorization: Bearer`, mantendo compatibilidade com a integração anterior. O token é armazenado somente como SHA-256 e identifica automaticamente a organização. Em domínios cadastrados, a organização também pode ser resolvida pelo host. Cobrança automática permanece preparada pelos campos de assinatura e provedor, mas exige integração futura com o gateway escolhido.
+## Dados históricos BADEPI
 
-O endereço `/admin` centraliza os indicadores e as pendências de Leads, Validação Técnica, Motor de Risco e Aprendizado Supervisionado. Os módulos usam a mesma navegação lateral e continuam separados internamente para preservar desempenho e manutenção. Os endereços antigos `/admin/leads`, `/admin/fase2` e `/admin/fase3` permanecem disponíveis por compatibilidade.
-
-O acesso é feito em `/login` com uma conta individual. No primeiro start após a
-migração, o sistema cria o usuário definido por `ADMIN_USERNAME`, `ADMIN_EMAIL` e
-`ADMIN_PASSWORD`. A autenticação usa senha Argon2id e sessão revogável no PostgreSQL;
-o HTTP Basic não é aceito. Para operadores, selecione um perfil inicial e ajuste a
-matriz de permissões em `/admin/usuarios`. Contas não são apagadas: bloqueie a conta
-e revogue suas sessões para preservar a trilha de auditoria.
-
-## Base histórica BADEPI
-
-Para carregar depósitos, titulares e classes Nice:
+Os importadores trabalham em lotes e podem ser repetidos sem duplicar registros:
 
 ```powershell
 docker compose exec api /app/.venv/bin/python -m app.cli.importar_badepi_marcas `
@@ -119,51 +232,32 @@ docker compose exec api /app/.venv/bin/python -m app.cli.importar_badepi_classes
   --arquivo data/raw/badepi/badepiv11_mrc_classes.csv
 ```
 
-Os importadores trabalham em lotes e podem ser repetidos sem duplicar registros.
+## Alto renome
 
-## Atualizações da RPI
-
-Sincronize somente marcas nas novas edições:
+Para sincronizar a lista pública de marcas de alto renome:
 
 ```powershell
-docker compose exec api /app/.venv/bin/python -m app.cli.sincronizar_rpis `
-  --inicio 2818 --fim 2897 --tipo marca
+docker compose exec api /app/.venv/bin/python -m app.cli.sincronizar_alto_renome
 ```
 
-Cada edição concluída fica registrada para retomada segura.
+Marcas figurativas ou mistas sem elemento nominativo legível são confirmadas pelo número oficial do processo.
 
-O serviço Docker `rpi-sync` consulta o portal oficial a cada seis horas e importa
-automaticamente apenas as novas edições da Seção V — Marcas. Ele inicia junto com:
+## Motor de risco e registrabilidade
 
-```powershell
-docker compose up -d --build
-docker compose logs -f rpi-sync
-```
+O motor determinístico calcula uma pontuação de conflito de 0 a 100 e classifica o caso em quatro níveis:
 
-O intervalo pode ser alterado no `.env` por `RPI_SYNC_INTERVAL_SECONDS` (mínimo de
-300 segundos). `RPI_SYNC_START_NUMBER` define a primeira edição em instalações vazias.
-Um bloqueio no PostgreSQL impede que duas importações sejam executadas ao mesmo tempo.
-O painel administrativo consulta o heartbeat do serviço, atualizado conforme
-`RPI_SYNC_POLL_SECONDS` (10 segundos por padrão), e permite solicitar uma verificação
-manual ou repetir uma execução que falhou.
+| Faixa | Leitura operacional |
+| --- | --- |
+| Baixo | poucos conflitos relevantes localizados |
+| Moderado | existem pontos de atenção que exigem conferência |
+| Alto | conflitos relevantes e maior possibilidade de impedimento |
+| Crítico | conflitos fortes; análise especializada prioritária |
 
-Após importar um histórico existente, consolide a situação atual de cada marca pela movimentação mais recente:
+A pontuação considera correspondência do nome, situação processual, classes, afinidade mercadológica e alto renome. Cada ponto permanece associado à regra e à evidência que o originou.
 
-```powershell
-docker compose exec api /app/.venv/bin/python -m app.cli.consolidar_situacoes_marcas
-```
+A chance histórica supervisionada é separada da pontuação determinística. Ela só é exibida quando o modelo atende aos critérios mínimos de amostra, validação temporal, recall, especificidade, calibração, cobertura e revisão humana.
 
-Titulares continuam disponíveis para identificação, mas CPF e CNPJ encontrados em nomes públicos são mascarados nas APIs e relatórios destinados ao visitante.
-
-## Aprendizado supervisionado de registrabilidade
-
-O módulo `/admin/aprendizado` constrói rótulos a partir de decisões de mérito da RPI,
-separando indeferimentos de arquivamentos formais. Para cada pedido rotulado, os candidatos
-são limitados às marcas depositadas anteriormente, evitando vazamento temporal. Os atributos
-incluem semelhança textual, fonética, trigramas, classes, afinidade validada, situação anterior
-e alto renome.
-
-Para preparar um lote e treinar um candidato:
+### Preparação do aprendizado supervisionado
 
 ```powershell
 docker compose exec api /app/.venv/bin/python `
@@ -176,165 +270,166 @@ docker compose exec api /app/.venv/bin/python -m app.cli.treinar_registrabilidad
   --treinar
 ```
 
-A coleta consulta somente o detalhe público do processo no INPI, preserva o complemento do
-despacho, URL, artigos, processos citados e hash SHA-256. A amostra é distribuída por trimestre
-de depósito e classe de Nice. Somente regras documentais inequívocas recebem o estado
-`documental`; textos ambíguos permanecem na fila humana. O processo é reiniciável, respeita
-intervalo entre requisições e para sem tentar contornar um eventual CAPTCHA. Para reaplicar uma
-versão nova das regras aos textos já armazenados, sem consultar novamente o INPI:
+O modelo é inicialmente executado em modo sombra. A ativação não elimina a revisão humana e nunca transforma a estimativa em garantia de deferimento.
 
-```powershell
-docker compose exec api /app/.venv/bin/python `
-  -m app.cli.coletar_fundamentos_indeferimentos `
-  --reclassificar --somente-reclassificar
+## E-mail e recuperação de senha
+
+No ambiente local, a API envia mensagens para o Mailpit:
+
+```dotenv
+EMAIL_ENABLED=true
+SMTP_HOST=mailpit
+SMTP_PORT=1025
+SMTP_STARTTLS=false
 ```
 
-Falhas de rede ou processos não encontrados podem ser tentados novamente sem tocar nas
-evidências válidas com `--somente-erros --limite 100`.
+As mensagens podem ser visualizadas em <http://localhost:8025>. Em produção, substitua os valores pelo provedor SMTP escolhido e configure `APP_PUBLIC_URL` com o domínio HTTPS real.
 
-O conjunto é dividido cronologicamente em 70% para treino, 15% para calibração/validação e
-15% para teste. O modelo registra matriz de confusão, recall, especificidade, acurácia
-balanceada, F1, Brier e erro de calibração. Um conjunto bootstrap versionado produz a faixa
-de incerteza de cada previsão; a cobertura mede se a consulta está próxima dos exemplos que
-o modelo realmente observou. A ativação inicial sempre ocorre em modo sombra:
+## Login com Google e Apple
 
-```powershell
-docker compose exec api /app/.venv/bin/python -m app.cli.treinar_registrabilidade `
-  --treinar --ativar --administrador admin
+Os provedores são opcionais e ficam desativados por padrão.
+
+### Google
+
+Cadastre no Google Auth Platform uma credencial OAuth 2.0 do tipo **Aplicativo da Web** e use o callback:
+
+```text
+http://localhost:8000/v1/auth/social/google/callback
 ```
 
-A exibição ao cliente fica bloqueada enquanto não forem simultaneamente atendidos os mínimos
-de amostras históricas e temporais de teste, revisões humanas, recall, especificidade, Brier e
-ECE definidos no painel. Cada previsão ainda precisa respeitar a largura máxima da faixa e a
-cobertura mínima. Modelos antigos sem bootstrap continuam disponíveis apenas em modo sombra.
+Configure:
 
-No relatório, a pontuação determinística de conflito permanece separada da probabilidade
-histórica. Quando elegível, a estimativa informa probabilidade central, faixa de incerteza,
-confiança, cobertura, tamanho e corte da base, versão do modelo e fatores de maior influência.
-O alvo é explicitamente o **deferimento no exame de mérito**, nunca uma garantia de concessão
-final. Resultados de risco alto, crítico ou confiança insuficiente exigem revisão humana.
-
-## Endpoints principais
-
-- `POST /v1/pesquisas-marca`
-- `GET /v1/pesquisas-marca/{id}/relatorio`
-- `GET /v1/processos?nome={nome}`
-- `GET /v1/processos/{numero}`
-- `GET /v1/admin/leads`
-- `GET /v1/admin/leads.csv`
-- `GET /v1/admin/resumo`
-- `GET /v1/admin/fase2`
-- `PATCH /v1/admin/fase2/afinidades/{id}`
-- `GET /v1/admin/fase3`
-- `PATCH /v1/admin/fase3/avaliacoes/{id}`
-- `GET /v1/admin/producao`
-- `GET /v1/admin/aprendizado`
-- `POST /v1/admin/aprendizado/dataset`
-- `POST /v1/admin/aprendizado/treinar`
-- `POST /v1/admin/aprendizado/modelos/{id}/ativar`
-- `PATCH /v1/admin/aprendizado/rotulos/{id}`
-- `PATCH /v1/admin/aprendizado/previsoes/{id}`
-- `PATCH /v1/admin/aprendizado/controle`
-
-## Desenvolvimento
-
-```powershell
-uv sync --python 3.11
-uv run ruff check .
-uv run pytest
-uv run uvicorn app.main:app --reload
+```dotenv
+GOOGLE_OAUTH_ENABLED=true
+GOOGLE_CLIENT_ID=seu-client-id
+GOOGLE_CLIENT_SECRET=seu-client-secret
 ```
 
-## Confiabilidade local e preparação SaaS
+### Apple
 
-O ambiente de teste separa a conta administrativa de migração (`inpi`) da conta de
-execução (`inpi_app`). A segunda não é superusuária e as tabelas de leads, pesquisas,
-relatórios, risco, aprendizado supervisionado, cobrança, alertas e privacidade usam Row Level Security (RLS).
-Assim, o PostgreSQL bloqueia acesso entre organizações mesmo se uma consulta da API
-esquecer o filtro de tenant.
+A Apple exige domínio HTTPS real e não aceita `localhost` como URL de retorno:
 
-O `docker compose up -d --build` inicia PostgreSQL, API, sincronizador de RPI, Redis e
-worker. Banco e Redis ficam publicados somente em `127.0.0.1`. Confira a saúde em
-`http://localhost:8000/health` e a governança em `/admin/confiabilidade`.
+```text
+https://seu-dominio/v1/auth/social/apple/callback
+```
 
-Antes de compartilhar o ambiente, copie `.env.example` para `.env` e troque ao menos
-`APP_DB_PASSWORD`, `ADMIN_PASSWORD`, `AUDIT_IP_SALT` e `SECURITY_MASTER_KEY`. O modo
-`production` também exige HTTPS, autenticação de integração, token forte, banco sem
-credenciais padrão e CORS explícito.
+Configure `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` e `APPLE_OAUTH_ENABLED=true`.
 
-### Backup e recuperação
+O vínculo automático só ocorre para usuário existente e ativo, com e-mail verificado e correspondência exata.
 
-Instale o backup diário local (20h, retenção padrão de 14 dias):
+## Segurança e privacidade
+
+- senhas protegidas com Argon2id;
+- sessões individuais, revogáveis e com expiração;
+- MFA TOTP compatível com Google Authenticator;
+- códigos de recuperação de MFA;
+- recuperação de senha com token de curta duração;
+- proteção CSRF nas operações administrativas;
+- rate limit com Redis;
+- isolamento multiempresa com RLS no PostgreSQL;
+- trilha de auditoria para acessos e alterações sensíveis;
+- armazenamento de IP somente como hash auditável;
+- chaves de integração armazenadas como hash;
+- consentimento de marketing separado do aviso de privacidade;
+- exportação, anonimização e política de retenção para dados pessoais.
+
+Não armazene segredos no Git. O arquivo `.env` é local e deve permanecer fora do repositório.
+
+## Integração com site externo
+
+Uma integração pode usar uma chave emitida no painel SaaS:
+
+```http
+X-Integration-Key: sua-chave
+```
+
+Também existe compatibilidade com:
+
+```http
+Authorization: Bearer seu-token
+```
+
+Em ambiente público, use HTTPS, CORS explícito, domínio fixo e chaves diferentes por integração. A autenticação pode ser exigida com `INTEGRATION_AUTH_ENABLED=true`.
+
+## Backup e restauração
+
+Instalar o backup diário local:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\instalar-backup-diario.ps1
 ```
 
-Crie um backup manual:
+Criar um backup manual:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-banco.ps1
 ```
 
-Restaure somente após validar o arquivo e com confirmação explícita. A rotina cria outro
-backup antes, para API, sincronização e worker, restaura o banco e religa os serviços:
+Restaurar um backup exige confirmação explícita:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\restaurar-banco.ps1 `
   -Arquivo .\backups\inpi-AAAAMMDD-HHMMSS.dump -Confirmar
 ```
 
-### Controles disponíveis no teste
+## Desenvolvimento
 
-- MFA TOTP e códigos de recuperação nas rotas `/v1/auth/mfa/*`;
-- recuperação de senha com token de 30 minutos (o token só é retornado em desenvolvimento);
-- convites com validade de sete dias e permissões definidas;
-- chaves de integração listáveis e revogáveis;
-- verificação de domínio por registro TXT `_ze-registra.dominio`;
-- trial, pagamento, falha e cancelamento simulados, sem cobrança real;
-- limites por plano e suspensão automática de trial expirado;
-- fila Redis com worker e registro de falhas;
-- identidade visual por organização;
-- relatório de uso e alertas operacionais;
-- exportação e anonimização de leads mediante solicitação LGPD;
-- política de retenção que sinaliza dados vencidos para revisão humana, sem apagamento cego.
-## Benchmark da Busca V3
-
-Copie `data/search-benchmark.example.json`, preencha marcas, classes e processos conferidos
-por um especialista e execute:
+Instale as dependências:
 
 ```powershell
-uv run python -m app.cli.avaliar_busca_marcas .\data\search-benchmark.json --limite 50 --saida .\data\search-benchmark-result.json
+uv sync --frozen
 ```
 
-O resultado registra Recall@K, Precision@K e latencia por caso.
+Execute a API fora do Docker:
 
-# Login com Google e Apple
-
-O Centro de Operações suporta login social sem substituir usuários, tenants, perfis,
-permissões, auditoria ou MFA locais. Por padrão os provedores ficam desativados.
-
-Para o Google, crie uma credencial OAuth 2.0 do tipo **Aplicativo da Web** e cadastre:
-
-```text
-http://localhost:8000/v1/auth/social/google/callback
+```powershell
+uv run uvicorn app.main:app --reload
 ```
 
-Depois configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e
-`GOOGLE_OAUTH_ENABLED=true`. Em ambiente externo, substitua `APP_PUBLIC_URL` pelo domínio
-HTTPS fixo e cadastre exatamente o callback correspondente no Google Cloud.
+Aplicar e verificar migrações:
 
-Para a Apple, configure um App ID principal, um Services ID, o domínio, a return URL e uma
-chave privada no Apple Developer. A Apple exige domínio HTTPS real e não aceita localhost:
-
-```text
-https://seu-dominio/v1/auth/social/apple/callback
+```powershell
+uv run alembic upgrade head
+uv run alembic check
 ```
 
-Configure `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` e
-`APPLE_OAUTH_ENABLED=true`. No `.env`, represente as quebras da chave PEM por `\\n`.
+Executar a mesma validação principal do CI:
 
-Contas externas só são ligadas a usuários existentes e ativos. O vínculo automático exige
-e-mail verificado e correspondência exata; ele pode ser desligado com
-`OAUTH_AUTO_LINK_VERIFIED_EMAIL=false`. O usuário também pode vincular ou desvincular cada
-provedor em **Confiabilidade e LGPD → Google e Apple**.
+```powershell
+uv run ruff check app tests migrations --ignore E501
+uv run pytest -q
+```
+
+O pipeline do GitHub também valida RLS e constrói a imagem Docker de produção.
+
+## Benchmark da Busca V3
+
+Copie `data/search-benchmark.example.json`, preencha casos conferidos por um especialista e execute:
+
+```powershell
+uv run python -m app.cli.avaliar_busca_marcas `
+  .\data\search-benchmark.json `
+  --limite 50 `
+  --saida .\data\search-benchmark-result.json
+```
+
+O resultado registra Recall@K, Precision@K e latência por caso.
+
+## API
+
+A documentação interativa completa fica disponível em <http://localhost:8000/docs>. Entre os grupos principais estão:
+
+- pesquisas e relatórios de marcas;
+- processos e movimentações;
+- leads, CRM e exclusões;
+- carteira de processos monitorados;
+- financeiro e formas de pagamento;
+- validação, risco e aprendizado;
+- sincronização da RPI;
+- usuários, autenticação e MFA;
+- organizações, planos e integrações;
+- produção, confiabilidade e auditoria.
+
+## Estado do projeto
+
+O projeto está em fase de testes e validação operacional. Antes de disponibilizá-lo para novos clientes, revise as configurações de segurança, domínio, SMTP, backup, monitoramento, credenciais e políticas de privacidade do ambiente de destino.

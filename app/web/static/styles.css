@@ -4031,6 +4031,77 @@ footer p {
   font-size: 0.9rem;
   max-width: 60ch;
 }
+.help-details {
+  position: relative;
+  flex: none;
+}
+.help-toggle {
+  list-style: none;
+  cursor: pointer;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface, #fff);
+  color: var(--forest);
+  font-weight: 700;
+  font-size: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.help-toggle::-webkit-details-marker {
+  display: none;
+}
+.help-toggle:hover,
+.help-toggle:focus-visible,
+.help-details[open] .help-toggle {
+  background: var(--forest);
+  color: #fff;
+}
+.help-panel {
+  position: absolute;
+  right: 0;
+  top: 52px;
+  z-index: 30;
+  width: min(380px, 82vw);
+  background: var(--surface, #fff);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px 20px;
+  box-shadow: 0 18px 44px rgba(23, 35, 28, 0.16);
+  text-align: left;
+}
+.help-panel h3 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  color: var(--ink);
+}
+.help-panel ol {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+.help-panel li {
+  margin-bottom: 6px;
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 0.9rem;
+}
+.help-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+@media (max-width: 720px) {
+  .help-panel {
+    position: static;
+    width: 100%;
+    margin-top: 14px;
+    box-shadow: none;
+  }
+}
 .reliability-form {
   display: grid;
   gap: 22px;

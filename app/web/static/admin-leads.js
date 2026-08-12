@@ -21,7 +21,7 @@ const researchDeleteForm = document.querySelector("#research-delete-form");
 
 const state = {
   offset: 0, total: 0, owners: [], archiveId: null, loading: false,
-  canManage: false, canArchive: false, canExport: false, canDeleteResearch: false,
+  canManage: false, canArchive: false, canExport: false, canDeleteResearch: false, canPii: false,
   openLeadId: null, deleteResearchId: null, deleteRequestId: null, deleteMode: null,
   viewMode: "contacts", items: [], priority: "",
 };
@@ -294,6 +294,7 @@ async function loadLeads() {
     state.canArchive = Boolean(data.acoes?.arquivar);
     state.canExport = Boolean(data.acoes?.exportar);
     state.canDeleteResearch = Boolean(data.acoes?.excluir_pesquisa);
+    state.canPii = Boolean(data.acoes?.ver_pii);
     if (state.viewMode === "archived") {
       document.querySelector('[data-view="archived"]').textContent = `Clientes arquivados (${data.total})`;
     }
@@ -341,14 +342,15 @@ async function openLead(id) {
   ).join("");
   document.querySelector("#lead-dialog-title").textContent = lead.nome;
   dialogContent.innerHTML = `
-    <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div></section>
+    <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div></section>
     ${state.canManage ? `<form id="lead-crm-form" data-lead-id="${lead.id}" class="lead-crm-form">
       <label><span>Status</span><select name="status">${statusOptions(lead.status)}</select></label>
       <label><span>Responsável</span><select name="responsavel_id">${ownerOptions(lead.responsavel_id)}</select></label>
       <label><span>Próxima ação</span><input name="proxima_acao_em" type="datetime-local" value="${lead.proxima_acao_em ? new Date(lead.proxima_acao_em).toISOString().slice(0, 16) : ""}" /></label>
       <label><span>Tags, separadas por vírgula</span><input name="tags" maxlength="400" value="${escapeHtml((lead.tags || []).join(", "))}" /></label>
+      ${state.canPii ? `<label><span>CPF/CNPJ</span><input name="documento" inputmode="numeric" maxlength="18" value="${escapeHtml(lead.documento || "")}" placeholder="Somente para cadastro interno" /></label>` : ""}
       <label class="lead-notes"><span>Anotações internas</span><textarea name="notas" maxlength="4000" rows="5">${escapeHtml(lead.notas || "")}</textarea></label>
-      <div><button class="primary-button" type="submit">Salvar atendimento</button><span id="lead-save-message" role="status"></span></div>
+      <div><button class="primary-button" type="submit">Salvar atendimento</button><a class="secondary-button" href="/admin/crm?lead_id=${lead.id}">Criar lembrete</a><span id="lead-save-message" role="status"></span></div>
     </form>` : `<section class="lead-readonly-note">Você possui acesso somente para consulta.</section>`}
     <section class="lead-contact-log">
       <header><div><p class="eyebrow">CRM</p><h3>Contatos realizados</h3></div><span id="lead-contact-count">0 registros</span></header>
@@ -626,6 +628,7 @@ dialogContent.addEventListener("submit", async event => {
     tags: String(data.get("tags") || "").split(",").map(item => item.trim()).filter(Boolean),
     registrar_contato: true,
   };
+  if (state.canPii) payload.documento = data.get("documento") || null;
   const saveMessage = document.querySelector("#lead-save-message");
   saveMessage.textContent = "Salvando…";
   const response = await fetch(`/v1/admin/leads/${form.dataset.leadId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });

@@ -728,6 +728,7 @@ class Lead(Base):
     nome: Mapped[str] = mapped_column(String(150), index=True)
     email: Mapped[str] = mapped_column(String(254), index=True)
     telefone: Mapped[str] = mapped_column(String(30), index=True)
+    documento: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
     empresa: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
     marca: Mapped[str] = mapped_column(Text, index=True)
     atividade: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -778,6 +779,9 @@ class Lead(Base):
     pesquisas_marca: Mapped[list["PesquisaMarca"]] = relationship(back_populates="lead")
     contatos: Mapped[list["ContatoLead"]] = relationship(
         back_populates="lead", cascade="all, delete-orphan", order_by="ContatoLead.criado_em.desc()"
+    )
+    lembretes: Mapped[list["LembreteCRM"]] = relationship(
+        back_populates="lead", cascade="all, delete-orphan", order_by="LembreteCRM.lembrar_em"
     )
     empresa_registro: Mapped["EmpresaCRM | None"] = relationship(back_populates="leads")
     responsavel: Mapped["UsuarioOperacoes | None"] = relationship()
@@ -830,6 +834,46 @@ class ContatoLead(Base):
     lead: Mapped[Lead] = relationship(back_populates="contatos")
     empresa_registro: Mapped["EmpresaCRM | None"] = relationship(back_populates="contatos")
     pesquisa: Mapped["PesquisaMarca | None"] = relationship(back_populates="contatos")
+
+
+class LembreteCRM(Base):
+    """Alerta interno com prazo e responsável vinculado a um cliente do CRM."""
+
+    __tablename__ = "lembretes_crm"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    lead_id: Mapped[int] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), index=True
+    )
+    responsavel_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    tipo: Mapped[str] = mapped_column(String(40), index=True)
+    prioridade: Mapped[str] = mapped_column(String(10), default="media", index=True)
+    titulo: Mapped[str] = mapped_column(String(180))
+    descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lembrar_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    criado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
+    )
+    criado_por: Mapped[str] = mapped_column(String(254))
+    concluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    concluido_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    lead: Mapped[Lead] = relationship(back_populates="lembretes", lazy="selectin")
+    responsavel: Mapped["UsuarioOperacoes | None"] = relationship(
+        foreign_keys=[responsavel_id], lazy="selectin"
+    )
 
 
 class PesquisaMarca(Base):

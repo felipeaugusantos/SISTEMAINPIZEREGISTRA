@@ -4272,22 +4272,23 @@ footer p {
   font-size: 1rem;
 }
 .exec-card-metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
-  gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
 }
 .exec-card-metrics > div {
   display: grid;
   gap: 2px;
 }
 .exec-card-metrics strong {
-  font-size: 1rem;
-  line-height: 1.1;
-  overflow-wrap: anywhere;
+  font-size: 0.98rem;
+  line-height: 1.15;
+  white-space: nowrap;
 }
 .exec-card-metrics span {
   color: var(--muted);
   font-size: 0.72rem;
+  white-space: nowrap;
 }
 .exec-card-metrics .tone-warn strong {
   color: #8a6414;

@@ -21,6 +21,7 @@ async function loadReferences() {
   const options = state.owners.map(item => `<option value="${item.id}">${escapeHtml(item.nome)}</option>`).join("");
   document.querySelector("#attorney-owner").insertAdjacentHTML("beforeend", options);
   document.querySelector("#manual-owner").insertAdjacentHTML("beforeend", options);
+  document.querySelector("#import-owner").insertAdjacentHTML("beforeend", options);
 }
 
 function renderMetrics(summary) {
@@ -101,6 +102,52 @@ document.querySelector("#portfolio-list").addEventListener("click", async event 
   const button = event.target.closest("[data-save-status]"); if (!button) return; const card = button.closest("[data-id]"); button.disabled = true;
   try { await api(`/v1/admin/carteira/${card.dataset.id}`, { method: "PATCH", body: JSON.stringify({ status: card.querySelector("[data-status]").value }) }); showMessage("Status de acompanhamento atualizado."); await loadPortfolio(); }
   catch (error) { showMessage(error.message, "error"); button.disabled = false; }
+});
+
+const importDialog = document.querySelector("#import-dialog");
+const importResult = document.querySelector("#import-result");
+document.querySelector("#open-import").addEventListener("click", () => {
+  importResult.hidden = true;
+  document.querySelector("#import-form").reset();
+  importDialog.showModal();
+});
+document.querySelector("#close-import").addEventListener("click", () => importDialog.close());
+document.querySelector("#cancel-import").addEventListener("click", () => importDialog.close());
+document.querySelector("#import-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const file = document.querySelector("#import-file").files[0];
+  if (!file) return;
+  const submit = document.querySelector("#import-submit");
+  submit.disabled = true;
+  importResult.hidden = true;
+  const body = new FormData();
+  body.append("arquivo", file);
+  const owner = document.querySelector("#import-owner").value;
+  if (owner) body.append("responsavel_id", owner);
+  try {
+    const response = await fetch("/v1/admin/carteira/importar", { method: "POST", body });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || `Falha na importação (${response.status})`);
+    importResult.hidden = false;
+    importResult.className = "import-result success";
+    const naoEncontrados = data.exemplos_nao_encontrados || [];
+    // Números inteiros do backend + números de processo passados por escapeHtml.
+    importResult.innerHTML =
+      `<strong>${data.vinculados} processo(s) importado(s).</strong>` +
+      `<ul><li>${data.ja_vinculados} já estavam na carteira</li>` +
+      `<li>${data.nao_encontrados} não localizado(s) na base RPI</li>` +
+      `<li>${data.sem_numero} linha(s) sem número</li></ul>` +
+      (naoEncontrados.length
+        ? `<small>Não encontrados: ${naoEncontrados.map(escapeHtml).join(", ")}${data.nao_encontrados > naoEncontrados.length ? "…" : ""}</small>`
+        : "");
+    await loadPortfolio();
+  } catch (error) {
+    importResult.hidden = false;
+    importResult.className = "import-result error";
+    importResult.textContent = error.message;
+  } finally {
+    submit.disabled = false;
+  }
 });
 
 let suggestionTimer;

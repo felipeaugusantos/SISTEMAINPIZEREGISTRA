@@ -6,15 +6,18 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Processos monitorados — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=22">
-  <link rel="stylesheet" href="/static/admin-carteira.css?v=3">
+  <link rel="stylesheet" href="/static/admin-carteira.css?v=4">
   <script src="/static/admin-shell.js?v=32" defer></script>
-  <script src="/static/admin-carteira.js?v=3" defer></script>
+  <script src="/static/admin-carteira.js?v=4" defer></script>
 </head>
 <body class="admin-body" data-admin-section="portfolio">
   <main class="admin-main portfolio-main">
     <section class="portfolio-hero">
       <div><p class="eyebrow">CARTEIRA DE PROPRIEDADE INTELECTUAL</p><h1>Processos monitorados</h1><p>Cadastre processos da base RPI ou encontre todos os pedidos vinculados a um procurador. As movimentações futuras são atualizadas pela sincronização do INPI.</p></div>
-      <button id="open-manual" class="primary-button" type="button">Cadastrar processo</button>
+      <div class="portfolio-hero-actions">
+        <button id="open-import" class="secondary-button" type="button">Importar carteira</button>
+        <button id="open-manual" class="primary-button" type="button">Cadastrar processo</button>
+      </div>
     </section>
 
     <div id="portfolio-message" class="status-message" role="status" aria-live="polite" hidden></div>
@@ -60,6 +63,16 @@
       <label><span>Responsável</span><select name="responsavel_id" id="manual-owner"><option value="">Não atribuído</option></select></label>
       <label><span>Observações</span><textarea name="observacoes" rows="4" maxlength="4000"></textarea></label>
       <footer><button id="cancel-manual" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Adicionar à carteira</button></footer>
+    </form>
+  </dialog>
+  <dialog id="import-dialog" class="portfolio-dialog">
+    <form id="import-form" method="dialog">
+      <header><div><p class="eyebrow">IMPORTAÇÃO EM LOTE</p><h2>Importar carteira (CSV ou Excel)</h2></div><button id="close-import" type="button" aria-label="Fechar">×</button></header>
+      <p class="import-hint">O arquivo precisa de uma coluna <strong>numero</strong> (obrigatória). Colunas opcionais reconhecidas: <strong>empresa</strong>, <strong>procurador</strong> e <strong>observacoes</strong>. Números não encontrados na base RPI são reportados; duplicados já monitorados são ignorados.</p>
+      <label><span>Arquivo (.csv, .xlsx)</span><input id="import-file" name="arquivo" type="file" accept=".csv,.xlsx,.xlsm,text/csv" required></label>
+      <label><span>Responsável (aplicado a todos)</span><select name="responsavel_id" id="import-owner"><option value="">Não atribuído</option></select></label>
+      <div id="import-result" class="import-result" hidden></div>
+      <footer><button id="cancel-import" class="secondary-button" type="button">Cancelar</button><button id="import-submit" class="primary-button" type="submit">Importar</button></footer>
     </form>
   </dialog>
   <datalist id="company-suggestions"></datalist>

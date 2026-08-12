@@ -1,8 +1,11 @@
+import csv
+import io
 import unicodedata
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from openpyxl import load_workbook
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -534,6 +537,181 @@ async def cadastrar_manual(
         session, request, usuario, [processo.id], dados, origem="manual"
     )
     return {**resultado, "numero": processo.numero}
+
+
+COLUNAS_NUMERO = {"numero", "processo", "numeroprocesso", "nprocesso", "registro"}
+COLUNAS_EMPRESA = {"empresa", "cliente", "titular", "razaosocial"}
+COLUNAS_PROCURADOR = {"procurador", "agente", "escritorio"}
+COLUNAS_OBS = {"observacoes", "observacao", "obs", "notas"}
+TAMANHO_MAXIMO_IMPORTACAO = 5_000_000
+
+
+def _chave_coluna(texto: str) -> str:
+    sem_acentos = "".join(
+        c for c in unicodedata.normalize("NFKD", texto or "") if not unicodedata.combining(c)
+    )
+    return "".join(ch for ch in sem_acentos.lower() if ch.isalnum())
+
+
+def _ler_planilha(conteudo: bytes, filename: str) -> list[dict[str, str]]:
+    """Lê CSV ou XLSX e devolve uma lista de registros com chaves normalizadas."""
+    nome = (filename or "").lower()
+    linhas: list[list[str]] = []
+    if nome.endswith((".xlsx", ".xlsm")):
+        try:
+            wb = load_workbook(io.BytesIO(conteudo), read_only=True, data_only=True)
+        except Exception as exc:  # noqa: BLE001 - arquivo inválido enviado pelo usuário
+            raise HTTPException(400, "Planilha Excel inválida ou corrompida.") from exc
+        planilha = wb.active
+        for linha in planilha.iter_rows(values_only=True):
+            linhas.append(["" if celula is None else str(celula).strip() for celula in linha])
+        wb.close()
+    else:
+        texto = None
+        for codificacao in ("utf-8-sig", "latin-1"):
+            try:
+                texto = conteudo.decode(codificacao)
+                break
+            except UnicodeDecodeError:
+                continue
+        if texto is None:
+            raise HTTPException(400, "Não foi possível ler o arquivo (codificação não suportada).")
+        delimitador = ";" if texto.count(";") > texto.count(",") else ","
+        for linha in csv.reader(io.StringIO(texto), delimiter=delimitador):
+            linhas.append([campo.strip() for campo in linha])
+
+    linhas = [linha for linha in linhas if any(linha)]
+    if len(linhas) < 2:
+        return []
+    cabecalho = [_chave_coluna(coluna) for coluna in linhas[0]]
+    return [
+        {cabecalho[i]: (linha[i] if i < len(linha) else "") for i in range(len(cabecalho))}
+        for linha in linhas[1:]
+    ]
+
+
+def _valor(registro: dict[str, str], chaves: set[str]) -> str | None:
+    for chave, valor in registro.items():
+        if chave in chaves and valor.strip():
+            return valor.strip()
+    return None
+
+
+@router.post("/importar", status_code=201)
+async def importar_carteira(
+    request: Request,
+    session: SessionDep,
+    usuario: ManageDep,
+    arquivo: Annotated[UploadFile, File()],
+    responsavel_id: Annotated[int | None, Form()] = None,
+) -> dict:
+    """Importa uma carteira (CSV/XLSX) para os processos monitorados.
+
+    Colunas reconhecidas (cabeçalho, sem acento/maiúsculas): numero (obrigatória),
+    empresa, procurador, observacoes. Números não localizados na base RPI são
+    reportados; duplicados já monitorados são ignorados.
+    """
+    conteudo = await arquivo.read()
+    if not conteudo:
+        raise HTTPException(400, "Arquivo vazio.")
+    if len(conteudo) > TAMANHO_MAXIMO_IMPORTACAO:
+        raise HTTPException(413, "Arquivo muito grande (máximo 5 MB).")
+    registros = _ler_planilha(conteudo, arquivo.filename or "")
+    if not registros:
+        raise HTTPException(
+            400,
+            "Planilha vazia ou sem cabeçalho reconhecível. Inclua uma coluna 'numero'.",
+        )
+    await _validar_responsavel(session, usuario, responsavel_id)
+
+    linhas_validas: list[tuple[str, str, dict[str, str]]] = []
+    sem_numero = 0
+    for registro in registros:
+        numero = _valor(registro, COLUNAS_NUMERO)
+        if not numero:
+            sem_numero += 1
+            continue
+        linhas_validas.append((numero, normalizar_numero_processo(numero), registro))
+    if not linhas_validas:
+        raise HTTPException(400, "Nenhuma linha com número de processo foi encontrada.")
+
+    normalizados = {norm for _, norm, _ in linhas_validas}
+    processos = {
+        row.numero_normalizado: row
+        for row in (
+            await session.execute(
+                select(Processo).where(
+                    Processo.numero_normalizado.in_(normalizados),
+                    Processo.tipo == TipoProcesso.MARCA,
+                )
+            )
+        ).scalars()
+    }
+    ja_monitorados = set(
+        (
+            await session.execute(
+                select(ProcessoMonitorado.processo_id).where(
+                    ProcessoMonitorado.organizacao_id == usuario.organizacao_id,
+                    ProcessoMonitorado.processo_id.in_(
+                        processo.id for processo in processos.values()
+                    ),
+                )
+            )
+        ).scalars().all()
+    )
+
+    empresas_cache: dict[str, int | None] = {}
+    processados: set[int] = set()
+    vinculados = 0
+    ja_vinculados = 0
+    nao_encontrados: list[str] = []
+    for numero, norm, registro in linhas_validas:
+        processo = processos.get(norm)
+        if processo is None:
+            nao_encontrados.append(numero)
+            continue
+        if processo.id in ja_monitorados or processo.id in processados:
+            ja_vinculados += 1
+            continue
+        empresa_nome = _valor(registro, COLUNAS_EMPRESA)
+        if empresa_nome and empresa_nome not in empresas_cache:
+            empresa = await obter_ou_criar_empresa(session, usuario.organizacao_id, empresa_nome)
+            empresas_cache[empresa_nome] = empresa.id if empresa else None
+        session.add(
+            ProcessoMonitorado(
+                organizacao_id=usuario.organizacao_id,
+                processo_id=processo.id,
+                empresa_id=empresas_cache.get(empresa_nome) if empresa_nome else None,
+                responsavel_id=responsavel_id,
+                status="ativo",
+                origem="importacao",
+                procurador_origem=_valor(registro, COLUNAS_PROCURADOR),
+                observacoes=_valor(registro, COLUNAS_OBS),
+                vinculado_por=usuario.ator,
+            )
+        )
+        processados.add(processo.id)
+        vinculados += 1
+
+    resultado = {
+        "total_linhas": len(registros),
+        "vinculados": vinculados,
+        "ja_vinculados": ja_vinculados,
+        "nao_encontrados": len(nao_encontrados),
+        "sem_numero": sem_numero,
+        "empresas_associadas": len([v for v in empresas_cache.values() if v]),
+        "exemplos_nao_encontrados": nao_encontrados[:20],
+    }
+    _auditar(
+        session,
+        request,
+        usuario,
+        "importar_carteira",
+        f"carteira:importacao:{arquivo.filename}",
+        {k: v for k, v in resultado.items() if k != "exemplos_nao_encontrados"},
+    )
+    await session.commit()
+    return resultado
 
 
 @router.post("/vincular-lote", status_code=201)

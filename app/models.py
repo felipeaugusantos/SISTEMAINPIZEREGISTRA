@@ -1101,6 +1101,26 @@ class AfinidadeClasse(Base):
     revisado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class AfinidadeViena(Base):
+    """Afinidade entre códigos da Classificação de Viena (elementos figurativos)."""
+
+    __tablename__ = "afinidades_viena"
+    __table_args__ = (
+        UniqueConstraint("codigo_origem", "codigo_destino", name="uq_afinidades_viena_par"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    codigo_origem: Mapped[str] = mapped_column(String(30), index=True)
+    codigo_destino: Mapped[str] = mapped_column(String(30), index=True)
+    nivel: Mapped[str] = mapped_column(String(20))
+    justificativa: Mapped[str] = mapped_column(Text)
+    versao: Mapped[str] = mapped_column(String(20), default="inicial-2026")
+    status_revisao: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    revisor: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    observacoes_revisao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    revisado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class AvaliacaoRiscoMarca(Base):
     __tablename__ = "avaliacoes_risco_marca"
 

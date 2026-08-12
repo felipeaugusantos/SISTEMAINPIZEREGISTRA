@@ -21,6 +21,7 @@ from app.api.crm_admin import router as crm_router
 from app.api.exclusoes import router as exclusoes_router
 from app.api.fase2 import router as fase2_router
 from app.api.fase3 import router as fase3_router
+from app.api.figurativa import router as figurativa_router
 from app.api.financeiro import exigir_acesso_log_financeiro
 from app.api.financeiro import router as financeiro_router
 from app.api.juridico import router as juridico_router
@@ -77,6 +78,7 @@ app.include_router(aprendizado_router)
 app.include_router(carteira_router)
 app.include_router(juridico_router)
 app.include_router(consulta_router)
+app.include_router(figurativa_router)
 app.include_router(crm_router)
 app.include_router(exclusoes_router)
 app.include_router(financeiro_router)

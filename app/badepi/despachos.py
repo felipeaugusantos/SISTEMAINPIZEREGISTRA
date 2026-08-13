@@ -6,7 +6,7 @@ from pathlib import Path
 
 import asyncpg
 
-from app.badepi.despachos_codigos import descricao_despacho
+from app.badepi.despachos_codigos import codigo_numerico, descricao_despacho
 from app.normalization import normalizar_numero_processo
 
 FONTE_BADEPI_DESPACHOS = "BADEPI v11 (2000-2024) despachos"
@@ -17,9 +17,13 @@ def _descricao(codigo: str) -> str:
     return descricao_despacho(codigo) or f"Despacho {codigo}"
 
 
-def _chave_origem(numero: str, numero_rpi: int, codigo: str, descricao: str) -> str:
+def _chave_origem(numero: str, numero_rpi: int, codigo: str) -> str:
+    # Dedupe pelo código NUMÉRICO (não o bruto): o BADEPI grava o mesmo despacho
+    # sob duas formas (ex.: "009" e "IPAS009"), que devem colapsar em uma única
+    # movimentação. A descrição fica fora da chave para não reabrir a duplicata
+    # via fallback de códigos legados ("Despacho 150" vs "Despacho DESP150").
     conteudo = "|".join(
-        ("marca", str(numero_rpi), normalizar_numero_processo(numero), codigo, descricao)
+        ("marca", str(numero_rpi), normalizar_numero_processo(numero), codigo_numerico(codigo) or codigo)
     )
     return sha256(conteudo.encode()).hexdigest()
 
@@ -67,7 +71,7 @@ def ler_despachos_marcas(
                 continue
 
             descricao = _descricao(codigo)
-            chave = _chave_origem(numero, numero_rpi, codigo, descricao)
+            chave = _chave_origem(numero, numero_rpi, codigo)
             yield numero, codigo, descricao, data_rpi, numero_rpi, chave
             processados += 1
 
@@ -151,7 +155,7 @@ async def _importar_lote(
                   regexp_replace(origem.numero, '[^A-Za-z0-9]', '', 'g')
               )
              AND processo.tipo = 'marca'
-            ORDER BY origem.chave_origem
+            ORDER BY origem.chave_origem, (origem.codigo LIKE 'IPAS%') DESC, origem.codigo
             ON CONFLICT (chave_origem) DO NOTHING
             """,
             FONTE_BADEPI_DESPACHOS,

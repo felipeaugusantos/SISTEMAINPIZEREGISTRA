@@ -69,8 +69,19 @@ def test_rejeita_csv_sem_colunas(tmp_path: Path) -> None:
 
 
 def test_chave_origem_determinista_e_distinta() -> None:
-    a = _chave_origem("822344092", 1521, "DESP158", "Concessão de registro")
-    b = _chave_origem("822344092", 1521, "DESP158", "Concessão de registro")
-    c = _chave_origem("822344092", 1522, "DESP158", "Concessão de registro")
+    a = _chave_origem("822344092", 1521, "DESP158")
+    b = _chave_origem("822344092", 1521, "DESP158")
+    c = _chave_origem("822344092", 1522, "DESP158")
     assert a == b
     assert a != c
+
+
+def test_chave_origem_dedupe_por_codigo_numerico() -> None:
+    # O BADEPI grava o mesmo despacho sob formas distintas; todas devem colapsar
+    # na mesma chave para não duplicar a movimentação.
+    numerico = _chave_origem("822344092", 1521, "009")
+    ipas = _chave_origem("822344092", 1521, "IPAS009")
+    desp = _chave_origem("822344092", 1521, "DESP009")
+    assert numerico == ipas == desp
+    # código diferente continua gerando chave distinta
+    assert _chave_origem("822344092", 1521, "IPAS024") != numerico

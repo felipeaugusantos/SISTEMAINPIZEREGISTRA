@@ -910,6 +910,13 @@ footer p {
 .lead-research-card p { margin: 10px 0; color: var(--muted); }
 .lead-research-meta { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; font-size: .75rem; }
 .lead-research-actions .secondary-button { display: inline-flex; align-items: center; }
+/* Pesquisas realizadas (histórico rápido do lead) — componente publicado sem CSS próprio */
+.admin-body .quick-research-history ol { list-style: none; display: grid; gap: 10px; margin: 12px 0 0; padding: 0; }
+.admin-body .quick-research-history li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: #f8f8f4; }
+.admin-body .quick-research-history li > div { flex: 1 1 100%; }
+.admin-body .quick-research-history .quick-research-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.admin-body .quick-research-history li .secondary-button,
+.admin-body .quick-research-history li .danger-button { display: inline-flex; align-items: center; width: fit-content; }
 .confirm-dialog { width: min(430px, calc(100vw - 32px)); padding: 24px; border: 0; border-radius: 18px; }
 .confirm-dialog h2 { margin-top: 0; font: 500 2rem Georgia, serif; }
 .confirm-dialog p { color: var(--muted); line-height: 1.6; }

@@ -26,6 +26,15 @@ services:
 
   db:
     image: postgres:16-alpine
+    # /dev/shm padrão do Docker (64MB) é pequeno para queries paralelas sobre as
+    # tabelas grandes (movimentacoes ~27M) e causa "No space left on device".
+    shm_size: 256mb
+    # work_mem elevado evita bitmap "lossy" nas buscas trigram por título após o
+    # backfill BADEPI ter preenchido o título de ~4,6M marcas.
+    command:
+      - "postgres"
+      - "-c"
+      - "work_mem=64MB"
     environment:
       POSTGRES_DB: inpi
       POSTGRES_USER: inpi

@@ -7,11 +7,23 @@ import asyncpg
 
 FONTE_BADEPI = "BADEPI v11 (2000-2024)"
 
+# Mapa dos códigos de apresentação do BADEPI (CD_APRESEN_MARCA) para o texto
+# usado no banco (mesmos rótulos que a RPI grava). Códigos fora deste conjunto
+# — p.ex. o 'O' que aparece na base — ficam nulos de propósito: preferimos
+# ausência a uma apresentação inventada.
+APRESENTACAO_BADEPI = {
+    "M": "Mista",
+    "D": "Nominativa",
+    "F": "Figurativa",
+    "T": "Tridimensional",
+    "P": "Marca de posição",
+}
+
 
 def ler_depositos_marcas(
     arquivo: Path,
     limite: int | None = None,
-) -> Iterator[tuple[str, str | None, date | None]]:
+) -> Iterator[tuple[str, str | None, date | None, str | None, str | None]]:
     """Lê o CSV de depósitos de marcas distribuído pelo INPI."""
     with arquivo.open(encoding="cp1252", newline="") as entrada:
         leitor = csv.DictReader(entrada, delimiter=";")
@@ -36,7 +48,12 @@ def ler_depositos_marcas(
                 dia, mes, ano = data_texto.split("/")
                 data_deposito = date(int(ano), int(mes), int(dia))
 
-            yield numero, titulo, data_deposito
+            apresentacao = APRESENTACAO_BADEPI.get(
+                (linha.get("CD_APRESEN_MARCA") or "").strip().upper()
+            )
+            natureza = (linha.get("DS_NATUREZ_MARCA") or "").strip() or None
+
+            yield numero, titulo, data_deposito, apresentacao, natureza
 
 
 def _quantidade_comando(resultado: str) -> int:
@@ -64,12 +81,14 @@ async def importar_depositos_marcas(
             CREATE TEMP TABLE badepi_marcas_lote (
                 numero text NOT NULL,
                 titulo text,
-                data_deposito date
+                data_deposito date,
+                apresentacao text,
+                natureza text
             ) ON COMMIT PRESERVE ROWS
             """
         )
 
-        lote: list[tuple[str, str | None, date | None]] = []
+        lote: list[tuple[str, str | None, date | None, str | None, str | None]] = []
         for registro in ler_depositos_marcas(arquivo, limite):
             lote.append(registro)
             if len(lote) < tamanho_lote:
@@ -92,13 +111,13 @@ async def importar_depositos_marcas(
 
 async def _importar_lote(
     conexao: asyncpg.Connection,
-    lote: list[tuple[str, str | None, date | None]],
+    lote: list[tuple[str, str | None, date | None, str | None, str | None]],
 ) -> int:
     async with conexao.transaction():
         await conexao.copy_records_to_table(
             "badepi_marcas_lote",
             records=lote,
-            columns=("numero", "titulo", "data_deposito"),
+            columns=("numero", "titulo", "data_deposito", "apresentacao", "natureza"),
         )
         resultado = await conexao.execute(
             """
@@ -107,7 +126,10 @@ async def _importar_lote(
                 numero_normalizado,
                 tipo,
                 titulo,
+                elemento_nominativo,
                 data_deposito,
+                apresentacao,
+                natureza,
                 situacao,
                 fonte
             )
@@ -116,7 +138,10 @@ async def _importar_lote(
                 numero_normalizado,
                 'marca',
                 titulo,
+                titulo,
                 data_deposito,
+                apresentacao,
+                natureza,
                 NULL,
                 $1
             FROM (
@@ -124,6 +149,8 @@ async def _importar_lote(
                     numero,
                     titulo,
                     data_deposito,
+                    apresentacao,
+                    natureza,
                     upper(regexp_replace(numero, '[^A-Za-z0-9]', '', 'g'))
                         AS numero_normalizado
                 FROM badepi_marcas_lote
@@ -131,7 +158,12 @@ async def _importar_lote(
             ORDER BY numero_normalizado
             ON CONFLICT (numero_normalizado) DO UPDATE SET
                 titulo = coalesce(processos.titulo, excluded.titulo),
+                elemento_nominativo = coalesce(
+                    processos.elemento_nominativo, excluded.elemento_nominativo
+                ),
                 data_deposito = coalesce(processos.data_deposito, excluded.data_deposito),
+                apresentacao = coalesce(processos.apresentacao, excluded.apresentacao),
+                natureza = coalesce(processos.natureza, excluded.natureza),
                 fonte = CASE
                     WHEN processos.fonte LIKE 'RPI %' THEN processos.fonte
                     ELSE excluded.fonte

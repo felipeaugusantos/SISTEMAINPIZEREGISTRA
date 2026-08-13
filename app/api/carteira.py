@@ -1,5 +1,6 @@
 import csv
 import io
+import re
 import unicodedata
 from datetime import UTC, datetime
 from typing import Annotated, Literal
@@ -86,6 +87,15 @@ class AtualizacaoMonitoramento(BaseModel):
     responsavel_id: int | None = Field(default=None, ge=1)
     remover_responsavel: bool = False
     observacoes: str | None = Field(default=None, max_length=4000)
+    procurador: str | None = Field(default=None, max_length=500)
+
+    @field_validator("procurador", mode="before")
+    @classmethod
+    def _limpar_procurador(cls, valor: object) -> str | None:
+        if valor is None:
+            return None
+        limpo = re.sub(r"\s+", " ", str(valor)).strip()
+        return limpo or None
 
 
 async def _empresa(
@@ -798,6 +808,12 @@ async def atualizar_monitoramento(
         monitorado.responsavel_id = dados.responsavel_id
     if dados.observacoes is not None:
         monitorado.observacoes = dados.observacoes.strip() or None
+    if dados.procurador is not None:
+        # procurador é dado compartilhado do Processo (não do vínculo). Permitimos
+        # corrigi-lo a partir da carteira porque muitas marcas do BADEPI vêm sem ele.
+        processo = await session.get(Processo, monitorado.processo_id)
+        if processo is not None:
+            processo.procurador = dados.procurador or None
     monitorado.atualizado_em = datetime.now(UTC)
     _auditar(
         session,

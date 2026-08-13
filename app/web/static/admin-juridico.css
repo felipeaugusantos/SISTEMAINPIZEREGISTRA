@@ -10,6 +10,8 @@
 /* Barra de filtro: "Filtrar" (primário) e "Limpar" (secundário) com a mesma
    altura, alinhados aos campos do formulário. */
 .admin-body .legal-filter button{min-height:44px;padding:0 20px;font-size:.82rem;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}
+/* Respiro entre o campo de data "Até" e o botão Filtrar (evita ficar grudado). */
+.admin-body .legal-filter button[type="submit"]{margin-left:10px}
 
 /* Toggle de visão, Kanban e Checklist */
 .legal-card>header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}

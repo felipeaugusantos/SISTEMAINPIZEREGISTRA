@@ -2,11 +2,17 @@ import asyncio
 import json
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import session_factory
 
-COMANDO = text(
-    """
+
+def _comando(individual: bool) -> text:
+    # Um único processo (individual) ou toda a base de marcas. A lógica de
+    # classificação é idêntica; muda apenas o escopo do WHERE.
+    filtro = "AND p.id = :processo_id" if individual else ""
+    return text(
+        f"""
     WITH ultimo AS (
         SELECT DISTINCT ON (m.processo_id)
             m.processo_id,
@@ -15,7 +21,7 @@ COMANDO = text(
                 AS texto
         FROM movimentacoes m
         JOIN processos p ON p.id = m.processo_id
-        WHERE p.tipo = 'marca'
+        WHERE p.tipo = 'marca' {filtro}
         ORDER BY m.processo_id, m.data_rpi DESC, m.numero_rpi DESC, m.id DESC
     ),
     consolidado AS (
@@ -67,11 +73,22 @@ COMANDO = text(
 )
 
 
+async def consolidar_situacao(session: AsyncSession, processo_id: int | None = None) -> int:
+    """Reconsolida a situação de um processo (se informado) ou de toda a base.
+
+    Não faz commit — a cargo do chamador. Retorna quantas linhas mudaram.
+    """
+    comando = _comando(processo_id is not None)
+    parametros = {"processo_id": processo_id} if processo_id is not None else {}
+    resultado = await session.execute(comando, parametros)
+    return resultado.rowcount or 0
+
+
 async def consolidar() -> int:
     async with session_factory() as session:
-        resultado = await session.execute(COMANDO)
+        quantidade = await consolidar_situacao(session)
         await session.commit()
-        return resultado.rowcount or 0
+        return quantidade
 
 
 def main() -> None:

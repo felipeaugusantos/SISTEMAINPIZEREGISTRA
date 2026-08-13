@@ -11,6 +11,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
+from app.cli.consolidar_situacoes_marcas import consolidar_situacao
 from app.crm import obter_ou_criar_empresa
 from app.database import get_session
 from app.models import (
@@ -21,6 +22,7 @@ from app.models import (
     ProcessoMonitorado,
     RpiImportacao,
     TipoProcesso,
+    Titular,
     UsuarioOperacoes,
     processo_titulares,
 )
@@ -814,3 +816,64 @@ async def atualizar_monitoramento(
     )
     await session.commit()
     return {"status": "ok", "id": monitorado.id}
+
+
+@router.post("/{monitorado_id}/atualizar")
+async def atualizar_status_processo(
+    monitorado_id: int,
+    request: Request,
+    session: SessionDep,
+    usuario: ManageDep,
+) -> dict:
+    """Reconsolida a situação a partir dos despachos já sincronizados (feed RPI) e,
+    se o processo ainda não tiver cliente, cadastra a empresa a partir do titular."""
+    monitorado = (
+        await session.execute(
+            select(ProcessoMonitorado).where(
+                ProcessoMonitorado.id == monitorado_id,
+                ProcessoMonitorado.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if monitorado is None:
+        raise HTTPException(404, "Processo monitorado não encontrado")
+
+    await consolidar_situacao(session, monitorado.processo_id)
+    processo = await session.get(Processo, monitorado.processo_id)
+
+    cliente_cadastrado = None
+    if monitorado.empresa_id is None:
+        titular_nome = (
+            await session.execute(
+                select(Titular.nome)
+                .join(processo_titulares, processo_titulares.c.titular_id == Titular.id)
+                .where(processo_titulares.c.processo_id == monitorado.processo_id)
+                .order_by(Titular.nome)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        empresa = await obter_ou_criar_empresa(session, usuario.organizacao_id, titular_nome)
+        if empresa is not None:
+            monitorado.empresa_id = empresa.id
+            cliente_cadastrado = empresa.nome
+
+    monitorado.atualizado_em = datetime.now(UTC)
+    _auditar(
+        session,
+        request,
+        usuario,
+        "atualizar_status_carteira",
+        f"processo-monitorado:{monitorado.id}",
+        {
+            "situacao": processo.situacao if processo else None,
+            "cliente_cadastrado": cliente_cadastrado,
+        },
+    )
+    await session.commit()
+    return {
+        "status": "ok",
+        "situacao": processo.situacao if processo else None,
+        "situacao_normalizada": processo.situacao_normalizada if processo else None,
+        "relevancia_situacao": processo.relevancia_situacao if processo else None,
+        "cliente_cadastrado": cliente_cadastrado,
+    }

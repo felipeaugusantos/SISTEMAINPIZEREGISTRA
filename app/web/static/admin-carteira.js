@@ -41,7 +41,7 @@ function renderPortfolio(data) {
       <div class="portfolio-process"><a class="process-number" href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><h3>${escapeHtml(item.titulo || "Marca sem título")}</h3><p>${escapeHtml(item.empresa || "Sem empresa vinculada")} · ${escapeHtml(item.procurador || "Procurador não informado")}</p><small>Depósito: ${formatDate(item.data_deposito)} · origem: ${escapeHtml(item.origem)}</small></div>
       <div class="portfolio-inpi"><span class="portfolio-item-label">Situação no INPI</span><strong>${escapeHtml(item.situacao || "Não informada")}</strong><p><span>Responsável</span>${escapeHtml(item.responsavel || "Não atribuído")}</p></div>
       <div class="latest">${movement ? `<small>Última movimentação · RPI ${movement.numero_rpi}</small><strong>${formatDate(movement.data)}</strong><p>${escapeHtml(movement.descricao || "")}</p>` : `<small>Movimentações</small><strong>Nenhuma localizada</strong>`}</div>
-      <div class="portfolio-status"><label><span class="portfolio-item-label">Status interno</span><select data-status>${statusOptions(item.status)}</select></label><button class="secondary-button" data-save-status type="button">Salvar status</button></div>
+      <div class="portfolio-status"><label><span class="portfolio-item-label">Status interno</span><select data-status>${statusOptions(item.status)}</select></label><button class="secondary-button" data-save-status type="button">Salvar status</button><button class="secondary-button" data-atualizar type="button">Atualizar status</button></div>
     </article>`;
   }).join("");
 }
@@ -102,6 +102,17 @@ document.querySelector("#portfolio-list").addEventListener("click", async event 
   const button = event.target.closest("[data-save-status]"); if (!button) return; const card = button.closest("[data-id]"); button.disabled = true;
   try { await api(`/v1/admin/carteira/${card.dataset.id}`, { method: "PATCH", body: JSON.stringify({ status: card.querySelector("[data-status]").value }) }); showMessage("Status de acompanhamento atualizado."); await loadPortfolio(); }
   catch (error) { showMessage(error.message, "error"); button.disabled = false; }
+});
+document.querySelector("#portfolio-list").addEventListener("click", async event => {
+  const button = event.target.closest("[data-atualizar]"); if (!button) return; const card = button.closest("[data-id]"); button.disabled = true; button.textContent = "Atualizando…";
+  try {
+    const result = await api(`/v1/admin/carteira/${card.dataset.id}/atualizar`, { method: "POST" });
+    const partes = [`Situação: ${result.situacao || "não informada"}`];
+    if (result.cliente_cadastrado) partes.push(`Cliente cadastrado: ${result.cliente_cadastrado}`);
+    showMessage(partes.join(" · "));
+    await loadPortfolio();
+  }
+  catch (error) { showMessage(error.message, "error"); button.disabled = false; button.textContent = "Atualizar status"; }
 });
 
 const importDialog = document.querySelector("#import-dialog");

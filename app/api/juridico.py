@@ -9,6 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
+from app.crm import obter_ou_criar_empresa
 from app.database import get_session
 from app.models import (
     EmpresaCRM,
@@ -20,7 +21,9 @@ from app.models import (
     PrazoJuridico,
     Processo,
     ProcessoMonitorado,
+    Titular,
     UsuarioOperacoes,
+    processo_titulares,
 )
 from app.proxy import cliente_ip
 
@@ -611,6 +614,58 @@ async def registrar_entrega(
     _auditar(session, request, usuario, "registrar_entrega", f"prazo:{prazo.id}", detalhes)
     await session.commit()
     return {"registrado": True}
+
+
+class VincularClienteInput(BaseModel):
+    empresa_nome: str | None = Field(default=None, min_length=2, max_length=200)
+
+    @field_validator("empresa_nome", mode="before")
+    @classmethod
+    def _limpar_nome(cls, valor: object) -> str | None:
+        if valor is None:
+            return None
+        limpo = re.sub(r"\s+", " ", str(valor)).strip()
+        return limpo or None
+
+
+@router.post("/prazos/{prazo_id}/vincular-cliente")
+async def vincular_cliente(
+    prazo_id: int,
+    dados: VincularClienteInput,
+    request: Request,
+    session: SessionDep,
+    usuario: ManageDep,
+) -> dict:
+    """Vincula (ou cria) o cliente no CRM ao processo monitorado do prazo. Usa o
+    nome informado ou, na ausência, o titular do processo."""
+    prazo = await _obter_prazo(session, usuario, prazo_id)
+    monitorado = await session.get(ProcessoMonitorado, prazo.processo_monitorado_id)
+    if monitorado is None:
+        raise HTTPException(404, "Processo monitorado não encontrado")
+    nome = dados.empresa_nome
+    if not nome:
+        nome = (
+            await session.execute(
+                select(Titular.nome)
+                .join(processo_titulares, processo_titulares.c.titular_id == Titular.id)
+                .where(processo_titulares.c.processo_id == monitorado.processo_id)
+                .order_by(Titular.nome)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    empresa = await obter_ou_criar_empresa(session, usuario.organizacao_id, nome)
+    if empresa is None:
+        raise HTTPException(
+            400, "Informe o nome do cliente (o processo não tem titular cadastrado)."
+        )
+    monitorado.empresa_id = empresa.id
+    monitorado.atualizado_em = datetime.now(UTC)
+    _auditar(
+        session, request, usuario, "vincular_cliente_crm", f"prazo:{prazo.id}",
+        {"empresa": empresa.nome},
+    )
+    await session.commit()
+    return {"empresa": empresa.nome}
 
 
 async def _obter_item_checklist(

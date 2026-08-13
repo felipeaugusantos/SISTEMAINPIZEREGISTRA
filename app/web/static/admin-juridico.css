@@ -3,6 +3,8 @@
 .legal-deadline .legal-process-number{font-size:.95rem;font-weight:800;color:#125a3a;background:#e8f3ec;border-radius:8px;padding:3px 9px;text-decoration:none;letter-spacing:.02em}
 .legal-deadline .legal-process-number:hover{background:#d7ebdf}
 .legal-deadline .legal-client-name{font-size:.98rem;font-weight:800;color:var(--ink)}
+.legal-deadline .legal-identity-sep{color:var(--muted);font-weight:700}
+.legal-deadline .vincular-cliente{border-color:#125a3a;color:#125a3a}
 
 /* Toggle de visão, Kanban e Checklist */
 .legal-card>header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}

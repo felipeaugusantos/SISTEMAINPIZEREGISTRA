@@ -35,6 +35,10 @@ services:
       - "postgres"
       - "-c"
       - "work_mem=64MB"
+      # Sem query paralela: evita alocar segmentos DSM em /dev/shm (que causavam
+      # "No space left on device" nos relatórios sobre as tabelas grandes).
+      - "-c"
+      - "max_parallel_workers_per_gather=0"
     environment:
       POSTGRES_DB: inpi
       POSTGRES_USER: inpi

@@ -22,11 +22,16 @@ async def avaliar_qualidade_base(
             .limit(1)
         )
     ).scalar_one_or_none()
+    # Equivalente a max(data_rpi), mas ORDER BY ... LIMIT 1 usa o índice
+    # ix_movimentacoes_data_rpi (backward scan) e evita o seq scan de ~20M
+    # movimentações + hash join que o agregado provocava após o backfill BADEPI.
     ultima_data_rpi = (
         await session.execute(
-            select(func.max(Movimentacao.data_rpi)).join(Processo).where(
-                Processo.tipo == TipoProcesso.MARCA
-            )
+            select(Movimentacao.data_rpi)
+            .join(Processo)
+            .where(Processo.tipo == TipoProcesso.MARCA)
+            .order_by(Movimentacao.data_rpi.desc())
+            .limit(1)
         )
     ).scalar_one_or_none()
     global _COBERTURA_CACHE

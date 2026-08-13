@@ -36,7 +36,7 @@ jobs:
       ADMIN_PASSWORD: Teste-Seguro-123!
       SECURITY_MASTER_KEY: ci-only-security-key
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
         with:
           # O cache de uv travava por cinco minutos no post-job e invalidava a

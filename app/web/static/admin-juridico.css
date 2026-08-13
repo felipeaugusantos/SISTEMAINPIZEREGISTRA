@@ -4,6 +4,9 @@
 .legal-deadline .legal-process-number:hover{background:#d7ebdf}
 .legal-deadline .legal-client-name{font-size:.98rem;font-weight:800;color:var(--ink)}
 .legal-deadline .legal-identity-sep{color:var(--muted);font-weight:700}
+/* Uniformiza TODOS os botões da coluna de ações (primário + secundários):
+   vence .admin-body .secondary-button e .primary-button na especificidade. */
+.admin-body .legal-actions button{min-height:40px;padding:9px 12px;font-size:.74rem;width:100%;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}
 
 /* Toggle de visão, Kanban e Checklist */
 .legal-card>header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}

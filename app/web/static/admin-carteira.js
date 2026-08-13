@@ -93,8 +93,8 @@ document.querySelector("#open-manual").addEventListener("click", () => dialog.sh
 document.querySelector("#close-manual").addEventListener("click", () => dialog.close());
 document.querySelector("#cancel-manual").addEventListener("click", () => dialog.close());
 document.querySelector("#manual-form").addEventListener("submit", async event => {
-  event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget));
-  try { const result = await api("/v1/admin/carteira/manual", { method: "POST", body: JSON.stringify({ ...values, responsavel_id: Number(values.responsavel_id) || null, empresa_nome: values.empresa_nome || null, observacoes: values.observacoes || null }) }); showMessage(result.vinculados ? `Processo ${result.numero} adicionado à carteira.` : `Processo ${result.numero} já estava na carteira.`); dialog.close(); event.currentTarget.reset(); await loadPortfolio(); }
+  event.preventDefault(); const form = event.currentTarget; const values = Object.fromEntries(new FormData(form));
+  try { const result = await api("/v1/admin/carteira/manual", { method: "POST", body: JSON.stringify({ ...values, responsavel_id: Number(values.responsavel_id) || null, empresa_nome: values.empresa_nome || null, observacoes: values.observacoes || null }) }); showMessage(result.vinculados ? `Processo ${result.numero} adicionado à carteira.` : `Processo ${result.numero} já estava na carteira.`); dialog.close(); form.reset(); await loadPortfolio(); }
   catch (error) { showMessage(error.message, "error"); }
 });
 document.querySelector("#portfolio-filter").addEventListener("submit", event => { event.preventDefault(); loadPortfolio().catch(error => showMessage(error.message, "error")); });

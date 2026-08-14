@@ -1052,6 +1052,40 @@ class ChecklistFaseLead(Base):
     )
 
 
+class GuiaInpi(Base):
+    """GRU (guia de retribuição do INPI) registrada para um lead.
+
+    Não emite a guia (o INPI não tem API); guarda o que foi emitido no portal —
+    serviço, valor, número/nosso número, vencimento e pagamento — para controle.
+    """
+
+    __tablename__ = "guias_inpi"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    lead_id: Mapped[int] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), index=True
+    )
+    servico: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    codigo: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    descricao: Mapped[str] = mapped_column(String(200))
+    valor: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    reduzido: Mapped[bool] = mapped_column(Boolean, default=False)
+    numero_gru: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    vencimento: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    pago_em: Mapped[date | None] = mapped_column(Date, nullable=True)
+    observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class CanalContato(StrEnum):
     TELEFONE = "telefone"
     EMAIL = "email"

@@ -347,6 +347,7 @@ async function openLead(id) {
     <section class="lead-funil" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
     <section class="lead-documentos" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section>
     <section class="lead-checklist" id="lead-checklist"><p class="lead-funil-loading">Carregando checklist…</p></section>
+    <section class="lead-guias" id="lead-guias"><p class="lead-funil-loading">Carregando guias do INPI…</p></section>
     ${state.canManage ? `<form id="lead-crm-form" data-lead-id="${lead.id}" class="lead-crm-form">
       <label><span>Status</span><select name="status">${statusOptions(lead.status)}</select></label>
       <label><span>Responsável</span><select name="responsavel_id">${ownerOptions(lead.responsavel_id)}</select></label>
@@ -374,6 +375,7 @@ async function openLead(id) {
   await renderFunil(lead.id);
   await renderDocumentos(lead.id);
   await renderChecklistFase(lead.id);
+  await renderGuiasInpi(lead.id);
 }
 
 const FASE_LABELS = {
@@ -490,6 +492,103 @@ async function renderChecklistFase(leadId) {
     const r = await fetch(`/v1/admin/leads/${leadId}/checklist/padrao`, { method: "POST" });
     if (r.ok) await renderChecklistFase(leadId); else { padraoBtn.disabled = false; const m = box.querySelector(".chk-msg"); if (m) m.textContent = "Erro ao aplicar padrão."; }
   });
+}
+
+function guiaMoney(v) { return v == null || v === "" ? "" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
+
+function guiaVencBadge(g) {
+  if (g.status === "paga") return `<span class="guia-badge ok">Paga${g.pago_em ? " · " + formatDate(g.pago_em, false) : ""}</span>`;
+  if (g.status === "cancelada") return `<span class="guia-badge muted">Cancelada</span>`;
+  if (!g.vencimento) return `<span class="guia-badge pend">Pendente</span>`;
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const venc = new Date(String(g.vencimento).slice(0, 10) + "T00:00:00");
+  const dias = Math.round((venc - hoje) / 86400000);
+  const dt = formatDate(g.vencimento, false);
+  if (dias < 0) return `<span class="guia-badge late">Vencida · ${dt}</span>`;
+  if (dias <= 7) return `<span class="guia-badge soon">Vence em ${dias}d · ${dt}</span>`;
+  return `<span class="guia-badge pend">Vence ${dt}</span>`;
+}
+
+async function renderGuiasInpi(leadId) {
+  const box = document.querySelector("#lead-guias");
+  if (!box) return;
+  let data;
+  try { data = await (await fetch(`/v1/admin/leads/${leadId}/guias`)).json(); }
+  catch { box.innerHTML = ""; return; }
+  const canManage = state.canManage;
+  const guias = data.guias || [];
+  const sugestoes = (data.sugestoes || []).filter(s => !s.ja_registrada);
+  const guiaRows = guias.length ? guias.map(g => {
+    const tarifa = g.reduzido ? ` <span class="guia-tag">reduzido</span>` : "";
+    const meta = [g.codigo ? `Cód. ${escapeHtml(g.codigo)}` : "", guiaMoney(g.valor), g.numero_gru ? `GRU ${escapeHtml(g.numero_gru)}` : ""].filter(Boolean).join(" · ");
+    const acts = canManage ? `<div class="guia-acts">${g.status === "paga" ? `<button class="guia-reabrir" data-id="${g.id}" type="button">Reabrir</button>` : `<button class="guia-pagar" data-id="${g.id}" type="button">Marcar paga</button>`}<button class="guia-del" data-id="${g.id}" type="button" title="Excluir" aria-label="Excluir">×</button></div>` : "";
+    return `<li class="guia-item"><div class="guia-main"><strong>${escapeHtml(g.descricao)}</strong>${tarifa}<br><small>${escapeHtml(meta) || "—"}</small></div>${guiaVencBadge(g)}${acts}</li>`;
+  }).join("") : `<li class="guia-empty">Nenhuma guia registrada.</li>`;
+
+  const sugRows = (canManage && sugestoes.length) ? `<div class="guia-sug"><p class="guia-sug-title">Esta fase costuma pedir:</p>${sugestoes.map(s => {
+    const preco = [s.valor_normal != null ? `${guiaMoney(s.valor_normal)} normal` : "", s.valor_reduzido != null ? `${guiaMoney(s.valor_reduzido)} reduzido` : ""].filter(Boolean).join(" · ") || "valor a definir";
+    return `<button type="button" class="guia-sug-btn" data-servico="${escapeHtml(s.servico)}" data-codigo="${escapeHtml(s.codigo || "")}" data-desc="${escapeHtml(s.descricao)}" data-vn="${s.valor_normal == null ? "" : s.valor_normal}" data-vr="${s.valor_reduzido == null ? "" : s.valor_reduzido}">+ ${escapeHtml(s.descricao)}${s.codigo ? ` (${escapeHtml(s.codigo)})` : ""} <small>${escapeHtml(preco)}</small></button>`;
+  }).join("")}</div>` : "";
+
+  const form = canManage ? `<form class="guia-form" hidden autocomplete="off">
+    <div class="guia-two"><label><span>Descrição</span><input name="descricao" maxlength="200" required></label><label><span>Código INPI</span><input name="codigo" maxlength="10" placeholder="Ex.: 389"></label></div>
+    <div class="guia-two"><label><span>Tarifa</span><select name="tarifa"><option value="normal">Normal</option><option value="reduzido">Reduzido (ME/EPP/PF)</option></select></label><label><span>Valor (R$)</span><input name="valor" type="number" step="0.01" min="0" placeholder="0,00"></label></div>
+    <div class="guia-two"><label><span>Número da GRU</span><input name="numero_gru" maxlength="60" placeholder="Nosso número"></label><label><span>Vencimento</span><input name="vencimento" type="date"></label></div>
+    <label><span>Observações</span><input name="observacoes" maxlength="2000" placeholder="opcional"></label>
+    <div class="guia-form-acts"><button class="secondary-button" type="submit">Salvar guia</button><button class="guia-cancel secondary-button" type="button">Cancelar</button><span class="guia-msg" role="status"></span></div>
+  </form>` : "";
+
+  box.innerHTML = `<header><p class="eyebrow">Guias do INPI (GRU)</p><h3>Retribuições emitidas</h3>${canManage ? `<button class="guia-nova secondary-button" type="button">Registrar GRU</button>` : ""}</header>${sugRows}<ul class="guia-list">${guiaRows}</ul>${form}`;
+
+  if (!canManage) return;
+  const formEl = box.querySelector(".guia-form");
+  const tarifas = { vn: "", vr: "" };
+  const applyTarifa = () => {
+    const v = formEl.elements.tarifa.value === "reduzido" ? tarifas.vr : tarifas.vn;
+    if (v !== "") formEl.elements.valor.value = v;
+  };
+  const show = () => { formEl.hidden = false; formEl.querySelector('[name="descricao"]').focus(); };
+  box.querySelector(".guia-nova")?.addEventListener("click", () => { formEl.reset(); tarifas.vn = ""; tarifas.vr = ""; delete formEl.dataset.servico; show(); });
+  box.querySelectorAll(".guia-sug-btn").forEach(btn => btn.addEventListener("click", () => {
+    formEl.reset();
+    formEl.elements.descricao.value = btn.dataset.desc;
+    formEl.elements.codigo.value = btn.dataset.codigo;
+    tarifas.vn = btn.dataset.vn; tarifas.vr = btn.dataset.vr;
+    formEl.elements.tarifa.value = "normal";
+    formEl.dataset.servico = btn.dataset.servico;
+    applyTarifa();
+    show();
+  }));
+  formEl.elements.tarifa.addEventListener("change", applyTarifa);
+  formEl.querySelector(".guia-cancel").addEventListener("click", () => { formEl.hidden = true; });
+  formEl.addEventListener("submit", async e => {
+    e.preventDefault();
+    const payload = {
+      descricao: formEl.elements.descricao.value.trim(),
+      codigo: formEl.elements.codigo.value.trim() || null,
+      servico: formEl.dataset.servico || null,
+      reduzido: formEl.elements.tarifa.value === "reduzido",
+      valor: formEl.elements.valor.value === "" ? null : Number(formEl.elements.valor.value),
+      numero_gru: formEl.elements.numero_gru.value.trim() || null,
+      vencimento: formEl.elements.vencimento.value || null,
+      observacoes: formEl.elements.observacoes.value.trim() || null,
+    };
+    const r = await fetch(`/v1/admin/leads/${leadId}/guias`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (r.ok) await renderGuiasInpi(leadId);
+    else { const m = formEl.querySelector(".guia-msg"); if (m) m.textContent = "Erro ao salvar."; }
+  });
+  box.querySelectorAll(".guia-pagar").forEach(b => b.addEventListener("click", async () => {
+    await fetch(`/v1/admin/guias-inpi/${b.dataset.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "paga" }) });
+    await renderGuiasInpi(leadId);
+  }));
+  box.querySelectorAll(".guia-reabrir").forEach(b => b.addEventListener("click", async () => {
+    await fetch(`/v1/admin/guias-inpi/${b.dataset.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "pendente" }) });
+    await renderGuiasInpi(leadId);
+  }));
+  box.querySelectorAll(".guia-del").forEach(b => b.addEventListener("click", async () => {
+    const r = await fetch(`/v1/admin/guias-inpi/${b.dataset.id}`, { method: "DELETE" });
+    if (r.ok || r.status === 204) await renderGuiasInpi(leadId);
+  }));
 }
 
 async function renderFunil(leadId) {

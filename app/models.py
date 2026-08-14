@@ -552,9 +552,18 @@ class EmpresaCRM(Base):
     )
     nome: Mapped[str] = mapped_column(String(200), index=True)
     nome_normalizado: Mapped[str] = mapped_column(String(200), index=True)
+    documento: Mapped[str | None] = mapped_column(String(18), nullable=True, index=True)
+    segmento: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    telefone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    site: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    contatos_pessoa: Mapped[list["Contato"]] = relationship(
+        back_populates="empresa", cascade="all, delete-orphan"
     )
     leads: Mapped[list["Lead"]] = relationship(back_populates="empresa_registro")
     pesquisas: Mapped[list["PesquisaMarca"]] = relationship(back_populates="empresa_registro")
@@ -565,6 +574,31 @@ class EmpresaCRM(Base):
     lancamentos_financeiros: Mapped[list["LancamentoFinanceiro"]] = relationship(
         back_populates="empresa_registro"
     )
+
+
+class Contato(Base):
+    """Pessoa de contato de uma empresa (separada da oportunidade/lead)."""
+
+    __tablename__ = "contatos"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    empresa_id: Mapped[int] = mapped_column(
+        ForeignKey("empresas_crm.id", ondelete="CASCADE"), index=True
+    )
+    nome: Mapped[str] = mapped_column(String(150), index=True)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True, index=True)
+    telefone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    cargo: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    principal: Mapped[bool] = mapped_column(Boolean, default=False)
+    observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    empresa: Mapped["EmpresaCRM"] = relationship(back_populates="contatos_pessoa")
 
 
 class CategoriaFinanceira(Base):
@@ -963,6 +997,9 @@ class Lead(Base):
     )
     empresa_id: Mapped[int | None] = mapped_column(
         ForeignKey("empresas_crm.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    contato_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contatos.id", ondelete="SET NULL"), nullable=True, index=True
     )
     nome: Mapped[str] = mapped_column(String(150), index=True)
     email: Mapped[str] = mapped_column(String(254), index=True)

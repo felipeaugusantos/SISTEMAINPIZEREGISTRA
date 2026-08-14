@@ -601,6 +601,26 @@ class Contato(Base):
     empresa: Mapped["EmpresaCRM"] = relationship(back_populates="contatos_pessoa")
 
 
+class RegraAutomacao(Base):
+    """Override por organização de uma regra de automação embutida (ativo/dias)."""
+
+    __tablename__ = "regras_automacao"
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "chave", name="uq_regra_automacao_org_chave"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    chave: Mapped[str] = mapped_column(String(40), index=True)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+    dias: Mapped[int] = mapped_column(Integer, default=0)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class CategoriaFinanceira(Base):
     __tablename__ = "categorias_financeiras"
     __table_args__ = (

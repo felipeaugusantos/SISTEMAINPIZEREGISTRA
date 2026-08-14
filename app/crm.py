@@ -1,10 +1,116 @@
 import re
 import unicodedata
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import ORDEM_FASE_LEAD, EmpresaCRM, HistoricoFaseLead, Lead, StatusLead
+from app.models import (
+    ORDEM_FASE_LEAD,
+    EmpresaCRM,
+    HistoricoFaseLead,
+    Lead,
+    LembreteCRM,
+    RegraAutomacao,
+    StatusLead,
+)
+
+# --- Regras de automação embutidas (Terceira entrega, item 2) --------------
+# evento: "fase" ou "status"; gatilho: valor que dispara a regra.
+REGRAS_AUTOMACAO: dict[str, dict] = {
+    "followup_proposta": {
+        "evento": "fase",
+        "gatilho": "proposta_enviada",
+        "dias": 2,
+        "titulo": "Follow-up da proposta",
+        "tipo": "enviar_proposta",
+        "prioridade": "media",
+        "descricao": "Retornar ao cliente sobre a proposta enviada.",
+        "label": "Ao enviar proposta → follow-up",
+    },
+    "cobrar_pagamento": {
+        "evento": "fase",
+        "gatilho": "proposta_aceita",
+        "dias": 1,
+        "titulo": "Cobrar pagamento / emitir cobrança",
+        "tipo": "cobrar_documentos",
+        "prioridade": "alta",
+        "descricao": "Proposta aceita — combinar pagamento e emitir a cobrança.",
+        "label": "Ao aceitar proposta → cobrar pagamento",
+    },
+    "acompanhar_protocolo": {
+        "evento": "fase",
+        "gatilho": "protocolo_inpi",
+        "dias": 3,
+        "titulo": "Acompanhar protocolo no INPI",
+        "tipo": "acompanhar_processo",
+        "prioridade": "media",
+        "descricao": "Confirmar o protocolo e o número do processo no INPI.",
+        "label": "Ao protocolar → acompanhar no INPI",
+    },
+    "reengajar_sem_retorno": {
+        "evento": "status",
+        "gatilho": "sem_retorno",
+        "dias": 7,
+        "titulo": "Reengajar oportunidade sem retorno",
+        "tipo": "retorno",
+        "prioridade": "media",
+        "descricao": "Cliente parou de responder — tentar reengajar.",
+        "label": "Sem retorno → reengajar em N dias",
+    },
+}
+
+
+async def aplicar_regras_automacao(
+    session: AsyncSession, lead: Lead, evento: str, valor: str, por: str
+) -> list[str]:
+    """Dispara as regras de automação embutidas para um evento do lead.
+
+    Cria um LembreteCRM (tarefa/alerta) para cada regra ativa cujo gatilho bate.
+    Retorna as chaves aplicadas. As regras podem ser ligadas/desligadas e ter os
+    dias ajustados por organização em ``regras_automacao``.
+    """
+    candidatas = {
+        chave: regra
+        for chave, regra in REGRAS_AUTOMACAO.items()
+        if regra["evento"] == evento and regra["gatilho"] == valor
+    }
+    if not candidatas:
+        return []
+    overrides = {
+        row.chave: row
+        for row in (
+            await session.execute(
+                select(RegraAutomacao).where(
+                    RegraAutomacao.organizacao_id == lead.organizacao_id,
+                    RegraAutomacao.chave.in_(candidatas.keys()),
+                )
+            )
+        ).scalars()
+    }
+    aplicadas: list[str] = []
+    for chave, regra in candidatas.items():
+        override = overrides.get(chave)
+        if override is not None and not override.ativo:
+            continue
+        dias = override.dias if override is not None else regra["dias"]
+        session.add(
+            LembreteCRM(
+                organizacao_id=lead.organizacao_id,
+                lead_id=lead.id,
+                responsavel_id=lead.responsavel_id,
+                tipo=regra["tipo"],
+                prioridade=regra["prioridade"],
+                titulo=regra["titulo"],
+                descricao=regra["descricao"],
+                lembrar_em=datetime.now(UTC) + timedelta(days=max(0, dias)),
+                status="pendente",
+                criado_por=f"Automação ({por})"[:254],
+                criado_por_id=None,
+            )
+        )
+        aplicadas.append(chave)
+    return aplicadas
 
 # --- Sincronização status (pipeline CRM) <-> fase (funil) ------------------
 # A fase do funil é o eixo mais rico; ao mudar a fase o status espelha o mapa
@@ -52,6 +158,7 @@ async def avancar_fase_lead(
             organizacao_id=lead.organizacao_id, lead_id=lead.id, fase=nova_fase, por=por
         )
     )
+    await aplicar_regras_automacao(session, lead, "fase", nova_fase, por)
     return True
 
 

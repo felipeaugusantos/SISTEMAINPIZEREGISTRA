@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
-from app.crm import avancar_fase_lead, sincronizar_fase_por_status
+from app.crm import aplicar_regras_automacao, avancar_fase_lead, sincronizar_fase_por_status
 from app.database import get_session
 from app.models import (
     MOTIVOS_PERDA,
@@ -725,10 +725,13 @@ async def atualizar_status_lead(
                 detail=f"Oportunidade aberta exige {' e '.join(faltando)}.",
             )
     # Tarefa 2: ao mudar o status, sincroniza a fase do funil (só avança).
-    if "status" in alteracoes and await sincronizar_fase_por_status(
-        session, lead, por=usuario.nome or "sistema"
-    ):
-        alteracoes["fase"] = lead.fase
+    if "status" in alteracoes:
+        if await sincronizar_fase_por_status(session, lead, por=usuario.nome or "sistema"):
+            alteracoes["fase"] = lead.fase
+        # Automações disparadas por mudança de status (ex.: sem_retorno).
+        await aplicar_regras_automacao(
+            session, lead, "status", lead.status.value, por=usuario.nome or "sistema"
+        )
     if dados.registrar_contato:
         agora = datetime.now(UTC)
         lead.ultimo_contato_em = agora

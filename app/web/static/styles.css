@@ -1028,6 +1028,14 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
 .emp-check { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: .82rem; }
 @media (max-width: 640px) { .emp-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 420px) { .emp-grid { grid-template-columns: 1fr; } }
+.crm-automacoes { display: flex; flex-direction: column; gap: 10px; }
+.crm-automacao { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; flex-wrap: wrap; }
+.crm-auto-toggle { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 220px; cursor: pointer; }
+.crm-auto-toggle input { width: 18px; height: 18px; accent-color: var(--accent, #2f6f4e); }
+.crm-auto-toggle span { display: grid; }
+.crm-auto-toggle small { color: var(--muted); font-size: .78rem; }
+.crm-auto-dias { display: flex; align-items: center; gap: 8px; font-size: .82rem; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.crm-auto-dias input { width: 64px; padding: 6px 8px; border: 1px solid #cbd4cd; border-radius: 8px; font: inherit; }
 .rpi-history-pager { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 12px; }
 .rpi-history-pager[hidden] { display: none; }
 .rpi-history-pager span { font-size: .82rem; color: var(--muted); font-weight: 700; }

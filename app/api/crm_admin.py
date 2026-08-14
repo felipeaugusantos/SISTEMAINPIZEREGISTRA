@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import get_session
-from app.crm import normalizar_empresa
+from app.crm import REGRAS_AUTOMACAO, normalizar_empresa
 from app.models import (
     CanalContato,
     Contato,
@@ -18,6 +18,7 @@ from app.models import (
     Lead,
     LembreteCRM,
     PesquisaMarca,
+    RegraAutomacao,
     StatusLead,
     UsuarioOperacoes,
 )
@@ -685,3 +686,64 @@ async def remover_contato(contato_id: int, session: SessionDep, usuario: CRMMana
     await session.delete(contato)
     await session.commit()
     return None
+
+
+# --- Automações (Terceira entrega, item 2a) --------------------------------
+
+
+class AutomacaoUpdate(BaseModel):
+    ativo: bool
+    dias: int = Field(ge=0, le=180)
+
+
+@router.get("/automacoes")
+async def listar_automacoes(session: SessionDep, usuario: CRMViewDep) -> dict:
+    overrides = {
+        row.chave: row
+        for row in (
+            await session.execute(
+                select(RegraAutomacao).where(
+                    RegraAutomacao.organizacao_id == usuario.organizacao_id
+                )
+            )
+        ).scalars()
+    }
+    itens = []
+    for chave, regra in REGRAS_AUTOMACAO.items():
+        ov = overrides.get(chave)
+        itens.append(
+            {
+                "chave": chave,
+                "label": regra["label"],
+                "evento": regra["evento"],
+                "gatilho": regra["gatilho"],
+                "titulo": regra["titulo"],
+                "prioridade": regra["prioridade"],
+                "ativo": ov.ativo if ov else True,
+                "dias": ov.dias if ov else regra["dias"],
+            }
+        )
+    return {"itens": itens}
+
+
+@router.put("/automacoes/{chave}")
+async def editar_automacao(
+    chave: str, dados: AutomacaoUpdate, session: SessionDep, usuario: CRMManageDep
+) -> dict:
+    if chave not in REGRAS_AUTOMACAO:
+        raise HTTPException(status_code=404, detail="Regra não encontrada")
+    regra = (
+        await session.execute(
+            select(RegraAutomacao).where(
+                RegraAutomacao.organizacao_id == usuario.organizacao_id,
+                RegraAutomacao.chave == chave,
+            )
+        )
+    ).scalar_one_or_none()
+    if regra is None:
+        regra = RegraAutomacao(organizacao_id=usuario.organizacao_id, chave=chave)
+        session.add(regra)
+    regra.ativo = dados.ativo
+    regra.dias = dados.dias
+    await session.commit()
+    return {"chave": chave, "ativo": regra.ativo, "dias": regra.dias}

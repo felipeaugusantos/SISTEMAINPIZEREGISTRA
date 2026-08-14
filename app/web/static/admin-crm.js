@@ -107,6 +107,25 @@ reminderForm.addEventListener("submit", async event => {
   catch (error) { statusBox.className = "status-message error"; statusBox.textContent = error.message; }
 });
 
-references().then(() => Promise.all([loadHistory(), loadReminders()])).then(() => {
+async function loadAutomacoes() { renderAutomacoes(await api("/v1/admin/crm/automacoes")); }
+function renderAutomacoes(data) {
+  const box = document.querySelector("#crm-automacoes");
+  const canManage = crmState.canManage;
+  box.innerHTML = (data.itens || []).map(a => `
+    <div class="crm-automacao" data-chave="${esc(a.chave)}">
+      <label class="crm-auto-toggle"><input type="checkbox" class="auto-ativo" ${a.ativo ? "checked" : ""} ${canManage ? "" : "disabled"}><span><strong>${esc(a.label)}</strong><small>Cria a tarefa "${esc(a.titulo)}"</small></span></label>
+      <label class="crm-auto-dias">Prazo <input type="number" class="auto-dias" min="0" max="180" value="${esc(String(a.dias))}" ${canManage ? "" : "disabled"}> dia(s)</label>
+    </div>`).join("");
+}
+document.querySelector("#crm-automacoes").addEventListener("change", event => {
+  const row = event.target.closest(".crm-automacao");
+  if (!row || !crmState.canManage) return;
+  const payload = { ativo: row.querySelector(".auto-ativo").checked, dias: Number(row.querySelector(".auto-dias").value) || 0 };
+  api(`/v1/admin/crm/automacoes/${row.dataset.chave}`, { method: "PUT", body: JSON.stringify(payload) })
+    .then(() => show("Automação atualizada.", "success"))
+    .catch(error => show(error.message));
+});
+
+references().then(() => Promise.all([loadHistory(), loadReminders(), loadAutomacoes()])).then(() => {
   const leadId = new URLSearchParams(location.search).get("lead_id"); if (/^\d+$/.test(leadId || "") && crmState.canManage) openReminder(leadId);
 }).catch(error => show(error.message));

@@ -343,6 +343,7 @@ async function openLead(id) {
   document.querySelector("#lead-dialog-title").textContent = lead.nome;
   dialogContent.innerHTML = `
     <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div></section>
+    <div class="lead-dialog-grid"><div class="lead-dialog-main">
     <section class="lead-funil" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
     <section class="lead-documentos" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section>
     <section class="lead-checklist" id="lead-checklist"><p class="lead-funil-loading">Carregando checklist…</p></section>
@@ -355,6 +356,7 @@ async function openLead(id) {
       <label class="lead-notes"><span>Anotações internas</span><textarea name="notas" maxlength="4000" rows="5">${escapeHtml(lead.notas || "")}</textarea></label>
       <div><button class="primary-button" type="submit">Salvar atendimento</button><a class="secondary-button" href="/admin/crm?lead_id=${lead.id}">Criar lembrete</a><span id="lead-save-message" role="status"></span></div>
     </form>` : `<section class="lead-readonly-note">Você possui acesso somente para consulta.</section>`}
+    </div><aside class="lead-dialog-aside">
     <section class="lead-contact-log">
       <header><div><p class="eyebrow">CRM</p><h3>Contatos realizados</h3></div><span id="lead-contact-count">0 registros</span></header>
       <label class="lead-contact-filter"><span>Filtrar pela pesquisa</span><select id="lead-contact-filter"><option value="">Todas as pesquisas desta empresa</option>${researchOptions}</select></label>
@@ -367,7 +369,7 @@ async function openLead(id) {
       </form>` : ""}
       <ol id="lead-contact-history" class="lead-contact-history"><li class="lead-contact-empty">Carregando contatos...</li></ol>
     </section>
-    <section class="lead-history"><header><div><p class="eyebrow">Histórico</p><h3>${lead.pesquisas.length} pesquisa${lead.pesquisas.length === 1 ? "" : "s"}</h3></div></header>${lead.pesquisas.length ? lead.pesquisas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>`;
+    <section class="lead-history"><header><div><p class="eyebrow">Histórico</p><h3>${lead.pesquisas.length} pesquisa${lead.pesquisas.length === 1 ? "" : "s"}</h3></div></header>${lead.pesquisas.length ? lead.pesquisas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section></aside></div>`;
   await loadLeadContacts(lead.id);
   await renderFunil(lead.id);
   await renderDocumentos(lead.id);

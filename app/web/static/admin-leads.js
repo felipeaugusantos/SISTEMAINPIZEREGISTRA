@@ -343,11 +343,12 @@ async function openLead(id) {
   document.querySelector("#lead-dialog-title").textContent = lead.nome;
   dialogContent.innerHTML = `
     <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div></section>
-    <div class="lead-dialog-grid"><div class="lead-dialog-main">
-    <section class="lead-funil" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
-    <section class="lead-documentos" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section>
+    <div class="lead-dialog-grid">
+    <section class="lead-funil lg-full" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
+    <section class="lead-history lg-full"><header><div><p class="eyebrow">Histórico</p><h3>${lead.pesquisas.length} pesquisa${lead.pesquisas.length === 1 ? "" : "s"}</h3></div></header>${lead.pesquisas.length ? lead.pesquisas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
+    <section class="lead-documentos lg-full" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section>
+    <section class="lead-guias lg-full" id="lead-guias"><p class="lead-funil-loading">Carregando guias do INPI…</p></section>
     <section class="lead-checklist" id="lead-checklist"><p class="lead-funil-loading">Carregando checklist…</p></section>
-    <section class="lead-guias" id="lead-guias"><p class="lead-funil-loading">Carregando guias do INPI…</p></section>
     ${state.canManage ? `<form id="lead-crm-form" data-lead-id="${lead.id}" class="lead-crm-form">
       <label><span>Status</span><select name="status">${statusOptions(lead.status)}</select></label>
       <label><span>Responsável</span><select name="responsavel_id">${ownerOptions(lead.responsavel_id)}</select></label>
@@ -370,7 +371,7 @@ async function openLead(id) {
       </form>` : ""}
       <ol id="lead-contact-history" class="lead-contact-history"><li class="lead-contact-empty">Carregando contatos...</li></ol>
     </section>
-    <section class="lead-history"><header><div><p class="eyebrow">Histórico</p><h3>${lead.pesquisas.length} pesquisa${lead.pesquisas.length === 1 ? "" : "s"}</h3></div></header>${lead.pesquisas.length ? lead.pesquisas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section></aside></div>`;
+    </aside>`;
   await loadLeadContacts(lead.id);
   await renderFunil(lead.id);
   await renderDocumentos(lead.id);
@@ -414,9 +415,9 @@ async function renderDocumentos(leadId) {
   const rows = (data.documentos || []).map(d => {
     const dataVal = d.data ? String(d.data).slice(0, 10) : "";
     if (!canManage) {
-      return `<tr><td class="doc-type">${escapeHtml(DOC_LABELS[d.tipo] || d.tipo)}</td><td>${escapeHtml(d.numero || "—")}</td><td>${d.data ? formatDate(d.data, false) : "—"}</td><td>${escapeHtml(statusLabel(d.status))}</td><td>${escapeHtml(d.observacoes || "")}</td></tr>`;
+      return `<tr><td class="doc-type" data-label="Tipo">${escapeHtml(DOC_LABELS[d.tipo] || d.tipo)}</td><td data-label="Número">${escapeHtml(d.numero || "—")}</td><td data-label="Data">${d.data ? formatDate(d.data, false) : "—"}</td><td data-label="Status">${escapeHtml(statusLabel(d.status))}</td><td data-label="Observações">${escapeHtml(d.observacoes || "")}</td></tr>`;
     }
-    return `<tr data-tipo="${escapeHtml(d.tipo)}"><td class="doc-type">${escapeHtml(DOC_LABELS[d.tipo] || d.tipo)}</td><td><input data-f="numero" value="${escapeHtml(d.numero || "")}" maxlength="60" placeholder="—"></td><td><input data-f="data" type="date" value="${escapeHtml(dataVal)}"></td><td><select data-f="status">${statusOpts(d.status || "pendente")}</select></td><td><input data-f="observacoes" value="${escapeHtml(d.observacoes || "")}" maxlength="2000" placeholder="—"></td></tr>`;
+    return `<tr data-tipo="${escapeHtml(d.tipo)}"><td class="doc-type" data-label="Tipo">${escapeHtml(DOC_LABELS[d.tipo] || d.tipo)}</td><td data-label="Número"><input data-f="numero" value="${escapeHtml(d.numero || "")}" maxlength="60" placeholder="—"></td><td data-label="Data"><input data-f="data" type="date" value="${escapeHtml(dataVal)}"></td><td data-label="Status"><select data-f="status">${statusOpts(d.status || "pendente")}</select></td><td data-label="Observações"><input data-f="observacoes" value="${escapeHtml(d.observacoes || "")}" maxlength="2000" placeholder="—"></td></tr>`;
   }).join("");
   box.innerHTML = `<header><p class="eyebrow">Documentos</p><h3>Procuração, GRU, protocolo, oposição, certificado</h3></header><div class="doc-table-scroll"><table class="lead-docs"><thead><tr><th>Tipo</th><th>Número</th><th>Data</th><th>Status</th><th>Observações</th></tr></thead><tbody>${rows}</tbody></table></div>${canManage ? `<div class="lead-docs-actions"><button class="secondary-button" id="lead-docs-save" type="button">Salvar documentos</button><span id="lead-docs-msg" role="status"></span></div>` : ""}`;
   const saveBtn = box.querySelector("#lead-docs-save");

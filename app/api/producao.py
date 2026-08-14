@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +25,12 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 AdminDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("production.view"))]
 
 
-async def _resumo(session: AsyncSession, usuario: UsuarioAutenticado) -> ProducaoAdminResponse:
+async def _resumo(
+    session: AsyncSession,
+    usuario: UsuarioAutenticado,
+    limite_auditoria: int = 10,
+    deslocamento_auditoria: int = 0,
+) -> ProducaoAdminResponse:
     settings = get_settings()
     desde = datetime.now(UTC) - timedelta(hours=24)
     operacional = (
@@ -71,13 +76,23 @@ async def _resumo(session: AsyncSession, usuario: UsuarioAutenticado) -> Produca
             .where(PesquisaMarca.organizacao_id == usuario.organizacao_id)
         )
     ).one()
+    auditoria_total = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(EventoAuditoria)
+                .where(EventoAuditoria.organizacao_id == usuario.organizacao_id)
+            )
+        ).scalar_one()
+    )
     auditoria = (
         (
             await session.execute(
                 select(EventoAuditoria)
                 .where(EventoAuditoria.organizacao_id == usuario.organizacao_id)
-                .order_by(EventoAuditoria.criado_em.desc())
-                .limit(50)
+                .order_by(EventoAuditoria.criado_em.desc(), EventoAuditoria.id.desc())
+                .limit(limite_auditoria)
+                .offset(deslocamento_auditoria)
             )
         )
         .scalars()
@@ -99,6 +114,9 @@ async def _resumo(session: AsyncSession, usuario: UsuarioAutenticado) -> Produca
         taxa_divergencia=divergencias / avaliadas if avaliadas else 0,
         relatorios_versionados=int(versoes[0] or 0),
         pesquisas_com_versao=int(versoes[1] or 0),
+        auditoria_total=auditoria_total,
+        auditoria_limite=limite_auditoria,
+        auditoria_deslocamento=deslocamento_auditoria,
         auditoria=[
             EventoAuditoriaResponse(
                 ator=item.ator,
@@ -114,8 +132,20 @@ async def _resumo(session: AsyncSession, usuario: UsuarioAutenticado) -> Produca
 
 
 @router.get("", response_model=ProducaoAdminResponse)
-async def obter_producao(session: SessionDep, usuario: AdminDep) -> ProducaoAdminResponse:
-    resposta = await _resumo(session, usuario)
+async def obter_producao(
+    session: SessionDep,
+    usuario: AdminDep,
+    limite_auditoria: Annotated[int, Query(ge=1, le=100)] = 10,
+    deslocamento_auditoria: Annotated[int, Query(ge=0)] = 0,
+) -> ProducaoAdminResponse:
+    resposta = await _resumo(
+        session,
+        usuario,
+        limite_auditoria=limite_auditoria,
+        deslocamento_auditoria=deslocamento_auditoria,
+    )
     if not usuario.pode("audit.view"):
         resposta.auditoria = []
+        resposta.auditoria_total = 0
+        resposta.auditoria_deslocamento = 0
     return resposta

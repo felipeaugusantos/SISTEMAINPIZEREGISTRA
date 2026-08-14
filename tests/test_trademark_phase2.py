@@ -15,6 +15,19 @@ def test_normaliza_despachos_sem_ocultar_texto_oficial() -> None:
     assert normalizar_despacho(None, "Texto ainda não mapeado").codigo == "nao_classificada"
 
 
+def test_nao_confunde_decisao_de_peticao_com_decisao_do_pedido() -> None:
+    assert normalizar_despacho(None, "Deferimento da petição").codigo == "peticao_decidida"
+    assert normalizar_despacho(None, "Indeferimento da petição").codigo == "peticao_decidida"
+
+
+def test_classifica_resultados_terminais_e_parciais_do_inpi() -> None:
+    assert normalizar_despacho(None, "Concessão de registro").codigo == "registrada"
+    assert normalizar_despacho(None, "Deferimento parcial do pedido").codigo == "deferida_parcial"
+    assert normalizar_despacho(
+        None, "Decisão de considerar pedido inexistente por falta de pagamento"
+    ).codigo == "inexistente"
+
+
 def test_mapeia_atividade_leiga_para_classes_candidatas() -> None:
     classes = mapear_atividade("Venda de roupas e acessórios pela internet")
     codigos = {classe.codigo for classe in classes}

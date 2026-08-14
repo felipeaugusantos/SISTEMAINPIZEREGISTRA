@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,11 +12,16 @@ from app.api.juridico import (
     ChecklistItemUpdate,
     PrazoInput,
     _classificar_despacho,
+    _classificar_despacho_terminal,
+    _reconciliar_prazos_historicos,
+    _reconciliar_prazos_terminais,
+    _serializar_prazo,
     atualizar_item_checklist,
     calcular_vencimento,
     criar_prazo,
+    painel,
 )
-from app.models import EventoJuridico, PrazoJuridico, ProcessoMonitorado
+from app.models import EventoJuridico, Movimentacao, PrazoJuridico, ProcessoMonitorado
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
@@ -84,6 +89,163 @@ def test_despachos_terminais_nao_geram_prazo() -> None:
     assert _classificar_despacho("Recurso não provido (decisão mantida)") is None
 
 
+def test_classifica_arquivamento_por_falta_de_pagamento_como_terminal() -> None:
+    assert _classificar_despacho_terminal(
+        "Arquivamento definitivo de pedido de registro por falta de pagamento da concessão"
+    ) == (
+        "cancelado",
+        "Não pago — pedido arquivado por falta de pagamento da concessão",
+    )
+
+
+def test_prazo_historico_nao_e_exibido_como_vencido() -> None:
+    prazo = PrazoJuridico(
+        id=1,
+        organizacao_id=1,
+        processo_monitorado_id=1,
+        titulo="Histórico: Recurso contra indeferimento (RPI 2568)",
+        tipo="recurso",
+        origem="motor_rpi",
+        data_base=date(2020, 3, 24),
+        dias_prazo=60,
+        contagem="corridos",
+        vencimento_em=datetime(2020, 5, 23, tzinfo=UTC),
+        status="historico",
+        prioridade="baixa",
+        confirmado=True,
+        criado_por="motor-juridico",
+    )
+    item = _serializar_prazo((prazo, "918199131", "3Cash", None, None, None))
+    assert item["historico"] is True
+    assert item["vencido"] is False
+
+
+def test_reconcilia_prazo_antigo_quando_rpi_posterior_arquiva_pedido() -> None:
+    origem = Movimentacao(
+        id=10,
+        processo_id=77,
+        codigo_despacho="IPAS029",
+        descricao="Deferimento do pedido",
+        data_rpi=date(2019, 12, 17),
+        numero_rpi=2554,
+        fonte_arquivo="marcas2554.xml",
+        chave_origem="origem",
+    )
+    terminal = Movimentacao(
+        id=11,
+        processo_id=77,
+        codigo_despacho="IPAS157",
+        descricao=(
+            "Arquivamento definitivo de pedido de registro por falta de pagamento da concessão"
+        ),
+        data_rpi=date(2020, 11, 17),
+        numero_rpi=2602,
+        fonte_arquivo="marcas2602.xml",
+        chave_origem="terminal",
+    )
+    prazo = PrazoJuridico(
+        id=215,
+        organizacao_id=1,
+        processo_monitorado_id=64,
+        movimentacao_origem_id=origem.id,
+        titulo="Revisar pagamento",
+        tipo="pagamento",
+        origem="motor_rpi",
+        data_base=origem.data_rpi,
+        dias_prazo=60,
+        contagem="corridos",
+        vencimento_em=datetime(2020, 2, 15, tzinfo=UTC),
+        status="aguardando_confirmacao",
+        prioridade="alta",
+        confirmado=False,
+        criado_por="motor-juridico",
+    )
+    session = FakeSession(
+        [
+            FakeResult(itens=[(prazo, origem)]),
+            FakeResult(itens=[terminal]),
+            FakeResult(itens=[]),
+        ]
+    )
+
+    total, terminais = asyncio.run(
+        _reconciliar_prazos_terminais(session, 1, "motor-juridico")
+    )
+
+    assert total == 1
+    assert terminais[77] is terminal
+    assert prazo.status == "cancelado"
+    assert prazo.confirmado is True
+    assert prazo.concluido_em is not None
+    assert prazo.concluido_por == "motor-juridico"
+    evento = next(item for item in session.adicionados if isinstance(item, EventoJuridico))
+    assert evento.tipo == "prazo_reconciliado"
+    assert evento.detalhes["rpi_terminal"] == 2602
+
+
+def test_reconcilia_importacao_historica_e_duplicidade_da_mesma_rpi() -> None:
+    origem = Movimentacao(
+        id=100,
+        processo_id=77,
+        codigo_despacho="IPAS024",
+        descricao="Indeferimento do pedido",
+        data_rpi=date(2020, 3, 24),
+        numero_rpi=2568,
+        fonte_arquivo="marcas2568.xml",
+        chave_origem="origem-a",
+    )
+    origem_repetida = Movimentacao(
+        id=101,
+        processo_id=77,
+        codigo_despacho="IPAS024",
+        descricao="Indeferimento do pedido",
+        data_rpi=date(2020, 3, 24),
+        numero_rpi=2568,
+        fonte_arquivo="marcas2568.xml",
+        chave_origem="origem-b",
+    )
+    prazos = []
+    for identificador, movimentacao_id in ((213, 100), (214, 101)):
+        prazos.append(
+            PrazoJuridico(
+                id=identificador,
+                organizacao_id=1,
+                processo_monitorado_id=64,
+                movimentacao_origem_id=movimentacao_id,
+                titulo="Revisar recurso",
+                tipo="recurso",
+                origem="motor_rpi",
+                data_base=date(2020, 3, 24),
+                dias_prazo=60,
+                contagem="corridos",
+                vencimento_em=datetime(2020, 5, 23, tzinfo=UTC),
+                status="aguardando_confirmacao",
+                prioridade="alta",
+                confirmado=False,
+                criado_por="motor-juridico",
+                criado_em=datetime(2026, 8, 14, tzinfo=UTC),
+            )
+        )
+    session = FakeSession(
+        [
+            FakeResult(itens=[(prazos[0], origem), (prazos[1], origem_repetida)]),
+            FakeResult(itens=[]),
+        ]
+    )
+
+    historicos, duplicados = asyncio.run(
+        _reconciliar_prazos_historicos(session, 1, "motor-juridico")
+    )
+
+    assert (historicos, duplicados) == (1, 1)
+    assert prazos[0].status == "historico"
+    assert prazos[1].status == "duplicado"
+    tipos = {
+        item.tipo for item in session.adicionados if isinstance(item, EventoJuridico)
+    }
+    assert tipos == {"prazo_historico", "prazo_duplicado"}
+
+
 def test_deferimento_de_peticao_nao_e_confundido_com_pedido() -> None:
     assert _classificar_despacho("Deferimento da petição") is None
 
@@ -129,8 +291,63 @@ def test_tela_juridica_expoe_fluxos_principais() -> None:
     assert "Executar motor de prazos" in html
     assert "CENTRAL DE NOTIFICAÇÕES" in html
     assert "Registrar entrega" in html
+    assert "admin-juridico.css?v=13" in html
+    assert "admin-juridico.js?v=10" in html
+    assert 'option value="historico"' in html
+    assert "Referência histórica" in javascript
+    assert 'id="legal-pagination"' in html
+    assert 'pageSize: 10' in javascript
+    assert 'query.set("limite", legalState.pageSize)' in javascript
+    assert "pagination.total_clientes" in javascript
     assert "/v1/admin/juridico/motor/executar" in javascript
     assert "/admin/operacao-juridica" in shell
+
+
+def test_painel_pagina_dez_clientes_sem_cortar_prazos_do_cliente() -> None:
+    agora = datetime.now(UTC)
+    linhas = []
+    for indice in range(10):
+        prazo = PrazoJuridico(
+            id=indice + 1,
+            organizacao_id=1,
+            processo_monitorado_id=indice + 100,
+            titulo=f"Prazo {indice}",
+            tipo="manifestacao",
+            origem="manual",
+            data_base=agora.date(),
+            dias_prazo=10,
+            contagem="corridos",
+            vencimento_em=agora + timedelta(days=10),
+            status="pendente",
+            prioridade="media",
+            confirmado=True,
+            criado_por="teste",
+        )
+        linhas.append((prazo, f"900{indice}", f"Marca {indice}", f"Cliente {indice}", None, None))
+    session = FakeSession(
+        [
+            FakeResult(itens=[(11, 0, 0, 0, 0, 11)]),
+            FakeResult(itens=list(range(100, 110))),
+            FakeResult(itens=linhas),
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+        ]
+    )
+
+    resultado = asyncio.run(
+        painel(session, usuario_teste(), None, None, None, None, None, 10, 0)
+    )
+
+    assert len(resultado["prazos"]) == 10
+    assert resultado["paginacao"] == {
+        "total_clientes": 11,
+        "limite": 10,
+        "deslocamento": 0,
+        "pagina": 1,
+        "total_paginas": 2,
+        "tem_anterior": False,
+        "tem_proxima": True,
+    }
 
 
 def test_checklist_padrao_cobre_todos_os_tipos() -> None:

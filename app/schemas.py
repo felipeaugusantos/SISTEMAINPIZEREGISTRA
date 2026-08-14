@@ -677,6 +677,9 @@ class ProducaoAdminResponse(BaseModel):
     taxa_divergencia: float
     relatorios_versionados: int
     pesquisas_com_versao: int
+    auditoria_total: int
+    auditoria_limite: int
+    auditoria_deslocamento: int
     auditoria: list[EventoAuditoriaResponse]
 
 

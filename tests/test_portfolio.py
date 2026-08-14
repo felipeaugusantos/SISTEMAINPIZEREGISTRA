@@ -3,13 +3,23 @@ import asyncio
 from starlette.requests import Request
 
 from app.api.carteira import (
+    AtualizacaoMonitoramento,
     CadastroManual,
     _filtro_procurador,
+    _grupo_situacao_valor,
     _normalizar_busca,
+    _titulo_exibicao,
+    _validar_grupo_situacao_inpi,
     buscar_por_procurador,
     cadastrar_manual,
 )
-from app.models import EventoAuditoria, Processo, ProcessoMonitorado, TipoProcesso
+from app.models import (
+    EventoAuditoria,
+    HistoricoEtapaCarteira,
+    Processo,
+    ProcessoMonitorado,
+    TipoProcesso,
+)
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
@@ -167,8 +177,8 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
 
     assert "Pesquisar por procurador" in html
     assert "Cadastrar processo" in html
-    assert "admin-carteira.css?v=5" in html
-    assert "admin-carteira.js?v=8" in html
+    assert "admin-carteira.css?v=8" in html
+    assert "admin-carteira.js?v=13" in html
     assert "Incluir variações do nome" in html
     assert "titular" in javascript
     assert "attorney-variants" in javascript
@@ -176,3 +186,57 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
     assert "portfolio-item-label" in javascript
     assert "/v1/admin/carteira/vincular-procurador" in javascript
     assert "/v1/admin/carteira/manual" in javascript
+    assert 'id="portfolio-view-kanban"' in html
+    assert 'id="portfolio-view-inpi"' in html
+    assert 'name="situacao_inpi"' in html
+    assert 'id="portfolio-pagination"' in html
+    assert 'params.set("limite", state.pageSize)' in javascript
+    assert 'pageSize: 20' in javascript
+    assert "/v1/admin/carteira/kanban" in javascript
+    assert "/v1/admin/carteira/kanban-inpi" in javascript
+    assert "function readableError" in javascript
+    assert "params.delete(key)" in javascript
+    assert "Classificação automática pela RPI" in javascript
+    assert "Processos deferidos" in javascript
+    assert "Processos pausados" in javascript
+    assert "Processos arquivados/extintos" in javascript
+    assert "Processos indeferidos" in javascript
+    assert "Registros concedidos" in javascript
+    assert "Em tramitação" in javascript
+    assert "data-metric-filter" in javascript
+    assert "function applyMetricFilter" in javascript
+
+
+def test_agrupa_situacoes_oficiais_sem_misturar_fluxo_interno() -> None:
+    assert _validar_grupo_situacao_inpi("") is None
+    assert _validar_grupo_situacao_inpi("deferido") == "deferido"
+    assert _grupo_situacao_valor("deferida") == "deferido"
+    assert _grupo_situacao_valor("registrada") == "registrado"
+    assert _grupo_situacao_valor("indeferida") == "indeferido"
+    assert _grupo_situacao_valor("inexistente") == "encerrado"
+    assert _grupo_situacao_valor("peticao_decidida") == "revisar"
+
+
+def test_titulo_exibicao_explica_ausencia_do_titulo_oficial() -> None:
+    figurativa = Processo(
+        titulo=None,
+        apresentacao="Figurativa",
+        situacao_normalizada="arquivada",
+    )
+    inexistente = Processo(
+        titulo=None,
+        apresentacao=None,
+        situacao_normalizada="inexistente",
+    )
+    nominativa = Processo(titulo="  ACME  ")
+
+    assert _titulo_exibicao(figurativa) == "Marca figurativa (sem elemento nominativo)"
+    assert _titulo_exibicao(inexistente) == "Pedido inexistente — título não publicado"
+    assert _titulo_exibicao(nominativa) == "ACME"
+
+
+def test_etapa_kanban_e_validada_e_historico_tem_tenant() -> None:
+    dados = AtualizacaoMonitoramento(etapa_kanban="aguardando_inpi")
+    assert dados.etapa_kanban == "aguardando_inpi"
+    assert ProcessoMonitorado.etapa_kanban.property.columns[0].default.arg == "triagem"
+    assert HistoricoEtapaCarteira.__table__.c.organizacao_id.foreign_keys

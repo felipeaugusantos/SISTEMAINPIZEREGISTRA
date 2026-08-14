@@ -51,6 +51,9 @@
 .kanban-card-badges{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
 .kanban-card .secondary-button{margin-top:4px;padding:5px 8px;font-size:.72rem;min-height:0}
 .kanban-empty{color:#9aa79e;text-align:center;padding:16px 0;font-size:.8rem}
+.legal-deadline.historical{border-left-color:#66859a;background:#f6fafc}
+.legal-badge-history{background:#e2edf3;color:#35596e}
+.kanban-card.historical{border-left:4px solid #66859a;background:#f6fafc}
 .checklist-chip{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:999px;background:#eef2ed;color:#345247;font-size:.68rem;font-weight:800}
 .checklist-chip.done{background:#e2f3e8;color:#17633f}
 .checklist-frame{display:flex;flex-direction:column;gap:14px;padding:22px 24px;max-width:520px}
@@ -68,3 +71,31 @@
 .checklist-add{display:flex;gap:8px}
 .checklist-add input{flex:1;padding:10px;border:1px solid #bbc4bd;border-radius:8px;font:inherit}
 .checklist-frame>footer{display:flex;justify-content:space-between;gap:10px}
+.legal-pagination{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.legal-pagination span{min-width:220px;color:var(--muted);font-size:.78rem;font-weight:700;text-align:center}
+.legal-pagination button{min-width:104px}
+.legal-pagination button:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:700px){.legal-pagination{gap:8px}.legal-pagination span{min-width:0;flex:1}.legal-pagination button{min-width:84px;padding-inline:10px}}
+
+/* Agenda jurídica: impede estouro dos campos de data e melhora a leitura da
+   coluna de responsabilidade em qualquer largura do painel administrativo. */
+.legal-filter{grid-template-columns:minmax(250px,2fr) minmax(145px,.7fr) minmax(165px,.8fr) repeat(2,minmax(145px,.65fr)) auto auto}
+.legal-filter>*{min-width:0}
+.legal-filter input,.legal-filter select{min-width:0;box-sizing:border-box}
+.admin-body .legal-filter button[type="submit"]{margin-left:0}
+.legal-deadline-owner{display:grid;align-content:center;gap:4px}
+.legal-deadline-owner span,.legal-deadline-owner strong{display:block;margin:0;line-height:1.35}
+
+@media(max-width:1280px){
+  .legal-filter{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .legal-filter .wide{grid-column:span 2}
+  .admin-body .legal-filter button{width:100%}
+}
+@media(max-width:900px){
+  .legal-filter{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .legal-filter .wide{grid-column:1/-1}
+}
+@media(max-width:600px){
+  .legal-filter{grid-template-columns:1fr}
+  .legal-filter .wide{grid-column:auto}
+}

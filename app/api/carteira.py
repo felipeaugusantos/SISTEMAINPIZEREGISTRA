@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from openpyxl import load_workbook
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
@@ -18,6 +18,7 @@ from app.database import get_session
 from app.models import (
     EmpresaCRM,
     EventoAuditoria,
+    HistoricoEtapaCarteira,
     Movimentacao,
     Processo,
     ProcessoMonitorado,
@@ -34,6 +35,38 @@ router = APIRouter(prefix="/v1/admin/carteira", tags=["processos monitorados"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("portfolio.view"))]
 ManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("portfolio.manage"))]
+
+ETAPAS_KANBAN: tuple[tuple[str, str], ...] = (
+    ("triagem", "Novo / Triagem"),
+    ("aguardando_documentos", "Aguardando documentos"),
+    ("documentacao_gru", "Documentação e GRU"),
+    ("protocolado", "Protocolado"),
+    ("aguardando_inpi", "Aguardando INPI"),
+    ("exigencia_recurso", "Exigência / Recurso"),
+    ("deferido_concessao", "Deferido / Concessão"),
+    ("encerrado", "Encerrado"),
+)
+GRUPOS_SITUACAO_INPI: tuple[tuple[str, str], ...] = (
+    ("em_tramitacao", "Em tramitação"),
+    ("exigencia", "Exigência"),
+    ("sobrestado", "Sobrestado"),
+    ("recurso", "Recurso / 2ª instância"),
+    ("deferido", "Deferido"),
+    ("registrado", "Registro concedido"),
+    ("indeferido", "Indeferido"),
+    ("encerrado", "Arquivado / Extinto"),
+    ("revisar", "Revisar classificação"),
+)
+EtapaKanban = Literal[
+    "triagem",
+    "aguardando_documentos",
+    "documentacao_gru",
+    "protocolado",
+    "aguardando_inpi",
+    "exigencia_recurso",
+    "deferido_concessao",
+    "encerrado",
+]
 
 
 def _normalizar_busca(valor: str) -> str:
@@ -52,6 +85,68 @@ def _expressao_procurador():
         " ",
         "g",
     )
+
+
+def _expressao_grupo_situacao_inpi():
+    codigo = Processo.situacao_normalizada
+    return case(
+        (codigo.in_(("publicada", "em_exame", "oposicao")), "em_tramitacao"),
+        (codigo == "exigencia", "exigencia"),
+        (codigo == "suspensa", "sobrestado"),
+        (codigo.in_(("recurso", "recurso_decidido")), "recurso"),
+        (codigo.in_(("deferida", "deferida_parcial")), "deferido"),
+        (codigo == "registrada", "registrado"),
+        (codigo == "indeferida", "indeferido"),
+        (
+            codigo.in_(("arquivada", "inexistente", "extinta", "cancelada")),
+            "encerrado",
+        ),
+        else_="revisar",
+    )
+
+
+def _nome_grupo_situacao_inpi(chave: str) -> str:
+    return dict(GRUPOS_SITUACAO_INPI).get(chave, "Revisar classificação")
+
+
+def _validar_grupo_situacao_inpi(valor: str | None) -> str | None:
+    valor = (valor or "").strip()
+    if not valor:
+        return None
+    if valor not in dict(GRUPOS_SITUACAO_INPI):
+        raise HTTPException(status_code=422, detail="Situação do INPI inválida.")
+    return valor
+
+
+def _grupo_situacao_valor(codigo: str | None) -> str:
+    if codigo in {"publicada", "em_exame", "oposicao"}:
+        return "em_tramitacao"
+    if codigo == "exigencia":
+        return "exigencia"
+    if codigo == "suspensa":
+        return "sobrestado"
+    if codigo in {"recurso", "recurso_decidido"}:
+        return "recurso"
+    if codigo in {"deferida", "deferida_parcial"}:
+        return "deferido"
+    if codigo == "registrada":
+        return "registrado"
+    if codigo == "indeferida":
+        return "indeferido"
+    if codigo in {"arquivada", "inexistente", "extinta", "cancelada"}:
+        return "encerrado"
+    return "revisar"
+
+
+def _titulo_exibicao(processo: Processo) -> str:
+    titulo = (processo.titulo or "").strip()
+    if titulo:
+        return titulo
+    if _normalizar_busca(processo.apresentacao or "") == "figurativa":
+        return "Marca figurativa (sem elemento nominativo)"
+    if processo.situacao_normalizada == "inexistente":
+        return "Pedido inexistente — título não publicado"
+    return "Título não informado pelo INPI"
 
 
 class VinculoBase(BaseModel):
@@ -88,6 +183,7 @@ class AtualizacaoMonitoramento(BaseModel):
     remover_responsavel: bool = False
     observacoes: str | None = Field(default=None, max_length=4000)
     procurador: str | None = Field(default=None, max_length=500)
+    etapa_kanban: EtapaKanban | None = None
 
     @field_validator("procurador", mode="before")
     @classmethod
@@ -231,9 +327,12 @@ async def listar_carteira(
     usuario: ViewDep,
     busca: Annotated[str | None, Query(max_length=150)] = None,
     status: Annotated[str | None, Query(max_length=20)] = None,
-    limite: Annotated[int, Query(ge=1, le=100)] = 50,
+    etapa: Annotated[EtapaKanban | None, Query()] = None,
+    limite: Annotated[int, Query(ge=1, le=20)] = 20,
     deslocamento: Annotated[int, Query(ge=0)] = 0,
+    situacao_inpi: Annotated[str | None, Query(max_length=30)] = None,
 ) -> dict:
+    situacao_inpi = _validar_grupo_situacao_inpi(situacao_inpi)
     resumo_linhas = (
         await session.execute(
             select(ProcessoMonitorado.status, func.count())
@@ -242,9 +341,26 @@ async def listar_carteira(
         )
     ).all()
     resumo = {chave: int(total_status) for chave, total_status in resumo_linhas}
+    grupo_resumo = _expressao_grupo_situacao_inpi()
+    resumo_situacoes_linhas = (
+        await session.execute(
+            select(grupo_resumo.label("grupo"), func.count())
+            .select_from(ProcessoMonitorado)
+            .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+            .where(ProcessoMonitorado.organizacao_id == usuario.organizacao_id)
+            .group_by(grupo_resumo)
+        )
+    ).all()
+    resumo_situacoes = {
+        chave: int(total_situacao) for chave, total_situacao in resumo_situacoes_linhas
+    }
     filtros = [ProcessoMonitorado.organizacao_id == usuario.organizacao_id]
     if status:
         filtros.append(ProcessoMonitorado.status == status)
+    if etapa:
+        filtros.append(ProcessoMonitorado.etapa_kanban == etapa)
+    if situacao_inpi:
+        filtros.append(_expressao_grupo_situacao_inpi() == situacao_inpi)
     if busca:
         termo = f"%{_normalizar_busca(busca)}%"
         filtros.append(
@@ -313,22 +429,35 @@ async def listar_carteira(
         "deslocamento": deslocamento,
         "resumo": {
             "total": sum(resumo.values()),
-            "ativos": resumo.get("ativo", 0),
             "pausados": resumo.get("pausado", 0),
-            "encerrados": resumo.get("encerrado", 0),
-            "arquivados": resumo.get("arquivado", 0),
+            "deferidos": resumo_situacoes.get("deferido", 0),
+            "arquivados_extintos": resumo_situacoes.get("encerrado", 0),
+            "indeferidos": resumo_situacoes.get("indeferido", 0),
+            "registros_concedidos": resumo_situacoes.get("registrado", 0),
+            "em_tramitacao": resumo_situacoes.get("em_tramitacao", 0),
         },
         "itens": [
             {
                 "id": monitorado.id,
                 "numero": processo.numero,
                 "titulo": processo.titulo,
+                "titulo_exibicao": _titulo_exibicao(processo),
                 "situacao": processo.situacao,
+                "situacao_normalizada": processo.situacao_normalizada,
+                "grupo_situacao_inpi": _grupo_situacao_valor(
+                    processo.situacao_normalizada
+                ),
+                "grupo_situacao_inpi_nome": _nome_grupo_situacao_inpi(
+                    _grupo_situacao_valor(processo.situacao_normalizada)
+                ),
                 "data_deposito": processo.data_deposito,
                 "procurador": processo.procurador,
                 "fonte": processo.fonte,
                 "processo_atualizado_em": processo.atualizado_em,
                 "status": monitorado.status,
+                "etapa_kanban": monitorado.etapa_kanban,
+                "etapa_atualizada_em": monitorado.etapa_atualizada_em,
+                "etapa_atualizada_por": monitorado.etapa_atualizada_por,
                 "origem": monitorado.origem,
                 "empresa_id": monitorado.empresa_id,
                 "empresa": empresa_nome,
@@ -356,6 +485,285 @@ async def listar_carteira(
                 descricao,
             ) in linhas
         ],
+        "tem_mais": deslocamento + len(linhas) < total,
+    }
+
+
+@router.get("/kanban")
+async def listar_kanban(
+    session: SessionDep,
+    usuario: ViewDep,
+    busca: Annotated[str | None, Query(max_length=150)] = None,
+    status: Annotated[str | None, Query(max_length=20)] = None,
+    situacao_inpi: Annotated[str | None, Query(max_length=30)] = None,
+) -> dict:
+    """Entrega no máximo 20 cartões por etapa e o total real de cada coluna."""
+    situacao_inpi = _validar_grupo_situacao_inpi(situacao_inpi)
+    filtros = [ProcessoMonitorado.organizacao_id == usuario.organizacao_id]
+    if status:
+        filtros.append(ProcessoMonitorado.status == status)
+    if situacao_inpi:
+        filtros.append(_expressao_grupo_situacao_inpi() == situacao_inpi)
+    if busca:
+        termo = f"%{_normalizar_busca(busca)}%"
+        filtros.append(
+            or_(
+                Processo.numero_normalizado.ilike(
+                    f"%{normalizar_numero_processo(busca)}%"
+                ),
+                func.immutable_unaccent(func.lower(Processo.titulo)).ilike(termo),
+                _expressao_procurador().ilike(termo),
+                func.immutable_unaccent(func.lower(EmpresaCRM.nome)).ilike(termo),
+            )
+        )
+
+    contagens = dict(
+        (
+            await session.execute(
+                select(ProcessoMonitorado.etapa_kanban, func.count())
+                .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+                .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
+                .where(*filtros)
+                .group_by(ProcessoMonitorado.etapa_kanban)
+            )
+        ).all()
+    )
+
+
+    ultima_rpi = (
+        select(Movimentacao.numero_rpi)
+        .where(Movimentacao.processo_id == Processo.id)
+        .order_by(Movimentacao.data_rpi.desc(), Movimentacao.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    ultima_data = (
+        select(Movimentacao.data_rpi)
+        .where(Movimentacao.processo_id == Processo.id)
+        .order_by(Movimentacao.data_rpi.desc(), Movimentacao.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    ultima_descricao = (
+        select(Movimentacao.descricao)
+        .where(Movimentacao.processo_id == Processo.id)
+        .order_by(Movimentacao.data_rpi.desc(), Movimentacao.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    colunas = []
+    for chave, titulo in ETAPAS_KANBAN:
+        linhas = (
+            await session.execute(
+                select(
+                    ProcessoMonitorado,
+                    Processo,
+                    EmpresaCRM.nome,
+                    UsuarioOperacoes.nome,
+                    ultima_rpi,
+                    ultima_data,
+                    ultima_descricao,
+                )
+                .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+                .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
+                .outerjoin(
+                    UsuarioOperacoes,
+                    UsuarioOperacoes.id == ProcessoMonitorado.responsavel_id,
+                )
+                .where(*filtros, ProcessoMonitorado.etapa_kanban == chave)
+                .order_by(
+                    ProcessoMonitorado.ordem_kanban,
+                    ProcessoMonitorado.etapa_atualizada_em.desc(),
+                    ProcessoMonitorado.id.desc(),
+                )
+                .limit(20)
+            )
+        ).all()
+        itens = []
+        for (
+            monitorado,
+            processo,
+            empresa_nome,
+            responsavel_nome,
+            numero_rpi,
+            data_rpi,
+            descricao,
+        ) in linhas:
+            itens.append(
+                {
+                    "id": monitorado.id,
+                    "numero": processo.numero,
+                    "titulo": processo.titulo,
+                    "titulo_exibicao": _titulo_exibicao(processo),
+                    "situacao": processo.situacao,
+                    "data_deposito": processo.data_deposito,
+                    "status": monitorado.status,
+                    "etapa_kanban": monitorado.etapa_kanban,
+                    "empresa": empresa_nome,
+                    "responsavel": responsavel_nome,
+                    "ultima_movimentacao": (
+                        {
+                            "numero_rpi": numero_rpi,
+                            "data": data_rpi,
+                            "descricao": descricao,
+                        }
+                        if numero_rpi is not None
+                        else None
+                    ),
+                }
+            )
+        total = int(contagens.get(chave, 0))
+        colunas.append(
+            {
+                "chave": chave,
+                "titulo": titulo,
+                "total": total,
+                "limite": 20,
+                "tem_mais": total > len(itens),
+                "itens": itens,
+            }
+        )
+    return {"total": sum(int(valor) for valor in contagens.values()), "colunas": colunas}
+
+
+@router.get("/kanban-inpi")
+async def listar_kanban_inpi(
+    session: SessionDep,
+    usuario: ViewDep,
+    busca: Annotated[str | None, Query(max_length=150)] = None,
+    status: Annotated[str | None, Query(max_length=20)] = None,
+    situacao_inpi: Annotated[str | None, Query(max_length=30)] = None,
+) -> dict:
+    """Organiza automaticamente a carteira pela situação oficial publicada na RPI."""
+    situacao_inpi = _validar_grupo_situacao_inpi(situacao_inpi)
+    grupo = _expressao_grupo_situacao_inpi()
+    filtros = [ProcessoMonitorado.organizacao_id == usuario.organizacao_id]
+    if status:
+        filtros.append(ProcessoMonitorado.status == status)
+    if situacao_inpi:
+        filtros.append(grupo == situacao_inpi)
+    if busca:
+        termo = f"%{_normalizar_busca(busca)}%"
+        filtros.append(
+            or_(
+                Processo.numero_normalizado.ilike(
+                    f"%{normalizar_numero_processo(busca)}%"
+                ),
+                func.immutable_unaccent(func.lower(Processo.titulo)).ilike(termo),
+                _expressao_procurador().ilike(termo),
+                func.immutable_unaccent(func.lower(EmpresaCRM.nome)).ilike(termo),
+            )
+        )
+
+    contagens = dict(
+        (
+            await session.execute(
+                select(grupo.label("grupo"), func.count())
+                .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+                .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
+                .where(*filtros)
+                .group_by(grupo)
+            )
+        ).all()
+    )
+    ultima_rpi = (
+        select(Movimentacao.numero_rpi)
+        .where(Movimentacao.processo_id == Processo.id)
+        .order_by(Movimentacao.data_rpi.desc(), Movimentacao.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    ultima_data = (
+        select(Movimentacao.data_rpi)
+        .where(Movimentacao.processo_id == Processo.id)
+        .order_by(Movimentacao.data_rpi.desc(), Movimentacao.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    ultima_descricao = (
+        select(Movimentacao.descricao)
+        .where(Movimentacao.processo_id == Processo.id)
+        .order_by(Movimentacao.data_rpi.desc(), Movimentacao.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    colunas = []
+    for chave, titulo in GRUPOS_SITUACAO_INPI:
+        linhas = (
+            await session.execute(
+                select(
+                    ProcessoMonitorado,
+                    Processo,
+                    EmpresaCRM.nome,
+                    UsuarioOperacoes.nome,
+                    ultima_rpi,
+                    ultima_data,
+                    ultima_descricao,
+                )
+                .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+                .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
+                .outerjoin(
+                    UsuarioOperacoes,
+                    UsuarioOperacoes.id == ProcessoMonitorado.responsavel_id,
+                )
+                .where(*filtros, grupo == chave)
+                .order_by(
+                    ProcessoMonitorado.atualizado_em.desc(),
+                    ProcessoMonitorado.id.desc(),
+                )
+                .limit(20)
+            )
+        ).all()
+        itens = [
+            {
+                "id": monitorado.id,
+                "numero": processo.numero,
+                "titulo": processo.titulo,
+                "titulo_exibicao": _titulo_exibicao(processo),
+                "situacao": processo.situacao,
+                "situacao_normalizada": processo.situacao_normalizada,
+                "grupo_situacao_inpi": chave,
+                "data_deposito": processo.data_deposito,
+                "status": monitorado.status,
+                "etapa_kanban": monitorado.etapa_kanban,
+                "empresa": empresa_nome,
+                "responsavel": responsavel_nome,
+                "ultima_movimentacao": (
+                    {
+                        "numero_rpi": numero_rpi,
+                        "data": data_rpi,
+                        "descricao": descricao,
+                    }
+                    if numero_rpi is not None
+                    else None
+                ),
+            }
+            for (
+                monitorado,
+                processo,
+                empresa_nome,
+                responsavel_nome,
+                numero_rpi,
+                data_rpi,
+                descricao,
+            ) in linhas
+        ]
+        total = int(contagens.get(chave, 0))
+        colunas.append(
+            {
+                "chave": chave,
+                "titulo": titulo,
+                "total": total,
+                "limite": 20,
+                "tem_mais": total > len(itens),
+                "itens": itens,
+            }
+        )
+    return {
+        "total": sum(int(valor) for valor in contagens.values()),
+        "modo": "inpi",
+        "fonte": "Situação consolidada a partir da última publicação na RPI",
+        "colunas": colunas,
     }
 
 
@@ -514,6 +922,7 @@ async def buscar_por_procurador(
                 "processo_id": processo.id,
                 "numero": processo.numero,
                 "titulo": processo.titulo,
+                "titulo_exibicao": _titulo_exibicao(processo),
                 "data_deposito": processo.data_deposito,
                 "situacao": processo.situacao,
                 "procurador": processo.procurador,
@@ -771,6 +1180,43 @@ async def vincular_todos_do_procurador(
     )
 
 
+@router.get("/{monitorado_id}/historico-kanban")
+async def historico_kanban(
+    monitorado_id: int,
+    session: SessionDep,
+    usuario: ViewDep,
+) -> list[dict]:
+    existe = await session.scalar(
+        select(ProcessoMonitorado.id).where(
+            ProcessoMonitorado.id == monitorado_id,
+            ProcessoMonitorado.organizacao_id == usuario.organizacao_id,
+        )
+    )
+    if existe is None:
+        raise HTTPException(404, "Processo monitorado não encontrado")
+    eventos = (
+        await session.execute(
+            select(HistoricoEtapaCarteira)
+            .where(
+                HistoricoEtapaCarteira.organizacao_id == usuario.organizacao_id,
+                HistoricoEtapaCarteira.processo_monitorado_id == monitorado_id,
+            )
+            .order_by(HistoricoEtapaCarteira.criado_em.desc())
+            .limit(50)
+        )
+    ).scalars().all()
+    return [
+        {
+            "id": evento.id,
+            "etapa_anterior": evento.etapa_anterior,
+            "etapa_nova": evento.etapa_nova,
+            "movido_por": evento.movido_por,
+            "criado_em": evento.criado_em,
+        }
+        for evento in eventos
+    ]
+
+
 @router.patch("/{monitorado_id}")
 async def atualizar_monitoramento(
     monitorado_id: int,
@@ -793,6 +1239,7 @@ async def atualizar_monitoramento(
         "status": monitorado.status,
         "empresa_id": monitorado.empresa_id,
         "responsavel_id": monitorado.responsavel_id,
+        "etapa_kanban": monitorado.etapa_kanban,
     }
     if dados.status is not None:
         monitorado.status = dados.status
@@ -814,6 +1261,21 @@ async def atualizar_monitoramento(
         processo = await session.get(Processo, monitorado.processo_id)
         if processo is not None:
             processo.procurador = dados.procurador or None
+    if dados.etapa_kanban is not None and dados.etapa_kanban != monitorado.etapa_kanban:
+        etapa_anterior = monitorado.etapa_kanban
+        monitorado.etapa_kanban = dados.etapa_kanban
+        monitorado.ordem_kanban = 0
+        monitorado.etapa_atualizada_em = datetime.now(UTC)
+        monitorado.etapa_atualizada_por = usuario.ator
+        session.add(
+            HistoricoEtapaCarteira(
+                organizacao_id=usuario.organizacao_id,
+                processo_monitorado_id=monitorado.id,
+                etapa_anterior=etapa_anterior,
+                etapa_nova=dados.etapa_kanban,
+                movido_por=usuario.ator,
+            )
+        )
     monitorado.atualizado_em = datetime.now(UTC)
     _auditar(
         session,
@@ -827,6 +1289,7 @@ async def atualizar_monitoramento(
                 "status": monitorado.status,
                 "empresa_id": monitorado.empresa_id,
                 "responsavel_id": monitorado.responsavel_id,
+                "etapa_kanban": monitorado.etapa_kanban,
             },
         },
     )

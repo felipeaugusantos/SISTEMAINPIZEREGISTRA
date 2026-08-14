@@ -17,3 +17,32 @@
 .import-result ul{margin:0;padding-left:18px}
 .import-result li{margin-bottom:3px;color:#5c6b62}
 .import-result small{display:block;margin-top:8px;color:#66776e;line-height:1.45}
+
+/* Lista paginada e quadro operacional dos processos monitorados. */
+.portfolio-list-header{align-items:center;gap:16px}.view-switch{display:inline-flex;padding:4px;border:1px solid #ccd6cf;border-radius:12px;background:#f4f7f4}.view-switch button{min-height:36px;padding:7px 16px;border:0;border-radius:8px;color:#52645a;background:transparent;font-family:inherit;font-size:.78rem;font-weight:700;line-height:1;cursor:pointer}.view-switch button.is-active{color:#fff;background:#076b4c;box-shadow:0 3px 9px #174c3824}.portfolio-pagination{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:18px}.portfolio-pagination span{min-width:190px;color:#607067;font-size:.78rem;text-align:center}.portfolio-pagination button{min-width:100px}.portfolio-pagination button:disabled{opacity:.45;cursor:not-allowed}
+.portfolio-kanban{display:grid;grid-template-columns:repeat(4,minmax(230px,1fr));gap:12px;align-items:start;margin-top:18px}.kanban-column{min-width:0;padding:10px;border:1px solid #d7dfd9;border-radius:16px;background:#f2f6f2;transition:border-color .15s,background .15s}.kanban-column.is-over{border-color:#078259;background:#e6f3ea}.kanban-column>header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 4px 11px}.kanban-column>header h3{margin:0;font-size:.78rem;line-height:1.25;text-transform:uppercase;letter-spacing:.045em}.kanban-column>header span{display:grid;place-items:center;min-width:28px;height:28px;padding:0 6px;border-radius:999px;color:#076b4c;background:#fff;font-size:.72rem;font-weight:850}.kanban-dropzone{display:grid;gap:9px;min-height:100px}.kanban-card{display:grid;gap:7px;padding:13px;border:1px solid #d8dfd9;border-radius:12px;background:#fffefa;box-shadow:0 4px 12px #193b2920;cursor:grab}.kanban-card.is-dragging{opacity:.45}.kanban-card>a{width:max-content;color:#087252;font-size:.69rem;font-weight:850}.kanban-card h4{margin:0;font-size:.9rem;line-height:1.25}.kanban-card>p,.kanban-card>small{margin:0;color:#607067;font-size:.69rem;line-height:1.35}.kanban-card dl{display:grid;gap:6px;margin:2px 0}.kanban-card dl>div{display:grid;gap:1px}.kanban-card dt{color:#728077;font-size:.59rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em}.kanban-card dd{margin:0;font-size:.7rem;line-height:1.3}.kanban-card label{display:grid;gap:4px}.kanban-card label span{color:#617068;font-size:.62rem;font-weight:750}.kanban-card select{width:100%;padding:8px;border:1px solid #cbd4cd;border-radius:8px;background:#fff;font-family:inherit;font-size:.68rem;font-weight:700;line-height:1.2}.kanban-empty,.kanban-more{margin:0;padding:18px 9px;border:1px dashed #c6d1c9;border-radius:10px;color:#66776e;font-size:.68rem;line-height:1.45;text-align:center}.kanban-more{padding:9px;border-style:solid;background:#fffefa}
+@media(max-width:1250px){.portfolio-kanban{grid-template-columns:repeat(2,minmax(230px,1fr))}}@media(max-width:700px){.portfolio-list-header{align-items:flex-start;flex-direction:column}.portfolio-kanban{grid-template-columns:1fr}.view-switch{width:100%}.view-switch button{flex:1}.portfolio-pagination{gap:8px}.portfolio-pagination span{min-width:0;flex:1}}
+
+/* Leitura processual oficial: a classificação da RPI permanece separada do
+   fluxo operacional que a equipe movimenta manualmente. */
+.filter-form{grid-template-columns:minmax(240px,1fr) 180px minmax(220px,.7fr) auto}
+.filter-form>*{min-width:0}.filter-form input,.filter-form select{box-sizing:border-box;min-width:0}
+.inpi-status-badge{display:inline-flex;width:max-content;max-width:100%;padding:4px 8px;border-radius:999px;background:#edf1ee;color:#41564a;font-size:.64rem;font-weight:850;text-transform:uppercase;letter-spacing:.035em}
+.inpi-status-badge.is-deferido,.inpi-status-badge.is-registrado{background:#dff2e6;color:#17633f}
+.inpi-status-badge.is-indeferido,.inpi-status-badge.is-encerrado{background:#f9e4df;color:#943323}
+.inpi-status-badge.is-exigencia,.inpi-status-badge.is-recurso,.inpi-status-badge.is-sobrestado{background:#fff0ca;color:#78550a}
+.inpi-status-badge.is-em_tramitacao{background:#e2edf3;color:#35596e}
+.kanban-source{grid-column:1/-1;margin:0;padding:11px 14px;border:1px solid #cfe0d6;border-radius:12px;background:#eef7f1;color:#456055;font-size:.75rem;line-height:1.45}
+.portfolio-kanban.is-inpi .kanban-card{cursor:default}
+.official-source{padding-top:6px;border-top:1px solid #e2e7e2;color:#687970;font-size:.62rem;font-weight:750}
+.portfolio-kanban.is-inpi .kanban-column.is-deferido,.portfolio-kanban.is-inpi .kanban-column.is-registrado{border-top:4px solid #29905d}
+.portfolio-kanban.is-inpi .kanban-column.is-indeferido,.portfolio-kanban.is-inpi .kanban-column.is-encerrado{border-top:4px solid #b94735}
+.portfolio-kanban.is-inpi .kanban-column.is-exigencia,.portfolio-kanban.is-inpi .kanban-column.is-recurso{border-top:4px solid #d89b25}
+@media(max-width:1050px){.filter-form{grid-template-columns:repeat(2,minmax(0,1fr))}.filter-form .wide{grid-column:1/-1}}
+@media(max-width:700px){.filter-form{grid-template-columns:1fr}.filter-form .wide{grid-column:auto}.view-switch{flex-wrap:wrap}.view-switch button{min-width:110px}}
+
+/* Cards do resumo tambem funcionam como filtros rapidos. */
+.portfolio-metric{padding:18px;border:1px solid #d9dfd9;border-radius:16px;background:#fffefa;text-align:left;font:inherit;cursor:pointer;transition:transform .15s,border-color .15s,box-shadow .15s}
+.portfolio-metric:hover{transform:translateY(-2px);border-color:#76a891;box-shadow:0 8px 20px #193b2917}
+.portfolio-metric:focus-visible{outline:3px solid #7bc4a5;outline-offset:2px}
+.portfolio-metric.is-active{border-color:#087252;background:#eef7f1;box-shadow:inset 0 0 0 1px #087252}

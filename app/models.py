@@ -7,6 +7,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -724,6 +725,12 @@ class ProcessoMonitorado(Base):
             "processo_id",
             name="uq_processo_monitorado_org_processo",
         ),
+        CheckConstraint(
+            "etapa_kanban IN ('triagem','aguardando_documentos','documentacao_gru',"
+            "'protocolado','aguardando_inpi','exigencia_recurso','deferido_concessao',"
+            "'encerrado')",
+            name="ck_processo_monitorado_etapa_kanban",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -740,6 +747,14 @@ class ProcessoMonitorado(Base):
         ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
     )
     status: Mapped[str] = mapped_column(String(20), default="ativo", index=True)
+    etapa_kanban: Mapped[str] = mapped_column(
+        String(30), default="triagem", server_default="triagem", index=True
+    )
+    ordem_kanban: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    etapa_atualizada_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    etapa_atualizada_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     origem: Mapped[str] = mapped_column(String(30), default="manual", index=True)
     procurador_origem: Mapped[str | None] = mapped_column(Text, nullable=True)
     observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -760,6 +775,34 @@ class ProcessoMonitorado(Base):
         back_populates="processo_monitorado",
         cascade="all, delete-orphan",
         order_by="PrazoJuridico.vencimento_em",
+    )
+    historico_etapas: Mapped[list["HistoricoEtapaCarteira"]] = relationship(
+        back_populates="processo_monitorado",
+        cascade="all, delete-orphan",
+        order_by="HistoricoEtapaCarteira.criado_em.desc()",
+    )
+
+
+class HistoricoEtapaCarteira(Base):
+    """Transição auditável do processo entre as colunas do Kanban."""
+
+    __tablename__ = "historico_etapas_carteira"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    processo_monitorado_id: Mapped[int] = mapped_column(
+        ForeignKey("processos_monitorados.id", ondelete="CASCADE"), index=True
+    )
+    etapa_anterior: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    etapa_nova: Mapped[str] = mapped_column(String(30), index=True)
+    movido_por: Mapped[str] = mapped_column(String(254))
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    processo_monitorado: Mapped[ProcessoMonitorado] = relationship(
+        back_populates="historico_etapas"
     )
 
 

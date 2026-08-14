@@ -1,4 +1,4 @@
-const legalState = { references: null, canManage: false, checklists: {} };
+const legalState = { references: null, canManage: false, checklists: {}, offset: 0, pageSize: 10 };
 const legalMessage = document.querySelector("#legal-message");
 const deadlineDialog = document.querySelector("#deadline-dialog");
 const deadlineForm = document.querySelector("#deadline-form");
@@ -37,6 +37,8 @@ function optionList(items, selected = "") {
 function queryParams() {
   const query = new URLSearchParams(new FormData(document.querySelector("#legal-filter")));
   [...query].forEach(([key, value]) => { if (!value) query.delete(key); });
+  query.set("limite", legalState.pageSize);
+  query.set("deslocamento", legalState.offset);
   return query;
 }
 function renderMetrics(metrics) {
@@ -56,13 +58,19 @@ function renderNotifications(items) {
     : '<div class="legal-empty">Nenhuma notificação jurídica.</div>';
 }
 function deadlineClass(item) {
+  if (item.historico) return "historical";
   if (!item.confirmado) return "unconfirmed";
   if (item.vencido) return "overdue";
   if (item.dias_restantes <= 7 && ["pendente", "em_andamento"].includes(item.status)) return "due-soon";
   return "";
 }
+function deadlineTimeLabel(item) {
+  if (item.historico) return "Referência histórica · não é pendência atual";
+  if (item.vencido) return `Vencido há ${Math.abs(item.dias_restantes)} dia(s) · ${escapeHtml(item.contagem)}`;
+  return `${item.dias_restantes} dia(s) restante(s) · ${escapeHtml(item.contagem)}`;
+}
 function deadlineActions(item) {
-  if (!legalState.canManage || ["concluido", "cancelado", "dispensado"].includes(item.status)) return "";
+  if (!legalState.canManage || ["concluido", "cancelado", "dispensado", "historico", "duplicado"].includes(item.status)) return "";
   if (!item.confirmado) return `<button class="primary-button confirm-deadline" data-id="${item.id}" type="button">Confirmar prazo</button><button class="secondary-button cancel-deadline" data-id="${item.id}" type="button">Descartar sugestão</button>`;
   return `<button class="primary-button complete-deadline" data-id="${item.id}" type="button">Concluir</button><button class="secondary-button progress-deadline" data-id="${item.id}" type="button">Em andamento</button><button class="secondary-button delivery-deadline" data-id="${item.id}" type="button">Registrar entrega</button>`;
 }
@@ -81,7 +89,7 @@ function renderDeadlines(items) {
   container.innerHTML = [...grupos.values()].map((prazos) => {
     const ref = prazos[0];
     const cabecalho = `<header class="legal-process-header"><div class="legal-process-head-left"><button class="legal-toggle" type="button" aria-expanded="true" aria-label="Expandir ou recolher atualizações">▾</button><div class="legal-deadline-identity"><a class="legal-process-number" href="/processos/${encodeURIComponent(ref.numero)}" target="_blank" rel="noopener">${escapeHtml(ref.numero)}</a><span class="legal-identity-sep">–</span><strong class="legal-client-name">${escapeHtml(ref.empresa || ref.marca || "Cliente não identificado")}</strong>${ref.empresa ? "" : '<span class="legal-badge">Sem empresa vinculada</span>'}<span class="legal-process-count">${prazos.length} atualizaç${prazos.length === 1 ? "ão" : "ões"}</span></div></div><div class="legal-process-actions">${ref.empresa ? "" : `<button class="secondary-button vincular-cliente" data-id="${ref.id}" data-sugestao="${escapeHtml(ref.marca || "")}" type="button">Vincular cliente no CRM</button>`}<button class="secondary-button open-checklist" data-id="${ref.id}" data-tipo="${escapeHtml(ref.tipo_nome)}" type="button">Checklist${checklistBadge(ref.id)}</button></div></header>`;
-    const linhas = prazos.map((item) => `<div class="legal-deadline ${deadlineClass(item)}"><div><div class="legal-badges"><span class="legal-badge">${escapeHtml(item.tipo_nome)}</span><span class="legal-badge ${item.prioridade === "critica" ? "critical" : ""}">${escapeHtml(item.prioridade)}</span>${!item.confirmado ? '<span class="legal-badge critical">Conferência obrigatória</span>' : ""}${item.status === "dispensado" ? '<span class="legal-badge legal-badge-ok">Sem ação · taxa única INPI</span>' : ""}</div><h3>${escapeHtml(item.titulo)}</h3><small>${escapeHtml(item.descricao || "Sem orientações adicionais")}</small></div><div class="legal-deadline-date"><span>Vencimento</span><strong>${dateOnly.format(new Date(item.vencimento_em))}</strong><span>${item.vencido ? `Vencido há ${Math.abs(item.dias_restantes)} dia(s)` : `${item.dias_restantes} dia(s) restante(s)`} · ${escapeHtml(item.contagem)}</span></div><div class="legal-deadline-owner"><span>Responsável</span><strong>${escapeHtml(item.responsavel || "Não atribuído")}</strong><span>Escalonamento: ${escapeHtml(item.escalonar_para || "não definido")}</span><span>Status: ${escapeHtml(item.status.replaceAll("_", " "))}</span></div><div class="legal-actions">${deadlineActions(item)}</div></div>`).join("");
+    const linhas = prazos.map((item) => `<div class="legal-deadline ${deadlineClass(item)}"><div><div class="legal-badges"><span class="legal-badge">${escapeHtml(item.tipo_nome)}</span><span class="legal-badge ${item.prioridade === "critica" ? "critical" : ""}">${escapeHtml(item.prioridade)}</span>${!item.confirmado ? '<span class="legal-badge critical">Conferência obrigatória</span>' : ""}${item.status === "dispensado" ? '<span class="legal-badge legal-badge-ok">Sem ação · taxa única INPI</span>' : ""}${item.historico ? '<span class="legal-badge legal-badge-history">Referência histórica</span>' : ""}</div><h3>${escapeHtml(item.titulo)}</h3><small>${escapeHtml(item.descricao || "Sem orientações adicionais")}</small></div><div class="legal-deadline-date"><span>${item.historico ? "Prazo original" : "Vencimento"}</span><strong>${dateOnly.format(new Date(item.vencimento_em))}</strong><span>${deadlineTimeLabel(item)}</span></div><div class="legal-deadline-owner"><span>Responsável</span><strong>${escapeHtml(item.responsavel || "Não atribuído")}</strong><span>Escalonamento: ${escapeHtml(item.escalonar_para || "não definido")}</span><span>Status: ${escapeHtml(item.status.replaceAll("_", " "))}</span></div><div class="legal-actions">${deadlineActions(item)}</div></div>`).join("");
     return `<article class="legal-process-group">${cabecalho}<div class="legal-process-deadlines">${linhas}</div></article>`;
   }).join("");
 }
@@ -89,6 +97,13 @@ function renderHistory(items) {
   document.querySelector("#legal-history").innerHTML = items.length
     ? items.map((item) => `<article><time datetime="${escapeHtml(item.criado_em)}">${dateTime.format(new Date(item.criado_em))}</time><strong>${escapeHtml(item.numero)}</strong><span>${escapeHtml(item.descricao)}</span><span>${escapeHtml(item.ator)}</span></article>`).join("")
     : '<div class="legal-empty">O histórico será formado por criações, alterações, entregas, escalonamentos e leituras.</div>';
+}
+function renderPagination(pagination) {
+  const nav = document.querySelector("#legal-pagination");
+  nav.hidden = false;
+  document.querySelector("#legal-page-summary").textContent = `Página ${pagination.pagina} de ${pagination.total_paginas} · ${pagination.total_clientes} cliente(s)`;
+  document.querySelector("#legal-prev").disabled = !pagination.tem_anterior;
+  document.querySelector("#legal-next").disabled = !pagination.tem_proxima;
 }
 async function loadDashboard() {
   const [data, checklists] = await Promise.all([
@@ -103,6 +118,7 @@ async function loadDashboard() {
   renderNotifications(data.notificacoes);
   renderDeadlines(data.prazos);
   renderKanban(data.prazos);
+  renderPagination(data.paginacao);
   renderHistory(data.historico);
 }
 async function loadReferences() {
@@ -128,8 +144,10 @@ async function updateDeadline(id, payload) {
   await loadDashboard();
 }
 
-document.querySelector("#legal-filter").addEventListener("submit", (event) => { event.preventDefault(); loadDashboard().catch((error) => showMessage(error.message)); });
-document.querySelector("#clear-legal-filter").addEventListener("click", () => { document.querySelector("#legal-filter").reset(); loadDashboard().catch((error) => showMessage(error.message)); });
+document.querySelector("#legal-filter").addEventListener("submit", (event) => { event.preventDefault(); legalState.offset = 0; loadDashboard().catch((error) => showMessage(error.message)); });
+document.querySelector("#clear-legal-filter").addEventListener("click", () => { document.querySelector("#legal-filter").reset(); legalState.offset = 0; loadDashboard().catch((error) => showMessage(error.message)); });
+document.querySelector("#legal-prev").addEventListener("click", () => { legalState.offset = Math.max(0, legalState.offset - legalState.pageSize); loadDashboard().catch((error) => showMessage(error.message)); });
+document.querySelector("#legal-next").addEventListener("click", () => { legalState.offset += legalState.pageSize; loadDashboard().catch((error) => showMessage(error.message)); });
 document.querySelector("#new-legal-deadline").addEventListener("click", openDeadline);
 document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => deadlineDialog.close()));
 document.querySelectorAll("[data-close-delivery]").forEach((button) => button.addEventListener("click", () => deliveryDialog.close()));
@@ -137,7 +155,7 @@ document.querySelector("#run-legal-engine").addEventListener("click", async () =
   showMessage("Analisando prazos e escalonamentos…", "loading");
   try {
     const result = await api("/v1/admin/juridico/motor/executar", { method: "POST" });
-    showMessage(`Motor concluído: ${result.prazos_sugeridos} sugestão(ões), ${result.notificacoes_criadas} notificação(ões) e ${result.escalados} escalonamento(s).`, "success");
+    showMessage(`Motor concluído: ${result.prazos_sugeridos} sugestão(ões), ${result.prazos_historicos || 0} referência(s) histórica(s), ${result.prazos_duplicados || 0} duplicidade(s) arquivada(s), ${result.prazos_reconciliados || 0} pendência(s) encerrada(s) por despacho posterior, ${result.notificacoes_criadas} notificação(ões) e ${result.escalados} escalonamento(s).`, "success");
     await loadDashboard();
   } catch (error) { showMessage(error.message); }
 });
@@ -202,6 +220,7 @@ const KANBAN_COLUNAS = [
   ["aguardando_confirmacao", "Aguardando"],
   ["pendente", "Pendente"],
   ["em_andamento", "Em andamento"],
+  ["historico", "Histórico"],
   ["concluido", "Concluído"],
   ["cancelado", "Cancelado"],
 ];
@@ -214,12 +233,12 @@ function checklistBadge(id) {
 }
 
 function kanbanCard(item) {
-  const draggable = legalState.canManage && !["concluido", "cancelado", "dispensado"].includes(item.status);
+  const draggable = legalState.canManage && !["concluido", "cancelado", "dispensado", "historico", "duplicado"].includes(item.status);
   return `<article class="kanban-card ${deadlineClass(item)}" draggable="${draggable}" data-id="${item.id}" data-status="${item.status}">
     <div class="kanban-card-badges"><span class="legal-badge">${escapeHtml(item.tipo_nome)}</span>${!item.confirmado ? '<span class="legal-badge critical">Sugestão</span>' : ""}${checklistBadge(item.id)}</div>
     <h4>${escapeHtml(item.titulo)}</h4>
     <p>${escapeHtml(item.numero)} · ${escapeHtml(item.marca || "—")}</p>
-    <small>Vence ${dateOnly.format(new Date(item.vencimento_em))} · ${escapeHtml(item.responsavel || "sem responsável")}</small>
+    <small>${item.historico ? "Prazo original" : "Vence"} ${dateOnly.format(new Date(item.vencimento_em))} · ${escapeHtml(item.responsavel || "sem responsável")}</small>
     <button class="secondary-button open-checklist" data-id="${item.id}" data-tipo="${escapeHtml(item.tipo_nome)}" type="button">Checklist</button>
   </article>`;
 }

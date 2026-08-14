@@ -755,3 +755,184 @@
   .lead-crm-form .primary-button { width: 100%; }
   .lead-crm-form > div { align-items: stretch; flex-direction: column; }
 }
+
+/* Detalhe do lead: largura integral e componentes responsivos. */
+.lead-dialog-content {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.lead-dialog-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px;
+}
+
+.lead-dialog-grid > *,
+.lead-dialog-aside {
+  grid-column: 1 / -1;
+  grid-row: auto;
+}
+
+.lead-dialog-aside {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.lead-dialog-grid > .lead-history {
+  grid-column: 1 / -1;
+  grid-row: auto;
+  min-height: auto;
+  margin: 0;
+}
+
+.lead-dialog-aside > .lead-contact-log {
+  grid-row: auto;
+  min-width: 0;
+  align-self: start;
+  grid-column: 1 / -1;
+}
+
+.doc-table-scroll {
+  max-width: 100%;
+  overflow-x: visible;
+}
+
+table.lead-docs {
+  table-layout: fixed;
+}
+
+table.lead-docs th:nth-child(1) { width: 13%; }
+table.lead-docs th:nth-child(2) { width: 16%; }
+table.lead-docs th:nth-child(3) { width: 20%; }
+table.lead-docs th:nth-child(4) { width: 16%; }
+table.lead-docs th:nth-child(5) { width: 35%; }
+
+table.lead-docs input,
+table.lead-docs select {
+  min-width: 0;
+}
+
+.chk-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+}
+
+.chk-add {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.chk-add input,
+.chk-actions button {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.chk-msg {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 940px) {
+  .lead-dialog-grid,
+  .lead-dialog-aside {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lead-dialog-grid > * ,
+  .lead-dialog-aside > * {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .lead-documentos {
+    padding-inline: 14px;
+  }
+
+  .doc-table-scroll {
+    overflow: visible;
+  }
+
+  table.lead-docs,
+  table.lead-docs tbody,
+  table.lead-docs tr,
+  table.lead-docs td {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  table.lead-docs thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  table.lead-docs tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  table.lead-docs tr {
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  table.lead-docs td {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    border: 0;
+  }
+
+  table.lead-docs td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: .66rem;
+    font-weight: 800;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+
+  table.lead-docs .doc-type {
+    padding-bottom: 9px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .chk-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chk-actions > .chk-padrao {
+    width: 100%;
+  }
+}
+
+@media (max-width: 460px) {
+  .chk-add {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chk-add button {
+    width: 100%;
+  }
+
+  table.lead-docs td {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+  }
+}

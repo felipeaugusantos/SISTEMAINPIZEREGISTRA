@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Produção e auditoria — Zé Registra</title>
-    <link rel="stylesheet" href="/static/styles.css?v=23" />
+    <link rel="stylesheet" href="/static/styles.css?v=25" />
     <script src="/static/admin-shell.js?v=33" defer></script>
-    <script src="/static/admin-producao.js?v=12" defer></script>
+    <script src="/static/admin-producao.js?v=13" defer></script>
   </head>
   <body class="admin-body" data-admin-section="production">
     <main class="admin-main">
@@ -50,6 +50,11 @@
             <tbody id="audit-list"></tbody>
           </table>
         </div>
+        <nav class="lead-pagination" aria-label="Páginas dos eventos de auditoria">
+          <button id="audit-prev" class="secondary-button" type="button">Anterior</button>
+          <span id="audit-page-summary">Página 1 de 1</span>
+          <button id="audit-next" class="secondary-button" type="button">Próxima</button>
+        </nav>
       </section>
     </main>
   </body>

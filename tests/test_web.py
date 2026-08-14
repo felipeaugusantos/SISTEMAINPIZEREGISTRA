@@ -64,7 +64,7 @@ def test_admin_leads_requires_authentication() -> None:
     assert response.status_code == 200
     assert "Leads e pesquisas" in response.text
     assert 'data-admin-section="leads"' in response.text
-    assert "/static/admin-leads.css?v=7" in response.text
+    assert "/static/admin-leads.css?v=11" in response.text
     assert client.get("/static/admin-leads.css").status_code == 200
     _limpar_auth()
 
@@ -137,7 +137,7 @@ def test_leads_exibe_status_e_acao_do_relatorio_completo() -> None:
     script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
     styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
 
-    assert "admin-leads.js?v=35" in page
+    assert "admin-leads.js?v=37" in page
     assert "Pipeline de atendimento" in page
     assert 'data-priority="atrasadas"' in page
     assert "Histórico de pesquisas" in page
@@ -162,6 +162,16 @@ def test_leads_exibe_status_e_acao_do_relatorio_completo() -> None:
     assert 'form.elements.tags.value = ""' in script
     assert 'form.elements.notas.value = ""' in script
     assert "Formulário pronto para um novo registro" in script
+    assert 'data-label="Observações"' in script
+    assert ".lead-dialog-grid" in styles
+    assert ".lead-dialog-grid > *" in styles
+    assert '<section class="lead-history lg-full">' in script
+    assert script.index('class="lead-history lg-full"') < script.index(
+        'class="lead-documentos lg-full"'
+    )
+    assert "grid-row: auto" in styles
+    assert "table.lead-docs td::before" in styles
+    assert ".chk-actions > .chk-padrao" in styles
 
 
 def test_dossie_envia_e_exibe_leitura_supervisionada() -> None:
@@ -224,6 +234,23 @@ def test_menu_de_usuarios_existe_em_todas_as_paginas_admin() -> None:
         conteudo = (web_dir / arquivo).read_text(encoding="utf-8")
         assert "admin-shell.js?v=33" in conteudo
         assert "styles.css?v=" in conteudo
+
+
+def test_producao_expoe_paginacao_da_auditoria() -> None:
+    html = (web_dir / "admin-producao.html").read_text(encoding="utf-8")
+    javascript = (web_dir / "static" / "admin-producao.js").read_text(encoding="utf-8")
+
+    assert 'id="audit-prev"' in html
+    assert 'id="audit-next"' in html
+    assert 'id="audit-page-summary"' in html
+    assert ">Próxima</button>" in html
+    assert "PrÃ³xima" not in html
+    assert 'class="lead-pagination"' in html
+    assert "styles.css?v=25" in html
+    assert "admin-producao.js?v=13" in html
+    assert "pageSize: 10" in javascript
+    assert "limite_auditoria" in javascript
+    assert "deslocamento_auditoria" in javascript
 
 
 def test_consulta_de_marcas_no_menu_e_pagina_servida() -> None:

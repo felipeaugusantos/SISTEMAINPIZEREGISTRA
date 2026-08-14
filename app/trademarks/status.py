@@ -13,14 +13,26 @@ class SituacaoNormalizada:
 SITUACOES = {
     "registrada": SituacaoNormalizada("registrada", "Registro em vigor", "ativa"),
     "deferida": SituacaoNormalizada("deferida", "Pedido deferido", "ativa"),
+    "deferida_parcial": SituacaoNormalizada(
+        "deferida_parcial", "Pedido parcialmente deferido", "ativa"
+    ),
     "publicada": SituacaoNormalizada("publicada", "Pedido publicado", "ativa"),
     "em_exame": SituacaoNormalizada("em_exame", "Em exame", "ativa"),
     "exigencia": SituacaoNormalizada("exigencia", "Exigência", "ativa"),
     "oposicao": SituacaoNormalizada("oposicao", "Oposição", "ativa"),
     "recurso": SituacaoNormalizada("recurso", "Em recurso", "ativa"),
+    "recurso_decidido": SituacaoNormalizada(
+        "recurso_decidido", "Recurso decidido", "ativa"
+    ),
+    "peticao_decidida": SituacaoNormalizada(
+        "peticao_decidida", "Petição acessória decidida", "ativa"
+    ),
     "suspensa": SituacaoNormalizada("suspensa", "Exame suspenso", "incerta"),
     "indeferida": SituacaoNormalizada("indeferida", "Pedido indeferido", "inativa"),
     "arquivada": SituacaoNormalizada("arquivada", "Pedido arquivado", "inativa"),
+    "inexistente": SituacaoNormalizada(
+        "inexistente", "Pedido considerado inexistente", "inativa"
+    ),
     "extinta": SituacaoNormalizada("extinta", "Registro extinto", "inativa"),
     "cancelada": SituacaoNormalizada("cancelada", "Registro cancelado", "inativa"),
     "nao_classificada": SituacaoNormalizada(
@@ -45,17 +57,29 @@ def normalizar_despacho(codigo: str | None, descricao: str | None) -> SituacaoNo
     texto = _normalizar(f"{codigo or ''} {descricao or ''}")
 
     regras = (
-        (("indefer",), "indeferida"),
-        (("arquiv",), "arquivada"),
-        (("extinc", "extinto", "caducidade"), "extinta"),
-        (("cancel",), "cancelada"),
-        (("deferimento", "deferido"), "deferida"),
+        (("considerar pedido inexistente", "pedido considerado inexistente"), "inexistente"),
         (
             ("concessao de registro", "registro de marca concedido", "registro em vigor"),
             "registrada",
         ),
+        (("arquiv",), "arquivada"),
+        (("extinc", "extinto", "caducidade"), "extinta"),
+        (("cancel",), "cancelada"),
+        (("indeferimento do pedido", "pedido de registro indeferido"), "indeferida"),
+        (("deferimento parcial do pedido", "pedido parcialmente deferido"), "deferida_parcial"),
+        (("deferimento do pedido", "pedido de registro deferido"), "deferida"),
+        (
+            (
+                "deferimento da peticao",
+                "indeferimento da peticao",
+                "peticao deferida",
+                "peticao indeferida",
+            ),
+            "peticao_decidida",
+        ),
         (("exigencia",), "exigencia"),
         (("oposicao",), "oposicao"),
+        (("recurso nao provido", "recurso provido", "decisao mantida"), "recurso_decidido"),
         (("recurso",), "recurso"),
         (("sobrest", "suspens"), "suspensa"),
         (("publicacao do pedido", "pedido de registro para oposicao"), "publicada"),

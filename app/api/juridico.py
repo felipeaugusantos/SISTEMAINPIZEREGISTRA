@@ -78,6 +78,40 @@ DESPACHOS_PRAZO: tuple[tuple[re.Pattern[str], int, str, str], ...] = (
 # concessão — o motor registra um aviso informativo no lugar do prazo acionável.
 MARCO_TAXA_UNICA_INPI = date(2025, 9, 20)
 
+DESPACHOS_TERMINAIS: tuple[tuple[re.Pattern[str], str, str], ...] = (
+    (
+        re.compile(
+            r"arquivamento definitivo.*falta de pagamento da concess[aã]o",
+            re.IGNORECASE,
+        ),
+        "cancelado",
+        "Não pago — pedido arquivado por falta de pagamento da concessão",
+    ),
+    (
+        re.compile(r"arquivamento definitivo", re.IGNORECASE),
+        "cancelado",
+        "Pedido arquivado definitivamente pelo INPI",
+    ),
+    (
+        re.compile(r"extin[cç][aã]o (?:do pedido|do registro|da marca)", re.IGNORECASE),
+        "cancelado",
+        "Processo extinto pelo INPI",
+    ),
+    (
+        re.compile(r"concess[aã]o de registro", re.IGNORECASE),
+        "concluido",
+        "Registro concedido pelo INPI",
+    ),
+    (
+        re.compile(
+            r"recurso.{0,100}(?:n[aã]o provido|provido|decis[aã]o mantida)",
+            re.IGNORECASE,
+        ),
+        "concluido",
+        "Recurso decidido pelo INPI",
+    ),
+)
+
 
 def _classificar_despacho(descricao: str | None) -> tuple[int, str, str] | None:
     """Deriva (dias, tipo, ação) de uma movimentação de RPI de marca.
@@ -97,6 +131,34 @@ def _classificar_despacho(descricao: str | None) -> tuple[int, str, str] | None:
     if dias_texto is not None:
         return dias_texto, "outro", "Prazo indicado no texto da publicação"
     return None
+
+
+def _classificar_despacho_terminal(descricao: str | None) -> tuple[str, str] | None:
+    texto = descricao or ""
+    for padrao, status_final, motivo in DESPACHOS_TERMINAIS:
+        if padrao.search(texto):
+            return status_final, motivo
+    return None
+
+
+def _filtro_despacho_terminal():
+    descricao = Movimentacao.descricao
+    return or_(
+        descricao.ilike("%arquivamento definitivo%"),
+        descricao.ilike("%concessão de registro%"),
+        descricao.ilike("%extinção do pedido%"),
+        descricao.ilike("%extinção do registro%"),
+        descricao.ilike("%extinção da marca%"),
+        descricao.ilike("%recurso%não provido%"),
+        descricao.ilike("%recurso%provido%"),
+        descricao.ilike("%recurso%decisão mantida%"),
+    )
+
+
+def _movimentacao_posterior(terminal: Movimentacao, origem: Movimentacao) -> bool:
+    if terminal.data_rpi is None or origem.data_rpi is None:
+        return False
+    return (terminal.data_rpi, terminal.id or 0) > (origem.data_rpi, origem.id or 0)
 
 
 def calcular_vencimento(data_base: date, dias: int, contagem: str) -> datetime:
@@ -305,6 +367,7 @@ def _dias_restantes(vencimento: datetime) -> int:
 def _serializar_prazo(row) -> dict:
     prazo, numero, marca, empresa, responsavel, escalacao = row
     restantes = _dias_restantes(prazo.vencimento_em)
+    historico = prazo.status == "historico"
     return {
         "id": prazo.id,
         "processo_monitorado_id": prazo.processo_monitorado_id,
@@ -321,7 +384,14 @@ def _serializar_prazo(row) -> dict:
         "contagem": prazo.contagem,
         "vencimento_em": prazo.vencimento_em,
         "dias_restantes": restantes,
-        "vencido": restantes < 0 and prazo.status in STATUS_ATIVOS,
+        # Uma publicação antiga, descoberta pelo motor somente depois de o
+        # prazo terminar, é referência histórica e não atraso operacional atual.
+        "vencido": (
+            restantes < 0
+            and prazo.status in STATUS_ATIVOS
+            and prazo.confirmado
+        ),
+        "historico": historico,
         "status": prazo.status,
         "prioridade": prazo.prioridade,
         "confirmado": prazo.confirmado,
@@ -377,10 +447,16 @@ async def painel(
     responsavel_id: int | None = Query(default=None, ge=1),
     inicio: date | None = None,
     fim: date | None = None,
+    limite: int = Query(default=10, ge=1, le=10),
+    deslocamento: int = Query(default=0, ge=0),
 ) -> dict:
     filtros = [PrazoJuridico.organizacao_id == usuario.organizacao_id]
     if status_prazo:
         filtros.append(PrazoJuridico.status == status_prazo)
+    else:
+        # Duplicidades técnicas ficam preservadas para auditoria, mas não
+        # poluem a agenda operacional.
+        filtros.append(PrazoJuridico.status != "duplicado")
     if responsavel_id:
         filtros.append(PrazoJuridico.responsavel_id == responsavel_id)
     if inicio:
@@ -399,6 +475,69 @@ async def painel(
         )
     responsavel = UsuarioOperacoes.__table__.alias("responsavel")
     escalacao = UsuarioOperacoes.__table__.alias("escalacao")
+    hoje_inicio = datetime.combine(datetime.now(UTC).date(), time.min, UTC)
+    hoje_fim = datetime.combine(datetime.now(UTC).date(), time.max, UTC)
+    sete_dias_fim = datetime.combine(
+        datetime.now(UTC).date() + timedelta(days=7), time.max, UTC
+    )
+    metricas_row = (
+        await session.execute(
+            select(
+                func.count(PrazoJuridico.id),
+                func.count(PrazoJuridico.id).filter(
+                    PrazoJuridico.vencimento_em < hoje_inicio,
+                    PrazoJuridico.status.in_(STATUS_ATIVOS),
+                ),
+                func.count(PrazoJuridico.id).filter(
+                    PrazoJuridico.vencimento_em >= hoje_inicio,
+                    PrazoJuridico.vencimento_em <= hoje_fim,
+                    PrazoJuridico.status.in_(STATUS_ATIVOS),
+                ),
+                func.count(PrazoJuridico.id).filter(
+                    PrazoJuridico.vencimento_em >= hoje_inicio,
+                    PrazoJuridico.vencimento_em <= sete_dias_fim,
+                    PrazoJuridico.status.in_(STATUS_ATIVOS),
+                ),
+                func.count(PrazoJuridico.id).filter(PrazoJuridico.confirmado.is_(False)),
+                func.count(func.distinct(ProcessoMonitorado.id)),
+            )
+            .select_from(PrazoJuridico)
+            .join(
+                ProcessoMonitorado,
+                ProcessoMonitorado.id == PrazoJuridico.processo_monitorado_id,
+            )
+            .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+            .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
+            .where(*filtros)
+        )
+    ).one()
+    (
+        total_prazos,
+        vencidos,
+        vence_hoje,
+        proximos_7_dias,
+        aguardando_confirmacao,
+        total_clientes,
+    ) = metricas_row
+    ids_pagina = list(
+        (
+            await session.execute(
+                select(ProcessoMonitorado.id)
+                .select_from(PrazoJuridico)
+                .join(
+                    ProcessoMonitorado,
+                    ProcessoMonitorado.id == PrazoJuridico.processo_monitorado_id,
+                )
+                .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+                .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
+                .where(*filtros)
+                .group_by(ProcessoMonitorado.id)
+                .order_by(func.min(PrazoJuridico.vencimento_em), ProcessoMonitorado.id)
+                .limit(limite)
+                .offset(deslocamento)
+            )
+        ).scalars().all()
+    )
     query = (
         select(
             PrazoJuridico,
@@ -413,23 +552,16 @@ async def painel(
         .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
         .outerjoin(responsavel, responsavel.c.id == PrazoJuridico.responsavel_id)
         .outerjoin(escalacao, escalacao.c.id == PrazoJuridico.escalonar_para_id)
-        .where(*filtros)
+        .where(*filtros, ProcessoMonitorado.id.in_(ids_pagina))
         .order_by(PrazoJuridico.vencimento_em, PrazoJuridico.id)
-        .limit(500)
     )
     itens = [_serializar_prazo(row) for row in (await session.execute(query)).all()]
     metricas = {
-        "vencidos": sum(1 for item in itens if item["vencido"]),
-        "vence_hoje": sum(
-            1 for item in itens if item["dias_restantes"] == 0 and item["status"] in STATUS_ATIVOS
-        ),
-        "proximos_7_dias": sum(
-            1
-            for item in itens
-            if 0 <= item["dias_restantes"] <= 7 and item["status"] in STATUS_ATIVOS
-        ),
-        "aguardando_confirmacao": sum(1 for item in itens if not item["confirmado"]),
-        "total": len(itens),
+        "vencidos": int(vencidos or 0),
+        "vence_hoje": int(vence_hoje or 0),
+        "proximos_7_dias": int(proximos_7_dias or 0),
+        "aguardando_confirmacao": int(aguardando_confirmacao or 0),
+        "total": int(total_prazos or 0),
     }
     notificacoes = (
         await session.execute(
@@ -464,6 +596,15 @@ async def painel(
     return {
         "metricas": metricas,
         "prazos": itens,
+        "paginacao": {
+            "total_clientes": int(total_clientes or 0),
+            "limite": limite,
+            "deslocamento": deslocamento,
+            "pagina": (deslocamento // limite) + 1,
+            "total_paginas": max(1, ((int(total_clientes or 0) + limite - 1) // limite)),
+            "tem_anterior": deslocamento > 0,
+            "tem_proxima": deslocamento + len(ids_pagina) < int(total_clientes or 0),
+        },
         "notificacoes": [
             {
                 "id": item.id,
@@ -887,12 +1028,227 @@ async def _notificar(
     return True
 
 
+async def _terminais_dos_processos(
+    session: AsyncSession, processo_ids: set[int]
+) -> dict[int, Movimentacao]:
+    if not processo_ids:
+        return {}
+    movimentacoes = (
+        (
+            await session.execute(
+                select(Movimentacao)
+                .where(
+                    Movimentacao.processo_id.in_(processo_ids),
+                    Movimentacao.data_rpi.is_not(None),
+                    _filtro_despacho_terminal(),
+                )
+                .order_by(
+                    Movimentacao.processo_id,
+                    Movimentacao.data_rpi.desc(),
+                    Movimentacao.id.desc(),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    terminais: dict[int, Movimentacao] = {}
+    for movimentacao in movimentacoes:
+        if _classificar_despacho_terminal(movimentacao.descricao) is not None:
+            terminais.setdefault(movimentacao.processo_id, movimentacao)
+    return terminais
+
+
+async def _reconciliar_prazos_terminais(
+    session: AsyncSession,
+    organizacao_id: int,
+    ator: str,
+) -> tuple[int, dict[int, Movimentacao]]:
+    """Encerra tarefas automáticas invalidadas por um despacho posterior da RPI."""
+    pendencias = (
+        await session.execute(
+            select(PrazoJuridico, Movimentacao)
+            .join(Movimentacao, Movimentacao.id == PrazoJuridico.movimentacao_origem_id)
+            .where(
+                PrazoJuridico.organizacao_id == organizacao_id,
+                PrazoJuridico.origem == "motor_rpi",
+                PrazoJuridico.status.in_(STATUS_ATIVOS),
+            )
+        )
+    ).all()
+    processo_ids = {origem.processo_id for _prazo, origem in pendencias}
+    terminais = await _terminais_dos_processos(session, processo_ids)
+    agora = datetime.now(UTC)
+    reconciliados: list[PrazoJuridico] = []
+    motor_usuario = SimpleNamespace(organizacao_id=organizacao_id, ator=ator)
+    for prazo, origem in pendencias:
+        terminal = terminais.get(origem.processo_id)
+        if terminal is None or not _movimentacao_posterior(terminal, origem):
+            continue
+        classificacao = _classificar_despacho_terminal(terminal.descricao)
+        if classificacao is None:
+            continue
+        status_final, motivo = classificacao
+        prazo.status = status_final
+        prazo.confirmado = True
+        prazo.concluido_em = agora
+        prazo.concluido_por = ator
+        reconciliados.append(prazo)
+        _evento(
+            session,
+            motor_usuario,
+            prazo.processo_monitorado_id,
+            "prazo_reconciliado",
+            f"{motivo} (RPI {terminal.numero_rpi})",
+            prazo.id,
+            {
+                "movimentacao_origem_id": origem.id,
+                "movimentacao_terminal_id": terminal.id,
+                "rpi_terminal": terminal.numero_rpi,
+                "status_final": status_final,
+            },
+        )
+    if reconciliados:
+        notificacoes = (
+            (
+                await session.execute(
+                    select(NotificacaoJuridica).where(
+                        NotificacaoJuridica.organizacao_id == organizacao_id,
+                        NotificacaoJuridica.prazo_id.in_([prazo.id for prazo in reconciliados]),
+                        NotificacaoJuridica.status != "arquivada",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for notificacao in notificacoes:
+            notificacao.status = "arquivada"
+            notificacao.lida_em = agora
+            notificacao.lida_por = ator
+    return len(reconciliados), terminais
+
+
+def _chave_publicacao(prazo: PrazoJuridico, origem: Movimentacao) -> tuple:
+    """Identifica uma publicação mesmo quando a importação duplicou a linha."""
+    return (
+        prazo.processo_monitorado_id,
+        prazo.tipo,
+        origem.data_rpi,
+        origem.numero_rpi,
+        (origem.codigo_despacho or "").strip().upper(),
+    )
+
+
+async def _reconciliar_prazos_historicos(
+    session: AsyncSession,
+    organizacao_id: int,
+    ator: str,
+) -> tuple[int, int]:
+    """Arquiva sugestões que já estavam vencidas quando foram descobertas.
+
+    O prazo legal continua registrado, mas deixa de ser contado como pendência
+    vencida da equipe. Publicações repetidas da mesma RPI são preservadas como
+    duplicadas para manter a trilha de auditoria.
+    """
+    linhas = (
+        await session.execute(
+            select(PrazoJuridico, Movimentacao)
+            .join(Movimentacao, Movimentacao.id == PrazoJuridico.movimentacao_origem_id)
+            .where(
+                PrazoJuridico.organizacao_id == organizacao_id,
+                PrazoJuridico.origem == "motor_rpi",
+                PrazoJuridico.status.in_((*STATUS_ATIVOS, "historico")),
+            )
+            .order_by(PrazoJuridico.id)
+        )
+    ).all()
+    agora = datetime.now(UTC)
+    motor_usuario = SimpleNamespace(organizacao_id=organizacao_id, ator=ator)
+    vistos: dict[tuple, PrazoJuridico] = {}
+    historicos: list[PrazoJuridico] = []
+    duplicados: list[PrazoJuridico] = []
+    for prazo, origem in linhas:
+        chave = _chave_publicacao(prazo, origem)
+        if chave in vistos:
+            prazo.status = "duplicado"
+            prazo.confirmado = True
+            prazo.concluido_em = agora
+            prazo.concluido_por = ator
+            duplicados.append(prazo)
+            _evento(
+                session,
+                motor_usuario,
+                prazo.processo_monitorado_id,
+                "prazo_duplicado",
+                "Publicação repetida da mesma RPI arquivada pelo motor",
+                prazo.id,
+                {"prazo_canonico_id": vistos[chave].id, "rpi": origem.numero_rpi},
+            )
+            continue
+        vistos[chave] = prazo
+        criado_em = prazo.criado_em
+        if criado_em is not None and criado_em.tzinfo is None:
+            criado_em = criado_em.replace(tzinfo=UTC)
+        vencimento = prazo.vencimento_em
+        if vencimento.tzinfo is None:
+            vencimento = vencimento.replace(tzinfo=UTC)
+        descoberto_depois = criado_em is None or criado_em > vencimento
+        if (
+            prazo.status in STATUS_ATIVOS
+            and not prazo.confirmado
+            and vencimento < agora
+            and descoberto_depois
+        ):
+            prazo.status = "historico"
+            prazo.prioridade = "baixa"
+            prazo.confirmado = True
+            prazo.concluido_em = agora
+            prazo.concluido_por = ator
+            historicos.append(prazo)
+            _evento(
+                session,
+                motor_usuario,
+                prazo.processo_monitorado_id,
+                "prazo_historico",
+                "Prazo já encerrado quando a publicação foi importada; mantido como referência",
+                prazo.id,
+                {"rpi": origem.numero_rpi, "vencimento_em": vencimento.isoformat()},
+            )
+    encerrados = historicos + duplicados
+    if encerrados:
+        notificacoes = (
+            (
+                await session.execute(
+                    select(NotificacaoJuridica).where(
+                        NotificacaoJuridica.organizacao_id == organizacao_id,
+                        NotificacaoJuridica.prazo_id.in_([item.id for item in encerrados]),
+                        NotificacaoJuridica.status != "arquivada",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for notificacao in notificacoes:
+            notificacao.status = "arquivada"
+            notificacao.lida_em = agora
+            notificacao.lida_por = ator
+    return len(historicos), len(duplicados)
+
+
 async def executar_motor_organizacao(
     session: AsyncSession, organizacao_id: int, ator: str = "motor-juridico"
 ) -> dict:
     """Materializa alertas e sugestões; usado pela API e pela rotina horária."""
     motor_usuario = SimpleNamespace(organizacao_id=organizacao_id, ator=ator)
     agora = datetime.now(UTC)
+    reconciliados, _terminais_reconciliados = await _reconciliar_prazos_terminais(
+        session, organizacao_id, ator
+    )
+    historicos, duplicados = await _reconciliar_prazos_historicos(
+        session, organizacao_id, ator
+    )
     prazos = (
         (
             await session.execute(
@@ -974,15 +1330,44 @@ async def executar_motor_organizacao(
             .limit(2000)
         )
     ).all()
+    terminais_candidatos = await _terminais_dos_processos(
+        session, {monitorado.processo_id for monitorado, _movimentacao, _data in candidatos}
+    )
+    chaves_existentes = {
+        _chave_publicacao(prazo, origem)
+        for prazo, origem in (
+            await session.execute(
+                select(PrazoJuridico, Movimentacao)
+                .join(Movimentacao, Movimentacao.id == PrazoJuridico.movimentacao_origem_id)
+                .where(
+                    PrazoJuridico.organizacao_id == organizacao_id,
+                    PrazoJuridico.origem == "motor_rpi",
+                )
+            )
+        ).all()
+    }
     sugeridos = 0
     dispensados = 0
     for monitorado, movimentacao, data_deposito in candidatos:
         if movimentacao.data_rpi is None:
             continue
+        terminal = terminais_candidatos.get(monitorado.processo_id)
+        if terminal is not None and _movimentacao_posterior(terminal, movimentacao):
+            continue
         classificacao = _classificar_despacho(movimentacao.descricao)
         if classificacao is None:
             continue
         dias, tipo, acao = classificacao
+        chave_publicacao = (
+            monitorado.id,
+            tipo,
+            movimentacao.data_rpi,
+            movimentacao.numero_rpi,
+            (movimentacao.codigo_despacho or "").strip().upper(),
+        )
+        if chave_publicacao in chaves_existentes:
+            continue
+        chaves_existentes.add(chave_publicacao)
         # (a) Depósitos sob a taxa única do INPI (≥ 20/09/2025) não têm pagamento
         # de concessão: não gera prazo acionável. (b) Registra um aviso informativo
         # (prazo dispensado, sem ação) para o operador entender.
@@ -1001,6 +1386,15 @@ async def executar_motor_organizacao(
         else:
             titulo = f"Revisar: {acao} (RPI {movimentacao.numero_rpi})"
             descricao = movimentacao.descricao or ""
+        vencimento = calcular_vencimento(movimentacao.data_rpi, dias, "corridos")
+        referencia_historica = not dispensa_concessao and vencimento < agora
+        if referencia_historica:
+            titulo = f"Histórico: {acao} (RPI {movimentacao.numero_rpi})"
+            descricao = (
+                f"{descricao}\n\nPublicação importada após o encerramento do prazo. "
+                "Mantida como referência histórica; não representa pendência "
+                "operacional atual. Confirme a tramitação no BuscaWeb e na RPI."
+            ).strip()
         prazo = PrazoJuridico(
             organizacao_id=organizacao_id,
             processo_monitorado_id=monitorado.id,
@@ -1013,10 +1407,18 @@ async def executar_motor_organizacao(
             contagem="corridos",
             data_base=movimentacao.data_rpi,
             dias_prazo=dias,
-            vencimento_em=calcular_vencimento(movimentacao.data_rpi, dias, "corridos"),
-            status="dispensado" if dispensa_concessao else "aguardando_confirmacao",
-            prioridade="baixa" if dispensa_concessao else "alta",
-            confirmado=dispensa_concessao,
+            vencimento_em=vencimento,
+            status=(
+                "dispensado"
+                if dispensa_concessao
+                else "historico"
+                if referencia_historica
+                else "aguardando_confirmacao"
+            ),
+            prioridade="baixa" if dispensa_concessao or referencia_historica else "alta",
+            confirmado=dispensa_concessao or referencia_historica,
+            concluido_em=agora if referencia_historica else None,
+            concluido_por=ator if referencia_historica else None,
             criado_por="motor-juridico",
         )
         session.add(prazo)
@@ -1025,14 +1427,21 @@ async def executar_motor_organizacao(
             session,
             motor_usuario,
             monitorado.id,
-            "prazo_dispensado" if dispensa_concessao else "prazo_sugerido",
-            descricao if dispensa_concessao
+            "prazo_dispensado"
+            if dispensa_concessao
+            else "prazo_historico"
+            if referencia_historica
+            else "prazo_sugerido",
+            descricao
+            if dispensa_concessao or referencia_historica
             else "Prazo sugerido pelo motor a partir do despacho da RPI; requer confirmação humana",
             prazo.id,
             {"movimentacao_id": movimentacao.id, "dias_prazo": dias, "tipo": tipo},
         )
         if dispensa_concessao:
             dispensados += 1
+        elif referencia_historica:
+            historicos += 1
         else:
             sugeridos += 1
     return {
@@ -1040,6 +1449,9 @@ async def executar_motor_organizacao(
         "escalados": escalados,
         "prazos_sugeridos": sugeridos,
         "prazos_dispensados": dispensados,
+        "prazos_reconciliados": reconciliados,
+        "prazos_historicos": historicos,
+        "prazos_duplicados": duplicados,
     }
 
 

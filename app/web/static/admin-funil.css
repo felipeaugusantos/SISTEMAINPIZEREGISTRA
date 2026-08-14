@@ -19,4 +19,7 @@ table.funil-table th { text-align: left; font-size: .66rem; letter-spacing: .05e
 table.funil-table td { padding: 10px; border-bottom: 1px solid var(--line); }
 table.funil-table tr:last-child td { border-bottom: 0; }
 table.funil-table td.funil-alerta { color: #a5342b; font-weight: 800; }
+.funil-subcard { margin-top: 20px; }
+.funil-subcard > .eyebrow { margin: 0 0 12px; color: var(--muted); font-size: .72rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+#overview-funil .funil-2col { margin-top: 0; }
 @media (max-width: 900px) { .funil-tiles { grid-template-columns: repeat(2, 1fr); } .funil-2col { grid-template-columns: 1fr; } .funil-bar { grid-template-columns: 110px 1fr 40px; } }

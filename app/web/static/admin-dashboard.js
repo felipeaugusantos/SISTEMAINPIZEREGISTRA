@@ -234,13 +234,34 @@ function renderCurrent(item) {
   document.querySelector("#rpi-count-movements").textContent = formatNumber(item.movimentacoes_processadas);
 }
 
+let historyItems = [];
+let historyPage = 0;
+const HISTORY_PAGE_SIZE = 5;
+
 function renderHistory(items) {
+  historyItems = items || [];
   const body = document.querySelector("#rpi-history");
-  if (!items.length) {
+  const pager = document.querySelector("#rpi-history-pager");
+  if (!historyItems.length) {
     body.innerHTML = '<tr><td colspan="7">Nenhuma execução registrada.</td></tr>';
+    if (pager) pager.hidden = true;
     return;
   }
-  body.innerHTML = items.map((item) => {
+  const totalPaginas = Math.max(1, Math.ceil(historyItems.length / HISTORY_PAGE_SIZE));
+  if (historyPage >= totalPaginas) historyPage = totalPaginas - 1;
+  if (historyPage < 0) historyPage = 0;
+  const inicio = historyPage * HISTORY_PAGE_SIZE;
+  const pagina = historyItems.slice(inicio, inicio + HISTORY_PAGE_SIZE);
+  if (pager) {
+    pager.hidden = historyItems.length <= HISTORY_PAGE_SIZE;
+    const info = pager.querySelector("#rpi-history-info");
+    if (info) info.textContent = `Página ${historyPage + 1} de ${totalPaginas}`;
+    const prev = pager.querySelector("#rpi-history-prev");
+    const next = pager.querySelector("#rpi-history-next");
+    if (prev) prev.disabled = historyPage === 0;
+    if (next) next.disabled = historyPage >= totalPaginas - 1;
+  }
+  body.innerHTML = pagina.map((item) => {
     const interval = item.rpi_inicio
       ? item.rpi_inicio === item.rpi_fim ? `RPI ${item.rpi_inicio}` : `${item.rpi_inicio}–${item.rpi_fim}`
       : "—";
@@ -303,6 +324,13 @@ syncNowButton.addEventListener("click", () => {
     rpiActionMessage.textContent = error.message;
     rpiActionMessage.className = "status-message error";
   });
+});
+
+document.querySelector("#rpi-history-prev")?.addEventListener("click", () => {
+  if (historyPage > 0) { historyPage -= 1; renderHistory(historyItems); }
+});
+document.querySelector("#rpi-history-next")?.addEventListener("click", () => {
+  if ((historyPage + 1) * HISTORY_PAGE_SIZE < historyItems.length) { historyPage += 1; renderHistory(historyItems); }
 });
 
 document.querySelector("#rpi-history").addEventListener("click", (event) => {

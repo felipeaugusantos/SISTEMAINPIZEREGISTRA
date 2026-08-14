@@ -37,4 +37,6 @@ function funilRender(d) {
   document.querySelector("#funil-prod").innerHTML = `<div class="funil-table-scroll"><table class="funil-table"><thead><tr><th>Responsável</th><th>Abertas</th><th>Atrasadas</th><th>Ganhos</th><th>Perdidos</th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="funil-empty">Sem dados.</td></tr>`}</tbody></table></div>`;
 }
 
-funilApi("/v1/admin/leads-dashboard").then(funilRender).catch(e => funilMsg(e.message));
+funilApi("/v1/admin/leads-dashboard")
+  .then(funilRender)
+  .catch(() => { const s = document.querySelector("#overview-funil"); if (s) s.hidden = true; });

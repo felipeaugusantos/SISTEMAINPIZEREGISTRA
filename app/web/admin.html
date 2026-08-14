@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Centro de operações — Zé Registra</title>
-    <link rel="stylesheet" href="/static/styles.css?v=25" />
-    <script src="/static/admin-shell.js?v=34" defer></script>
-    <script src="/static/admin-dashboard.js?v=16" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=33" />
+    <link rel="stylesheet" href="/static/admin-funil.css?v=2" />
+    <script src="/static/admin-shell.js?v=35" defer></script>
+    <script src="/static/admin-dashboard.js?v=17" defer></script>
+    <script src="/static/admin-funil.js?v=2" defer></script>
   </head>
   <body class="admin-body" data-admin-section="overview">
     <main class="admin-main admin-dashboard">
@@ -122,6 +124,11 @@
               <tbody id="rpi-history"><tr><td colspan="7">Carregando histórico…</td></tr></tbody>
             </table>
           </div>
+          <div id="rpi-history-pager" class="rpi-history-pager" hidden>
+            <button type="button" class="secondary-button" id="rpi-history-prev">Anterior</button>
+            <span id="rpi-history-info">—</span>
+            <button type="button" class="secondary-button" id="rpi-history-next">Próxima</button>
+          </div>
         </div>
       </section>
 
@@ -151,6 +158,23 @@
             <div><strong id="priority-reviews">—</strong><h3>Pareceres pendentes</h3><p>Riscos calculados aguardando avaliação profissional.</p></div>
             <b aria-hidden="true">→</b>
           </a>
+        </div>
+      </section>
+
+      <section class="overview-section" id="overview-funil">
+        <header>
+          <div><p class="eyebrow">Comercial</p><h2>Funil e produtividade</h2></div>
+          <span>Conversão e desempenho</span>
+        </header>
+        <div id="funil-message" class="status-message" hidden role="status" aria-live="polite"></div>
+        <div class="funil-tiles" id="funil-tiles"></div>
+        <div class="funil-subcard">
+          <p class="eyebrow">Oportunidades por fase</p>
+          <div id="funil-bars" class="funil-bars"></div>
+        </div>
+        <div class="funil-2col">
+          <div class="funil-subcard"><p class="eyebrow">Motivos de perda</p><div id="funil-motivos"></div></div>
+          <div class="funil-subcard"><p class="eyebrow">Produtividade por responsável</p><div id="funil-prod"></div></div>
         </div>
       </section>
 

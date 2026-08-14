@@ -251,15 +251,6 @@ async def painel_retribuicoes() -> FileResponse:
 
 
 @app.get(
-    "/admin/funil",
-    include_in_schema=False,
-    dependencies=[Depends(exigir_permissao("leads.view"))],
-)
-async def painel_funil() -> FileResponse:
-    return FileResponse(web_dir / "admin-funil.html")
-
-
-@app.get(
     "/admin/producao/log-financeiro",
     include_in_schema=False,
     dependencies=[Depends(exigir_acesso_log_financeiro)],

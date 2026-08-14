@@ -345,6 +345,7 @@ async function openLead(id) {
     <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div></section>
     <section class="lead-funil" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
     <section class="lead-documentos" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section>
+    <section class="lead-checklist" id="lead-checklist"><p class="lead-funil-loading">Carregando checklist…</p></section>
     ${state.canManage ? `<form id="lead-crm-form" data-lead-id="${lead.id}" class="lead-crm-form">
       <label><span>Status</span><select name="status">${statusOptions(lead.status)}</select></label>
       <label><span>Responsável</span><select name="responsavel_id">${ownerOptions(lead.responsavel_id)}</select></label>
@@ -370,6 +371,7 @@ async function openLead(id) {
   await loadLeadContacts(lead.id);
   await renderFunil(lead.id);
   await renderDocumentos(lead.id);
+  await renderChecklistFase(lead.id);
 }
 
 const FASE_LABELS = {
@@ -428,6 +430,63 @@ async function renderDocumentos(leadId) {
     const msg = box.querySelector("#lead-docs-msg");
     if (msg) msg.textContent = r.ok ? "Documentos salvos." : "Erro ao salvar.";
     if (r.ok) await renderDocumentos(leadId);
+  });
+}
+
+async function renderChecklistFase(leadId) {
+  const box = document.querySelector("#lead-checklist");
+  if (!box) return;
+  let data;
+  try { data = await (await fetch(`/v1/admin/leads/${leadId}/checklist`)).json(); }
+  catch { box.innerHTML = ""; return; }
+  const canManage = state.canManage;
+  const faseLabel = FASE_LABELS[data.fase] || data.fase || "—";
+  const itens = data.itens || [];
+  const feitos = itens.filter(i => i.concluido).length;
+  const linhas = itens.map(i =>
+    `<li class="chk-item${i.concluido ? " done" : ""}" data-id="${i.id}">
+      <label><input type="checkbox" class="chk-toggle"${i.concluido ? " checked" : ""}${canManage ? "" : " disabled"}><span>${escapeHtml(i.descricao)}</span></label>
+      ${canManage ? `<button type="button" class="chk-del" title="Remover" aria-label="Remover item">×</button>` : ""}
+    </li>`
+  ).join("");
+  const vazio = itens.length === 0
+    ? `<p class="chk-empty">Nenhum item nesta etapa.${data.tem_padrao && canManage ? " Você pode aplicar o checklist padrão." : ""}</p>`
+    : "";
+  box.innerHTML = `<header><p class="eyebrow">Checklist da etapa</p><h3>${escapeHtml(faseLabel)}</h3><span class="chk-count">${feitos}/${itens.length}</span></header>
+    <ul class="chk-list">${linhas}</ul>${vazio}
+    ${canManage ? `<div class="chk-actions">
+      <form class="chk-add" autocomplete="off"><input type="text" maxlength="300" placeholder="Adicionar item…" aria-label="Novo item de checklist"><button class="secondary-button" type="submit">Adicionar</button></form>
+      ${data.tem_padrao ? `<button type="button" class="secondary-button chk-padrao">Aplicar checklist padrão</button>` : ""}
+      <span class="chk-msg" role="status"></span>
+    </div>` : ""}`;
+  if (!canManage) return;
+  box.querySelectorAll(".chk-toggle").forEach(cb => cb.addEventListener("change", async () => {
+    const id = cb.closest(".chk-item").dataset.id;
+    cb.disabled = true;
+    const r = await fetch(`/v1/admin/checklist-fase/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ concluido: cb.checked }) });
+    if (r.ok) await renderChecklistFase(leadId); else { cb.checked = !cb.checked; cb.disabled = false; }
+  }));
+  box.querySelectorAll(".chk-del").forEach(btn => btn.addEventListener("click", async () => {
+    const id = btn.closest(".chk-item").dataset.id;
+    btn.disabled = true;
+    const r = await fetch(`/v1/admin/checklist-fase/${id}`, { method: "DELETE" });
+    if (r.ok || r.status === 204) await renderChecklistFase(leadId); else btn.disabled = false;
+  }));
+  const addForm = box.querySelector(".chk-add");
+  if (addForm) addForm.addEventListener("submit", async e => {
+    e.preventDefault();
+    const input = addForm.querySelector("input");
+    const descricao = input.value.trim();
+    if (!descricao) return;
+    input.disabled = true;
+    const r = await fetch(`/v1/admin/leads/${leadId}/checklist`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ descricao }) });
+    if (r.ok) await renderChecklistFase(leadId); else { input.disabled = false; const m = box.querySelector(".chk-msg"); if (m) m.textContent = "Erro ao adicionar."; }
+  });
+  const padraoBtn = box.querySelector(".chk-padrao");
+  if (padraoBtn) padraoBtn.addEventListener("click", async () => {
+    padraoBtn.disabled = true;
+    const r = await fetch(`/v1/admin/leads/${leadId}/checklist/padrao`, { method: "POST" });
+    if (r.ok) await renderChecklistFase(leadId); else { padraoBtn.disabled = false; const m = box.querySelector(".chk-msg"); if (m) m.textContent = "Erro ao aplicar padrão."; }
   });
 }
 

@@ -1004,6 +1004,27 @@ class DocumentoLead(Base):
     )
 
 
+class ChecklistFaseLead(Base):
+    """Item de checklist de uma etapa (fase) do funil do lead."""
+
+    __tablename__ = "checklist_fase_lead"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    lead_id: Mapped[int] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), index=True
+    )
+    fase: Mapped[str] = mapped_column(String(30), index=True)
+    descricao: Mapped[str] = mapped_column(String(300))
+    concluido: Mapped[bool] = mapped_column(Boolean, default=False)
+    ordem: Mapped[int] = mapped_column(Integer, default=0)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class CanalContato(StrEnum):
     TELEFONE = "telefone"
     EMAIL = "email"

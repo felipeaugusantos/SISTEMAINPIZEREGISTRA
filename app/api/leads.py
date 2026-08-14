@@ -19,6 +19,7 @@ from app.models import (
     ContatoLead,
     ORDEM_FASE_LEAD,
     TIPOS_DOCUMENTO_LEAD,
+    ChecklistFaseLead,
     DocumentoLead,
     EmpresaCRM,
     EventoAuditoria,
@@ -964,6 +965,174 @@ async def salvar_documentos_lead(
     _auditar(session, usuario, request, "documentos_lead", f"lead:{lead_id}", {})
     await session.commit()
     return {"ok": True}
+
+
+# Itens sugeridos por etapa — aplicados sob demanda (botão "aplicar padrão").
+CHECKLIST_PADRAO_FASE: dict[str, tuple[str, ...]] = {
+    "contato_inicial": ("Registrar dados do cliente", "Entender a necessidade da marca"),
+    "relatorio_enviado": ("Gerar relatório de viabilidade", "Enviar relatório ao cliente"),
+    "proposta_enviada": ("Elaborar proposta comercial", "Enviar proposta ao cliente"),
+    "proposta_aceita": ("Confirmar aceite da proposta", "Coletar dados para a procuração"),
+    "pagamento_realizado": ("Emitir cobrança", "Confirmar pagamento"),
+    "protocolo_inpi": (
+        "Procuração assinada",
+        "GRU emitida",
+        "GRU paga",
+        "Protocolizar pedido no e-Marcas",
+    ),
+    "processo_inpi": ("Registrar número do processo no INPI", "Informar o cliente do protocolo"),
+}
+
+
+class ChecklistItemInput(BaseModel):
+    descricao: str = Field(min_length=1, max_length=300)
+
+
+class ChecklistToggleInput(BaseModel):
+    concluido: bool
+
+
+async def _checklist_itens(
+    session: AsyncSession, lead_id: int, organizacao_id: int, fase: str
+) -> list[ChecklistFaseLead]:
+    return list(
+        (
+            await session.execute(
+                select(ChecklistFaseLead)
+                .where(
+                    ChecklistFaseLead.lead_id == lead_id,
+                    ChecklistFaseLead.organizacao_id == organizacao_id,
+                    ChecklistFaseLead.fase == fase,
+                )
+                .order_by(ChecklistFaseLead.ordem, ChecklistFaseLead.id)
+            )
+        ).scalars().all()
+    )
+
+
+@router.get("/v1/admin/leads/{lead_id}/checklist")
+async def obter_checklist_fase(
+    lead_id: int, session: SessionDep, usuario: LeadsViewDep, fase: str | None = None
+) -> dict:
+    lead = (
+        await session.execute(
+            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    fase_alvo = fase or lead.fase
+    itens = await _checklist_itens(session, lead_id, usuario.organizacao_id, fase_alvo)
+    return {
+        "fase": fase_alvo,
+        "tem_padrao": fase_alvo in CHECKLIST_PADRAO_FASE and not itens,
+        "itens": [
+            {"id": i.id, "descricao": i.descricao, "concluido": i.concluido} for i in itens
+        ],
+    }
+
+
+@router.post("/v1/admin/leads/{lead_id}/checklist/padrao")
+async def aplicar_checklist_padrao(
+    lead_id: int, session: SessionDep, usuario: LeadsManageDep, fase: str | None = None
+) -> dict:
+    lead = (
+        await session.execute(
+            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    fase_alvo = fase or lead.fase
+    if await _checklist_itens(session, lead_id, usuario.organizacao_id, fase_alvo):
+        raise HTTPException(status_code=400, detail="A etapa já tem checklist.")
+    for i, descricao in enumerate(CHECKLIST_PADRAO_FASE.get(fase_alvo, ())):
+        session.add(
+            ChecklistFaseLead(
+                organizacao_id=usuario.organizacao_id,
+                lead_id=lead_id,
+                fase=fase_alvo,
+                descricao=descricao,
+                ordem=i,
+            )
+        )
+    await session.commit()
+    return {"ok": True}
+
+
+@router.post("/v1/admin/leads/{lead_id}/checklist", status_code=status.HTTP_201_CREATED)
+async def adicionar_checklist_item(
+    lead_id: int,
+    dados: ChecklistItemInput,
+    session: SessionDep,
+    usuario: LeadsManageDep,
+    fase: str | None = None,
+) -> dict:
+    lead = (
+        await session.execute(
+            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    fase_alvo = fase or lead.fase
+    ordem = (
+        await session.execute(
+            select(func.coalesce(func.max(ChecklistFaseLead.ordem), -1)).where(
+                ChecklistFaseLead.lead_id == lead_id,
+                ChecklistFaseLead.organizacao_id == usuario.organizacao_id,
+                ChecklistFaseLead.fase == fase_alvo,
+            )
+        )
+    ).scalar_one() + 1
+    item = ChecklistFaseLead(
+        organizacao_id=usuario.organizacao_id,
+        lead_id=lead_id,
+        fase=fase_alvo,
+        descricao=dados.descricao.strip(),
+        ordem=ordem,
+    )
+    session.add(item)
+    await session.commit()
+    return {"id": item.id}
+
+
+@router.patch("/v1/admin/checklist-fase/{item_id}")
+async def alternar_checklist_item(
+    item_id: int, dados: ChecklistToggleInput, session: SessionDep, usuario: LeadsManageDep
+) -> dict:
+    item = (
+        await session.execute(
+            select(ChecklistFaseLead).where(
+                ChecklistFaseLead.id == item_id,
+                ChecklistFaseLead.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item não encontrado")
+    item.concluido = dados.concluido
+    await session.commit()
+    return {"ok": True}
+
+
+@router.delete("/v1/admin/checklist-fase/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remover_checklist_item(
+    item_id: int, session: SessionDep, usuario: LeadsManageDep
+) -> Response:
+    item = (
+        await session.execute(
+            select(ChecklistFaseLead).where(
+                ChecklistFaseLead.id == item_id,
+                ChecklistFaseLead.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item não encontrado")
+    await session.delete(item)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/v1/admin/leads/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)

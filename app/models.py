@@ -621,6 +621,47 @@ class RegraAutomacao(Base):
     )
 
 
+class Cadencia(Base):
+    """Cadência de atendimento: sequência de passos aplicável a uma oportunidade."""
+
+    __tablename__ = "cadencias"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    nome: Mapped[str] = mapped_column(String(120), index=True)
+    descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    passos: Mapped[list["CadenciaPasso"]] = relationship(
+        back_populates="cadencia",
+        cascade="all, delete-orphan",
+        order_by="CadenciaPasso.ordem",
+    )
+
+
+class CadenciaPasso(Base):
+    __tablename__ = "cadencia_passos"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    cadencia_id: Mapped[int] = mapped_column(
+        ForeignKey("cadencias.id", ondelete="CASCADE"), index=True
+    )
+    ordem: Mapped[int] = mapped_column(Integer, default=0)
+    dia: Mapped[int] = mapped_column(Integer, default=0)
+    canal: Mapped[str] = mapped_column(String(20), default="outro")
+    titulo: Mapped[str] = mapped_column(String(180))
+    descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cadencia: Mapped["Cadencia"] = relationship(back_populates="passos")
+
+
 class CategoriaFinanceira(Base):
     __tablename__ = "categorias_financeiras"
     __table_args__ = (

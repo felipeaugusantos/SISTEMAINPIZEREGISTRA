@@ -352,6 +352,7 @@ async function openLead(id) {
     ${lead.empresa_id ? `<section class="lead-empresa lg-full" id="lead-empresa" data-empresa-id="${lead.empresa_id}" data-contato-id="${lead.contato_id || ""}"><p class="lead-funil-loading">Carregando empresa…</p></section>` : ""}
     <div class="lead-dialog-grid">
     <section class="lead-funil lg-full" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
+    <section class="lead-cadencia lg-full" id="lead-cadencia" hidden></section>
     <section class="lead-history lg-full"><header><div><p class="eyebrow">Histórico</p><h3>${lead.pesquisas.length} pesquisa${lead.pesquisas.length === 1 ? "" : "s"}</h3></div></header>${lead.pesquisas.length ? lead.pesquisas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
     <section class="lead-documentos lg-full" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section>
     <section class="lead-guias lg-full" id="lead-guias"><p class="lead-funil-loading">Carregando guias do INPI…</p></section>
@@ -385,6 +386,7 @@ async function openLead(id) {
     </section>
     </aside>`;
   await renderEmpresa(lead);
+  await renderCadenciaLead(lead);
   await loadLeadContacts(lead.id);
   await renderTimeline(lead.id);
   await renderFunil(lead.id);
@@ -416,6 +418,28 @@ function faseMini(fase) {
 
 const DOC_LABELS = { procuracao: "Procuração", gru: "GRU", protocolo: "Protocolo", oposicao: "Oposição", certificado: "Certificado" };
 const DOC_STATUS = [["pendente", "Pendente"], ["em_andamento", "Em andamento"], ["concluido", "Concluído"], ["nao_aplicavel", "N/A"]];
+
+async function renderCadenciaLead(lead) {
+  const box = document.querySelector("#lead-cadencia");
+  if (!box || !state.canManage) return;
+  let cads;
+  try { cads = (((await (await fetch("/v1/admin/crm/cadencias")).json()).itens) || []).filter(c => c.ativo); }
+  catch { box.hidden = true; return; }
+  if (!cads.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const opts = cads.map(c => `<option value="${c.id}">${escapeHtml(c.nome)} (${c.passos.length} passo${c.passos.length === 1 ? "" : "s"})</option>`).join("");
+  box.innerHTML = `<header><p class="eyebrow">Cadência</p><h3>Aplicar sequência de atendimento</h3></header><div class="lead-cad-apply"><select id="lead-cad-select">${opts}</select><button class="secondary-button" id="lead-cad-apply-btn" type="button">Aplicar</button><span class="lead-cad-msg" role="status"></span></div>`;
+  box.querySelector("#lead-cad-apply-btn").addEventListener("click", async () => {
+    const cadenciaId = Number(box.querySelector("#lead-cad-select").value);
+    const btn = box.querySelector("#lead-cad-apply-btn");
+    btn.disabled = true;
+    const r = await fetch(`/v1/admin/leads/${lead.id}/aplicar-cadencia`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cadencia_id: cadenciaId }) });
+    const msg = box.querySelector(".lead-cad-msg");
+    btn.disabled = false;
+    if (r.ok) { const d = await r.json(); if (msg) msg.textContent = `${d.criados} tarefa(s) agendada(s).`; }
+    else if (msg) msg.textContent = "Erro ao aplicar.";
+  });
+}
 
 async function renderEmpresa(lead) {
   const box = document.querySelector("#lead-empresa");

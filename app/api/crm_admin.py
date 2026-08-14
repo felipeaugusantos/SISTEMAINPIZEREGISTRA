@@ -5,11 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import get_session
 from app.crm import REGRAS_AUTOMACAO, normalizar_empresa
 from app.models import (
+    Cadencia,
+    CadenciaPasso,
     CanalContato,
     Contato,
     ContatoLead,
@@ -747,3 +750,122 @@ async def editar_automacao(
     regra.dias = dados.dias
     await session.commit()
     return {"chave": chave, "ativo": regra.ativo, "dias": regra.dias}
+
+
+# --- Cadências (Terceira entrega, item 2b) ---------------------------------
+
+CANAIS_CADENCIA = ("email", "whatsapp", "ligacao", "reuniao", "outro")
+
+
+class PassoInput(BaseModel):
+    dia: int = Field(ge=0, le=365)
+    canal: str = Field(default="outro", max_length=20)
+    titulo: str = Field(min_length=1, max_length=180)
+    descricao: str | None = Field(default=None, max_length=2000)
+
+
+class CadenciaInput(BaseModel):
+    nome: str = Field(min_length=1, max_length=120)
+    descricao: str | None = Field(default=None, max_length=2000)
+    ativo: bool = True
+    passos: list[PassoInput] = Field(default_factory=list, max_length=30)
+
+
+def _cadencia_dict(c: Cadencia) -> dict:
+    return {
+        "id": c.id,
+        "nome": c.nome,
+        "descricao": c.descricao,
+        "ativo": c.ativo,
+        "passos": [
+            {"id": p.id, "dia": p.dia, "canal": p.canal, "titulo": p.titulo, "descricao": p.descricao}
+            for p in c.passos
+        ],
+    }
+
+
+@router.get("/cadencias")
+async def listar_cadencias(session: SessionDep, usuario: CRMViewDep) -> dict:
+    cads = (
+        (
+            await session.execute(
+                select(Cadencia)
+                .where(Cadencia.organizacao_id == usuario.organizacao_id)
+                .options(selectinload(Cadencia.passos))
+                .order_by(Cadencia.ativo.desc(), Cadencia.nome)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {"itens": [_cadencia_dict(c) for c in cads]}
+
+
+def _montar_passos(cadencia: Cadencia, passos: list[PassoInput], organizacao_id: int) -> None:
+    for i, p in enumerate(passos):
+        canal = p.canal if p.canal in CANAIS_CADENCIA else "outro"
+        cadencia.passos.append(
+            CadenciaPasso(
+                organizacao_id=organizacao_id,
+                ordem=i,
+                dia=p.dia,
+                canal=canal,
+                titulo=p.titulo.strip(),
+                descricao=p.descricao or None,
+            )
+        )
+
+
+@router.post("/cadencias", status_code=status.HTTP_201_CREATED)
+async def criar_cadencia(
+    dados: CadenciaInput, session: SessionDep, usuario: CRMManageDep
+) -> dict:
+    cadencia = Cadencia(
+        organizacao_id=usuario.organizacao_id,
+        nome=dados.nome.strip(),
+        descricao=dados.descricao or None,
+        ativo=dados.ativo,
+    )
+    _montar_passos(cadencia, dados.passos, usuario.organizacao_id)
+    session.add(cadencia)
+    await session.commit()
+    return {"id": cadencia.id}
+
+
+@router.put("/cadencias/{cadencia_id}")
+async def editar_cadencia(
+    cadencia_id: int, dados: CadenciaInput, session: SessionDep, usuario: CRMManageDep
+) -> dict:
+    cadencia = (
+        await session.execute(
+            select(Cadencia)
+            .where(Cadencia.id == cadencia_id, Cadencia.organizacao_id == usuario.organizacao_id)
+            .options(selectinload(Cadencia.passos))
+        )
+    ).scalar_one_or_none()
+    if cadencia is None:
+        raise HTTPException(status_code=404, detail="Cadência não encontrada")
+    cadencia.nome = dados.nome.strip()
+    cadencia.descricao = dados.descricao or None
+    cadencia.ativo = dados.ativo
+    cadencia.passos.clear()
+    await session.flush()
+    _montar_passos(cadencia, dados.passos, usuario.organizacao_id)
+    await session.commit()
+    return {"id": cadencia.id, "status": "atualizada"}
+
+
+@router.delete("/cadencias/{cadencia_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remover_cadencia(cadencia_id: int, session: SessionDep, usuario: CRMManageDep):
+    cadencia = (
+        await session.execute(
+            select(Cadencia).where(
+                Cadencia.id == cadencia_id, Cadencia.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if cadencia is None:
+        raise HTTPException(status_code=404, detail="Cadência não encontrada")
+    await session.delete(cadencia)
+    await session.commit()
+    return None

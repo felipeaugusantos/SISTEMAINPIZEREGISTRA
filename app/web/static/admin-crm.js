@@ -126,6 +126,64 @@ document.querySelector("#crm-automacoes").addEventListener("change", event => {
     .catch(error => show(error.message));
 });
 
-references().then(() => Promise.all([loadHistory(), loadReminders(), loadAutomacoes()])).then(() => {
+const CANAL_LABELS = { email: "E-mail", whatsapp: "WhatsApp", ligacao: "Ligação", reuniao: "Reunião", outro: "Outro" };
+let cadencias = [];
+const cadenciaDialog = document.querySelector("#cadencia-dialog");
+const cadenciaForm = document.querySelector("#cadencia-form");
+async function loadCadencias() { cadencias = (await api("/v1/admin/crm/cadencias")).itens || []; renderCadencias(); }
+function renderCadencias() {
+  const box = document.querySelector("#crm-cadencias");
+  const canManage = crmState.canManage;
+  box.innerHTML = cadencias.length ? cadencias.map(c => `
+    <div class="crm-cadencia" data-id="${c.id}">
+      <div><strong>${esc(c.nome)}</strong>${c.ativo ? "" : ` <span class="crm-cad-inativa">inativa</span>`}<br><small>${c.passos.length} passo(s)${c.passos.length ? " · " + esc(c.passos.map(p => `dia ${p.dia} ${CANAL_LABELS[p.canal] || p.canal}`).join(", ")) : ""}</small></div>
+      ${canManage ? `<div class="crm-cad-acts"><button class="cad-edit secondary-button" data-id="${c.id}" type="button">Editar</button><button class="cad-del secondary-button" data-id="${c.id}" type="button" aria-label="Excluir">×</button></div>` : ""}
+    </div>`).join("") : `<p class="crm-cad-empty">Nenhuma cadência criada.</p>`;
+}
+function passoRow(p = {}) {
+  const canais = Object.entries(CANAL_LABELS).map(([v, l]) => `<option value="${v}" ${p.canal === v ? "selected" : ""}>${l}</option>`).join("");
+  const div = document.createElement("div");
+  div.className = "crm-cad-passo";
+  div.innerHTML = `<label>Dia <input type="number" class="passo-dia" min="0" max="365" value="${esc(String(p.dia ?? 0))}"></label><label>Canal <select class="passo-canal">${canais}</select></label><label class="passo-titulo-field">Tarefa <input class="passo-titulo" maxlength="180" value="${esc(p.titulo || "")}" placeholder="Ex.: Enviar e-mail de follow-up"></label><button type="button" class="passo-del" aria-label="Remover passo">×</button>`;
+  return div;
+}
+function openCadencia(cad = null) {
+  cadenciaForm.reset();
+  cadenciaForm.elements.id.value = cad?.id || "";
+  cadenciaForm.elements.nome.value = cad?.nome || "";
+  cadenciaForm.elements.descricao.value = cad?.descricao || "";
+  cadenciaForm.elements.ativo.checked = cad ? cad.ativo : true;
+  const passosBox = document.querySelector("#cadencia-passos");
+  passosBox.innerHTML = "";
+  (cad?.passos?.length ? cad.passos : [{ dia: 0, canal: "email", titulo: "" }]).forEach(p => passosBox.appendChild(passoRow(p)));
+  document.querySelector("#cadencia-title").textContent = cad ? "Editar cadência" : "Nova cadência";
+  document.querySelector("#cadencia-message").hidden = true;
+  cadenciaDialog.showModal();
+}
+document.querySelector("#new-cadencia").addEventListener("click", () => openCadencia());
+document.querySelector("#add-passo").addEventListener("click", () => document.querySelector("#cadencia-passos").appendChild(passoRow()));
+document.querySelector("#cadencia-passos").addEventListener("click", event => { const b = event.target.closest(".passo-del"); if (b) b.closest(".crm-cad-passo").remove(); });
+document.querySelector("#close-cadencia").addEventListener("click", () => cadenciaDialog.close());
+document.querySelector("#cancel-cadencia").addEventListener("click", () => cadenciaDialog.close());
+document.querySelector("#crm-cadencias").addEventListener("click", event => {
+  const edit = event.target.closest(".cad-edit"), del = event.target.closest(".cad-del");
+  if (edit) openCadencia(cadencias.find(c => String(c.id) === edit.dataset.id));
+  if (del && confirm("Excluir esta cadência?")) api(`/v1/admin/crm/cadencias/${del.dataset.id}`, { method: "DELETE" }).then(loadCadencias).catch(error => show(error.message));
+});
+cadenciaForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const passos = [...document.querySelectorAll("#cadencia-passos .crm-cad-passo")].map(row => ({
+    dia: Number(row.querySelector(".passo-dia").value) || 0,
+    canal: row.querySelector(".passo-canal").value,
+    titulo: row.querySelector(".passo-titulo").value.trim(),
+  })).filter(p => p.titulo);
+  const payload = { nome: cadenciaForm.elements.nome.value.trim(), descricao: cadenciaForm.elements.descricao.value || null, ativo: cadenciaForm.elements.ativo.checked, passos };
+  const id = cadenciaForm.elements.id.value;
+  const msg = document.querySelector("#cadencia-message"); msg.hidden = false; msg.className = "status-message loading"; msg.textContent = "Salvando…";
+  try { await api(id ? `/v1/admin/crm/cadencias/${id}` : "/v1/admin/crm/cadencias", { method: id ? "PUT" : "POST", body: JSON.stringify(payload) }); cadenciaDialog.close(); show("Cadência salva.", "success"); await loadCadencias(); }
+  catch (error) { msg.className = "status-message error"; msg.textContent = error.message; }
+});
+
+references().then(() => Promise.all([loadHistory(), loadReminders(), loadAutomacoes(), loadCadencias()])).then(() => {
   const leadId = new URLSearchParams(location.search).get("lead_id"); if (/^\d+$/.test(leadId || "") && crmState.canManage) openReminder(leadId);
 }).catch(error => show(error.message));

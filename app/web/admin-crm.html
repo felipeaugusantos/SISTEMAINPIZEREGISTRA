@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>CRM — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=34"><link rel="stylesheet" href="/static/admin-crm.css?v=1"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=1">
-  <script src="/static/admin-shell.js?v=35" defer></script><script src="/static/admin-crm.js?v=4" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=35"><link rel="stylesheet" href="/static/admin-crm.css?v=1"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=1">
+  <script src="/static/admin-shell.js?v=35" defer></script><script src="/static/admin-crm.js?v=5" defer></script>
 </head>
 <body class="admin-body" data-admin-section="crm">
   <main class="admin-main crm-main">
@@ -28,6 +28,10 @@
     <section class="crm-card crm-automacoes-card">
       <header><div><p class="eyebrow">AUTOMAÇÕES</p><h2>Regras automáticas</h2><p>Ao mudar a fase ou o status da oportunidade, o sistema cria a tarefa correspondente para a equipe. Ative/desative e ajuste o prazo.</p></div></header>
       <div id="crm-automacoes" class="crm-automacoes"></div>
+    </section>
+    <section class="crm-card crm-cadencias-card">
+      <header><div><p class="eyebrow">CADÊNCIAS</p><h2>Sequências de atendimento</h2><p>Uma sequência de passos ao longo dos dias (e-mail, WhatsApp, ligação). Aplicada a uma oportunidade, gera as tarefas nas datas certas.</p></div><button id="new-cadencia" class="secondary-button" type="button">Nova cadência</button></header>
+      <div id="crm-cadencias" class="crm-cadencias"></div>
     </section>
     <section class="crm-card">
       <form id="crm-filter" class="crm-filter">
@@ -58,6 +62,19 @@
       <label class="wide"><span>Descrição</span><textarea name="descricao" maxlength="2000" rows="4"></textarea></label>
       <div id="reminder-message" class="status-message" hidden role="status"></div>
       <footer><button id="cancel-reminder" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Salvar lembrete</button></footer>
+    </form>
+  </dialog>
+  <dialog id="cadencia-dialog" class="crm-reminder-dialog">
+    <form id="cadencia-form" method="dialog">
+      <header><div><p class="eyebrow">CADÊNCIA</p><h2 id="cadencia-title">Nova cadência</h2></div><button id="close-cadencia" class="dialog-close" type="button" aria-label="Fechar">×</button></header>
+      <input type="hidden" name="id">
+      <label class="wide"><span>Nome</span><input name="nome" minlength="1" maxlength="120" required placeholder="Ex.: Follow-up padrão"></label>
+      <label class="wide"><span>Descrição (opcional)</span><input name="descricao" maxlength="2000"></label>
+      <label class="crm-cad-ativo"><input type="checkbox" name="ativo" checked><span>Cadência ativa</span></label>
+      <div class="crm-cad-passos-head"><strong>Passos</strong><button id="add-passo" class="secondary-button" type="button">Adicionar passo</button></div>
+      <div id="cadencia-passos" class="crm-cad-passos"></div>
+      <div id="cadencia-message" class="status-message" hidden role="status"></div>
+      <footer><button id="cancel-cadencia" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Salvar cadência</button></footer>
     </form>
   </dialog>
 </body>

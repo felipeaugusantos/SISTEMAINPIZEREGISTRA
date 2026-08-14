@@ -1028,6 +1028,26 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
 .emp-check { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: .82rem; }
 @media (max-width: 640px) { .emp-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 420px) { .emp-grid { grid-template-columns: 1fr; } }
+.crm-cadencias { display: flex; flex-direction: column; gap: 10px; }
+.crm-cadencia { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.crm-cadencia small { color: var(--muted); font-size: .78rem; }
+.crm-cad-inativa { font-size: .64rem; font-weight: 800; text-transform: uppercase; color: var(--muted); background: #eef1ec; padding: 1px 6px; border-radius: 6px; }
+.crm-cad-acts { display: flex; gap: 6px; }
+.crm-cad-empty { color: var(--muted); font-size: .85rem; margin: 4px 2px; }
+.crm-cad-ativo { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: .85rem; }
+.crm-cad-passos-head { display: flex; align-items: center; justify-content: space-between; margin: 12px 0 8px; }
+.crm-cad-passos { display: flex; flex-direction: column; gap: 8px; }
+.crm-cad-passo { display: grid; grid-template-columns: 90px 130px 1fr 34px; gap: 8px; align-items: end; }
+.crm-cad-passo label { display: grid; gap: 4px; font-size: .72rem; font-weight: 700; }
+.crm-cad-passo input, .crm-cad-passo select { padding: 7px 8px; border: 1px solid #cbd4cd; border-radius: 8px; font: inherit; font-size: .82rem; }
+.crm-cad-passo .passo-del { border: 1px solid var(--line); background: #fff; border-radius: 8px; cursor: pointer; height: 34px; }
+.lead-cadencia { margin-bottom: 24px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: #f8f8f4; }
+.lead-cadencia > header .eyebrow { margin: 0; color: var(--muted); font-size: .7rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.lead-cadencia > header h3 { margin: 2px 0 12px; font: 500 1.4rem Georgia, serif; }
+.lead-cad-apply { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lead-cad-apply select { padding: 8px 10px; border: 1px solid #cbd4cd; border-radius: 8px; background: #fff; font: inherit; font-size: .85rem; }
+.lead-cad-msg { font-size: .8rem; color: var(--muted); }
+@media (max-width: 560px) { .crm-cad-passo { grid-template-columns: 1fr 1fr; } .crm-cad-passo .passo-titulo-field { grid-column: 1 / -1; } }
 .crm-automacoes { display: flex; flex-direction: column; gap: 10px; }
 .crm-automacao { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; flex-wrap: wrap; }
 .crm-auto-toggle { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 220px; cursor: pointer; }

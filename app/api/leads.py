@@ -1,6 +1,6 @@
 import csv
 import io
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Literal
 
@@ -19,10 +19,12 @@ from app.models import (
     ORDEM_FASE_LEAD,
     TIPOS_DOCUMENTO_LEAD,
     AvaliacaoRiscoMarca,
+    Cadencia,
     CanalContato,
     ChecklistFaseLead,
     Contato,
     ContatoLead,
+    LembreteCRM,
     DocumentoLead,
     EmpresaCRM,
     EventoAuditoria,
@@ -1451,6 +1453,61 @@ async def remover_guia_inpi(
     await session.delete(guia)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class AplicarCadenciaInput(BaseModel):
+    cadencia_id: int
+
+
+@router.post("/v1/admin/leads/{lead_id}/aplicar-cadencia")
+async def aplicar_cadencia_lead(
+    lead_id: int, dados: AplicarCadenciaInput, session: SessionDep, usuario: LeadsManageDep
+) -> dict:
+    lead = (
+        await session.execute(
+            select(Lead).where(
+                Lead.id == lead_id,
+                Lead.organizacao_id == usuario.organizacao_id,
+                Lead.arquivado_em.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Oportunidade não encontrada")
+    cadencia = (
+        await session.execute(
+            select(Cadencia)
+            .where(
+                Cadencia.id == dados.cadencia_id,
+                Cadencia.organizacao_id == usuario.organizacao_id,
+            )
+            .options(selectinload(Cadencia.passos))
+        )
+    ).scalar_one_or_none()
+    if cadencia is None:
+        raise HTTPException(status_code=404, detail="Cadência não encontrada")
+    agora = datetime.now(UTC)
+    for passo in cadencia.passos:
+        descricao = f"Cadência “{cadencia.nome}” · canal {passo.canal}"
+        if passo.descricao:
+            descricao += f" — {passo.descricao}"
+        session.add(
+            LembreteCRM(
+                organizacao_id=usuario.organizacao_id,
+                lead_id=lead.id,
+                responsavel_id=lead.responsavel_id,
+                tipo="retorno",
+                prioridade="media",
+                titulo=passo.titulo,
+                descricao=descricao,
+                lembrar_em=agora + timedelta(days=passo.dia),
+                status="pendente",
+                criado_por=f"Cadência ({usuario.nome})"[:254],
+                criado_por_id=usuario.id,
+            )
+        )
+    await session.commit()
+    return {"criados": len(cadencia.passos)}
 
 
 FASE_LABELS: dict[str, str] = {

@@ -80,7 +80,7 @@ function renderDeadlines(items) {
   }
   container.innerHTML = [...grupos.values()].map((prazos) => {
     const ref = prazos[0];
-    const cabecalho = `<header class="legal-process-header"><div class="legal-deadline-identity"><a class="legal-process-number" href="/processos/${encodeURIComponent(ref.numero)}" target="_blank" rel="noopener">${escapeHtml(ref.numero)}</a><span class="legal-identity-sep">–</span><strong class="legal-client-name">${escapeHtml(ref.empresa || ref.marca || "Cliente não identificado")}</strong>${ref.empresa ? "" : '<span class="legal-badge">Sem empresa vinculada</span>'}<span class="legal-process-count">${prazos.length} atualizaç${prazos.length === 1 ? "ão" : "ões"}</span></div><div class="legal-process-actions">${ref.empresa ? "" : `<button class="secondary-button vincular-cliente" data-id="${ref.id}" data-sugestao="${escapeHtml(ref.marca || "")}" type="button">Vincular cliente no CRM</button>`}<button class="secondary-button open-checklist" data-id="${ref.id}" data-tipo="${escapeHtml(ref.tipo_nome)}" type="button">Checklist${checklistBadge(ref.id)}</button></div></header>`;
+    const cabecalho = `<header class="legal-process-header"><div class="legal-process-head-left"><button class="legal-toggle" type="button" aria-expanded="true" aria-label="Expandir ou recolher atualizações">▾</button><div class="legal-deadline-identity"><a class="legal-process-number" href="/processos/${encodeURIComponent(ref.numero)}" target="_blank" rel="noopener">${escapeHtml(ref.numero)}</a><span class="legal-identity-sep">–</span><strong class="legal-client-name">${escapeHtml(ref.empresa || ref.marca || "Cliente não identificado")}</strong>${ref.empresa ? "" : '<span class="legal-badge">Sem empresa vinculada</span>'}<span class="legal-process-count">${prazos.length} atualizaç${prazos.length === 1 ? "ão" : "ões"}</span></div></div><div class="legal-process-actions">${ref.empresa ? "" : `<button class="secondary-button vincular-cliente" data-id="${ref.id}" data-sugestao="${escapeHtml(ref.marca || "")}" type="button">Vincular cliente no CRM</button>`}<button class="secondary-button open-checklist" data-id="${ref.id}" data-tipo="${escapeHtml(ref.tipo_nome)}" type="button">Checklist${checklistBadge(ref.id)}</button></div></header>`;
     const linhas = prazos.map((item) => `<div class="legal-deadline ${deadlineClass(item)}"><div><div class="legal-badges"><span class="legal-badge">${escapeHtml(item.tipo_nome)}</span><span class="legal-badge ${item.prioridade === "critica" ? "critical" : ""}">${escapeHtml(item.prioridade)}</span>${!item.confirmado ? '<span class="legal-badge critical">Conferência obrigatória</span>' : ""}</div><h3>${escapeHtml(item.titulo)}</h3><small>${escapeHtml(item.descricao || "Sem orientações adicionais")}</small></div><div class="legal-deadline-date"><span>Vencimento</span><strong>${dateOnly.format(new Date(item.vencimento_em))}</strong><span>${item.vencido ? `Vencido há ${Math.abs(item.dias_restantes)} dia(s)` : `${item.dias_restantes} dia(s) restante(s)`} · ${escapeHtml(item.contagem)}</span></div><div class="legal-deadline-owner"><span>Responsável</span><strong>${escapeHtml(item.responsavel || "Não atribuído")}</strong><span>Escalonamento: ${escapeHtml(item.escalonar_para || "não definido")}</span><span>Status: ${escapeHtml(item.status.replaceAll("_", " "))}</span></div><div class="legal-actions">${deadlineActions(item)}</div></div>`).join("");
     return `<article class="legal-process-group">${cabecalho}<div class="legal-process-deadlines">${linhas}</div></article>`;
   }).join("");
@@ -155,6 +155,13 @@ deadlineForm.addEventListener("submit", async (event) => {
   } catch (error) { showMessage(error.message); }
 });
 document.querySelector("#legal-deadlines").addEventListener("click", (event) => {
+  const toggle = event.target.closest(".legal-toggle");
+  if (toggle) {
+    const group = toggle.closest(".legal-process-group");
+    const collapsed = group.classList.toggle("collapsed");
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    return;
+  }
   const confirm = event.target.closest(".confirm-deadline");
   const cancel = event.target.closest(".cancel-deadline");
   const complete = event.target.closest(".complete-deadline");

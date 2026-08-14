@@ -13,6 +13,11 @@
 .legal-process-deadlines{display:grid}
 .legal-process-group .legal-deadline{border-top:0;border-right:0;border-bottom:1px solid var(--line);border-radius:0}
 .legal-process-deadlines>.legal-deadline:last-child{border-bottom:0}
+.legal-process-head-left{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.legal-toggle{width:28px;height:28px;flex:0 0 auto;border:1px solid var(--line);border-radius:8px;background:#fff;color:#125a3a;cursor:pointer;font-size:.8rem;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:transform .15s}
+.legal-toggle:hover{background:#eef4ef}
+.legal-process-group.collapsed .legal-toggle{transform:rotate(-90deg)}
+.legal-process-group.collapsed .legal-process-deadlines{display:none}
 /* Uniformiza TODOS os botões da coluna de ações (primário + secundários):
    vence .admin-body .secondary-button e .primary-button na especificidade. */
 .admin-body .legal-actions button{min-height:40px;padding:9px 12px;font-size:.74rem;width:100%;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}

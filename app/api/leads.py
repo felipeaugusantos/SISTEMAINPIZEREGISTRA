@@ -15,12 +15,12 @@ from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
 from app.crm import avancar_fase_lead
 from app.database import get_session
 from app.models import (
-    AvaliacaoRiscoMarca,
-    CanalContato,
-    ContatoLead,
     ORDEM_FASE_LEAD,
     TIPOS_DOCUMENTO_LEAD,
+    AvaliacaoRiscoMarca,
+    CanalContato,
     ChecklistFaseLead,
+    ContatoLead,
     DocumentoLead,
     EmpresaCRM,
     EventoAuditoria,
@@ -28,8 +28,8 @@ from app.models import (
     GuiaInpi,
     HistoricoFaseLead,
     Lead,
-    RetribuicaoInpi,
     PesquisaMarca,
+    RetribuicaoInpi,
     SolicitacaoExclusaoPesquisa,
     StatusLead,
     UsuarioOperacoes,
@@ -861,7 +861,14 @@ async def definir_fase_lead(
         forcar=True,
     )
     if mudou:
-        _auditar(session, usuario, request, "fase_lead", f"lead:{lead.id}", {"fase": dados.fase.value})
+        _auditar(
+            session,
+            usuario,
+            request,
+            "fase_lead",
+            f"lead:{lead.id}",
+            {"fase": dados.fase.value},
+        )
     await session.commit()
     return {"fase": lead.fase}
 

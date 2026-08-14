@@ -207,6 +207,11 @@ class LeadResponse(BaseModel):
     def tags_nao_informadas(cls, valor: list[str] | None) -> list[str]:
         return valor or []
 
+    @field_validator("fase", mode="before")
+    @classmethod
+    def fase_nao_informada(cls, valor: str | None) -> str:
+        return valor or "contato_inicial"
+
 
 TipoPesquisaMarca = Literal["exata", "radical", "completa"]
 

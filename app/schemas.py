@@ -171,6 +171,7 @@ class LeadResponse(BaseModel):
     telefone: str
     documento: str | None = None
     empresa_id: int | None = None
+    contato_id: int | None = None
     empresa: str | None
     marca: str
     atividade: str | None

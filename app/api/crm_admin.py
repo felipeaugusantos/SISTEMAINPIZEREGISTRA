@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import get_session
+from app.crm import normalizar_empresa
 from app.models import (
     CanalContato,
+    Contato,
     ContatoLead,
     EmpresaCRM,
     EventoAuditoria,
@@ -506,3 +508,180 @@ async def atualizar_lembrete(
     await session.commit()
     await session.refresh(item)
     return _serializar_lembrete(item)
+
+
+# --- Separação empresa/contato (Terceira entrega, item 1) -------------------
+
+
+class EmpresaUpdate(BaseModel):
+    nome: str | None = Field(default=None, min_length=1, max_length=200)
+    documento: str | None = Field(default=None, max_length=18)
+    segmento: str | None = Field(default=None, max_length=80)
+    telefone: str | None = Field(default=None, max_length=30)
+    email: str | None = Field(default=None, max_length=254)
+    site: str | None = Field(default=None, max_length=200)
+    observacoes: str | None = Field(default=None, max_length=2000)
+
+
+class ContatoInput(BaseModel):
+    nome: str = Field(min_length=1, max_length=150)
+    email: str | None = Field(default=None, max_length=254)
+    telefone: str | None = Field(default=None, max_length=30)
+    cargo: str | None = Field(default=None, max_length=80)
+    principal: bool = False
+    observacoes: str | None = Field(default=None, max_length=2000)
+
+
+def _contato_dict(c: Contato) -> dict:
+    return {
+        "id": c.id,
+        "empresa_id": c.empresa_id,
+        "nome": c.nome,
+        "email": c.email,
+        "telefone": c.telefone,
+        "cargo": c.cargo,
+        "principal": c.principal,
+        "observacoes": c.observacoes,
+    }
+
+
+async def _empresa_da_org(
+    session: AsyncSession, empresa_id: int, organizacao_id: int
+) -> EmpresaCRM:
+    empresa = (
+        await session.execute(
+            select(EmpresaCRM).where(
+                EmpresaCRM.id == empresa_id, EmpresaCRM.organizacao_id == organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if empresa is None:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    return empresa
+
+
+@router.get("/empresas/{empresa_id}")
+async def obter_empresa(empresa_id: int, session: SessionDep, usuario: CRMViewDep) -> dict:
+    empresa = await _empresa_da_org(session, empresa_id, usuario.organizacao_id)
+    contatos = (
+        (
+            await session.execute(
+                select(Contato)
+                .where(Contato.empresa_id == empresa_id, Contato.organizacao_id == usuario.organizacao_id)
+                .order_by(Contato.principal.desc(), Contato.nome)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "id": empresa.id,
+        "nome": empresa.nome,
+        "documento": empresa.documento,
+        "segmento": empresa.segmento,
+        "telefone": empresa.telefone,
+        "email": empresa.email,
+        "site": empresa.site,
+        "observacoes": empresa.observacoes,
+        "contatos": [_contato_dict(c) for c in contatos],
+    }
+
+
+@router.put("/empresas/{empresa_id}")
+async def editar_empresa(
+    empresa_id: int, dados: EmpresaUpdate, request: Request, session: SessionDep, usuario: CRMManageDep
+) -> dict:
+    empresa = await _empresa_da_org(session, empresa_id, usuario.organizacao_id)
+    campos = dados.model_dump(exclude_unset=True)
+    if "nome" in campos and campos["nome"]:
+        novo_nome = campos["nome"].strip()
+        normalizado = normalizar_empresa(novo_nome)
+        duplicada = (
+            await session.execute(
+                select(EmpresaCRM.id).where(
+                    EmpresaCRM.organizacao_id == usuario.organizacao_id,
+                    EmpresaCRM.nome_normalizado == normalizado,
+                    EmpresaCRM.id != empresa_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if duplicada:
+            raise HTTPException(status_code=409, detail="Já existe uma empresa com esse nome")
+        empresa.nome = novo_nome
+        empresa.nome_normalizado = normalizado
+        campos.pop("nome")
+    for campo, valor in campos.items():
+        setattr(empresa, campo, valor or None)
+    await session.commit()
+    return {"id": empresa.id, "status": "atualizada"}
+
+
+@router.post("/empresas/{empresa_id}/contatos", status_code=status.HTTP_201_CREATED)
+async def criar_contato(
+    empresa_id: int, dados: ContatoInput, session: SessionDep, usuario: CRMManageDep
+) -> dict:
+    await _empresa_da_org(session, empresa_id, usuario.organizacao_id)
+    if dados.principal:
+        await session.execute(
+            Contato.__table__.update()
+            .where(Contato.empresa_id == empresa_id, Contato.organizacao_id == usuario.organizacao_id)
+            .values(principal=False)
+        )
+    contato = Contato(
+        organizacao_id=usuario.organizacao_id,
+        empresa_id=empresa_id,
+        nome=dados.nome.strip(),
+        email=dados.email or None,
+        telefone=dados.telefone or None,
+        cargo=dados.cargo or None,
+        principal=dados.principal,
+        observacoes=dados.observacoes or None,
+    )
+    session.add(contato)
+    await session.commit()
+    return {"id": contato.id}
+
+
+async def _contato_da_org(session: AsyncSession, contato_id: int, organizacao_id: int) -> Contato:
+    contato = (
+        await session.execute(
+            select(Contato).where(
+                Contato.id == contato_id, Contato.organizacao_id == organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if contato is None:
+        raise HTTPException(status_code=404, detail="Contato não encontrado")
+    return contato
+
+
+@router.put("/contatos/{contato_id}")
+async def editar_contato(
+    contato_id: int, dados: ContatoInput, session: SessionDep, usuario: CRMManageDep
+) -> dict:
+    contato = await _contato_da_org(session, contato_id, usuario.organizacao_id)
+    if dados.principal and not contato.principal:
+        await session.execute(
+            Contato.__table__.update()
+            .where(
+                Contato.empresa_id == contato.empresa_id,
+                Contato.organizacao_id == usuario.organizacao_id,
+            )
+            .values(principal=False)
+        )
+    contato.nome = dados.nome.strip()
+    contato.email = dados.email or None
+    contato.telefone = dados.telefone or None
+    contato.cargo = dados.cargo or None
+    contato.principal = dados.principal
+    contato.observacoes = dados.observacoes or None
+    await session.commit()
+    return {"id": contato.id, "status": "atualizado"}
+
+
+@router.delete("/contatos/{contato_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remover_contato(contato_id: int, session: SessionDep, usuario: CRMManageDep):
+    contato = await _contato_da_org(session, contato_id, usuario.organizacao_id)
+    await session.delete(contato)
+    await session.commit()
+    return None

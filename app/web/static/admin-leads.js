@@ -349,6 +349,7 @@ async function openLead(id) {
   document.querySelector("#lead-dialog-title").textContent = lead.nome;
   dialogContent.innerHTML = `
     <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div></section>
+    ${lead.empresa_id ? `<section class="lead-empresa lg-full" id="lead-empresa" data-empresa-id="${lead.empresa_id}" data-contato-id="${lead.contato_id || ""}"><p class="lead-funil-loading">Carregando empresa…</p></section>` : ""}
     <div class="lead-dialog-grid">
     <section class="lead-funil lg-full" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
     <section class="lead-history lg-full"><header><div><p class="eyebrow">Histórico</p><h3>${lead.pesquisas.length} pesquisa${lead.pesquisas.length === 1 ? "" : "s"}</h3></div></header>${lead.pesquisas.length ? lead.pesquisas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
@@ -383,6 +384,7 @@ async function openLead(id) {
       <ol id="lead-contact-history" class="lead-contact-history"><li class="lead-contact-empty">Carregando contatos...</li></ol>
     </section>
     </aside>`;
+  await renderEmpresa(lead);
   await loadLeadContacts(lead.id);
   await renderTimeline(lead.id);
   await renderFunil(lead.id);
@@ -414,6 +416,81 @@ function faseMini(fase) {
 
 const DOC_LABELS = { procuracao: "Procuração", gru: "GRU", protocolo: "Protocolo", oposicao: "Oposição", certificado: "Certificado" };
 const DOC_STATUS = [["pendente", "Pendente"], ["em_andamento", "Em andamento"], ["concluido", "Concluído"], ["nao_aplicavel", "N/A"]];
+
+async function renderEmpresa(lead) {
+  const box = document.querySelector("#lead-empresa");
+  if (!box) return;
+  const empresaId = box.dataset.empresaId;
+  const contatoVinculado = box.dataset.contatoId;
+  let data;
+  try { data = await (await fetch(`/v1/admin/crm/empresas/${empresaId}`)).json(); }
+  catch { box.innerHTML = ""; return; }
+  const canManage = state.canManage;
+  const campo = (label, name, value, type = "text") => `<label><span>${escapeHtml(label)}</span><input name="${name}" type="${type}" value="${escapeHtml(value || "")}" ${canManage ? "" : "readonly"} maxlength="200"></label>`;
+  const contatos = (data.contatos || []).map(c => {
+    const tags = [c.principal ? `<span class="emp-tag">principal</span>` : "", String(c.id) === contatoVinculado ? `<span class="emp-tag vinc">nesta oportunidade</span>` : ""].join("");
+    const meta = [c.cargo, c.email, c.telefone].filter(Boolean).map(escapeHtml).join(" · ");
+    const acts = canManage ? `<div class="emp-contato-acts"><button class="emp-contato-edit" data-id="${c.id}" type="button">Editar</button><button class="emp-contato-del" data-id="${c.id}" type="button" aria-label="Remover">×</button></div>` : "";
+    return `<li class="emp-contato" data-id="${c.id}"><div><strong>${escapeHtml(c.nome)}</strong> ${tags}<br><small>${meta || "—"}</small></div>${acts}</li>`;
+  }).join("");
+  box.innerHTML = `<header><p class="eyebrow">Empresa</p><h3>${escapeHtml(data.nome)}</h3></header>
+    <form class="emp-form">
+      <div class="emp-grid">
+        ${campo("Documento (CNPJ/CPF)", "documento", data.documento)}
+        ${campo("Segmento", "segmento", data.segmento)}
+        ${campo("Telefone", "telefone", data.telefone)}
+        ${campo("E-mail", "email", data.email, "email")}
+        ${campo("Site", "site", data.site)}
+      </div>
+      ${canManage ? `<div class="emp-form-acts"><button class="secondary-button" type="submit">Salvar empresa</button><span class="emp-msg" role="status"></span></div>` : ""}
+    </form>
+    <div class="emp-contatos">
+      <div class="emp-contatos-head"><p class="eyebrow">Contatos</p>${canManage ? `<button class="secondary-button emp-add" type="button">Adicionar contato</button>` : ""}</div>
+      <ul class="emp-contato-list">${contatos || `<li class="emp-empty">Nenhum contato cadastrado.</li>`}</ul>
+      ${canManage ? `<form class="emp-contato-form" hidden autocomplete="off">
+        <input type="hidden" name="id">
+        <div class="emp-grid">
+          <label><span>Nome</span><input name="nome" maxlength="150" required></label>
+          <label><span>Cargo</span><input name="cargo" maxlength="80"></label>
+          <label><span>E-mail</span><input name="email" type="email" maxlength="254"></label>
+          <label><span>Telefone</span><input name="telefone" maxlength="30"></label>
+        </div>
+        <label class="emp-check"><input type="checkbox" name="principal"><span>Contato principal</span></label>
+        <div class="emp-form-acts"><button class="secondary-button" type="submit">Salvar contato</button><button class="secondary-button emp-contato-cancel" type="button">Cancelar</button></div>
+      </form>` : ""}
+    </div>`;
+  if (!canManage) return;
+  box.querySelector(".emp-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const f = e.target;
+    const payload = {};
+    ["documento", "segmento", "telefone", "email", "site"].forEach(k => { payload[k] = f.elements[k].value || null; });
+    const r = await fetch(`/v1/admin/crm/empresas/${empresaId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const m = box.querySelector(".emp-msg");
+    if (m) m.textContent = r.ok ? "Empresa salva." : "Erro ao salvar.";
+  });
+  const cform = box.querySelector(".emp-contato-form");
+  const openC = (c) => {
+    cform.reset(); cform.hidden = false; cform.elements.id.value = c?.id || "";
+    if (c) { cform.elements.nome.value = c.nome || ""; cform.elements.cargo.value = c.cargo || ""; cform.elements.email.value = c.email || ""; cform.elements.telefone.value = c.telefone || ""; cform.elements.principal.checked = !!c.principal; }
+    cform.elements.nome.focus();
+  };
+  box.querySelector(".emp-add")?.addEventListener("click", () => openC());
+  box.querySelector(".emp-contato-cancel")?.addEventListener("click", () => { cform.hidden = true; });
+  box.querySelectorAll(".emp-contato-edit").forEach(b => b.addEventListener("click", () => openC((data.contatos || []).find(c => String(c.id) === b.dataset.id))));
+  box.querySelectorAll(".emp-contato-del").forEach(b => b.addEventListener("click", async () => {
+    const r = await fetch(`/v1/admin/crm/contatos/${b.dataset.id}`, { method: "DELETE" });
+    if (r.ok || r.status === 204) await renderEmpresa(lead);
+  }));
+  cform.addEventListener("submit", async e => {
+    e.preventDefault();
+    const id = cform.elements.id.value;
+    const payload = { nome: cform.elements.nome.value.trim(), cargo: cform.elements.cargo.value || null, email: cform.elements.email.value || null, telefone: cform.elements.telefone.value || null, principal: cform.elements.principal.checked, observacoes: null };
+    const url = id ? `/v1/admin/crm/contatos/${id}` : `/v1/admin/crm/empresas/${empresaId}/contatos`;
+    const r = await fetch(url, { method: id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (r.ok) await renderEmpresa(lead);
+  });
+}
 
 async function renderDocumentos(leadId) {
   const box = document.querySelector("#lead-documentos");

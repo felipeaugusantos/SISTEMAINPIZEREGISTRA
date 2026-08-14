@@ -474,6 +474,7 @@ class LeadDetalheResponse(LeadResponse):
 class LeadStatusUpdate(BaseModel):
     status: StatusLead | None = None
     responsavel_id: int | None = None
+    contato_id: int | None = None
     notas: str | None = Field(default=None, max_length=4000)
     proxima_acao_em: datetime | None = None
     tags: list[str] | None = Field(default=None, max_length=20)

@@ -430,7 +430,8 @@ async function renderEmpresa(lead) {
   const contatos = (data.contatos || []).map(c => {
     const tags = [c.principal ? `<span class="emp-tag">principal</span>` : "", String(c.id) === contatoVinculado ? `<span class="emp-tag vinc">nesta oportunidade</span>` : ""].join("");
     const meta = [c.cargo, c.email, c.telefone].filter(Boolean).map(escapeHtml).join(" · ");
-    const acts = canManage ? `<div class="emp-contato-acts"><button class="emp-contato-edit" data-id="${c.id}" type="button">Editar</button><button class="emp-contato-del" data-id="${c.id}" type="button" aria-label="Remover">×</button></div>` : "";
+    const vincular = (canManage && String(c.id) !== contatoVinculado) ? `<button class="emp-contato-vinc" data-id="${c.id}" type="button" title="Usar este contato nesta oportunidade">Vincular</button>` : "";
+    const acts = canManage ? `<div class="emp-contato-acts">${vincular}<button class="emp-contato-edit" data-id="${c.id}" type="button">Editar</button><button class="emp-contato-del" data-id="${c.id}" type="button" aria-label="Remover">×</button></div>` : "";
     return `<li class="emp-contato" data-id="${c.id}"><div><strong>${escapeHtml(c.nome)}</strong> ${tags}<br><small>${meta || "—"}</small></div>${acts}</li>`;
   }).join("");
   box.innerHTML = `<header><p class="eyebrow">Empresa</p><h3>${escapeHtml(data.nome)}</h3></header>
@@ -481,6 +482,10 @@ async function renderEmpresa(lead) {
   box.querySelectorAll(".emp-contato-del").forEach(b => b.addEventListener("click", async () => {
     const r = await fetch(`/v1/admin/crm/contatos/${b.dataset.id}`, { method: "DELETE" });
     if (r.ok || r.status === 204) await renderEmpresa(lead);
+  }));
+  box.querySelectorAll(".emp-contato-vinc").forEach(b => b.addEventListener("click", async () => {
+    const r = await fetch(`/v1/admin/leads/${lead.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contato_id: Number(b.dataset.id) }) });
+    if (r.ok) { box.dataset.contatoId = b.dataset.id; lead.contato_id = Number(b.dataset.id); await renderEmpresa(lead); }
   }));
   cform.addEventListener("submit", async e => {
     e.preventDefault();

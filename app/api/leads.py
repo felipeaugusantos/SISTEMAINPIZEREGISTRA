@@ -21,6 +21,7 @@ from app.models import (
     AvaliacaoRiscoMarca,
     CanalContato,
     ChecklistFaseLead,
+    Contato,
     ContatoLead,
     DocumentoLead,
     EmpresaCRM,
@@ -692,6 +693,24 @@ async def atualizar_status_lead(
                 raise HTTPException(status_code=422, detail="Responsavel invalido")
         alteracoes["responsavel_id"] = {"de": lead.responsavel_id, "para": dados.responsavel_id}
         lead.responsavel_id = dados.responsavel_id
+    if "contato_id" in dados.model_fields_set:
+        if dados.contato_id is not None:
+            contato = (
+                await session.execute(
+                    select(Contato).where(
+                        Contato.id == dados.contato_id,
+                        Contato.organizacao_id == usuario.organizacao_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if contato is None:
+                raise HTTPException(status_code=422, detail="Contato inválido")
+            if lead.empresa_id is not None and contato.empresa_id != lead.empresa_id:
+                raise HTTPException(
+                    status_code=422, detail="O contato não pertence à empresa desta oportunidade"
+                )
+        alteracoes["contato_id"] = {"de": lead.contato_id, "para": dados.contato_id}
+        lead.contato_id = dados.contato_id
     if "notas" in dados.model_fields_set:
         alteracoes["notas_atualizadas"] = True
         lead.notas = dados.notas

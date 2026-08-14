@@ -688,6 +688,20 @@ dialogContent.addEventListener("submit", async event => {
   ]);
 });
 
+// Na tela de Pesquisas (/admin/pesquisas) começamos na lista plana de pesquisas,
+// sem o agrupamento por contato — que fica reservado à tela de Leads.
+if (location.pathname.startsWith("/admin/pesquisas")) {
+  state.viewMode = "researches";
+  viewButtons.forEach(item => {
+    const active = item.dataset.view === "researches";
+    item.classList.toggle("active", active);
+    item.setAttribute("aria-pressed", String(active));
+  });
+  document.querySelector("#research-column-title").textContent = "Pesquisa";
+  document.querySelector("#activity-column-title").textContent = "Data da pesquisa";
+  viewDescription.textContent = "Cada linha representa uma pesquisa dos contatos ativos exibidos nesta página.";
+}
+
 loadOwners().then(async () => {
   await Promise.all([loadLeads(), loadCrmSummary()]);
   const leadId = new URLSearchParams(location.search).get("lead_id");

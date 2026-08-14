@@ -31,17 +31,23 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 - agente de registrabilidade baseado em dados estruturados;
 - versionamento e histórico dos relatórios.
 
-### Leads e CRM
+### Leads, oportunidades e CRM
 
 - captura de nome, empresa, e-mail, telefone e autorização de marketing;
-- agrupamento de várias pesquisas no mesmo contato;
-- prevenção e identificação de pesquisas duplicadas;
-- pipeline comercial, responsável, próxima ação, tags e observações;
+- separação **empresa / contato / oportunidade**: empresa com CNPJ, segmento e dados de contato; várias pessoas (contatos) por empresa; cada oportunidade vinculada a um contato;
+- pipeline comercial e **funil de fases** (do contato inicial ao processo no INPI), com **status e fase sincronizados** nos dois sentidos;
+- responsável e próxima ação obrigatórios nas oportunidades abertas; cards clicáveis de ações atrasadas, sem responsável e sem próxima ação;
+- **resultados e motivos de perda** estruturados (ganho/perdido: preço, concorrente, sem resposta, fora do perfil);
+- **linha do tempo unificada** por oportunidade (criação, mudanças de fase, contatos, pesquisas, documentos, GRUs e desfecho);
+- **documentos** por oportunidade (procuração, GRU, protocolo, oposição, certificado) e **checklist por etapa** do funil;
+- **guias do INPI (GRU)**: sugestão por fase a partir da tabela de retribuições, registro da guia emitida e controle de vencimento;
+- **dashboard de funil e produtividade** (conversão, ganhos/perdidas, perdas por motivo e desempenho por responsável) na Visão Geral;
+- **automações**: ao mudar a fase ou o status, o sistema cria a tarefa correspondente — configurável em Configuração › Regras automáticas;
+- **cadências**: sequências de passos (dia e canal — e-mail, WhatsApp, ligação) aplicáveis a uma oportunidade, que geram as tarefas nas datas certas;
+- agrupamento de várias pesquisas no mesmo contato e identificação de pesquisas duplicadas;
 - histórico de ligações, reuniões, WhatsApp, e-mails e outros contatos;
-- linha do tempo auditável por cliente, empresa e pesquisa;
 - busca por nome, empresa, marca, e-mail, telefone, CPF/CNPJ e status;
-- alertas para cadastros sem atualização e lembretes com prazo, prioridade e responsável;
-- agenda de retornos, propostas, documentos, processos e atualizações cadastrais;
+- lembretes com prazo, prioridade e responsável; agenda de retornos, propostas, documentos, processos e atualizações cadastrais;
 - arquivamento e restauração de contatos;
 - exclusão de pesquisas mediante senha ou aprovação administrativa.
 
@@ -70,6 +76,7 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 - cadastro e manutenção de lançamentos;
 - parcelas, vencimentos e pagamentos parciais ou integrais;
 - cadastro de formas de pagamento e limite de parcelas;
+- tabela de retribuições do INPI (GRUs de marca) com código de serviço e valores normal e reduzido;
 - baixas, cancelamentos e estornos com justificativa;
 - log financeiro em formato de tabela;
 - exportação de dados conforme as permissões do usuário.

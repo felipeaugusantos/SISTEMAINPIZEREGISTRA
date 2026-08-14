@@ -891,10 +891,9 @@ footer p {
 .lead-dialog-frame h2 { margin: 3px 0 0; font: 500 clamp(1.8rem, 4vw, 2.7rem)/1 Georgia, serif; }
 .dialog-close { width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 50%; background: white; font-size: 1.5rem; cursor: pointer; }
 .lead-dialog-content { padding: 26px 28px 36px; }
-.lead-dialog-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 24px; align-items: start; }
+.lead-dialog-grid { display: block; }
 .lead-dialog-main, .lead-dialog-aside { min-width: 0; }
 .lead-dialog-aside .lead-history { margin-top: 24px; }
-@media (max-width: 900px) { .lead-dialog-grid { grid-template-columns: 1fr; } }
 .lead-contact-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
 .lead-contact-summary > div { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #f8f8f4; }
 .lead-contact-summary span, .lead-contact-summary a, .lead-contact-summary strong { display: block; overflow-wrap: anywhere; }

@@ -4,7 +4,28 @@ import unicodedata
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import EmpresaCRM, Lead
+from app.models import ORDEM_FASE_LEAD, EmpresaCRM, HistoricoFaseLead, Lead
+
+
+async def avancar_fase_lead(
+    session: AsyncSession, lead: Lead, nova_fase: str, por: str, forcar: bool = False
+) -> bool:
+    """Move o lead para ``nova_fase`` e registra a transição no histórico.
+
+    Automático (``forcar=False``) só avança no funil — nunca retrocede. Manual
+    (``forcar=True``) permite qualquer fase. Retorna ``True`` se houve mudança.
+    """
+    if nova_fase not in ORDEM_FASE_LEAD or lead.fase == nova_fase:
+        return False
+    if not forcar and ORDEM_FASE_LEAD.index(nova_fase) <= ORDEM_FASE_LEAD.index(lead.fase):
+        return False
+    lead.fase = nova_fase
+    session.add(
+        HistoricoFaseLead(
+            organizacao_id=lead.organizacao_id, lead_id=lead.id, fase=nova_fase, por=por
+        )
+    )
+    return True
 
 
 def normalizar_empresa(nome: str) -> str:

@@ -41,6 +41,22 @@ class StatusLead(StrEnum):
     DESCARTADO = "descartado"
 
 
+class FaseLead(StrEnum):
+    """Etapa do lead no funil de atendimento (do 1º contato ao processo no INPI)."""
+
+    CONTATO_INICIAL = "contato_inicial"
+    RELATORIO_ENVIADO = "relatorio_enviado"
+    PROPOSTA_ENVIADA = "proposta_enviada"
+    PROPOSTA_ACEITA = "proposta_aceita"
+    PAGAMENTO_REALIZADO = "pagamento_realizado"
+    PROTOCOLO_INPI = "protocolo_inpi"
+    PROCESSO_INPI = "processo_inpi"
+
+
+# Ordem oficial do funil — usada para avançar (nunca retroceder) automaticamente.
+ORDEM_FASE_LEAD: tuple[str, ...] = tuple(f.value for f in FaseLead)
+
+
 processo_titulares = Table(
     "processo_titulares",
     Base.metadata,
@@ -897,6 +913,9 @@ class Lead(Base):
         default=StatusLead.NOVO,
         index=True,
     )
+    fase: Mapped[str] = mapped_column(
+        String(30), default=FaseLead.CONTATO_INICIAL.value, index=True
+    )
     aceite_privacidade: Mapped[bool] = mapped_column(default=True)
     aceite_marketing: Mapped[bool] = mapped_column(Boolean, default=False)
     responsavel_id: Mapped[int | None] = mapped_column(
@@ -926,6 +945,25 @@ class Lead(Base):
     )
     empresa_registro: Mapped["EmpresaCRM | None"] = relationship(back_populates="leads")
     responsavel: Mapped["UsuarioOperacoes | None"] = relationship()
+
+
+class HistoricoFaseLead(Base):
+    """Registro de cada transição de fase do lead no funil (para linha do tempo)."""
+
+    __tablename__ = "historico_fase_lead"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    lead_id: Mapped[int] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), index=True
+    )
+    fase: Mapped[str] = mapped_column(String(30))
+    entrou_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    por: Mapped[str | None] = mapped_column(String(150), nullable=True)
 
 
 class CanalContato(StrEnum):

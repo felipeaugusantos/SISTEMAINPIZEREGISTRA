@@ -11,13 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
+from app.crm import avancar_fase_lead
 from app.database import get_session
 from app.models import (
     AvaliacaoRiscoMarca,
     CanalContato,
     ContatoLead,
+    ORDEM_FASE_LEAD,
     EmpresaCRM,
     EventoAuditoria,
+    FaseLead,
+    HistoricoFaseLead,
     Lead,
     PesquisaMarca,
     SolicitacaoExclusaoPesquisa,
@@ -802,6 +806,64 @@ async def detalhar_lead(
     ]
     base = _lead_response(lead, usuario, pesquisas)
     return LeadDetalheResponse.model_validate(base.model_dump())
+
+
+@router.get("/v1/admin/leads/{lead_id}/funil")
+async def funil_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
+    lead = (
+        await session.execute(
+            select(Lead).where(
+                Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    historico = (
+        await session.execute(
+            select(HistoricoFaseLead.fase, HistoricoFaseLead.entrou_em, HistoricoFaseLead.por)
+            .where(HistoricoFaseLead.lead_id == lead.id)
+            .order_by(HistoricoFaseLead.entrou_em)
+        )
+    ).all()
+    return {
+        "fase": lead.fase,
+        "ordem": list(ORDEM_FASE_LEAD),
+        "historico": [
+            {"fase": f, "entrou_em": e, "por": p} for f, e, p in historico
+        ],
+    }
+
+
+class FaseLeadInput(BaseModel):
+    fase: FaseLead
+
+
+@router.post("/v1/admin/leads/{lead_id}/fase")
+async def definir_fase_lead(
+    lead_id: int,
+    dados: FaseLeadInput,
+    request: Request,
+    session: SessionDep,
+    usuario: LeadsManageDep,
+) -> dict:
+    lead = (
+        await session.execute(
+            select(Lead).where(
+                Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    mudou = await avancar_fase_lead(
+        session, lead, dados.fase.value, por=getattr(usuario, "nome", None) or "operador",
+        forcar=True,
+    )
+    if mudou:
+        _auditar(session, usuario, request, "fase_lead", f"lead:{lead.id}", {"fase": dados.fase.value})
+    await session.commit()
+    return {"fase": lead.fase}
 
 
 @router.delete("/v1/admin/leads/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)

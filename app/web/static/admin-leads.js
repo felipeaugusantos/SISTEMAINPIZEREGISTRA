@@ -343,6 +343,7 @@ async function openLead(id) {
   document.querySelector("#lead-dialog-title").textContent = lead.nome;
   dialogContent.innerHTML = `
     <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div></section>
+    <section class="lead-funil" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
     ${state.canManage ? `<form id="lead-crm-form" data-lead-id="${lead.id}" class="lead-crm-form">
       <label><span>Status</span><select name="status">${statusOptions(lead.status)}</select></label>
       <label><span>Responsável</span><select name="responsavel_id">${ownerOptions(lead.responsavel_id)}</select></label>
@@ -366,6 +367,45 @@ async function openLead(id) {
     </section>
     <section class="lead-history"><header><div><p class="eyebrow">Histórico</p><h3>${lead.pesquisas.length} pesquisa${lead.pesquisas.length === 1 ? "" : "s"}</h3></div></header>${lead.pesquisas.length ? lead.pesquisas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>`;
   await loadLeadContacts(lead.id);
+  await renderFunil(lead.id);
+}
+
+const FASE_LABELS = {
+  contato_inicial: "Contato inicial",
+  relatorio_enviado: "Relatório enviado",
+  proposta_enviada: "Proposta enviada",
+  proposta_aceita: "Proposta aceita",
+  pagamento_realizado: "Pagamento",
+  protocolo_inpi: "Protocolo INPI",
+  processo_inpi: "Processo no INPI",
+};
+
+async function renderFunil(leadId) {
+  const box = document.querySelector("#lead-funil");
+  if (!box) return;
+  let data;
+  try { data = await (await fetch(`/v1/admin/leads/${leadId}/funil`)).json(); }
+  catch { box.innerHTML = ""; return; }
+  const ordem = data.ordem || [];
+  const atualIdx = ordem.indexOf(data.fase);
+  const datas = {};
+  (data.historico || []).forEach(h => { datas[h.fase] = h.entrou_em; });
+  const steps = ordem.map((f, i) => {
+    const cls = i < atualIdx ? "done" : i === atualIdx ? "current" : "pending";
+    const quando = datas[f] ? formatDate(datas[f], false) : (i === atualIdx ? "atual" : "");
+    return `<li class="lfs ${cls}"><span class="lfs-dot">${i < atualIdx ? "✓" : ""}</span><span class="lfs-label">${escapeHtml(FASE_LABELS[f] || f)}</span><span class="lfs-date">${escapeHtml(quando)}</span></li>`;
+  }).join("");
+  const controle = state.canManage
+    ? `<div class="lead-funil-move"><label><span>Mover para</span><select id="lead-fase-select">${ordem.map(f => `<option value="${f}" ${f === data.fase ? "selected" : ""}>${escapeHtml(FASE_LABELS[f] || f)}</option>`).join("")}</select></label><button class="secondary-button" id="lead-fase-save" type="button">Salvar fase</button></div>`
+    : "";
+  box.innerHTML = `<header><p class="eyebrow">Funil de atendimento</p><h3>Fase do lead</h3></header><ol class="lead-funil-steps">${steps}</ol>${controle}`;
+  const saveBtn = box.querySelector("#lead-fase-save");
+  if (saveBtn) saveBtn.addEventListener("click", async () => {
+    const fase = box.querySelector("#lead-fase-select").value;
+    saveBtn.disabled = true;
+    const r = await fetch(`/v1/admin/leads/${leadId}/fase`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fase }) });
+    if (r.ok) await renderFunil(leadId); else { saveBtn.disabled = false; saveBtn.textContent = "Erro — tentar de novo"; }
+  });
 }
 
 function openResearchDelete(mode, id) {

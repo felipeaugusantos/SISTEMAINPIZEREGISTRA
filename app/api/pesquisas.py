@@ -5,7 +5,11 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.crm import buscar_lead_ativo_por_email, obter_ou_criar_empresa
+from app.crm import (
+    avancar_fase_lead,
+    buscar_lead_ativo_por_email,
+    obter_ou_criar_empresa,
+)
 from app.database import get_session
 from app.models import (
     AfinidadeClasse,
@@ -152,6 +156,8 @@ async def criar_pesquisa(
         pesquisa_original_id=original,
     )
     session.add(pesquisa)
+    # Funil do lead: gerar o relatório avança para "relatório enviado" (só avança).
+    await avancar_fase_lead(session, lead, "relatorio_enviado", por="sistema")
     await session.commit()
     await session.refresh(pesquisa)
     return PesquisaMarcaCriada(

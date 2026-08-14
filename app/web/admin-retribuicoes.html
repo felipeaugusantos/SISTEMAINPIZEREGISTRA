@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+  <title>Retribuições do INPI — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=29"><link rel="stylesheet" href="/static/admin-financeiro.css?v=6"><link rel="stylesheet" href="/static/admin-retribuicoes.css?v=1">
+  <script src="/static/admin-shell.js?v=33" defer></script><script src="/static/admin-retribuicoes.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="finance">
+  <main class="admin-main finance-main">
+    <section class="finance-hero">
+      <div><p class="eyebrow">CONFIGURAÇÃO FINANCEIRA</p><h1>Retribuições do INPI</h1><p>Tabela de referência das GRUs de marca — código de serviço e valor de cada guia.</p></div>
+      <div class="hero-actions"><a class="secondary-button" href="/admin/financeiro">← Voltar ao painel</a><button id="new-retribuicao" class="primary-button" type="button">Novo serviço</button></div>
+    </section>
+    <nav class="finance-tabs" aria-label="Áreas do financeiro"><a href="/admin/financeiro">Visão geral</a><a href="/admin/financeiro/contas-a-pagar">Contas a pagar</a><a href="/admin/financeiro/contas-a-receber">Contas a receber</a><a href="/admin/financeiro/formas-pagamento">Formas de pagamento</a><a class="active" href="/admin/financeiro/retribuicoes" aria-current="page">Retribuições INPI</a></nav>
+    <div id="retribuicao-message" class="status-message" hidden role="status" aria-live="polite"></div>
+    <div id="retribuicao-alert" class="retribuicao-alert" hidden>⚠️ Os valores marcados como <strong>a confirmar</strong> são apenas de referência. Confira e preencha cada guia com o valor atual da <a href="https://www.gov.br/inpi/pt-br/servicos/marcas/tabela-de-retribuicoes" target="_blank" rel="noopener">tabela oficial do INPI</a> antes de cobrar do cliente.</div>
+    <section class="finance-card">
+      <header class="finance-list-heading"><div><p class="eyebrow">TABELA DE RETRIBUIÇÕES</p><h2>Serviços de marca</h2><p>Guias inativas não aparecem nas sugestões de GRU por fase.</p></div><strong id="retribuicao-count">0 serviços</strong></header>
+      <div class="retribuicao-table-scroll">
+        <table class="retribuicao-table">
+          <thead><tr><th>Serviço</th><th>Código</th><th>Valor normal</th><th>Valor reduzido</th><th>Situação</th><th></th></tr></thead>
+          <tbody id="retribuicao-list"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <dialog id="retribuicao-dialog" class="finance-dialog compact"><form id="retribuicao-form">
+    <header><div><p class="eyebrow">RETRIBUIÇÃO INPI</p><h2 id="retribuicao-title">Novo serviço</h2></div><button type="button" data-close="retribuicao-dialog" aria-label="Fechar">×</button></header>
+    <input name="id" type="hidden">
+    <label><span>Serviço (identificador)</span><input name="servico" minlength="2" maxlength="60" placeholder="Ex.: deposito" required><small>Curto e sem espaços. Usado internamente; não muda depois de criado.</small></label>
+    <label><span>Descrição</span><input name="descricao" minlength="2" maxlength="200" placeholder="Ex.: Depósito de pedido de registro de marca" required></label>
+    <div class="retribuicao-two">
+      <label><span>Código INPI</span><input name="codigo" maxlength="10" placeholder="Ex.: 389"></label>
+      <label><span>Fase do funil (opcional)</span><select name="fase_sugerida">
+        <option value="">— nenhuma</option>
+        <option value="relatorio_enviado">Relatório enviado</option>
+        <option value="proposta_enviada">Proposta enviada</option>
+        <option value="proposta_aceita">Proposta aceita</option>
+        <option value="pagamento_realizado">Pagamento</option>
+        <option value="protocolo_inpi">Protocolo INPI</option>
+        <option value="processo_inpi">Processo no INPI</option>
+      </select></label>
+    </div>
+    <div class="retribuicao-two">
+      <label><span>Valor normal (R$)</span><input name="valor_normal" type="number" step="0.01" min="0" placeholder="0,00"></label>
+      <label><span>Valor reduzido (R$)</span><input name="valor_reduzido" type="number" step="0.01" min="0" placeholder="ME/EPP/pessoa física"></label>
+    </div>
+    <label><span>Observações</span><textarea name="observacoes" maxlength="2000" rows="2" placeholder="Notas internas (opcional)"></textarea></label>
+    <label class="finance-check"><input name="ativo" type="checkbox" checked><span>Serviço ativo</span></label>
+    <footer><button class="secondary-button" type="button" data-close="retribuicao-dialog">Cancelar</button><button class="primary-button" type="submit">Salvar serviço</button></footer>
+  </form></dialog>
+</body></html>

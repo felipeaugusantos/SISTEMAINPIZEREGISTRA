@@ -687,6 +687,33 @@ class HistoricoFinanceiro(Base):
     )
 
 
+class RetribuicaoInpi(Base):
+    """Tabela de retribuições do INPI (serviços de marca) — referência global.
+
+    Os valores oficiais são nacionais (iguais para todos os tenants); por isso a
+    tabela não é multi-tenant. `confirmado` indica que o valor foi conferido
+    contra a tabela oficial vigente (guarda contra usar valor de referência).
+    """
+
+    __tablename__ = "retribuicoes_inpi"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    servico: Mapped[str] = mapped_column(String(60), unique=True, index=True)
+    descricao: Mapped[str] = mapped_column(String(200))
+    grupo: Mapped[str] = mapped_column(String(20), default="marca", index=True)
+    codigo: Mapped[str | None] = mapped_column(String(10), nullable=True, index=True)
+    valor_normal: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    valor_reduzido: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    fase_sugerida: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    confirmado: Mapped[bool] = mapped_column(Boolean, default=False)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    ordem: Mapped[int] = mapped_column(Integer, default=0)
+    observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ProcessoMonitorado(Base):
     """Processo da base RPI incluído na carteira de acompanhamento de um tenant."""
 

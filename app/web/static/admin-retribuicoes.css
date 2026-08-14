@@ -1,0 +1,14 @@
+.retribuicao-alert { margin: 0 0 18px; padding: 12px 16px; border: 1px solid #e6cf8f; border-radius: 12px; background: #fbf4dd; color: #6b5610; font-size: .86rem; line-height: 1.45; }
+.retribuicao-alert a { color: inherit; font-weight: 700; }
+.retribuicao-table-scroll { overflow-x: auto; }
+table.retribuicao-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+table.retribuicao-table th { text-align: left; font-size: .68rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 800; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.retribuicao-table td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.retribuicao-table tr:last-child td { border-bottom: 0; }
+table.retribuicao-table tr.ret-inactive { opacity: .55; }
+.ret-key { color: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .74rem; }
+.ret-fase { display: inline-block; margin-top: 3px; color: var(--muted); }
+.ret-actions { text-align: right; white-space: nowrap; }
+.finance-status.pendente { background: #fbf0d3; color: #7a5b09; }
+.retribuicao-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 560px) { .retribuicao-two { grid-template-columns: 1fr; } }

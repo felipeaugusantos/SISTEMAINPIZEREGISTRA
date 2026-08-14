@@ -10,6 +10,7 @@ const adminSections = [
   { id: "finance-payable", label: "Contas a pagar", href: "/admin/financeiro/contas-a-pagar", symbol: "CP", permission: "finance.view", parent: "finance" },
   { id: "finance-receivable", label: "Contas a receber", href: "/admin/financeiro/contas-a-receber", symbol: "CR", permission: "finance.view", parent: "finance" },
   { id: "finance-payment-methods", label: "Formas de pagamento", href: "/admin/financeiro/formas-pagamento", symbol: "FP", permission: "finance.view", parent: "finance" },
+  { id: "finance-retribuicoes", label: "Retribuições INPI", href: "/admin/financeiro/retribuicoes", symbol: "RI", permission: "finance.view", parent: "finance" },
   { id: "production", label: "Produção e auditoria", href: "/admin/producao", symbol: "PR", permission: "production.view" },
   { id: "finance-log", label: "Log Financeiro", href: "/admin/producao/log-financeiro", symbol: "LF", permission: "finance.view", parent: "production", profiles: ["administrador", "tech", "ceo", "financeiro"] },
   { id: "reliability", label: "Confiabilidade e LGPD", href: "/admin/confiabilidade", symbol: "CF", permission: "production.manage" },

@@ -24,6 +24,7 @@ from app.models import (
     Lead,
     ParcelaFinanceira,
     ProcessoMonitorado,
+    RetribuicaoInpi,
     StatusLead,
 )
 from app.proxy import cliente_ip
@@ -563,6 +564,122 @@ async def editar_forma_pagamento(
     forma = await _forma_pagamento(session, usuario, forma_id, exigir_ativa=False)
     await _salvar_forma_pagamento(dados, request, session, usuario, forma)
     return {"id": forma.id, "status": "atualizada"}
+
+
+# --- Tabela de retribuições do INPI (referência global) --------------------
+
+
+class RetribuicaoInput(BaseModel):
+    descricao: str = Field(min_length=2, max_length=200)
+    codigo: str | None = Field(default=None, max_length=10)
+    valor_normal: Decimal | None = Field(default=None, ge=0)
+    valor_reduzido: Decimal | None = Field(default=None, ge=0)
+    fase_sugerida: str | None = Field(default=None, max_length=30)
+    ativo: bool = True
+    observacoes: str | None = Field(default=None, max_length=2000)
+
+
+class RetribuicaoCreate(RetribuicaoInput):
+    servico: str = Field(min_length=2, max_length=60)
+
+
+def _retribuicao_dict(x: RetribuicaoInpi) -> dict:
+    return {
+        "id": x.id,
+        "servico": x.servico,
+        "descricao": x.descricao,
+        "grupo": x.grupo,
+        "codigo": x.codigo,
+        "valor_normal": x.valor_normal,
+        "valor_reduzido": x.valor_reduzido,
+        "fase_sugerida": x.fase_sugerida,
+        "confirmado": x.confirmado,
+        "ativo": x.ativo,
+        "observacoes": x.observacoes,
+        "atualizado_em": x.atualizado_em,
+    }
+
+
+@router.get("/retribuicoes")
+async def listar_retribuicoes(session: SessionDep, usuario: ViewDep) -> dict:
+    itens = (
+        (
+            await session.execute(
+                select(RetribuicaoInpi).order_by(
+                    RetribuicaoInpi.ordem, RetribuicaoInpi.descricao
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "itens": [_retribuicao_dict(x) for x in itens],
+        "pendentes": sum(1 for x in itens if not x.confirmado),
+    }
+
+
+@router.post("/retribuicoes", status_code=201)
+async def criar_retribuicao(
+    dados: RetribuicaoCreate, request: Request, session: SessionDep, usuario: ManageDep
+) -> dict:
+    servico = dados.servico.strip()
+    duplicada = (
+        await session.execute(
+            select(RetribuicaoInpi.id).where(func.lower(RetribuicaoInpi.servico) == servico.lower())
+        )
+    ).scalar_one_or_none()
+    if duplicada:
+        raise HTTPException(409, "Serviço já cadastrado")
+    ordem = (
+        await session.execute(select(func.coalesce(func.max(RetribuicaoInpi.ordem), 0)))
+    ).scalar_one() + 1
+    item = RetribuicaoInpi(
+        servico=servico,
+        descricao=dados.descricao.strip(),
+        codigo=(dados.codigo or None),
+        valor_normal=dados.valor_normal,
+        valor_reduzido=dados.valor_reduzido,
+        fase_sugerida=(dados.fase_sugerida or None),
+        ativo=dados.ativo,
+        observacoes=dados.observacoes,
+        confirmado=True,
+        ordem=ordem,
+    )
+    session.add(item)
+    await session.flush()
+    _auditar(session, request, usuario, "criar_retribuicao", f"retribuicao:{item.id}", {"servico": servico})
+    await session.commit()
+    return {"id": item.id, "status": "criada"}
+
+
+@router.put("/retribuicoes/{item_id}")
+async def editar_retribuicao(
+    item_id: int, dados: RetribuicaoInput, request: Request, session: SessionDep, usuario: ManageDep
+) -> dict:
+    item = (
+        await session.execute(select(RetribuicaoInpi).where(RetribuicaoInpi.id == item_id))
+    ).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(404, "Retribuição não encontrada")
+    item.descricao = dados.descricao.strip()
+    item.codigo = dados.codigo or None
+    item.valor_normal = dados.valor_normal
+    item.valor_reduzido = dados.valor_reduzido
+    item.fase_sugerida = dados.fase_sugerida or None
+    item.ativo = dados.ativo
+    item.observacoes = dados.observacoes
+    item.confirmado = True
+    _auditar(
+        session,
+        request,
+        usuario,
+        "editar_retribuicao",
+        f"retribuicao:{item.id}",
+        {"valor_normal": str(dados.valor_normal), "valor_reduzido": str(dados.valor_reduzido)},
+    )
+    await session.commit()
+    return {"id": item.id, "status": "atualizada"}
 
 
 @router.post("/categorias", status_code=201)

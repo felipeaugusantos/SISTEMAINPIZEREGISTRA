@@ -179,6 +179,9 @@ class LeadResponse(BaseModel):
     tipo_interesse: TipoProcesso | None
     status: StatusLead
     fase: str = "contato_inicial"
+    resultado: str | None = None
+    motivo_perda: str | None = None
+    motivo_perda_detalhe: str | None = None
     aceite_marketing: bool
     responsavel_id: int | None = None
     responsavel_nome: str | None = None
@@ -475,6 +478,8 @@ class LeadStatusUpdate(BaseModel):
     tags: list[str] | None = Field(default=None, max_length=20)
     registrar_contato: bool = False
     documento: str | None = Field(default=None, max_length=30)
+    motivo_perda: str | None = Field(default=None, max_length=20)
+    motivo_perda_detalhe: str | None = Field(default=None, max_length=500)
 
     @field_validator("documento")
     @classmethod

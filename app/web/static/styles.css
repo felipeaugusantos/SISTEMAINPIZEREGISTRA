@@ -902,6 +902,9 @@ footer p {
 .lead-crm-form label { display: grid; gap: 7px; font-size: .76rem; font-weight: 750; }
 .lead-crm-form input, .lead-crm-form select, .lead-crm-form textarea { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: white; color: var(--ink); font: inherit; box-sizing: border-box; }
 .lead-crm-form .lead-notes, .lead-crm-form > div { grid-column: 1 / -1; }
+.lead-crm-form .lead-motivo-perda { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 12px 14px; border: 1px solid #e6c9c9; border-radius: 11px; background: #fbf3f3; }
+.lead-crm-form .lead-motivo-perda[hidden] { display: none; }
+@media (max-width: 560px) { .lead-crm-form .lead-motivo-perda { grid-template-columns: 1fr; } }
 .lead-crm-form .filter-check { display: flex; flex-direction: row; align-items: center; }
 .lead-crm-form .filter-check input { width: 18px; }
 .lead-crm-form > div { display: flex; gap: 12px; align-items: center; }

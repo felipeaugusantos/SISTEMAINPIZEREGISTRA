@@ -56,6 +56,12 @@ function statusOptions(selected) {
     `<option value="${value}" ${selected === value ? "selected" : ""}>${label}</option>`
   ).join("");
 }
+const MOTIVOS_PERDA_LABELS = { preco: "Preço / orçamento", concorrente: "Escolheu concorrente", sem_resposta: "Sem resposta do cliente", fora_perfil: "Fora do perfil / inviável", outro: "Outro" };
+function motivoPerdaOptions(selected) {
+  return `<option value="">Selecione…</option>` + Object.entries(MOTIVOS_PERDA_LABELS).map(([value, label]) =>
+    `<option value="${value}" ${selected === value ? "selected" : ""}>${escapeHtml(label)}</option>`
+  ).join("");
+}
 
 function currentParams(includePagination = true) {
   const params = new URLSearchParams();
@@ -351,6 +357,10 @@ async function openLead(id) {
     <section class="lead-checklist" id="lead-checklist"><p class="lead-funil-loading">Carregando checklist…</p></section>
     ${state.canManage ? `<form id="lead-crm-form" data-lead-id="${lead.id}" class="lead-crm-form">
       <label><span>Status</span><select name="status">${statusOptions(lead.status)}</select></label>
+      <div class="lead-motivo-perda" id="lead-motivo-perda"${lead.status === "descartado" ? "" : " hidden"}>
+        <label><span>Motivo da perda</span><select name="motivo_perda">${motivoPerdaOptions(lead.motivo_perda)}</select></label>
+        <label><span>Detalhe (opcional)</span><input name="motivo_perda_detalhe" maxlength="500" value="${escapeHtml(lead.motivo_perda_detalhe || "")}" placeholder="Ex.: fechou com concorrente X" /></label>
+      </div>
       <label><span>Responsável</span><select name="responsavel_id">${ownerOptions(lead.responsavel_id)}</select></label>
       <label><span>Próxima ação</span><input name="proxima_acao_em" type="datetime-local" value="${lead.proxima_acao_em ? new Date(lead.proxima_acao_em).toISOString().slice(0, 16) : ""}" /></label>
       <label><span>Tags, separadas por vírgula</span><input name="tags" maxlength="400" value="${escapeHtml((lead.tags || []).join(", "))}" /></label>
@@ -745,6 +755,11 @@ dialogContent.addEventListener("click", async event => {
 });
 
 dialogContent.addEventListener("change", event => {
+  if (event.target.matches('#lead-crm-form [name="status"]')) {
+    const bloco = document.querySelector("#lead-motivo-perda");
+    if (bloco) bloco.hidden = event.target.value !== "descartado";
+    return;
+  }
   if (!event.target.matches("#lead-contact-filter")) return;
   loadLeadContacts(state.openLeadId, event.target.value);
 });
@@ -872,6 +887,11 @@ dialogContent.addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.target;
   const data = new FormData(form);
+  const saveMessage = document.querySelector("#lead-save-message");
+  if (data.get("status") === "descartado" && !data.get("motivo_perda")) {
+    saveMessage.textContent = "Informe o motivo da perda.";
+    return;
+  }
   const payload = {
     status: data.get("status"),
     responsavel_id: data.get("responsavel_id") ? Number(data.get("responsavel_id")) : null,
@@ -879,9 +899,10 @@ dialogContent.addEventListener("submit", async event => {
     notas: data.get("notas") || null,
     tags: String(data.get("tags") || "").split(",").map(item => item.trim()).filter(Boolean),
     registrar_contato: true,
+    motivo_perda: data.get("motivo_perda") || null,
+    motivo_perda_detalhe: data.get("motivo_perda_detalhe") || null,
   };
   if (state.canPii) payload.documento = data.get("documento") || null;
-  const saveMessage = document.querySelector("#lead-save-message");
   saveMessage.textContent = "Salvando…";
   const response = await fetch(`/v1/admin/leads/${form.dataset.leadId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   if (!response.ok) {

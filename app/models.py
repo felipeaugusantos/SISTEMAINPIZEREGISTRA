@@ -57,6 +57,18 @@ class FaseLead(StrEnum):
 # Ordem oficial do funil — usada para avançar (nunca retroceder) automaticamente.
 ORDEM_FASE_LEAD: tuple[str, ...] = tuple(f.value for f in FaseLead)
 
+# Desfecho da oportunidade (ganho ao converter, perdido ao descartar).
+RESULTADOS_LEAD: tuple[str, ...] = ("ganho", "perdido")
+
+# Motivos de perda estruturados (quando a oportunidade é descartada).
+MOTIVOS_PERDA: dict[str, str] = {
+    "preco": "Preço / orçamento",
+    "concorrente": "Escolheu concorrente",
+    "sem_resposta": "Sem resposta do cliente",
+    "fora_perfil": "Fora do perfil / inviável",
+    "outro": "Outro",
+}
+
 
 processo_titulares = Table(
     "processo_titulares",
@@ -998,6 +1010,9 @@ class Lead(Base):
     ultimo_contato_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    resultado: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
+    motivo_perda: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    motivo_perda_detalhe: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
     arquivado_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True

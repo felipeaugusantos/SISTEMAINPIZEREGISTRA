@@ -15,6 +15,7 @@ from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
 from app.crm import avancar_fase_lead, sincronizar_fase_por_status
 from app.database import get_session
 from app.models import (
+    MOTIVOS_PERDA,
     ORDEM_FASE_LEAD,
     TIPOS_DOCUMENTO_LEAD,
     AvaliacaoRiscoMarca,
@@ -564,6 +565,23 @@ async def atualizar_status_lead(
     if dados.status is not None and dados.status != lead.status:
         alteracoes["status"] = {"de": lead.status.value, "para": dados.status.value}
         lead.status = dados.status
+        # Tarefa 3: desfecho estruturado ao converter/descartar.
+        if dados.status == StatusLead.CONVERTIDO:
+            lead.resultado = "ganho"
+            lead.motivo_perda = None
+            lead.motivo_perda_detalhe = None
+        elif dados.status == StatusLead.DESCARTADO:
+            lead.resultado = "perdido"
+        else:
+            lead.resultado = None
+            lead.motivo_perda = None
+            lead.motivo_perda_detalhe = None
+    if lead.status == StatusLead.DESCARTADO and "motivo_perda" in dados.model_fields_set:
+        if dados.motivo_perda and dados.motivo_perda not in MOTIVOS_PERDA:
+            raise HTTPException(status_code=422, detail="Motivo de perda inválido")
+        lead.motivo_perda = dados.motivo_perda
+        lead.motivo_perda_detalhe = dados.motivo_perda_detalhe
+        alteracoes["motivo_perda"] = dados.motivo_perda
     if "responsavel_id" in dados.model_fields_set:
         if dados.responsavel_id is not None:
             responsavel = (

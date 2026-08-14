@@ -541,6 +541,101 @@ async def resumo_crm_leads(session: SessionDep, usuario: LeadsViewDep) -> dict:
     }
 
 
+@router.get("/v1/admin/leads-dashboard")
+async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewDep) -> dict:
+    org = usuario.organizacao_id
+    base = (Lead.organizacao_id == org, Lead.arquivado_em.is_(None))
+    agora = datetime.now(UTC)
+    aberta = Lead.status.not_in((StatusLead.CONVERTIDO, StatusLead.DESCARTADO))
+
+    por_fase = dict(
+        (
+            await session.execute(select(Lead.fase, func.count()).where(*base).group_by(Lead.fase))
+        ).all()
+    )
+    funil = [
+        {"fase": f, "label": FASE_LABELS.get(f, f), "total": int(por_fase.get(f, 0))}
+        for f in ORDEM_FASE_LEAD
+    ]
+
+    por_resultado = dict(
+        (
+            await session.execute(
+                select(Lead.resultado, func.count()).where(*base).group_by(Lead.resultado)
+            )
+        ).all()
+    )
+    ganho = int(por_resultado.get("ganho", 0))
+    perdido = int(por_resultado.get("perdido", 0))
+    aberto = int(sum(v for k, v in por_resultado.items() if k not in ("ganho", "perdido")))
+    fechados = ganho + perdido
+
+    motivos = (
+        await session.execute(
+            select(Lead.motivo_perda, func.count())
+            .where(*base, Lead.resultado == "perdido")
+            .group_by(Lead.motivo_perda)
+        )
+    ).all()
+    perdas_por_motivo = [
+        {
+            "motivo": m or "nao_informado",
+            "label": MOTIVOS_PERDA.get(m, "Não informado") if m else "Não informado",
+            "total": int(c),
+        }
+        for m, c in sorted(motivos, key=lambda r: r[1], reverse=True)
+    ]
+
+    prod = (
+        await session.execute(
+            select(
+                Lead.responsavel_id,
+                func.count().filter(aberta),
+                func.count().filter(
+                    Lead.proxima_acao_em.is_not(None), Lead.proxima_acao_em < agora, aberta
+                ),
+                func.count().filter(Lead.resultado == "ganho"),
+                func.count().filter(Lead.resultado == "perdido"),
+            )
+            .where(*base)
+            .group_by(Lead.responsavel_id)
+        )
+    ).all()
+    ids = [r[0] for r in prod if r[0] is not None]
+    nomes = dict(
+        (
+            await session.execute(
+                select(UsuarioOperacoes.id, UsuarioOperacoes.nome).where(
+                    UsuarioOperacoes.id.in_(ids)
+                )
+            )
+        ).all()
+    ) if ids else {}
+    produtividade = sorted(
+        (
+            {
+                "responsavel_id": rid,
+                "nome": nomes.get(rid, "Sem responsável") if rid else "Sem responsável",
+                "abertas": int(ab),
+                "atrasadas": int(atr),
+                "ganhos": int(gan),
+                "perdidos": int(per),
+            }
+            for rid, ab, atr, gan, per in prod
+        ),
+        key=lambda x: (-x["abertas"], -x["ganhos"]),
+    )
+
+    return {
+        "funil": funil,
+        "resultado": {"aberto": aberto, "ganho": ganho, "perdido": perdido},
+        "taxa_conversao": round(ganho / fechados, 4) if fechados else 0,
+        "perdas_por_motivo": perdas_por_motivo,
+        "produtividade": produtividade,
+        "atualizado_em": agora,
+    }
+
+
 @router.patch("/v1/admin/leads/{lead_id}", response_model=LeadResponse)
 async def atualizar_status_lead(
     lead_id: int,
@@ -1334,6 +1429,143 @@ async def remover_guia_inpi(
     await session.delete(guia)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+FASE_LABELS: dict[str, str] = {
+    "contato_inicial": "Contato inicial",
+    "relatorio_enviado": "Relatório enviado",
+    "proposta_enviada": "Proposta enviada",
+    "proposta_aceita": "Proposta aceita",
+    "pagamento_realizado": "Pagamento",
+    "protocolo_inpi": "Protocolo INPI",
+    "processo_inpi": "Processo no INPI",
+}
+
+
+def _para_dt(valor) -> datetime:
+    """Normaliza date/datetime para datetime aware (UTC) para ordenação."""
+    if isinstance(valor, datetime):
+        return valor if valor.tzinfo else valor.replace(tzinfo=UTC)
+    return datetime.combine(valor, datetime.min.time(), tzinfo=UTC)
+
+
+@router.get("/v1/admin/leads/{lead_id}/timeline")
+async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
+    lead = (
+        await session.execute(
+            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    org = usuario.organizacao_id
+    eventos: list[dict] = [
+        {
+            "tipo": "criado",
+            "data": lead.criado_em,
+            "titulo": "Oportunidade criada",
+            "detalhe": f"Origem: {lead.origem}",
+        }
+    ]
+    fases = (
+        await session.execute(
+            select(HistoricoFaseLead).where(
+                HistoricoFaseLead.lead_id == lead_id, HistoricoFaseLead.organizacao_id == org
+            )
+        )
+    ).scalars().all()
+    for f in fases:
+        eventos.append(
+            {
+                "tipo": "fase",
+                "data": f.criado_em,
+                "titulo": f"Fase: {FASE_LABELS.get(f.fase, f.fase)}",
+                "detalhe": f"por {f.por}" if f.por else None,
+            }
+        )
+    contatos = (
+        await session.execute(
+            select(ContatoLead).where(
+                ContatoLead.lead_id == lead_id, ContatoLead.organizacao_id == org
+            )
+        )
+    ).scalars().all()
+    for c in contatos:
+        detalhe = " · ".join(x for x in (c.resultado, c.observacao) if x) or None
+        eventos.append(
+            {
+                "tipo": "contato",
+                "data": c.criado_em,
+                "titulo": f"Contato · {c.canal}",
+                "detalhe": detalhe,
+                "autor": c.operador_nome,
+            }
+        )
+    pesquisas = (
+        await session.execute(
+            select(PesquisaMarca.criado_em, PesquisaMarca.marca).where(
+                PesquisaMarca.lead_id == lead_id, PesquisaMarca.organizacao_id == org
+            )
+        )
+    ).all()
+    for criado_em, marca in pesquisas:
+        eventos.append(
+            {"tipo": "pesquisa", "data": criado_em, "titulo": "Pesquisa gerada", "detalhe": marca}
+        )
+    documentos = (
+        await session.execute(
+            select(DocumentoLead).where(
+                DocumentoLead.lead_id == lead_id, DocumentoLead.organizacao_id == org
+            )
+        )
+    ).scalars().all()
+    for d in documentos:
+        if not (d.numero or d.data):
+            continue
+        eventos.append(
+            {
+                "tipo": "documento",
+                "data": d.atualizado_em,
+                "titulo": f"Documento · {d.tipo}",
+                "detalhe": " · ".join(x for x in (d.numero, d.status) if x) or None,
+            }
+        )
+    guias = (
+        await session.execute(
+            select(GuiaInpi).where(GuiaInpi.lead_id == lead_id, GuiaInpi.organizacao_id == org)
+        )
+    ).scalars().all()
+    for g in guias:
+        eventos.append(
+            {
+                "tipo": "guia",
+                "data": g.criado_em,
+                "titulo": "GRU registrada",
+                "detalhe": g.descricao,
+            }
+        )
+        if g.pago_em:
+            eventos.append(
+                {
+                    "tipo": "guia_paga",
+                    "data": g.pago_em,
+                    "titulo": "GRU paga",
+                    "detalhe": g.descricao,
+                }
+            )
+    if lead.resultado:
+        eventos.append(
+            {
+                "tipo": lead.resultado,
+                "data": lead.atualizado_em,
+                "titulo": "Convertido (ganho)" if lead.resultado == "ganho" else "Perdido",
+                "detalhe": MOTIVOS_PERDA.get(lead.motivo_perda or "", lead.motivo_perda),
+            }
+        )
+    eventos.sort(key=lambda e: _para_dt(e["data"]), reverse=True)
+    for e in eventos:
+        e["data"] = _para_dt(e["data"]).isoformat()
+    return {"eventos": eventos}
 
 
 @router.delete("/v1/admin/leads/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)

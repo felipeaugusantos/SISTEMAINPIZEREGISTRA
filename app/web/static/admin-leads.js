@@ -369,6 +369,7 @@ async function openLead(id) {
       <div><button class="primary-button" type="submit">Salvar atendimento</button><a class="secondary-button" href="/admin/crm?lead_id=${lead.id}">Criar lembrete</a><span id="lead-save-message" role="status"></span></div>
     </form>` : `<section class="lead-readonly-note">Você possui acesso somente para consulta.</section>`}
     </div><aside class="lead-dialog-aside">
+    <section class="lead-timeline lg-full" id="lead-timeline"><p class="lead-funil-loading">Carregando linha do tempo…</p></section>
     <section class="lead-contact-log">
       <header><div><p class="eyebrow">CRM</p><h3>Contatos realizados</h3></div><span id="lead-contact-count">0 registros</span></header>
       <label class="lead-contact-filter"><span>Filtrar pela pesquisa</span><select id="lead-contact-filter"><option value="">Todas as pesquisas desta empresa</option>${researchOptions}</select></label>
@@ -383,6 +384,7 @@ async function openLead(id) {
     </section>
     </aside>`;
   await loadLeadContacts(lead.id);
+  await renderTimeline(lead.id);
   await renderFunil(lead.id);
   await renderDocumentos(lead.id);
   await renderChecklistFase(lead.id);
@@ -518,6 +520,23 @@ function guiaVencBadge(g) {
   if (dias < 0) return `<span class="guia-badge late">Vencida · ${dt}</span>`;
   if (dias <= 7) return `<span class="guia-badge soon">Vence em ${dias}d · ${dt}</span>`;
   return `<span class="guia-badge pend">Vence ${dt}</span>`;
+}
+
+const TIMELINE_ICONES = { criado: "✦", fase: "→", contato: "☎", pesquisa: "🔍", documento: "📄", guia: "R$", guia_paga: "✓", ganho: "🏆", perdido: "✕" };
+async function renderTimeline(leadId) {
+  const box = document.querySelector("#lead-timeline");
+  if (!box) return;
+  let data;
+  try { data = await (await fetch(`/v1/admin/leads/${leadId}/timeline`)).json(); }
+  catch { box.innerHTML = ""; return; }
+  const eventos = data.eventos || [];
+  const linhas = eventos.map(ev => {
+    const icone = TIMELINE_ICONES[ev.tipo] || "•";
+    const partes = [ev.detalhe, ev.autor].filter(Boolean).map(escapeHtml).join(" · ");
+    const detalhe = partes ? `<span class="tl-detalhe">${partes}</span>` : "";
+    return `<li class="tl-item tl-${escapeHtml(ev.tipo)}"><span class="tl-icone" aria-hidden="true">${icone}</span><div class="tl-corpo"><div class="tl-topo"><strong>${escapeHtml(ev.titulo)}</strong><time>${formatDate(ev.data)}</time></div>${detalhe}</div></li>`;
+  }).join("");
+  box.innerHTML = `<header><p class="eyebrow">Linha do tempo</p><h3>Atividade da oportunidade</h3></header>${eventos.length ? `<ul class="tl-list">${linhas}</ul>` : `<p class="tl-empty">Sem eventos ainda.</p>`}`;
 }
 
 async function renderGuiasInpi(leadId) {

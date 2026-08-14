@@ -1,0 +1,40 @@
+async function funilApi(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `Falha ao carregar (${r.status})`);
+  return r.json();
+}
+function funilEsc(v) { const s = document.createElement("span"); s.textContent = v ?? ""; return s.innerHTML; }
+function funilMsg(text) { const m = document.querySelector("#funil-message"); m.hidden = false; m.textContent = text; m.className = "status-message error"; }
+function funilPct(x) { return (x * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%"; }
+
+function funilRender(d) {
+  const r = d.resultado || {};
+  const tiles = [
+    ["Abertas", r.aberto ?? 0],
+    ["Ganhos", r.ganho ?? 0],
+    ["Perdidos", r.perdido ?? 0],
+    ["Conversão", funilPct(d.taxa_conversao || 0)],
+  ];
+  document.querySelector("#funil-tiles").innerHTML = tiles
+    .map(([l, v]) => `<article class="funil-tile"><span>${funilEsc(l)}</span><strong>${funilEsc(String(v))}</strong></article>`)
+    .join("");
+
+  const funil = d.funil || [];
+  const max = Math.max(1, ...funil.map(f => f.total));
+  document.querySelector("#funil-bars").innerHTML = funil
+    .map(f => `<div class="funil-bar"><span class="funil-bar-label">${funilEsc(f.label)}</span><div class="funil-bar-track"><div class="funil-bar-fill" style="width:${(f.total / max * 100).toFixed(1)}%"></div></div><strong class="funil-bar-total">${funilEsc(String(f.total))}</strong></div>`)
+    .join("");
+
+  const motivos = d.perdas_por_motivo || [];
+  document.querySelector("#funil-motivos").innerHTML = motivos.length
+    ? motivos.map(m => `<div class="funil-motivo"><span>${funilEsc(m.label)}</span><strong>${funilEsc(String(m.total))}</strong></div>`).join("")
+    : `<p class="funil-empty">Nenhuma perda registrada ainda.</p>`;
+
+  const prod = d.produtividade || [];
+  const rows = prod
+    .map(p => `<tr><td><strong>${funilEsc(p.nome)}</strong></td><td>${funilEsc(String(p.abertas))}</td><td class="${p.atrasadas ? "funil-alerta" : ""}">${funilEsc(String(p.atrasadas))}</td><td>${funilEsc(String(p.ganhos))}</td><td>${funilEsc(String(p.perdidos))}</td></tr>`)
+    .join("");
+  document.querySelector("#funil-prod").innerHTML = `<div class="funil-table-scroll"><table class="funil-table"><thead><tr><th>Responsável</th><th>Abertas</th><th>Atrasadas</th><th>Ganhos</th><th>Perdidos</th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="funil-empty">Sem dados.</td></tr>`}</tbody></table></div>`;
+}
+
+funilApi("/v1/admin/leads-dashboard").then(funilRender).catch(e => funilMsg(e.message));

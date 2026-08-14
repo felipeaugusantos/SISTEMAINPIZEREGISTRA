@@ -18,6 +18,7 @@
 .legal-toggle:hover{background:#eef4ef}
 .legal-process-group.collapsed .legal-toggle{transform:rotate(-90deg)}
 .legal-process-group.collapsed .legal-process-deadlines{display:none}
+.legal-badge.legal-badge-ok{background:#e2f3e8;color:#17633f}
 /* Uniformiza TODOS os botões da coluna de ações (primário + secundários):
    vence .admin-body .secondary-button e .primary-button na especificidade. */
 .admin-body .legal-actions button{min-height:40px;padding:9px 12px;font-size:.74rem;width:100%;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}

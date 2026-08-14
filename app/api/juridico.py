@@ -72,6 +72,12 @@ DESPACHOS_PRAZO: tuple[tuple[re.Pattern[str], int, str, str], ...] = (
      60, "pagamento", "Pagamento da taxa de concessão"),
 )
 
+# A partir de 20/09/2025 o INPI unificou as retribuições de marca: a taxa de
+# concessão e os 10 primeiros anos de vigência passam a ser pagos no depósito.
+# Marcas depositadas nessa data ou depois NÃO têm prazo de pagamento da
+# concessão — o motor registra um aviso informativo no lugar do prazo acionável.
+MARCO_TAXA_UNICA_INPI = date(2025, 9, 20)
+
 
 def _classificar_despacho(descricao: str | None) -> tuple[int, str, str] | None:
     """Deriva (dias, tipo, ação) de uma movimentação de RPI de marca.
@@ -951,7 +957,7 @@ async def executar_motor_organizacao(
 
     candidatos = (
         await session.execute(
-            select(ProcessoMonitorado, Movimentacao)
+            select(ProcessoMonitorado, Movimentacao, Processo.data_deposito)
             .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
             .join(Movimentacao, Movimentacao.processo_id == Processo.id)
             .outerjoin(
@@ -969,29 +975,48 @@ async def executar_motor_organizacao(
         )
     ).all()
     sugeridos = 0
-    for monitorado, movimentacao in candidatos:
+    dispensados = 0
+    for monitorado, movimentacao, data_deposito in candidatos:
         if movimentacao.data_rpi is None:
             continue
         classificacao = _classificar_despacho(movimentacao.descricao)
         if classificacao is None:
             continue
         dias, tipo, acao = classificacao
+        # (a) Depósitos sob a taxa única do INPI (≥ 20/09/2025) não têm pagamento
+        # de concessão: não gera prazo acionável. (b) Registra um aviso informativo
+        # (prazo dispensado, sem ação) para o operador entender.
+        dispensa_concessao = (
+            tipo == "pagamento"
+            and data_deposito is not None
+            and data_deposito >= MARCO_TAXA_UNICA_INPI
+        )
+        if dispensa_concessao:
+            titulo = "Concessão sem taxa — já paga no depósito (regra INPI de 20/09/2025)"
+            descricao = (
+                "A taxa de concessão e os 10 primeiros anos de vigência foram pagos no "
+                "depósito (unificação de retribuições do INPI vigente desde 20/09/2025). "
+                "Nenhum pagamento de concessão é devido — nenhuma ação necessária."
+            )
+        else:
+            titulo = f"Revisar: {acao} (RPI {movimentacao.numero_rpi})"
+            descricao = movimentacao.descricao or ""
         prazo = PrazoJuridico(
             organizacao_id=organizacao_id,
             processo_monitorado_id=monitorado.id,
             movimentacao_origem_id=movimentacao.id,
             responsavel_id=monitorado.responsavel_id,
-            titulo=f"Revisar: {acao} (RPI {movimentacao.numero_rpi})"[:180],
-            descricao=(movimentacao.descricao or "")[:4000],
+            titulo=titulo[:180],
+            descricao=descricao[:4000],
             tipo=tipo,
             origem="motor_rpi",
             contagem="corridos",
             data_base=movimentacao.data_rpi,
             dias_prazo=dias,
             vencimento_em=calcular_vencimento(movimentacao.data_rpi, dias, "corridos"),
-            status="aguardando_confirmacao",
-            prioridade="alta",
-            confirmado=False,
+            status="dispensado" if dispensa_concessao else "aguardando_confirmacao",
+            prioridade="baixa" if dispensa_concessao else "alta",
+            confirmado=dispensa_concessao,
             criado_por="motor-juridico",
         )
         session.add(prazo)
@@ -1000,16 +1025,21 @@ async def executar_motor_organizacao(
             session,
             motor_usuario,
             monitorado.id,
-            "prazo_sugerido",
-            "Prazo sugerido pelo motor a partir do despacho da RPI; requer confirmação humana",
+            "prazo_dispensado" if dispensa_concessao else "prazo_sugerido",
+            descricao if dispensa_concessao
+            else "Prazo sugerido pelo motor a partir do despacho da RPI; requer confirmação humana",
             prazo.id,
             {"movimentacao_id": movimentacao.id, "dias_prazo": dias, "tipo": tipo},
         )
-        sugeridos += 1
+        if dispensa_concessao:
+            dispensados += 1
+        else:
+            sugeridos += 1
     return {
         "notificacoes_criadas": notificacoes,
         "escalados": escalados,
         "prazos_sugeridos": sugeridos,
+        "prazos_dispensados": dispensados,
     }
 
 

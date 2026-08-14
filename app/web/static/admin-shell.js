@@ -14,6 +14,8 @@ const adminSections = [
   { id: "production", label: "Produção e auditoria", href: "/admin/producao", symbol: "PR", permission: "production.view" },
   { id: "finance-log", label: "Log Financeiro", href: "/admin/producao/log-financeiro", symbol: "LF", permission: "finance.view", parent: "production", profiles: ["administrador", "tech", "ceo", "financeiro"] },
   { id: "reliability", label: "Confiabilidade e LGPD", href: "/admin/confiabilidade", symbol: "CF", permission: "production.manage" },
+  { id: "configuracao", label: "Configuração", href: "/admin/configuracao/regras-automaticas", symbol: "CG", permission: "leads.view" },
+  { id: "config-regras", label: "Regras automáticas", href: "/admin/configuracao/regras-automaticas", symbol: "RA", permission: "leads.view", parent: "configuracao" },
   { id: "users", label: "Usuários e acessos", href: "/admin/usuarios", symbol: "UA", permission: "users.view" },
   { id: "saas", label: "Empresas e planos", href: "/admin/saas", symbol: "SA", superadmin: true },
 ];
@@ -59,7 +61,7 @@ function createAdminShell() {
           <span class="admin-nav-symbol" aria-hidden="true">${section.symbol}</span>
           <span>${section.label}</span>
         </a>`;
-        if (!["finance", "production"].includes(section.id)) return link;
+        if (!["finance", "production", "configuracao"].includes(section.id)) return link;
         return `<div class="admin-nav-parent-row">${link}<button class="admin-submenu-toggle" type="button" data-submenu-toggle="${section.id}" aria-expanded="true"><span aria-hidden="true">⌄</span><b class="visually-hidden">Recolher submenu ${section.label}</b></button></div>`;
       }).join("")}
     </nav>
@@ -122,6 +124,9 @@ function createAdminShell() {
   const productionHasActiveChild = activeSection === "finance-log";
   const productionPreference = localStorage.getItem("zr_admin_submenu_production");
   setSubmenu("production", productionHasActiveChild || productionPreference !== "closed");
+  const configHasActiveChild = activeSection === "config-regras";
+  const configPreference = localStorage.getItem("zr_admin_submenu_configuracao");
+  setSubmenu("configuracao", configHasActiveChild || configPreference !== "closed");
 
   document.body.prepend(overlay);
   document.body.prepend(mobileHeader);

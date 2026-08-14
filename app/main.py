@@ -251,6 +251,15 @@ async def painel_retribuicoes() -> FileResponse:
 
 
 @app.get(
+    "/admin/configuracao/regras-automaticas",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("leads.view"))],
+)
+async def painel_regras_automaticas() -> FileResponse:
+    return FileResponse(web_dir / "admin-regras-automaticas.html")
+
+
+@app.get(
     "/admin/producao/log-financeiro",
     include_in_schema=False,
     dependencies=[Depends(exigir_acesso_log_financeiro)],

@@ -178,6 +178,7 @@ class LeadResponse(BaseModel):
     origem: str
     tipo_interesse: TipoProcesso | None
     status: StatusLead
+    fase: str = "contato_inicial"
     aceite_marketing: bool
     responsavel_id: int | None = None
     responsavel_nome: str | None = None

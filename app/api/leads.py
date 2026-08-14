@@ -423,17 +423,11 @@ async def listar_leads(
     total_global = (
         await session.execute(select(func.count()).select_from(Lead).where(*filtros_globais))
     ).scalar_one()
-    ultima_pesquisa_em = (
-        select(func.max(PesquisaMarca.criado_em))
-        .where(PesquisaMarca.lead_id == Lead.id)
-        .correlate(Lead)
-        .scalar_subquery()
-    )
     consulta = (
         select(Lead)
         .options(selectinload(Lead.responsavel))
         .where(*filtros)
-        .order_by(func.coalesce(ultima_pesquisa_em, Lead.criado_em).desc(), Lead.id.desc())
+        .order_by(Lead.criado_em.desc(), Lead.id.desc())
         .limit(limite)
         .offset(deslocamento)
     )

@@ -924,6 +924,16 @@ footer p {
 .lead-funil-move label { display: grid; gap: 5px; font-size: .75rem; font-weight: 700; }
 .lead-funil-move select { min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: #fff; font: inherit; }
 .lead-funil-loading { color: var(--muted); font-size: .82rem; margin: 0; }
+/* Mini-stepper de fase do lead (na lista de Pesquisas/Leads) */
+.fase-mini { display: inline-flex; flex-direction: column; gap: 3px; margin-top: 7px; }
+.fase-mini-dots { display: flex; align-items: center; }
+.fm-dot { width: 9px; height: 9px; border-radius: 50%; background: #c4cdc5; flex: 0 0 auto; }
+.fm-dot + .fm-dot { margin-left: 14px; position: relative; }
+.fm-dot + .fm-dot::before { content: ""; position: absolute; right: 9px; top: 50%; transform: translateY(-50%); width: 14px; height: 2px; background: #c4cdc5; }
+.fm-dot.done { background: #1c8a57; }
+.fm-dot.done + .fm-dot::before { background: #1c8a57; }
+.fm-dot.current { background: #fff; box-shadow: 0 0 0 2px #9a6500; width: 11px; height: 11px; }
+.fase-mini-label { font-size: .66rem; font-weight: 800; color: #775512; }
 .lead-history h3 { margin: 4px 0 16px; font: 500 1.8rem Georgia, serif; }
 .lead-research-card { margin-bottom: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; }
 .lead-research-card > div:first-child { display: flex; justify-content: space-between; gap: 12px; }

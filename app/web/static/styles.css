@@ -885,7 +885,7 @@ footer p {
 .lead-pagination select { min-height: 40px; border: 1px solid var(--line); border-radius: 9px; background: white; }
 .lead-pagination button:disabled { opacity: .45; cursor: not-allowed; }
 
-.lead-dialog { width: min(920px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; border: 0; border-radius: 20px; color: var(--ink); background: var(--surface); box-shadow: 0 28px 80px rgba(20, 42, 29, .24); }
+.lead-dialog { width: min(1200px, calc(100vw - 36px)); max-height: calc(100vh - 32px); padding: 0; border: 0; border-radius: 20px; color: var(--ink); background: var(--surface); box-shadow: 0 28px 80px rgba(20, 42, 29, .24); }
 .lead-dialog::backdrop, .confirm-dialog::backdrop { background: rgba(10, 28, 19, .58); backdrop-filter: blur(3px); }
 .lead-dialog-frame > header { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: start; padding: 24px 28px 18px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .lead-dialog-frame h2 { margin: 3px 0 0; font: 500 clamp(1.8rem, 4vw, 2.7rem)/1 Georgia, serif; }

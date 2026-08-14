@@ -966,6 +966,44 @@ class HistoricoFaseLead(Base):
     por: Mapped[str | None] = mapped_column(String(150), nullable=True)
 
 
+# Tipos de documento acompanhados por lead (metadados; sem upload de arquivo).
+TIPOS_DOCUMENTO_LEAD: tuple[str, ...] = (
+    "procuracao",
+    "gru",
+    "protocolo",
+    "oposicao",
+    "certificado",
+)
+
+
+class DocumentoLead(Base):
+    """Metadados de um documento do lead (procuração, GRU, protocolo, oposição,
+    certificado). Um registro por tipo por lead — sem armazenamento de arquivo."""
+
+    __tablename__ = "documentos_lead"
+    __table_args__ = (
+        UniqueConstraint(
+            "organizacao_id", "lead_id", "tipo", name="uq_documento_lead_tipo"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    lead_id: Mapped[int] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), index=True
+    )
+    tipo: Mapped[str] = mapped_column(String(20))
+    numero: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    data: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pendente")
+    observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class CanalContato(StrEnum):
     TELEFONE = "telefone"
     EMAIL = "email"

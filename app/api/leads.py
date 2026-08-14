@@ -1,6 +1,6 @@
 import csv
 import io
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -18,6 +18,8 @@ from app.models import (
     CanalContato,
     ContatoLead,
     ORDEM_FASE_LEAD,
+    TIPOS_DOCUMENTO_LEAD,
+    DocumentoLead,
     EmpresaCRM,
     EventoAuditoria,
     FaseLead,
@@ -858,6 +860,110 @@ async def definir_fase_lead(
         _auditar(session, usuario, request, "fase_lead", f"lead:{lead.id}", {"fase": dados.fase.value})
     await session.commit()
     return {"fase": lead.fase}
+
+
+class DocumentoInput(BaseModel):
+    tipo: str
+    numero: str | None = Field(default=None, max_length=60)
+    data: date | None = None
+    status: str = Field(default="pendente", max_length=20)
+    observacoes: str | None = Field(default=None, max_length=2000)
+
+
+class DocumentosInput(BaseModel):
+    documentos: list[DocumentoInput] = Field(default_factory=list)
+
+
+async def _lead_da_org(session: AsyncSession, lead_id: int, organizacao_id: int) -> int:
+    lead = (
+        await session.execute(
+            select(Lead.id).where(Lead.id == lead_id, Lead.organizacao_id == organizacao_id)
+        )
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    return lead
+
+
+@router.get("/v1/admin/leads/{lead_id}/documentos")
+async def listar_documentos_lead(
+    lead_id: int, session: SessionDep, usuario: LeadsViewDep
+) -> dict:
+    await _lead_da_org(session, lead_id, usuario.organizacao_id)
+    docs = (
+        await session.execute(
+            select(DocumentoLead).where(
+                DocumentoLead.lead_id == lead_id,
+                DocumentoLead.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalars().all()
+    por_tipo = {d.tipo: d for d in docs}
+    return {
+        "tipos": list(TIPOS_DOCUMENTO_LEAD),
+        "documentos": [
+            {
+                "tipo": t,
+                "numero": por_tipo[t].numero if t in por_tipo else None,
+                "data": por_tipo[t].data if t in por_tipo else None,
+                "status": por_tipo[t].status if t in por_tipo else "pendente",
+                "observacoes": por_tipo[t].observacoes if t in por_tipo else None,
+            }
+            for t in TIPOS_DOCUMENTO_LEAD
+        ],
+    }
+
+
+@router.put("/v1/admin/leads/{lead_id}/documentos")
+async def salvar_documentos_lead(
+    lead_id: int,
+    dados: DocumentosInput,
+    request: Request,
+    session: SessionDep,
+    usuario: LeadsManageDep,
+) -> dict:
+    await _lead_da_org(session, lead_id, usuario.organizacao_id)
+    existentes = {
+        d.tipo: d
+        for d in (
+            await session.execute(
+                select(DocumentoLead).where(
+                    DocumentoLead.lead_id == lead_id,
+                    DocumentoLead.organizacao_id == usuario.organizacao_id,
+                )
+            )
+        ).scalars().all()
+    }
+    for item in dados.documentos:
+        if item.tipo not in TIPOS_DOCUMENTO_LEAD:
+            continue
+        numero = (item.numero or "").strip() or None
+        obs = (item.observacoes or "").strip() or None
+        status = (item.status or "pendente").strip() or "pendente"
+        vazio = not numero and item.data is None and not obs and status == "pendente"
+        atual = existentes.get(item.tipo)
+        if atual is None:
+            if vazio:
+                continue
+            session.add(
+                DocumentoLead(
+                    organizacao_id=usuario.organizacao_id,
+                    lead_id=lead_id,
+                    tipo=item.tipo,
+                    numero=numero,
+                    data=item.data,
+                    status=status,
+                    observacoes=obs,
+                )
+            )
+        else:
+            atual.numero = numero
+            atual.data = item.data
+            atual.status = status
+            atual.observacoes = obs
+    _auditar(session, usuario, request, "documentos_lead", f"lead:{lead_id}", {})
+    await session.commit()
+    return {"ok": True}
 
 
 @router.delete("/v1/admin/leads/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)

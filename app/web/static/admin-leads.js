@@ -344,6 +344,7 @@ async function openLead(id) {
   dialogContent.innerHTML = `
     <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div></section>
     <section class="lead-funil" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
+    <section class="lead-documentos" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section>
     ${state.canManage ? `<form id="lead-crm-form" data-lead-id="${lead.id}" class="lead-crm-form">
       <label><span>Status</span><select name="status">${statusOptions(lead.status)}</select></label>
       <label><span>Responsável</span><select name="responsavel_id">${ownerOptions(lead.responsavel_id)}</select></label>
@@ -368,6 +369,7 @@ async function openLead(id) {
     <section class="lead-history"><header><div><p class="eyebrow">Histórico</p><h3>${lead.pesquisas.length} pesquisa${lead.pesquisas.length === 1 ? "" : "s"}</h3></div></header>${lead.pesquisas.length ? lead.pesquisas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>`;
   await loadLeadContacts(lead.id);
   await renderFunil(lead.id);
+  await renderDocumentos(lead.id);
 }
 
 const FASE_LABELS = {
@@ -389,6 +391,44 @@ function faseMini(fase) {
   }).join("");
   const label = FASE_LABELS[fase] || "Contato inicial";
   return `<div class="fase-mini" title="Fase do lead: ${escapeHtml(label)}"><span class="fase-mini-dots">${dots}</span><span class="fase-mini-label">${escapeHtml(label)}</span></div>`;
+}
+
+const DOC_LABELS = { procuracao: "Procuração", gru: "GRU", protocolo: "Protocolo", oposicao: "Oposição", certificado: "Certificado" };
+const DOC_STATUS = [["pendente", "Pendente"], ["em_andamento", "Em andamento"], ["concluido", "Concluído"], ["nao_aplicavel", "N/A"]];
+
+async function renderDocumentos(leadId) {
+  const box = document.querySelector("#lead-documentos");
+  if (!box) return;
+  let data;
+  try { data = await (await fetch(`/v1/admin/leads/${leadId}/documentos`)).json(); }
+  catch { box.innerHTML = ""; return; }
+  const canManage = state.canManage;
+  const statusOpts = cur => DOC_STATUS.map(([v, l]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${l}</option>`).join("");
+  const statusLabel = v => (DOC_STATUS.find(s => s[0] === v) || ["", "—"])[1];
+  const rows = (data.documentos || []).map(d => {
+    const dataVal = d.data ? String(d.data).slice(0, 10) : "";
+    if (!canManage) {
+      return `<tr><td class="doc-type">${escapeHtml(DOC_LABELS[d.tipo] || d.tipo)}</td><td>${escapeHtml(d.numero || "—")}</td><td>${d.data ? formatDate(d.data, false) : "—"}</td><td>${escapeHtml(statusLabel(d.status))}</td><td>${escapeHtml(d.observacoes || "")}</td></tr>`;
+    }
+    return `<tr data-tipo="${escapeHtml(d.tipo)}"><td class="doc-type">${escapeHtml(DOC_LABELS[d.tipo] || d.tipo)}</td><td><input data-f="numero" value="${escapeHtml(d.numero || "")}" maxlength="60" placeholder="—"></td><td><input data-f="data" type="date" value="${escapeHtml(dataVal)}"></td><td><select data-f="status">${statusOpts(d.status || "pendente")}</select></td><td><input data-f="observacoes" value="${escapeHtml(d.observacoes || "")}" maxlength="2000" placeholder="—"></td></tr>`;
+  }).join("");
+  box.innerHTML = `<header><p class="eyebrow">Documentos</p><h3>Procuração, GRU, protocolo, oposição, certificado</h3></header><div class="doc-table-scroll"><table class="lead-docs"><thead><tr><th>Tipo</th><th>Número</th><th>Data</th><th>Status</th><th>Observações</th></tr></thead><tbody>${rows}</tbody></table></div>${canManage ? `<div class="lead-docs-actions"><button class="secondary-button" id="lead-docs-save" type="button">Salvar documentos</button><span id="lead-docs-msg" role="status"></span></div>` : ""}`;
+  const saveBtn = box.querySelector("#lead-docs-save");
+  if (saveBtn) saveBtn.addEventListener("click", async () => {
+    const documentos = [...box.querySelectorAll("tr[data-tipo]")].map(tr => ({
+      tipo: tr.dataset.tipo,
+      numero: tr.querySelector('[data-f="numero"]').value,
+      data: tr.querySelector('[data-f="data"]').value || null,
+      status: tr.querySelector('[data-f="status"]').value,
+      observacoes: tr.querySelector('[data-f="observacoes"]').value,
+    }));
+    saveBtn.disabled = true;
+    const r = await fetch(`/v1/admin/leads/${leadId}/documentos`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentos }) });
+    saveBtn.disabled = false;
+    const msg = box.querySelector("#lead-docs-msg");
+    if (msg) msg.textContent = r.ok ? "Documentos salvos." : "Erro ao salvar.";
+    if (r.ok) await renderDocumentos(leadId);
+  });
 }
 
 async function renderFunil(leadId) {

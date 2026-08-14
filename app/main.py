@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -5,7 +6,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 
@@ -37,8 +38,11 @@ from app.api.social_auth import router as social_auth_router
 from app.api.usuarios import router as usuarios_router
 from app.auth import exigir_permissao
 from app.database import get_session
+from app.models import RpiImportacao, RpiSyncEstado, RpiSyncExecucao
 from app.observability import observar_requisicao
 from app.queueing import status_fila
+from app.rpi.health import avaliar_saude_rpi
+from app.schemas import RpiHealthResponse
 from app.security import exigir_token_integracao
 from app.settings import get_settings
 
@@ -384,4 +388,71 @@ async def health(
     return JSONResponse(
         status_code=200 if status_geral == "ok" else 503,
         content=conteudo,
+    )
+
+
+@app.get("/health/rpi", response_model=RpiHealthResponse, tags=["infraestrutura"])
+async def health_rpi(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> JSONResponse:
+    estado = await session.get(RpiSyncEstado, 1)
+    ultima = (
+        await session.execute(
+            select(RpiImportacao)
+            .where(RpiImportacao.tipo == "marca")
+            .order_by(RpiImportacao.numero_rpi.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    ultima_execucao = (
+        await session.execute(
+            select(RpiSyncExecucao)
+            .where(RpiSyncExecucao.finalizado_em.is_not(None))
+            .order_by(RpiSyncExecucao.finalizado_em.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    quantidade_erros = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(RpiSyncExecucao)
+            .where(RpiSyncExecucao.status == "falhou")
+        )
+        or 0
+    )
+    ultima_sincronizacao = (
+        estado.ultima_verificacao_em if estado and estado.ultima_verificacao_em else None
+    ) or (ultima.importado_em if ultima else None)
+    status_rpi, idade_horas, motivos = avaliar_saude_rpi(
+        status_sync=estado.status if estado else None,
+        ultima_rpi_oficial=estado.ultima_rpi_oficial if estado else None,
+        ultima_rpi_importada=ultima.numero_rpi if ultima else None,
+        ultima_sincronizacao=ultima_sincronizacao,
+        status_integridade=ultima.status_integridade if ultima else None,
+        limite_atraso_horas=settings.rpi_stale_hours,
+        agora=datetime.now(UTC),
+    )
+    duracao = None
+    if ultima_execucao and ultima_execucao.iniciado_em and ultima_execucao.finalizado_em:
+        duracao = max(
+            0.0,
+            (ultima_execucao.finalizado_em - ultima_execucao.iniciado_em).total_seconds(),
+        )
+    payload = RpiHealthResponse(
+        status=status_rpi,
+        ultima_rpi_disponivel=estado.ultima_rpi_oficial if estado else None,
+        ultima_rpi_importada=ultima.numero_rpi if ultima else None,
+        ultima_sincronizacao=ultima_sincronizacao,
+        idade_dados_horas=round(idade_horas, 2) if idade_horas is not None else None,
+        registros_ultima_importacao=ultima.registros_processados if ultima else None,
+        duracao_ultima_sincronizacao_segundos=round(duracao, 2) if duracao is not None else None,
+        status_integridade=ultima.status_integridade if ultima else None,
+        anomalias=ultima.anomalias if ultima else [],
+        quantidade_erros=quantidade_erros,
+        ultimo_erro=estado.ultimo_erro if estado else None,
+        motivos=motivos,
+    )
+    return JSONResponse(
+        status_code=200 if status_rpi in {"ok", "processando"} else 503,
+        content=payload.model_dump(mode="json"),
     )

@@ -15,6 +15,7 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.auditing import criar_evento_auditoria
 from app.auth import (
     UsuarioAtualDep,
     criar_sessao,
@@ -23,9 +24,8 @@ from app.auth import (
     hash_ip,
     hash_token,
 )
-from app.database import get_session
+from app.database import aplicar_contexto_autenticacao, get_session
 from app.models import (
-    EventoAuditoria,
     IdentidadeExterna,
     TentativaOAuth,
     UsuarioOperacoes,
@@ -33,7 +33,7 @@ from app.models import (
 from app.permissions import destino_inicial
 from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
-from app.security_ext import revelar_segredo, validar_totp
+from app.security_ext import proteger_segredo, revelar_segredo, validar_totp, versao_chave_atual
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
 
@@ -154,6 +154,7 @@ async def _criar_tentativa(
 ) -> tuple[str, str, TentativaOAuth]:
     settings = get_settings()
     agora = datetime.now(UTC)
+    await aplicar_contexto_autenticacao(session, "oauth_criar")
     await session.execute(delete(TentativaOAuth).where(TentativaOAuth.expira_em < agora))
     state = secrets.token_urlsafe(40)
     browser_token = secrets.token_urlsafe(40)
@@ -276,9 +277,7 @@ async def _dados_callback(request: Request) -> dict[str, str]:
 async def _trocar_codigo(provedor: str, code: str, tentativa: TentativaOAuth) -> dict:
     config = _configuracao(provedor)
     metadata = await _metadados(provedor, config)
-    client_secret = (
-        _client_secret_apple() if provedor == "apple" else config["client_secret"]
-    )
+    client_secret = _client_secret_apple() if provedor == "apple" else config["client_secret"]
     async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
         dados_token = {
             "grant_type": "authorization_code",
@@ -323,11 +322,14 @@ async def _auditar(
     provedor: str,
 ) -> None:
     session.add(
-        EventoAuditoria(
+        criar_evento_auditoria(
             organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
             ator=usuario.email,
             acao=acao,
             recurso="autenticacao-social",
+            resource_type="identidade_social",
+            resource_id=usuario.id,
             sucesso=True,
             status_http=200,
             ip_hash=hash_ip(cliente_ip(request)),
@@ -349,15 +351,18 @@ async def _usuario_completo(session: AsyncSession, usuario_id: int) -> UsuarioOp
 async def _resolver_usuario(
     session: AsyncSession, provedor: str, claims: dict
 ) -> tuple[UsuarioOperacoes | None, IdentidadeExterna | None]:
+    subject = str(claims["sub"])
+    await aplicar_contexto_autenticacao(session, "oauth_identidade", subject, provedor)
     identidade = (
         await session.execute(
             select(IdentidadeExterna).where(
                 IdentidadeExterna.provedor == provedor,
-                IdentidadeExterna.provedor_usuario_id == str(claims["sub"]),
+                IdentidadeExterna.provedor_usuario_id == subject,
             )
         )
     ).scalar_one_or_none()
     if identidade:
+        await aplicar_contexto_tenant(session, identidade.organizacao_id)
         return await _usuario_completo(session, identidade.usuario_id), identidade
     email = str(claims.get("email") or "").strip().lower()
     if not (
@@ -366,6 +371,7 @@ async def _resolver_usuario(
         and _verdadeiro(claims.get("email_verified"))
     ):
         return None, None
+    await aplicar_contexto_autenticacao(session, "oauth_email", email)
     usuario = (
         await session.execute(
             select(UsuarioOperacoes)
@@ -373,6 +379,10 @@ async def _resolver_usuario(
             .where(UsuarioOperacoes.email == email)
         )
     ).scalar_one_or_none()
+    if usuario:
+        await aplicar_contexto_tenant(
+            session, usuario.organizacao_id, superadmin=usuario.superadmin
+        )
     return usuario, None
 
 
@@ -396,9 +406,7 @@ async def _concluir_sessao(
 def _destino_da_conta(usuario: UsuarioOperacoes, solicitado: str) -> str:
     if solicitado != "/admin":
         return solicitado
-    return destino_inicial(
-        usuario.perfil, frozenset(p.chave for p in usuario.permissoes)
-    )
+    return destino_inicial(usuario.perfil, frozenset(p.chave for p in usuario.permissoes))
 
 
 @router.api_route("/{provedor}/callback", methods=["GET", "POST"])
@@ -417,11 +425,13 @@ async def callback(
     state, code = dados.get("state", ""), dados.get("code", "")
     if dados.get("error") or not state or not code:
         return _erro_callback("A autorizacao foi cancelada ou recusada")
+    state_hash = hash_token(state)
+    await aplicar_contexto_autenticacao(session, "oauth_state", state_hash)
     tentativa = (
         await session.execute(
             select(TentativaOAuth).where(
                 TentativaOAuth.provedor == provedor,
-                TentativaOAuth.state_hash == hash_token(state),
+                TentativaOAuth.state_hash == state_hash,
             )
         )
     ).scalar_one_or_none()
@@ -430,16 +440,9 @@ async def callback(
     browser_valido = bool(
         tentativa
         and browser_token
-        and secrets.compare_digest(
-            tentativa.browser_token_hash, hash_token(browser_token)
-        )
+        and secrets.compare_digest(tentativa.browser_token_hash, hash_token(browser_token))
     )
-    if (
-        not tentativa
-        or not browser_valido
-        or tentativa.usado_em
-        or tentativa.expira_em <= agora
-    ):
+    if not tentativa or not browser_valido or tentativa.usado_em or tentativa.expira_em <= agora:
         return _erro_callback("Tentativa de acesso expirada ou ja utilizada")
     tentativa.usado_em = agora
     try:
@@ -447,9 +450,7 @@ async def callback(
     except (httpx.HTTPError, JoseError, KeyError, ValueError):
         await session.commit()
         destino_erro = tentativa.destino if tentativa.modo == "link" else "/login"
-        return _erro_callback(
-            "Nao foi possivel validar a identidade com o provedor", destino_erro
-        )
+        return _erro_callback("Nao foi possivel validar a identidade com o provedor", destino_erro)
 
     if tentativa.modo == "link":
         usuario = await _usuario_completo(session, tentativa.usuario_id or 0)
@@ -532,9 +533,7 @@ async def callback(
         return resposta
     destino = _destino_da_conta(usuario, tentativa.destino)
     resposta = RedirectResponse(destino, 303)
-    await _concluir_sessao(
-        session, request, resposta, usuario, provedor, destino
-    )
+    await _concluir_sessao(session, request, resposta, usuario, provedor, destino)
     resposta.delete_cookie(OAUTH_BROWSER_COOKIE, path="/v1/auth/social")
     return resposta
 
@@ -547,10 +546,12 @@ async def concluir_mfa(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     token = request.cookies.get(MFA_COOKIE, "")
+    token_hash = hash_token(token)
+    await aplicar_contexto_autenticacao(session, "oauth_mfa", token_hash)
     tentativa = (
         await session.execute(
             select(TentativaOAuth).where(
-                TentativaOAuth.mfa_token_hash == hash_token(token),
+                TentativaOAuth.mfa_token_hash == token_hash,
                 TentativaOAuth.expira_em > datetime.now(UTC),
             )
         )
@@ -561,7 +562,8 @@ async def concluir_mfa(
     if not usuario or not usuario.ativo:
         raise HTTPException(status_code=401, detail="Usuario indisponivel")
     codigo = dados.codigo.strip().upper()
-    valido = validar_totp(revelar_segredo(usuario.mfa_segredo or ""), codigo)
+    segredo_mfa = revelar_segredo(usuario.mfa_segredo or "")
+    valido = validar_totp(segredo_mfa, codigo)
     hash_codigo = hash_token(codigo)
     if not valido and hash_codigo in (usuario.codigos_recuperacao or []):
         usuario.codigos_recuperacao = [
@@ -571,6 +573,9 @@ async def concluir_mfa(
     if not valido:
         raise HTTPException(status_code=401, detail="Codigo MFA invalido")
     await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
+    if usuario.mfa_segredo_versao != versao_chave_atual():
+        usuario.mfa_segredo = proteger_segredo(segredo_mfa)
+        usuario.mfa_segredo_versao = versao_chave_atual()
     tentativa.mfa_token_hash = None
     destino = _destino_da_conta(usuario, tentativa.destino)
     await _concluir_sessao(session, request, response, usuario, tentativa.provedor, destino)

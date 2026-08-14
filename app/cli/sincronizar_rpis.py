@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import asyncpg
 
 from app.models import TipoProcesso
 from app.rpi.bulk_importer import importar_rpi_em_lotes
+from app.rpi.integrity import avaliar_importacao, calcular_integridade_arquivo
 from app.rpi.locking import adquirir_lock_sincronizacao, liberar_lock_sincronizacao
 from app.rpi.parsers import ler_marcas, ler_patentes
 from app.rpi.sync import baixar_e_extrair_rpi
@@ -50,22 +52,64 @@ async def _registrar_importacao(
     titulares: int,
     classes: int,
     movimentacoes: int,
+    arquivo_sha256: str,
+    arquivo_tamanho_bytes: int,
 ) -> None:
     dsn = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
     conexao = await asyncpg.connect(dsn=dsn)
     try:
+        mesma_edicao = await conexao.fetchrow(
+            "SELECT * FROM rpi_importacoes WHERE numero_rpi=$1 AND tipo=$2",
+            numero,
+            tipo.value,
+        )
+        anterior = await conexao.fetchrow(
+            """
+            SELECT * FROM rpi_importacoes
+            WHERE numero_rpi < $1 AND tipo=$2
+            ORDER BY numero_rpi DESC LIMIT 1
+            """,
+            numero,
+            tipo.value,
+        )
+        ultima_edicao = await conexao.fetchval(
+            "SELECT max(numero_rpi) FROM rpi_importacoes WHERE numero_rpi < $1 AND tipo=$2",
+            numero,
+            tipo.value,
+        )
+        settings = get_settings()
+        status_integridade, anomalias = avaliar_importacao(
+            numero_rpi=numero,
+            registros=registros,
+            titulares=titulares,
+            classes=classes,
+            movimentacoes=movimentacoes,
+            arquivo_tamanho_bytes=arquivo_tamanho_bytes,
+            arquivo_sha256=arquivo_sha256,
+            anterior=dict(anterior) if anterior else None,
+            mesma_edicao_anterior=dict(mesma_edicao) if mesma_edicao else None,
+            ultima_edicao_importada=ultima_edicao,
+            razao_minima_registros=settings.rpi_minimum_record_ratio,
+            minimo_referencia_registros=settings.rpi_anomaly_reference_minimum,
+            exigir_classes=tipo is TipoProcesso.MARCA,
+        )
         await conexao.execute(
             """
             INSERT INTO rpi_importacoes (
                 numero_rpi, tipo, registros_processados,
-                titulares_processados, classes_processadas, movimentacoes_processadas
+                titulares_processados, classes_processadas, movimentacoes_processadas,
+                arquivo_sha256, arquivo_tamanho_bytes, status_integridade, anomalias
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
             ON CONFLICT (numero_rpi, tipo) DO UPDATE SET
                 registros_processados=excluded.registros_processados,
                 titulares_processados=excluded.titulares_processados,
                 classes_processadas=excluded.classes_processadas,
                 movimentacoes_processadas=excluded.movimentacoes_processadas,
+                arquivo_sha256=excluded.arquivo_sha256,
+                arquivo_tamanho_bytes=excluded.arquivo_tamanho_bytes,
+                status_integridade=excluded.status_integridade,
+                anomalias=excluded.anomalias,
                 importado_em=now()
             """,
             numero,
@@ -74,7 +118,25 @@ async def _registrar_importacao(
             titulares,
             classes,
             movimentacoes,
+            arquivo_sha256,
+            arquivo_tamanho_bytes,
+            status_integridade,
+            json.dumps(anomalias, ensure_ascii=False),
         )
+        if anomalias:
+            await conexao.execute(
+                """
+                INSERT INTO alertas_sistema (
+                    organizacao_id, severidade, codigo, mensagem, detalhes
+                ) VALUES (NULL, $1, 'RPI_IMPORTACAO_ANOMALA', $2, $3::jsonb)
+                """,
+                "critica" if status_integridade == "erro" else "aviso",
+                f"RPI {numero} ({tipo.value}) importada com anomalias de integridade.",
+                json.dumps(
+                    {"numero_rpi": numero, "tipo": tipo.value, "anomalias": anomalias},
+                    ensure_ascii=False,
+                ),
+            )
     finally:
         await conexao.close()
 
@@ -102,6 +164,7 @@ async def executar() -> None:
                 continue
 
             xml = baixar_e_extrair_rpi(numero, tipo, args.diretorio, print)
+            arquivo_sha256, arquivo_tamanho_bytes = calcular_integridade_arquivo(xml)
             leitor = ler_marcas if tipo is TipoProcesso.MARCA else ler_patentes
             estatisticas = await importar_rpi_em_lotes(database_url, leitor(xml))
             await _registrar_importacao(
@@ -112,6 +175,8 @@ async def executar() -> None:
                 estatisticas.titulares,
                 estatisticas.classes,
                 estatisticas.movimentacoes,
+                arquivo_sha256,
+                arquivo_tamanho_bytes,
             )
             print(
                 f"RPI {numero} ({tipo.value}): {estatisticas.registros:,} registros",

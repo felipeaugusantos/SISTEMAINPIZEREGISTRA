@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
-from app.database import get_session
 from app.crm import REGRAS_AUTOMACAO, normalizar_empresa
+from app.database import get_session
 from app.models import (
     Cadencia,
     CadenciaPasso,
@@ -40,6 +40,8 @@ TIPOS_LEMBRETE = {
     "outro": "Outro",
 }
 PRIORIDADES = {"baixa": "Baixa", "media": "Média", "alta": "Alta"}
+
+
 def _escapar_busca(valor: str) -> str:
     return valor.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
@@ -75,9 +77,7 @@ def _serializar_historico(
         "cliente": lead.nome,
         "email": lead.email if pode_ver_pii else _mascarar_email(lead.email),
         "telefone": lead.telefone if pode_ver_pii else _mascarar_telefone(lead.telefone),
-        "documento": (
-            lead.documento if pode_ver_pii else _mascarar_documento(lead.documento)
-        ),
+        "documento": (lead.documento if pode_ver_pii else _mascarar_documento(lead.documento)),
         "empresa_id": contato.empresa_id,
         "empresa": empresa or lead.empresa,
         "pesquisa_id": contato.pesquisa_id,
@@ -222,8 +222,7 @@ async def referencias_crm(session: SessionDep, usuario: CRMViewDep) -> dict:
         "canais": [{"id": item.value, "nome": item.value.title()} for item in CanalContato],
         "operadores": [{"id": item.id, "nome": item.nome} for item in operadores],
         "status_clientes": [
-            {"id": item.value, "nome": item.value.replace("_", " ").title()}
-            for item in StatusLead
+            {"id": item.value, "nome": item.value.replace("_", " ").title()} for item in StatusLead
         ],
         "tipos_lembrete": [{"id": chave, "nome": nome} for chave, nome in TIPOS_LEMBRETE.items()],
         "prioridades": [{"id": chave, "nome": nome} for chave, nome in PRIORIDADES.items()],
@@ -279,6 +278,7 @@ def _auditar_lembrete(
     session.add(
         EventoAuditoria(
             organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
             ator=usuario.ator,
             acao=acao[:20],
             recurso=f"lembrete_crm:{lembrete_id or 'novo'}",
@@ -365,13 +365,17 @@ async def listar_lembretes(
     if tipo:
         filtros.append(LembreteCRM.tipo == tipo)
     itens = (
-        await session.execute(
-            select(LembreteCRM)
-            .where(*filtros)
-            .order_by(LembreteCRM.lembrar_em, LembreteCRM.id)
-            .limit(limite)
+        (
+            await session.execute(
+                select(LembreteCRM)
+                .where(*filtros)
+                .order_by(LembreteCRM.lembrar_em, LembreteCRM.id)
+                .limit(limite)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     metricas = (
         await session.execute(
             select(
@@ -571,7 +575,10 @@ async def obter_empresa(empresa_id: int, session: SessionDep, usuario: CRMViewDe
         (
             await session.execute(
                 select(Contato)
-                .where(Contato.empresa_id == empresa_id, Contato.organizacao_id == usuario.organizacao_id)
+                .where(
+                    Contato.empresa_id == empresa_id,
+                    Contato.organizacao_id == usuario.organizacao_id,
+                )
                 .order_by(Contato.principal.desc(), Contato.nome)
             )
         )
@@ -593,7 +600,11 @@ async def obter_empresa(empresa_id: int, session: SessionDep, usuario: CRMViewDe
 
 @router.put("/empresas/{empresa_id}")
 async def editar_empresa(
-    empresa_id: int, dados: EmpresaUpdate, request: Request, session: SessionDep, usuario: CRMManageDep
+    empresa_id: int,
+    dados: EmpresaUpdate,
+    request: Request,
+    session: SessionDep,
+    usuario: CRMManageDep,
 ) -> dict:
     empresa = await _empresa_da_org(session, empresa_id, usuario.organizacao_id)
     campos = dados.model_dump(exclude_unset=True)
@@ -628,7 +639,9 @@ async def criar_contato(
     if dados.principal:
         await session.execute(
             Contato.__table__.update()
-            .where(Contato.empresa_id == empresa_id, Contato.organizacao_id == usuario.organizacao_id)
+            .where(
+                Contato.empresa_id == empresa_id, Contato.organizacao_id == usuario.organizacao_id
+            )
             .values(principal=False)
         )
     contato = Contato(
@@ -778,7 +791,13 @@ def _cadencia_dict(c: Cadencia) -> dict:
         "descricao": c.descricao,
         "ativo": c.ativo,
         "passos": [
-            {"id": p.id, "dia": p.dia, "canal": p.canal, "titulo": p.titulo, "descricao": p.descricao}
+            {
+                "id": p.id,
+                "dia": p.dia,
+                "canal": p.canal,
+                "titulo": p.titulo,
+                "descricao": p.descricao,
+            }
             for p in c.passos
         ],
     }
@@ -817,9 +836,7 @@ def _montar_passos(cadencia: Cadencia, passos: list[PassoInput], organizacao_id:
 
 
 @router.post("/cadencias", status_code=status.HTTP_201_CREATED)
-async def criar_cadencia(
-    dados: CadenciaInput, session: SessionDep, usuario: CRMManageDep
-) -> dict:
+async def criar_cadencia(dados: CadenciaInput, session: SessionDep, usuario: CRMManageDep) -> dict:
     cadencia = Cadencia(
         organizacao_id=usuario.organizacao_id,
         nome=dados.nome.strip(),

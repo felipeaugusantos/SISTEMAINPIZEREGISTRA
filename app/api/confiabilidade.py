@@ -270,6 +270,7 @@ async def anonimizar(
     session.add(
         EventoAuditoria(
             organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
             ator=usuario.email,
             acao="ANONIMIZAR",
             recurso="lead",

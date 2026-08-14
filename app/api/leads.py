@@ -24,7 +24,6 @@ from app.models import (
     ChecklistFaseLead,
     Contato,
     ContatoLead,
-    LembreteCRM,
     DocumentoLead,
     EmpresaCRM,
     EventoAuditoria,
@@ -32,6 +31,7 @@ from app.models import (
     GuiaInpi,
     HistoricoFaseLead,
     Lead,
+    LembreteCRM,
     PesquisaMarca,
     RetribuicaoInpi,
     SolicitacaoExclusaoPesquisa,
@@ -119,6 +119,7 @@ def _auditar(
     session.add(
         EventoAuditoria(
             organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
             ator=usuario.ator,
             acao=acao[:20],
             recurso=recurso[:180],
@@ -490,9 +491,7 @@ async def listar_leads(
         ).all()
         for pesquisa, nivel, pontuacao, disponivel, exclusao_status in linhas:
             pesquisas_por_lead.setdefault(pesquisa.lead_id, []).append(
-                _resumo_pesquisa(
-                    pesquisa, nivel, pontuacao, bool(disponivel), exclusao_status
-                )
+                _resumo_pesquisa(pesquisa, nivel, pontuacao, bool(disponivel), exclusao_status)
             )
     por_status = {status.value: quantidade for status, quantidade in contagens}
     return LeadListResponse(
@@ -605,15 +604,19 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         )
     ).all()
     ids = [r[0] for r in prod if r[0] is not None]
-    nomes = dict(
-        (
-            await session.execute(
-                select(UsuarioOperacoes.id, UsuarioOperacoes.nome).where(
-                    UsuarioOperacoes.id.in_(ids)
+    nomes = (
+        dict(
+            (
+                await session.execute(
+                    select(UsuarioOperacoes.id, UsuarioOperacoes.nome).where(
+                        UsuarioOperacoes.id.in_(ids)
+                    )
                 )
-            )
-        ).all()
-    ) if ids else {}
+            ).all()
+        )
+        if ids
+        else {}
+    )
     produtividade = sorted(
         (
             {
@@ -972,9 +975,7 @@ async def detalhar_lead(
 async def funil_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
     lead = (
         await session.execute(
-            select(Lead).where(
-                Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id
-            )
+            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
         )
     ).scalar_one_or_none()
     if lead is None:
@@ -989,9 +990,7 @@ async def funil_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -
     return {
         "fase": lead.fase,
         "ordem": list(ORDEM_FASE_LEAD),
-        "historico": [
-            {"fase": f, "entrou_em": e, "por": p} for f, e, p in historico
-        ],
+        "historico": [{"fase": f, "entrou_em": e, "por": p} for f, e, p in historico],
     }
 
 
@@ -1009,15 +1008,16 @@ async def definir_fase_lead(
 ) -> dict:
     lead = (
         await session.execute(
-            select(Lead).where(
-                Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id
-            )
+            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
         )
     ).scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
     mudou = await avancar_fase_lead(
-        session, lead, dados.fase.value, por=getattr(usuario, "nome", None) or "operador",
+        session,
+        lead,
+        dados.fase.value,
+        por=getattr(usuario, "nome", None) or "operador",
         forcar=True,
     )
     if mudou:
@@ -1057,18 +1057,20 @@ async def _lead_da_org(session: AsyncSession, lead_id: int, organizacao_id: int)
 
 
 @router.get("/v1/admin/leads/{lead_id}/documentos")
-async def listar_documentos_lead(
-    lead_id: int, session: SessionDep, usuario: LeadsViewDep
-) -> dict:
+async def listar_documentos_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
     await _lead_da_org(session, lead_id, usuario.organizacao_id)
     docs = (
-        await session.execute(
-            select(DocumentoLead).where(
-                DocumentoLead.lead_id == lead_id,
-                DocumentoLead.organizacao_id == usuario.organizacao_id,
+        (
+            await session.execute(
+                select(DocumentoLead).where(
+                    DocumentoLead.lead_id == lead_id,
+                    DocumentoLead.organizacao_id == usuario.organizacao_id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     por_tipo = {d.tipo: d for d in docs}
     return {
         "tipos": list(TIPOS_DOCUMENTO_LEAD),
@@ -1103,7 +1105,9 @@ async def salvar_documentos_lead(
                     DocumentoLead.organizacao_id == usuario.organizacao_id,
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     }
     for item in dados.documentos:
         if item.tipo not in TIPOS_DOCUMENTO_LEAD:
@@ -1176,7 +1180,9 @@ async def _checklist_itens(
                 )
                 .order_by(ChecklistFaseLead.ordem, ChecklistFaseLead.id)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -1196,9 +1202,7 @@ async def obter_checklist_fase(
     return {
         "fase": fase_alvo,
         "tem_padrao": fase_alvo in CHECKLIST_PADRAO_FASE and not itens,
-        "itens": [
-            {"id": i.id, "descricao": i.descricao, "concluido": i.concluido} for i in itens
-        ],
+        "itens": [{"id": i.id, "descricao": i.descricao, "concluido": i.concluido} for i in itens],
     }
 
 
@@ -1438,9 +1442,7 @@ async def atualizar_guia_inpi(
 
 
 @router.delete("/v1/admin/guias-inpi/{guia_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remover_guia_inpi(
-    guia_id: int, session: SessionDep, usuario: LeadsManageDep
-) -> Response:
+async def remover_guia_inpi(guia_id: int, session: SessionDep, usuario: LeadsManageDep) -> Response:
     guia = (
         await session.execute(
             select(GuiaInpi).where(
@@ -1547,12 +1549,16 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
         }
     ]
     fases = (
-        await session.execute(
-            select(HistoricoFaseLead).where(
-                HistoricoFaseLead.lead_id == lead_id, HistoricoFaseLead.organizacao_id == org
+        (
+            await session.execute(
+                select(HistoricoFaseLead).where(
+                    HistoricoFaseLead.lead_id == lead_id, HistoricoFaseLead.organizacao_id == org
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for f in fases:
         eventos.append(
             {
@@ -1563,12 +1569,16 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
             }
         )
     contatos = (
-        await session.execute(
-            select(ContatoLead).where(
-                ContatoLead.lead_id == lead_id, ContatoLead.organizacao_id == org
+        (
+            await session.execute(
+                select(ContatoLead).where(
+                    ContatoLead.lead_id == lead_id, ContatoLead.organizacao_id == org
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for c in contatos:
         detalhe = " · ".join(x for x in (c.resultado, c.observacao) if x) or None
         eventos.append(
@@ -1592,12 +1602,16 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
             {"tipo": "pesquisa", "data": criado_em, "titulo": "Pesquisa gerada", "detalhe": marca}
         )
     documentos = (
-        await session.execute(
-            select(DocumentoLead).where(
-                DocumentoLead.lead_id == lead_id, DocumentoLead.organizacao_id == org
+        (
+            await session.execute(
+                select(DocumentoLead).where(
+                    DocumentoLead.lead_id == lead_id, DocumentoLead.organizacao_id == org
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for d in documentos:
         if not (d.numero or d.data):
             continue
@@ -1610,10 +1624,14 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
             }
         )
     guias = (
-        await session.execute(
-            select(GuiaInpi).where(GuiaInpi.lead_id == lead_id, GuiaInpi.organizacao_id == org)
+        (
+            await session.execute(
+                select(GuiaInpi).where(GuiaInpi.lead_id == lead_id, GuiaInpi.organizacao_id == org)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for g in guias:
         eventos.append(
             {

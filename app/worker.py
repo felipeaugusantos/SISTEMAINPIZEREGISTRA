@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -8,7 +9,17 @@ from app.api.juridico import executar_motor_organizacao
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
 from app.database import session_factory
 from app.models import AlertaSistema, Lead, ModeloRegistrabilidade, Organizacao
-from app.queueing import FAILED_KEY, MAX_ATTEMPTS, PROCESSING_KEY, QUEUE_KEY, cliente_redis
+from app.queueing import (
+    FAILED_KEY,
+    MAX_ATTEMPTS,
+    METRICS_KEY,
+    PROCESSING_KEY,
+    QUEUE_KEY,
+    agendar_retry,
+    cliente_redis,
+    promover_retentativas,
+)
+from app.request_context import definir_request_id, request_id_atual, restaurar_request_id
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
 from app.trademarks.agent import reconciliar_resultados_reais, reprocessar_agentes_pendentes
@@ -17,6 +28,12 @@ from app.trademarks.learning import (
     executar_pipeline_aprendizado,
     reprocessar_previsoes_pendentes,
 )
+
+logger = logging.getLogger("ze_registra.worker")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    logger.addHandler(logging.StreamHandler())
+logger.propagate = False
 
 
 async def processar(tipo: str, payload: dict) -> None:
@@ -96,8 +113,7 @@ async def processar(tipo: str, payload: dict) -> None:
                     severidade="aviso" if sem_modelo else "info",
                     codigo="PREVISOES_REPROCESSADAS",
                     mensagem=(
-                        "Nenhuma previsão foi criada: não existe modelo "
-                        "supervisionado ativo."
+                        "Nenhuma previsão foi criada: não existe modelo supervisionado ativo."
                         if sem_modelo
                         else (
                             f"Reprocessamento concluído: {resultado['processadas']} "
@@ -129,12 +145,8 @@ async def processar(tipo: str, payload: dict) -> None:
                 administrador=payload.get("solicitado_por") or "worker",
                 limite_dataset=int(payload.get("limite_dataset") or 3000),
             )
-            aguardando_revisoes = (
-                resultado["modelo_status"] == "candidato"
-                and any(
-                    "Revisões humanas insuficientes" in bloqueio
-                    for bloqueio in resultado["bloqueios"]
-                )
+            aguardando_revisoes = resultado["modelo_status"] == "candidato" and any(
+                "Revisões humanas insuficientes" in bloqueio for bloqueio in resultado["bloqueios"]
             )
             session.add(
                 AlertaSistema(
@@ -211,6 +223,27 @@ async def processar(tipo: str, payload: dict) -> None:
         await session.commit()
 
 
+async def processar_rastreado(tipo: str, payload: dict, request_id: str | None = None) -> None:
+    token_contexto = definir_request_id(request_id)
+    request_id_valor = request_id_atual()
+    inicio = datetime.now(UTC)
+    try:
+        await processar(tipo, payload)
+        logger.info(
+            json.dumps(
+                {
+                    "event": "WORKER_JOB_COMPLETED",
+                    "request_id": request_id_valor,
+                    "job_type": tipo,
+                    "duration_ms": round((datetime.now(UTC) - inicio).total_seconds() * 1000),
+                },
+                ensure_ascii=False,
+            )
+        )
+    finally:
+        restaurar_request_id(token_contexto)
+
+
 async def main() -> None:
     redis = cliente_redis()
     # Recupera trabalhos que ficaram em processamento apos encerramento abrupto.
@@ -221,6 +254,7 @@ async def main() -> None:
     proxima_manutencao = datetime.now(UTC)
     proximo_alto_renome = datetime.now(UTC)
     while True:
+        await promover_retentativas(redis)
         bruto = await redis.brpoplpush(QUEUE_KEY, PROCESSING_KEY, timeout=5)
         if not bruto:
             if datetime.now(UTC) >= proxima_manutencao:
@@ -231,7 +265,7 @@ async def main() -> None:
                     "juridico.executar_motor",
                 ):
                     try:
-                        await processar(tarefa, {})
+                        await processar_rastreado(tarefa, {})
                     except Exception as exc:
                         await redis.rpush(
                             FAILED_KEY,
@@ -246,7 +280,7 @@ async def main() -> None:
                 proxima_manutencao = datetime.now(UTC) + timedelta(hours=1)
             if datetime.now(UTC) >= proximo_alto_renome:
                 try:
-                    await processar("alto_renome.sincronizar", {})
+                    await processar_rastreado("alto_renome.sincronizar", {})
                 except Exception as exc:
                     await redis.rpush(
                         FAILED_KEY,
@@ -262,8 +296,9 @@ async def main() -> None:
             continue
         try:
             job = json.loads(bruto)
-            await processar(job["tipo"], job.get("payload", {}))
+            await processar_rastreado(job["tipo"], job.get("payload", {}), job.get("request_id"))
             await redis.lrem(PROCESSING_KEY, 1, bruto)
+            await redis.hincrby(METRICS_KEY, "concluidos", 1)
         except Exception as exc:
             await redis.lrem(PROCESSING_KEY, 1, bruto)
             try:
@@ -273,10 +308,24 @@ async def main() -> None:
             job["tentativas"] = int(job.get("tentativas", 0)) + 1
             job["ultimo_erro"] = type(exc).__name__
             job["ultima_falha_em"] = datetime.now(UTC).isoformat()
+            logger.exception(
+                json.dumps(
+                    {
+                        "event": "WORKER_JOB_FAILED",
+                        "request_id": job.get("request_id"),
+                        "job_id": job.get("id"),
+                        "job_type": job.get("tipo"),
+                        "attempt": job["tentativas"],
+                        "error": type(exc).__name__,
+                    },
+                    ensure_ascii=False,
+                )
+            )
             if job["tentativas"] < MAX_ATTEMPTS:
-                await redis.rpush(QUEUE_KEY, json.dumps(job))
+                await agendar_retry(redis, job)
             else:
                 await redis.rpush(FAILED_KEY, json.dumps(job))
+                await redis.hincrby(METRICS_KEY, "falhas", 1)
 
 
 if __name__ == "__main__":

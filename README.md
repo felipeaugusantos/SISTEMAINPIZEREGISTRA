@@ -156,7 +156,16 @@ ADMIN_EMAIL=seu-email@empresa.com.br
 ADMIN_PASSWORD=troque-esta-senha
 AUDIT_IP_SALT=troque-este-segredo
 SECURITY_MASTER_KEY=troque-esta-chave
+SECURITY_MASTER_KEY_VERSION=1
 ```
+
+`SECURITY_MASTER_KEY` protege os segredos TOTP com Fernet (AES/HMAC). O ciphertext inclui
+a versao da chave, mas a chave nunca e armazenada no banco. Para rotacao sem interromper
+o MFA existente, configure a nova chave e versao em `SECURITY_MASTER_KEY` e
+`SECURITY_MASTER_KEY_VERSION`, mantendo temporariamente a anterior em
+`SECURITY_MASTER_KEY_PREVIOUS` e `SECURITY_MASTER_KEY_PREVIOUS_VERSION`. Depois que os
+segredos ativos forem regravados, remova a chave anterior. O comprometimento dessa chave
+permite revelar segredos MFA e exige rotacao imediata e revisao das contas afetadas.
 
 4. Construa e inicie os serviços:
 
@@ -218,7 +227,19 @@ Configurações disponíveis no `.env`:
 RPI_SYNC_INTERVAL_SECONDS=21600
 RPI_SYNC_START_NUMBER=2900
 RPI_SYNC_POLL_SECONDS=10
+RPI_STALE_HOURS=12
+RPI_MINIMUM_RECORD_RATIO=0.50
+RPI_ANOMALY_REFERENCE_MINIMUM=1000
 ```
+
+Cada importação registra checksum SHA-256, tamanho do XML, estatísticas e anomalias. Edições
+vazias, lacunas, quedas abruptas e resultados não reproduzíveis geram alertas para revisão,
+sem bloquear automaticamente uma edição oficial pequena. O endpoint `GET /health/rpi` expõe
+o estado `ok`, `atrasado`, `erro` ou `processando` para monitoramento.
+
+As requisições recebem `X-Request-ID`, propagado para auditoria, logs estruturados e jobs.
+Retries do worker usam backoff exponencial; produtores podem informar uma chave idempotente
+ao enfileirar operações que não devem ser duplicadas.
 
 Para acompanhar a execução:
 

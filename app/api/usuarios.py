@@ -102,7 +102,7 @@ def _serializar(u: UsuarioOperacoes, sessoes: int = 0) -> dict:
 
 
 async def _auditar(session: AsyncSession, ator: UsuarioAutenticado, acao: str, alvo: int, detalhes: dict) -> None:
-    session.add(EventoAuditoria(organizacao_id=ator.organizacao_id, ator=ator.email, acao=acao[:20], recurso=f"usuario:{alvo}",
+    session.add(EventoAuditoria(organizacao_id=ator.organizacao_id, actor_id=ator.id, ator=ator.email, acao=acao[:20], recurso=f"usuario:{alvo}",
                                 sucesso=True, status_http=200, detalhes=detalhes))
 
 

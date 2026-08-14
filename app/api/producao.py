@@ -39,12 +39,13 @@ async def _resumo(
                 func.count(),
                 func.sum(case((EventoOperacional.sucesso.is_(False), 1), else_=0)),
                 func.avg(EventoOperacional.duracao_ms),
+                func.percentile_cont(0.95).within_group(EventoOperacional.duracao_ms),
                 func.max(EventoOperacional.duracao_ms),
             ).where(EventoOperacional.criado_em >= desde)
         )
     ).one()
     if not usuario.superadmin:
-        operacional = (0, 0, 0, 0)
+        operacional = (0, 0, 0, 0, 0)
     comparacao = (
         await session.execute(
             select(
@@ -108,7 +109,8 @@ async def _resumo(
         erros_24h=erros,
         taxa_erros_24h=erros / requisicoes if requisicoes else 0,
         duracao_media_ms_24h=float(operacional[2] or 0),
-        duracao_maxima_ms_24h=int(operacional[3] or 0),
+        duracao_p95_ms_24h=float(operacional[3] or 0),
+        duracao_maxima_ms_24h=int(operacional[4] or 0),
         avaliacoes_humanas=avaliadas,
         divergencias_humanas=divergencias,
         taxa_divergencia=divergencias / avaliadas if avaliadas else 0,
@@ -119,11 +121,17 @@ async def _resumo(
         auditoria_deslocamento=deslocamento_auditoria,
         auditoria=[
             EventoAuditoriaResponse(
+                request_id=item.request_id,
+                actor_id=item.actor_id,
                 ator=item.ator,
                 acao=item.acao,
                 recurso=item.recurso,
+                resource_type=item.resource_type,
+                resource_id=item.resource_id,
                 sucesso=item.sucesso,
                 status_http=item.status_http,
+                before_state=item.before_state,
+                after_state=item.after_state,
                 criado_em=item.criado_em,
             )
             for item in auditoria

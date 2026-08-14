@@ -96,6 +96,7 @@ async def atualizar_dados_complementares(
     session.add(
         EventoAuditoria(
             organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
             ator=usuario.ator,
             acao="complementar",
             recurso=f"pesquisa:{pesquisa.id}",
@@ -385,6 +386,7 @@ async def reconciliar_resultado(
     session.add(
         EventoAuditoria(
             organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
             ator=usuario.ator,
             acao="reconciliar",
             recurso=f"pesquisa:{pesquisa.id}",

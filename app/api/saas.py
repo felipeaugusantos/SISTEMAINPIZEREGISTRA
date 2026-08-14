@@ -12,6 +12,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.auditing import criar_evento_auditoria
 from app.auth import UsuarioAtualDep, UsuarioAutenticado, exigir_csrf, hash_senha
 from app.database import get_session
 from app.models import (
@@ -19,7 +20,6 @@ from app.models import (
     ConviteOrganizacao,
     CredencialIntegracao,
     DominioOrganizacao,
-    EventoAuditoria,
     EventoCobrancaSandbox,
     Lead,
     Organizacao,
@@ -148,17 +148,29 @@ def _org_json(org: Organizacao, usuarios: int = 0, leads: int = 0, pesquisas: in
 
 
 async def _auditar(
-    session: AsyncSession, ator: UsuarioAutenticado, acao: str, recurso: str, detalhes: dict
+    session: AsyncSession,
+    ator: UsuarioAutenticado,
+    acao: str,
+    recurso: str,
+    detalhes: dict,
+    *,
+    before_state: dict | None = None,
 ) -> None:
+    resource_type, _, resource_id = recurso.partition(":")
     session.add(
-        EventoAuditoria(
+        criar_evento_auditoria(
             organizacao_id=ator.organizacao_id,
+            actor_id=ator.id,
             ator=ator.email,
             acao=acao[:20],
             recurso=recurso,
+            resource_type=resource_type,
+            resource_id=resource_id or None,
             sucesso=True,
             status_http=200,
             detalhes=detalhes,
+            before_state=before_state,
+            after_state=detalhes or None,
         )
     )
 
@@ -305,10 +317,17 @@ async def atualizar_organizacao(
     ).scalar_one_or_none()
     if not org:
         raise HTTPException(404, "Organizacao nao encontrada")
-    for campo, valor in dados.model_dump(exclude_unset=True).items():
+    alteracoes = dados.model_dump(exclude_unset=True)
+    anterior = {campo: getattr(org, campo) for campo in alteracoes}
+    for campo, valor in alteracoes.items():
         setattr(org, campo, valor)
     await _auditar(
-        session, ator, "ALTERAR_ORG", f"organizacao:{org.id}", dados.model_dump(exclude_unset=True)
+        session,
+        ator,
+        "ALTERAR_ORG",
+        f"organizacao:{org.id}",
+        alteracoes,
+        before_state=anterior,
     )
     await session.commit()
     return {"status": "ok"}
@@ -397,6 +416,7 @@ async def listar_credenciais(
             "ativo": x.ativo,
             "ultimo_uso_em": x.ultimo_uso_em,
             "expira_em": x.expira_em,
+            "revoked_at": x.revoked_at,
         }
         for x in itens
     ]
@@ -420,6 +440,7 @@ async def revogar_credencial(
     if not item:
         raise HTTPException(404, "Credencial não encontrada")
     item.ativo = False
+    item.revoked_at = datetime.now(UTC)
     await _auditar(session, ator, "REVOGAR_CHAVE", f"credencial:{item.id}", {})
     await session.commit()
     return {"status": "revogada"}

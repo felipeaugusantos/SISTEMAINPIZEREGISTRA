@@ -1,3 +1,4 @@
+from time import perf_counter
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -28,6 +29,7 @@ from app.privacy import mascarar_documentos_publicos
 from app.production import versionar_relatorio
 from app.ratelimit import RateLimiter
 from app.relatorios import gerar_pdf_resumo_cliente
+from app.request_context import adicionar_detalhes_operacionais
 from app.schemas import (
     AfinidadeClassesResponse,
     ClasseNiceCandidataResponse,
@@ -112,9 +114,7 @@ async def criar_pesquisa(
         raise HTTPException(status_code=403, detail="Modulo de consulta indisponivel no plano")
     await validar_limite_pesquisas(session, organizacao)
     empresa = await obter_ou_criar_empresa(session, organizacao.id, dados.empresa)
-    lead = await buscar_lead_ativo_por_email(
-        session, organizacao.id, dados.email_corporativo
-    )
+    lead = await buscar_lead_ativo_por_email(session, organizacao.id, dados.email_corporativo)
     if lead is None:
         lead = Lead(
             organizacao_id=organizacao.id,
@@ -214,11 +214,18 @@ async def gerar_resumo_pesquisa(
     session: AsyncSession, pesquisa: PesquisaMarca
 ) -> ResumoPublicoMarcaResponse:
     """Motor de geração do relatório, reutilizável pelo fluxo público e pelo admin."""
+    inicio_busca = perf_counter()
     total, ocorrencias, evidencias = await buscar_marcas(
         session,
         marca=pesquisa.marca,
         tipo_pesquisa=pesquisa.tipo_pesquisa,
         classe_nice=pesquisa.classe_nice,
+    )
+    adicionar_detalhes_operacionais(
+        search_duration_ms=round((perf_counter() - inicio_busca) * 1000),
+        search_results_count=total,
+        zero_result_search=total == 0,
+        search_algorithm=evidencias.get("versao_algoritmo"),
     )
     classes_atividade = mapear_atividade(pesquisa.atividade or "")
     codigos_atividade = [classe.codigo for classe in classes_atividade]
@@ -432,11 +439,7 @@ async def gerar_resumo_pesquisa(
         risco_nivel=avaliacao.nivel,
         estimativa_status=(
             "disponivel"
-            if (
-                previsao is not None
-                and modelo_previsao is not None
-                and previsao.elegivel_cliente
-            )
+            if (previsao is not None and modelo_previsao is not None and previsao.elegivel_cliente)
             else "validacao_interna"
             if previsao is not None
             else "indisponivel"
@@ -486,11 +489,7 @@ async def gerar_resumo_pesquisa(
                     "garantia de registro e não substitui o exame do INPI."
                 ),
             )
-            if (
-                previsao is not None
-                and modelo_previsao is not None
-                and previsao.elegivel_cliente
-            )
+            if (previsao is not None and modelo_previsao is not None and previsao.elegivel_cliente)
             else None
         ),
     )

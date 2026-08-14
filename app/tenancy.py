@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.database import get_session
+from app.database import aplicar_contexto_autenticacao, get_session
 from app.models import (
     CredencialIntegracao,
     DominioOrganizacao,
@@ -83,11 +83,13 @@ async def resolver_organizacao_publica(
         raise HTTPException(401, "Chave de integracao invalida")
     if token:
         token_hash = hashlib.sha256(token.encode()).hexdigest()
+        await aplicar_contexto_autenticacao(session, "integracao", token_hash)
         credencial = (
             await session.execute(
                 select(CredencialIntegracao).where(
                     CredencialIntegracao.token_hash == token_hash,
                     CredencialIntegracao.ativo.is_(True),
+                    CredencialIntegracao.revoked_at.is_(None),
                 )
             )
         ).scalar_one_or_none()
@@ -109,6 +111,7 @@ async def resolver_organizacao_publica(
         await aplicar_contexto_tenant(session, padrao.id)
         return padrao
     if organizacao is None:
+        await aplicar_contexto_autenticacao(session, "dominio", host)
         dominio = (
             await session.execute(
                 select(DominioOrganizacao).where(

@@ -377,6 +377,7 @@ async def revisar_rotulo(
     session.add(
         EventoAuditoria(
             organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
             ator=usuario.ator,
             acao="revisar_rotulo",
             recurso=f"rotulo:{rotulo.id}",

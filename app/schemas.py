@@ -610,6 +610,7 @@ class RpiSyncExecucaoResponse(BaseModel):
     origem: str
     status: str
     solicitado_por: str | None
+    request_id: str | None = None
     execucao_anterior_id: int | None
     rpi_inicio: int | None
     rpi_fim: int | None
@@ -663,12 +664,33 @@ class RpiSyncAcaoResponse(BaseModel):
     mensagem: str
 
 
+class RpiHealthResponse(BaseModel):
+    status: Literal["ok", "atrasado", "erro", "processando"]
+    ultima_rpi_disponivel: int | None
+    ultima_rpi_importada: int | None
+    ultima_sincronizacao: datetime | None
+    idade_dados_horas: float | None
+    registros_ultima_importacao: int | None
+    duracao_ultima_sincronizacao_segundos: float | None
+    status_integridade: str | None
+    anomalias: list[dict]
+    quantidade_erros: int
+    ultimo_erro: str | None
+    motivos: list[str]
+
+
 class EventoAuditoriaResponse(BaseModel):
+    request_id: str | None = None
+    actor_id: int | None = None
     ator: str
     acao: str
     recurso: str
+    resource_type: str | None = None
+    resource_id: str | None = None
     sucesso: bool
     status_http: int
+    before_state: dict | None = None
+    after_state: dict | None = None
     criado_em: datetime
 
 
@@ -678,6 +700,7 @@ class ProducaoAdminResponse(BaseModel):
     erros_24h: int
     taxa_erros_24h: float
     duracao_media_ms_24h: float
+    duracao_p95_ms_24h: float
     duracao_maxima_ms_24h: int
     avaliacoes_humanas: int
     divergencias_humanas: int

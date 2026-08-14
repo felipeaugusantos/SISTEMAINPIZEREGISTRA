@@ -25,6 +25,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.request_context import request_id_atual
 
 
 class TipoProcesso(StrEnum):
@@ -176,6 +177,9 @@ class CredencialIntegracao(Base):
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     ultimo_uso_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expira_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     criado_por: Mapped[str] = mapped_column(String(150))
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -214,6 +218,7 @@ class UsuarioOperacoes(Base):
     superadmin: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     mfa_ativo: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     mfa_segredo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mfa_segredo_versao: Mapped[int | None] = mapped_column(Integer, nullable=True)
     codigos_recuperacao: Mapped[list[str]] = mapped_column(JSON, default=list)
     alterar_senha: Mapped[bool] = mapped_column(Boolean, default=True)
     tentativas_falhas: Mapped[int] = mapped_column(Integer, default=0)
@@ -451,6 +456,10 @@ class RpiImportacao(Base):
     titulares_processados: Mapped[int] = mapped_column(Integer, default=0)
     classes_processadas: Mapped[int] = mapped_column(Integer, default=0)
     movimentacoes_processadas: Mapped[int] = mapped_column(Integer, default=0)
+    arquivo_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    arquivo_tamanho_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    status_integridade: Mapped[str] = mapped_column(String(20), default="desconhecido", index=True)
+    anomalias: Mapped[list[dict]] = mapped_column(JSON, default=list)
     importado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -463,6 +472,9 @@ class RpiSyncExecucao(Base):
     origem: Mapped[str] = mapped_column(String(20), index=True)
     status: Mapped[str] = mapped_column(String(30), index=True)
     solicitado_por: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True, default=request_id_atual
+    )
     execucao_anterior_id: Mapped[int | None] = mapped_column(
         ForeignKey("rpi_sync_execucoes.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -1139,9 +1151,7 @@ class HistoricoFaseLead(Base):
     organizacao_id: Mapped[int] = mapped_column(
         ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
     )
-    lead_id: Mapped[int] = mapped_column(
-        ForeignKey("leads.id", ondelete="CASCADE"), index=True
-    )
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     fase: Mapped[str] = mapped_column(String(30))
     entrou_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
@@ -1165,18 +1175,14 @@ class DocumentoLead(Base):
 
     __tablename__ = "documentos_lead"
     __table_args__ = (
-        UniqueConstraint(
-            "organizacao_id", "lead_id", "tipo", name="uq_documento_lead_tipo"
-        ),
+        UniqueConstraint("organizacao_id", "lead_id", "tipo", name="uq_documento_lead_tipo"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(
         ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
     )
-    lead_id: Mapped[int] = mapped_column(
-        ForeignKey("leads.id", ondelete="CASCADE"), index=True
-    )
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     tipo: Mapped[str] = mapped_column(String(20))
     numero: Mapped[str | None] = mapped_column(String(60), nullable=True)
     data: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -1196,16 +1202,12 @@ class ChecklistFaseLead(Base):
     organizacao_id: Mapped[int] = mapped_column(
         ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
     )
-    lead_id: Mapped[int] = mapped_column(
-        ForeignKey("leads.id", ondelete="CASCADE"), index=True
-    )
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     fase: Mapped[str] = mapped_column(String(30), index=True)
     descricao: Mapped[str] = mapped_column(String(300))
     concluido: Mapped[bool] = mapped_column(Boolean, default=False)
     ordem: Mapped[int] = mapped_column(Integer, default=0)
-    criado_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class GuiaInpi(Base):
@@ -1221,9 +1223,7 @@ class GuiaInpi(Base):
     organizacao_id: Mapped[int] = mapped_column(
         ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
     )
-    lead_id: Mapped[int] = mapped_column(
-        ForeignKey("leads.id", ondelete="CASCADE"), index=True
-    )
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     servico: Mapped[str | None] = mapped_column(String(60), nullable=True)
     codigo: Mapped[str | None] = mapped_column(String(10), nullable=True)
     descricao: Mapped[str] = mapped_column(String(200))
@@ -1234,9 +1234,7 @@ class GuiaInpi(Base):
     status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
     pago_em: Mapped[date | None] = mapped_column(Date, nullable=True)
     observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    criado_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -1300,9 +1298,7 @@ class LembreteCRM(Base):
     organizacao_id: Mapped[int] = mapped_column(
         ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
     )
-    lead_id: Mapped[int] = mapped_column(
-        ForeignKey("leads.id", ondelete="CASCADE"), index=True
-    )
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     responsavel_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -1789,10 +1785,14 @@ class EventoOperacional(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     componente: Mapped[str] = mapped_column(String(40), index=True)
     operacao: Mapped[str] = mapped_column(String(150), index=True)
+    request_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True, default=request_id_atual
+    )
     sucesso: Mapped[bool] = mapped_column(Boolean, index=True)
     duracao_ms: Mapped[int] = mapped_column(Integer)
     status_http: Mapped[int] = mapped_column(Integer, index=True)
     codigo_erro: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    detalhes: Mapped[dict] = mapped_column(JSON, default=dict)
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
@@ -1805,13 +1805,23 @@ class EventoAuditoria(Base):
     organizacao_id: Mapped[int | None] = mapped_column(
         ForeignKey("organizacoes.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    actor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     ator: Mapped[str] = mapped_column(String(150), index=True)
     acao: Mapped[str] = mapped_column(String(20), index=True)
     recurso: Mapped[str] = mapped_column(String(180), index=True)
+    resource_type: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    resource_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    request_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True, default=request_id_atual
+    )
     sucesso: Mapped[bool] = mapped_column(Boolean, index=True)
     status_http: Mapped[int] = mapped_column(Integer)
     ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     detalhes: Mapped[dict] = mapped_column(JSON)
+    before_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    after_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

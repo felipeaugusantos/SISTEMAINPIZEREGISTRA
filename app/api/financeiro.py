@@ -114,6 +114,7 @@ def _auditar(
     session.add(
         EventoAuditoria(
             organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
             ator=usuario.ator,
             acao=acao[:20],
             recurso=recurso[:180],

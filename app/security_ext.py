@@ -25,20 +25,51 @@ def validar_forca_senha(senha: str) -> str:
     return senha
 
 
-def _fernet() -> Fernet:
-    digest = hashlib.sha256(get_settings().security_master_key.encode()).digest()
+def _fernet(chave: str) -> Fernet:
+    digest = hashlib.sha256(chave.encode()).digest()
     return Fernet(base64.urlsafe_b64encode(digest))
 
 
+def versao_chave_atual() -> int:
+    return get_settings().security_master_key_version
+
+
+def _chaves_disponiveis() -> dict[int, Fernet]:
+    settings = get_settings()
+    chaves = {settings.security_master_key_version: _fernet(settings.security_master_key)}
+    if settings.security_master_key_previous and settings.security_master_key_previous_version > 0:
+        chaves[settings.security_master_key_previous_version] = _fernet(
+            settings.security_master_key_previous
+        )
+    return chaves
+
+
 def proteger_segredo(valor: str) -> str:
-    return _fernet().encrypt(valor.encode()).decode()
+    versao = versao_chave_atual()
+    token = _chaves_disponiveis()[versao].encrypt(valor.encode()).decode()
+    return f"v{versao}:{token}"
 
 
 def revelar_segredo(valor: str) -> str:
-    try:
-        return _fernet().decrypt(valor.encode()).decode()
-    except InvalidToken as exc:
-        raise ValueError("Chave mestra incorreta para o segredo protegido") from exc
+    chaves = _chaves_disponiveis()
+    correspondencia = re.match(r"^v([1-9][0-9]*):(gAAAA.+)$", valor)
+    if correspondencia:
+        versao = int(correspondencia.group(1))
+        candidatos = [(versao, chaves.get(versao))]
+        token = correspondencia.group(2)
+    else:
+        # Ciphertexts anteriores a esta fase nao tinham prefixo. Tenta a chave
+        # atual e, durante a janela de rotacao, a chave anterior.
+        candidatos = list(chaves.items())
+        token = valor
+    for _versao, fernet in candidatos:
+        if fernet is None:
+            continue
+        try:
+            return fernet.decrypt(token.encode()).decode()
+        except InvalidToken:
+            continue
+    raise ValueError("Chave mestra incorreta ou versao indisponivel para o segredo protegido")
 
 
 def gerar_segredo_totp() -> str:

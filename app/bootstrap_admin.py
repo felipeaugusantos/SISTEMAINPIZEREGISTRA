@@ -7,11 +7,16 @@ from app.database import session_factory
 from app.models import Organizacao, PermissaoOperacoes, UsuarioOperacoes
 from app.permissions import PERMISSOES
 from app.settings import get_settings
+from app.tenancy import aplicar_contexto_tenant
 
 
 async def bootstrap() -> None:
     settings = get_settings()
     async with session_factory() as session:
+        organizacao = (await session.execute(
+            select(Organizacao).where(Organizacao.slug == settings.default_organization_slug)
+        )).scalar_one()
+        await aplicar_contexto_tenant(session, organizacao.id)
         existentes = {
             p.chave: p for p in (await session.execute(select(PermissaoOperacoes))).scalars()
         }
@@ -30,9 +35,6 @@ async def bootstrap() -> None:
         usuario = (await session.execute(
             select(UsuarioOperacoes).where(UsuarioOperacoes.usuario == settings.admin_username.lower())
         )).scalar_one_or_none()
-        organizacao = (await session.execute(
-            select(Organizacao).where(Organizacao.slug == settings.default_organization_slug)
-        )).scalar_one()
         if usuario is None:
             session.add(UsuarioOperacoes(
                 organizacao_id=organizacao.id,

@@ -8,6 +8,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.auditing import criar_evento_auditoria
 from app.auth import (
     CSRF_COOKIE,
     SESSION_COOKIE,
@@ -19,11 +20,10 @@ from app.auth import (
     hash_token,
     verificar_senha,
 )
-from app.database import get_session
+from app.database import aplicar_contexto_autenticacao, get_session
 from app.emailing import enviar_recuperacao_senha
 from app.models import (
     ConviteOrganizacao,
-    EventoAuditoria,
     PermissaoOperacoes,
     SessaoOperacoes,
     TokenRecuperacaoSenha,
@@ -39,6 +39,7 @@ from app.security_ext import (
     uri_totp,
     validar_forca_senha,
     validar_totp,
+    versao_chave_atual,
 )
 from app.settings import TAMANHO_MINIMO_SENHA, get_settings
 from app.tenancy import aplicar_contexto_tenant, validar_limite_usuarios
@@ -122,7 +123,7 @@ async def _auditar(
     from app.auth import hash_ip
 
     session.add(
-        EventoAuditoria(
+        criar_evento_auditoria(
             # A org vem do contexto de tenant já aplicado (session.info), não de
             # request.state.auth_user — que é None no login falho e fazia a linha de
             # auditoria nascer com org nula, violando o RLS na leitura do RETURNING.
@@ -130,6 +131,9 @@ async def _auditar(
             ator=ator[:150],
             acao=acao[:20],
             recurso="autenticacao",
+            resource_type="autenticacao",
+            resource_id=detalhes.get("usuario_id"),
+            actor_id=detalhes.get("usuario_id") if sucesso else None,
             sucesso=sucesso,
             status_http=status_http or (200 if sucesso else 401),
             ip_hash=hash_ip(cliente_ip(request)),
@@ -148,6 +152,7 @@ async def login(
     cliente = cliente_ip(request)
     limitar_login.aplicar(cliente)
     ident = dados.identificador.strip().lower()
+    await aplicar_contexto_autenticacao(session, "login", ident)
     usuario = (
         await session.execute(
             select(UsuarioOperacoes)
@@ -159,14 +164,19 @@ async def login(
     valido = (
         usuario is not None and usuario.ativo and verificar_senha(usuario.senha_hash, dados.senha)
     )
+    segredo_mfa = None
     if valido and usuario.mfa_ativo:
         codigo = dados.codigo_mfa or ""
-        valido = validar_totp(revelar_segredo(usuario.mfa_segredo or ""), codigo)
+        segredo_mfa = revelar_segredo(usuario.mfa_segredo or "")
+        valido = validar_totp(segredo_mfa, codigo)
         if not valido and hash_token(codigo.upper()) in (usuario.codigos_recuperacao or []):
             usuario.codigos_recuperacao = [
                 item for item in usuario.codigos_recuperacao if item != hash_token(codigo.upper())
             ]
             valido = True
+        if valido and usuario.mfa_segredo_versao != versao_chave_atual():
+            usuario.mfa_segredo = proteger_segredo(segredo_mfa)
+            usuario.mfa_segredo_versao = versao_chave_atual()
     if usuario is not None and usuario.bloqueado_ate and usuario.bloqueado_ate > agora:
         valido = False
     if not valido:
@@ -181,7 +191,6 @@ async def login(
         await aplicar_contexto_tenant(
             session,
             usuario.organizacao_id if usuario else get_settings().default_organization_id,
-            superadmin=usuario is None,
         )
         await _auditar(
             session,
@@ -213,9 +222,7 @@ async def login(
         "destino": (
             "/alterar-senha"
             if usuario.alterar_senha
-            else destino_inicial(
-                usuario.perfil, frozenset(p.chave for p in usuario.permissoes)
-            )
+            else destino_inicial(usuario.perfil, frozenset(p.chave for p in usuario.permissoes))
         ),
     }
 
@@ -354,10 +361,12 @@ async def solicitar_recuperacao(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     limitar_recuperacao.aplicar(cliente_ip(request))
+    email = dados.email.strip().lower()
+    await aplicar_contexto_autenticacao(session, "recuperacao_email", email)
     usuario = (
         await session.execute(
             select(UsuarioOperacoes).where(
-                UsuarioOperacoes.email == dados.email.strip().lower(),
+                UsuarioOperacoes.email == email,
                 UsuarioOperacoes.ativo.is_(True),
             )
         )
@@ -416,10 +425,12 @@ async def redefinir_senha(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     agora = datetime.now(UTC)
+    token_hash = hash_token(dados.token)
+    await aplicar_contexto_autenticacao(session, "recuperacao_token", token_hash)
     item = (
         await session.execute(
             select(TokenRecuperacaoSenha).where(
-                TokenRecuperacaoSenha.token_hash == hash_token(dados.token),
+                TokenRecuperacaoSenha.token_hash == token_hash,
                 TokenRecuperacaoSenha.usado_em.is_(None),
                 TokenRecuperacaoSenha.expira_em > agora,
             )
@@ -460,6 +471,7 @@ async def iniciar_mfa(
     registro = await session.get(UsuarioOperacoes, usuario.id)
     segredo = gerar_segredo_totp()
     registro.mfa_segredo = proteger_segredo(segredo)
+    registro.mfa_segredo_versao = versao_chave_atual()
     registro.mfa_ativo = False
     await _auditar(session, request, usuario.email, "MFA_INICIADO", True, {})
     await session.commit()
@@ -507,6 +519,7 @@ async def desativar_mfa(
         raise HTTPException(400, "Código MFA inválido")
     registro.mfa_ativo = False
     registro.mfa_segredo = None
+    registro.mfa_segredo_versao = None
     registro.codigos_recuperacao = []
     await _auditar(session, request, usuario.email, "MFA_DESATIVADO", True, {})
     await session.commit()
@@ -518,10 +531,12 @@ async def aceitar_convite(
     dados: AceitarConviteInput, session: AsyncSession = Depends(get_session)
 ) -> dict:
     agora = datetime.now(UTC)
+    token_hash = hash_token(dados.token)
+    await aplicar_contexto_autenticacao(session, "convite", token_hash)
     convite = (
         await session.execute(
             select(ConviteOrganizacao).where(
-                ConviteOrganizacao.token_hash == hash_token(dados.token),
+                ConviteOrganizacao.token_hash == token_hash,
                 ConviteOrganizacao.aceito_em.is_(None),
                 ConviteOrganizacao.expira_em > agora,
             )
@@ -562,9 +577,7 @@ async def aceitar_convite(
         registro.permissoes = list(
             (
                 await session.execute(
-                    select(PermissaoOperacoes).where(
-                        PermissaoOperacoes.chave.in_(chaves_convite)
-                    )
+                    select(PermissaoOperacoes).where(PermissaoOperacoes.chave.in_(chaves_convite))
                 )
             ).scalars()
         )

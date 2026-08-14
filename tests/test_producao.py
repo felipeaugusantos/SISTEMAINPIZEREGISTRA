@@ -25,7 +25,7 @@ async def test_auditoria_retorna_pagina_de_dez_e_total_completo() -> None:
     ]
     session = FakeSession(
         [
-            FakeResult(itens=[(100, 2, 30.0, 120)]),
+            FakeResult(itens=[(100, 2, 30.0, 75.0, 120)]),
             FakeResult(itens=[(10, 2)]),
             FakeResult(itens=[(8, 5)]),
             FakeResult(scalar=27),

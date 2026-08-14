@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.database import get_session
+from app.database import aplicar_contexto_autenticacao, get_session
 from app.models import SessaoOperacoes, UsuarioOperacoes
 from app.permissions import CHAVES_PERMISSAO
 from app.proxy import cliente_ip, requisicao_https
@@ -120,10 +120,12 @@ async def obter_usuario_atual(
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         raise _erro_nao_autenticado(request)
+    token_hash = hash_token(token)
+    await aplicar_contexto_autenticacao(session, "sessao", token_hash)
     stmt = (
         select(SessaoOperacoes)
         .options(selectinload(SessaoOperacoes.usuario).selectinload(UsuarioOperacoes.permissoes))
-        .where(SessaoOperacoes.token_hash == hash_token(token))
+        .where(SessaoOperacoes.token_hash == token_hash)
     )
     sessao = (await session.execute(stmt)).scalar_one_or_none()
     agora = datetime.now(UTC)

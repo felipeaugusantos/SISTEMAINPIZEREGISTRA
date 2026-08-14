@@ -21,17 +21,26 @@ class Settings(BaseSettings):
     alto_renome_page_url: str = "https://www.gov.br/inpi/pt-br/servicos/marcas/alto-renome/"
     audit_ip_salt: str = "desenvolvimento-local"
     security_master_key: str = "desenvolvimento-local-chave-mestra"
+    security_master_key_version: int = 1
+    security_master_key_previous: str = ""
+    security_master_key_previous_version: int = 0
     admin_force_https: bool = False
     integration_auth_enabled: bool = False
     inpi_integration_token: str = ""
     rpi_sync_interval_seconds: int = 21_600
     rpi_sync_start_number: int = 2900
     rpi_sync_poll_seconds: int = 10
+    rpi_stale_hours: float = 12.0
+    rpi_minimum_record_ratio: float = 0.50
+    rpi_anomaly_reference_minimum: int = 1_000
     default_organization_slug: str = "ze-registra"
     default_organization_id: int = 1
     cors_allowed_origins: str = "*"
     redis_url: str = "redis://localhost:6379/0"
     redis_required: bool = False
+    queue_retry_base_seconds: int = 5
+    queue_retry_max_seconds: int = 300
+    queue_idempotency_ttl_seconds: int = 86_400
     # Usa Redis para o rate limiting (necessário com múltiplos workers/instâncias).
     # Desligado por padrão: em processo único a janela em memória basta.
     ratelimit_redis_enabled: bool = False
@@ -76,9 +85,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def exigir_senha_forte_em_producao(self) -> "Settings":
-        if self.google_oauth_enabled and not (
-            self.google_client_id and self.google_client_secret
-        ):
+        if self.google_oauth_enabled and not (self.google_client_id and self.google_client_secret):
             raise ValueError(
                 "GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET sao obrigatorios "
                 "quando o Google OAuth estiver ativo."
@@ -91,8 +98,7 @@ class Settings(BaseSettings):
                 "sao obrigatorios quando o Apple OAuth estiver ativo."
             )
         if self.apple_oauth_enabled and (
-            not self.app_public_url.startswith("https://")
-            or "localhost" in self.app_public_url
+            not self.app_public_url.startswith("https://") or "localhost" in self.app_public_url
         ):
             raise ValueError("Sign in with Apple exige APP_PUBLIC_URL HTTPS com dominio real.")
         if (
@@ -118,6 +124,15 @@ class Settings(BaseSettings):
             raise ValueError("AUDIT_IP_SALT deve ter ao menos 16 caracteres em produção.")
         if len(self.security_master_key) < 32:
             raise ValueError("SECURITY_MASTER_KEY deve ter ao menos 32 caracteres em produção.")
+        if self.security_master_key_version < 1:
+            raise ValueError("SECURITY_MASTER_KEY_VERSION deve ser positivo.")
+        if self.security_master_key_previous and (
+            self.security_master_key_previous_version < 1
+            or self.security_master_key_previous_version == self.security_master_key_version
+        ):
+            raise ValueError(
+                "SECURITY_MASTER_KEY_PREVIOUS_VERSION deve identificar uma versao anterior."
+            )
         if "inpi:inpi@" in self.database_url or "change-me" in self.database_url:
             raise ValueError("DATABASE_URL usa credenciais padrão em produção.")
         if not self.admin_force_https:

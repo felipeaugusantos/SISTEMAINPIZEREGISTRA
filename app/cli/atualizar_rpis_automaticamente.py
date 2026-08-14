@@ -7,6 +7,7 @@ from pathlib import Path
 
 import asyncpg
 
+from app.request_context import novo_request_id
 from app.rpi.latest import consultar_ultima_rpi
 from app.settings import get_settings
 
@@ -37,9 +38,7 @@ def intervalo_pendente(
     ultima_oficial: int,
 ) -> tuple[int, int] | None:
     pendentes = [
-        numero
-        for numero in range(inicio_minimo, ultima_oficial + 1)
-        if numero not in importadas
+        numero for numero in range(inicio_minimo, ultima_oficial + 1) if numero not in importadas
     ]
     if not pendentes:
         return None
@@ -111,11 +110,12 @@ async def _reivindicar_execucao(
             execucao_id = await conexao.fetchval(
                 """
                 INSERT INTO rpi_sync_execucoes (
-                    origem, status, solicitado_por, iniciado_em, heartbeat_em
+                    origem, status, solicitado_por, request_id, iniciado_em, heartbeat_em
                 )
-                VALUES ('automatica', 'verificando', 'rpi-sync', now(), now())
+                VALUES ('automatica', 'verificando', 'rpi-sync', $1, now(), now())
                 RETURNING id
-                """
+                """,
+                novo_request_id(),
             )
             await conexao.execute(
                 """
@@ -382,9 +382,7 @@ async def _processar_execucao(
 async def executar() -> None:
     args = argumentos()
     settings = get_settings()
-    intervalo = _inteiro_ambiente(
-        "RPI_SYNC_INTERVAL_SECONDS", INTERVALO_PADRAO_SEGUNDOS, 300
-    )
+    intervalo = _inteiro_ambiente("RPI_SYNC_INTERVAL_SECONDS", INTERVALO_PADRAO_SEGUNDOS, 300)
     poll = _inteiro_ambiente("RPI_SYNC_POLL_SECONDS", POLL_PADRAO_SEGUNDOS, 5)
     inicio_minimo = _inteiro_ambiente("RPI_SYNC_START_NUMBER", RPI_INICIAL_PADRAO, 2404)
 

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao
 from app.database import get_session
 from app.models import RpiImportacao, RpiSyncEstado, RpiSyncExecucao
+from app.request_context import request_id_atual
 from app.schemas import (
     RpiSyncAcaoResponse,
     RpiSyncAdminResponse,
@@ -44,6 +45,7 @@ def _execucao_response(item: RpiSyncExecucao) -> RpiSyncExecucaoResponse:
         origem=item.origem,
         status=item.status,
         solicitado_por=item.solicitado_por,
+        request_id=item.request_id,
         execucao_anterior_id=item.execucao_anterior_id,
         rpi_inicio=item.rpi_inicio,
         rpi_fim=item.rpi_fim,
@@ -108,9 +110,7 @@ async def obter_monitoramento_rpi(
     historico = (
         (
             await session.execute(
-                select(RpiSyncExecucao)
-                .order_by(RpiSyncExecucao.solicitado_em.desc())
-                .limit(30)
+                select(RpiSyncExecucao).order_by(RpiSyncExecucao.solicitado_em.desc()).limit(30)
             )
         )
         .scalars()
@@ -169,6 +169,7 @@ async def solicitar_sincronizacao(
         origem="manual",
         status="solicitada",
         solicitado_por=administrador.email,
+        request_id=request_id_atual(),
     )
     session.add(execucao)
     await session.commit()
@@ -210,6 +211,7 @@ async def tentar_novamente(
         status="solicitada",
         solicitado_por=administrador.email,
         execucao_anterior_id=anterior.id,
+        request_id=request_id_atual(),
     )
     session.add(execucao)
     await session.commit()

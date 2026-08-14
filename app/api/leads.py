@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
-from app.crm import avancar_fase_lead
+from app.crm import avancar_fase_lead, sincronizar_fase_por_status
 from app.database import get_session
 from app.models import (
     ORDEM_FASE_LEAD,
@@ -593,6 +593,29 @@ async def atualizar_status_lead(
     if "documento" in dados.model_fields_set:
         alteracoes["documento_atualizado"] = True
         lead.documento = dados.documento
+    # Tarefa 4: oportunidade aberta exige responsável e próxima ação.
+    mexeu_crm = (
+        dados.status is not None
+        or "responsavel_id" in dados.model_fields_set
+        or "proxima_acao_em" in dados.model_fields_set
+    )
+    aberta = lead.status not in (StatusLead.CONVERTIDO, StatusLead.DESCARTADO)
+    if mexeu_crm and aberta:
+        faltando = []
+        if lead.responsavel_id is None:
+            faltando.append("responsável")
+        if lead.proxima_acao_em is None:
+            faltando.append("próxima ação")
+        if faltando:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Oportunidade aberta exige {' e '.join(faltando)}.",
+            )
+    # Tarefa 2: ao mudar o status, sincroniza a fase do funil (só avança).
+    if "status" in alteracoes and await sincronizar_fase_por_status(
+        session, lead, por=usuario.nome or "sistema"
+    ):
+        alteracoes["fase"] = lead.fase
     if dados.registrar_contato:
         agora = datetime.now(UTC)
         lead.ultimo_contato_em = agora

@@ -801,7 +801,7 @@ leadsList.addEventListener("change", async event => {
   select.disabled = true;
   const response = await fetch(`/v1/admin/leads/${row.dataset.leadId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: select.value }) });
   select.disabled = false;
-  if (!response.ok) { select.value = previous; showMessage("Não foi possível atualizar o status.", "error"); return; }
+  if (!response.ok) { const erro = await response.json().catch(() => ({})); select.value = previous; showMessage(erro.detail || "Não foi possível atualizar o status.", "error"); return; }
   select.dataset.previous = select.value;
   select.className = `lead-status status-${select.value}`;
   showMessage("Status atualizado.", "success");

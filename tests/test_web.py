@@ -69,6 +69,17 @@ def test_admin_leads_requires_authentication() -> None:
     _limpar_auth()
 
 
+def test_observabilidade_restrita_a_perfil_tech() -> None:
+    client = TestClient(app)
+    assert client.get("/admin/observabilidade", follow_redirects=False).status_code == 303
+    client = _client_autenticado()
+    response = client.get("/admin/observabilidade")
+    assert response.status_code == 200
+    assert "Observabilidade" in response.text
+    assert 'data-admin-section="observability"' in response.text
+    _limpar_auth()
+
+
 def test_unified_admin_dashboard_requires_authentication() -> None:
     client = TestClient(app)
     assert client.get("/admin", follow_redirects=False).status_code == 303
@@ -84,6 +95,8 @@ def test_unified_admin_dashboard_requires_authentication() -> None:
     assert 'id="rpi-history"' in response.text
     assert 'id="rpi-recent-executions" hidden' in response.text
     assert 'id="overview-priorities"' in response.text
+    assert 'class="overview-section overview-module-section"' in response.text
+    assert response.text.index('class="overview-section overview-module-section"') < response.text.index('id="overview-message"')
 
     script = client.get("/static/admin-dashboard.js")
     assert script.status_code == 200

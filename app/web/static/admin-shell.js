@@ -14,6 +14,7 @@ const adminSections = [
   { id: "production", label: "Produção e auditoria", href: "/admin/producao", symbol: "PR", permission: "production.view" },
   { id: "finance-log", label: "Log Financeiro", href: "/admin/producao/log-financeiro", symbol: "LF", permission: "finance.view", parent: "production", profiles: ["administrador", "tech", "ceo", "financeiro"] },
   { id: "reliability", label: "Confiabilidade e LGPD", href: "/admin/confiabilidade", symbol: "CF", permission: "production.manage" },
+  { id: "observability", label: "Observabilidade", href: "/admin/observabilidade", symbol: "OB", permission: "production.view", profiles: ["administrador", "tech"] },
   { id: "configuracao", label: "Configuração", href: "/admin/configuracao/regras-automaticas", symbol: "CG", permission: "leads.view" },
   { id: "config-regras", label: "Regras automáticas", href: "/admin/configuracao/regras-automaticas", symbol: "RA", permission: "leads.view", parent: "configuracao" },
   { id: "users", label: "Usuários e acessos", href: "/admin/usuarios", symbol: "UA", permission: "users.view" },

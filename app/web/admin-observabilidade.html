@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Observabilidade — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=23">
+  <script src="/static/admin-shell.js?v=37" defer></script>
+  <script src="/static/admin-observabilidade.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="observability">
+  <main class="admin-main admin-dashboard">
+    <section class="admin-overview-hero">
+      <div><p class="eyebrow">Tech / Operações</p><h1>Observabilidade</h1><p>Saúde da aplicação, banco, filas, RPI e recursos operacionais.</p></div>
+      <div class="observability-toolbar"><span id="observability-updated">Carregando…</span><button id="observability-refresh" class="secondary-button" type="button">Atualizar</button></div>
+    </section>
+    <div id="observability-message" class="status-message loading" role="status" aria-live="polite">Carregando saúde da plataforma…</div>
+    <section class="overview-section"><header><div><p class="eyebrow">Serviços</p><h2>Status atual</h2></div></header><div id="observability-services" class="overview-primary-metrics"></div></section>
+    <section class="overview-section"><header><div><p class="eyebrow">Indicadores</p><h2>Aplicação e infraestrutura</h2></div></header><div id="observability-metrics" class="overview-primary-metrics"></div></section>
+    <section class="overview-section"><header><div><p class="eyebrow">RPI</p><h2>Sincronização e integridade</h2></div></header><div id="observability-rpi" class="observability-detail-grid"></div></section>
+  </main>
+</body>
+</html>

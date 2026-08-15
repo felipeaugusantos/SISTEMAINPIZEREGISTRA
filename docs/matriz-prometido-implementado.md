@@ -11,12 +11,15 @@ Revisão técnica em **15/08/2026**. Esta matriz transforma promessas comerciais
 
 Dependências de equipe, contrato ou integração externa são descritas como condição operacional na última coluna; não constituem uma classificação separada.
 
+> As situações nas tabelas abaixo seguem os mesmos significados das categorias acima,
+> mesmo quando uma linha legada aparece com capitalização diferente.
+
 ## Pesquisa, análise e relatório
 
 | Promessa ao cliente | Situação | Evidência atual | Lacuna / condição de aceite |
 | --- | --- | --- | --- |
 | Pesquisa indicativa de marcas no INPI | Implementado | Importação e consulta da Seção V das RPIs, busca exata e ampliada | Manter sincronização, qualidade e monitoramento da cobertura das RPIs |
-| Resultado inicial automatizado | Implementado | Resumo público, motor determinístico, matriz INPI e chance indicativa | Deve continuar identificado como estimativa, nunca garantia de registro |
+| Resultado inicial automatizado | Implementado | Resumo público, motor determinístico, matriz INPI e estimativa indicativa | Deve continuar identificado como estimativa, nunca garantia de registro |
 | Relatório técnico completo | Parcial | PDF interno versionado e liberado pela equipe em Leads | A qualidade final depende da revisão e do parecer humano |
 | Análise de registrabilidade | Parcial | Regras auditáveis, alto renome, afinidade, classes e agente de registrabilidade | Critérios “não analisados” exigem dados complementares ou revisão especializada |
 | Probabilidade baseada em histórico | Parcial | Pipeline supervisionado, validação temporal, faixa de incerteza e gate de produção | Só exibir previsão quando existir modelo aprovado pelos critérios automáticos |

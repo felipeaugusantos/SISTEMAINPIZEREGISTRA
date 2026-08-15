@@ -27,6 +27,7 @@ from app.api.financeiro import exigir_acesso_log_financeiro
 from app.api.financeiro import router as financeiro_router
 from app.api.juridico import router as juridico_router
 from app.api.leads import router as leads_router
+from app.api.observabilidade import router as observabilidade_router
 from app.api.painel import router as painel_router
 from app.api.pesquisas import router as pesquisas_router
 from app.api.processos import router as processos_router
@@ -77,6 +78,7 @@ app.include_router(fase2_router)
 app.include_router(fase3_router)
 app.include_router(admin_router)
 app.include_router(painel_router)
+app.include_router(observabilidade_router)
 app.include_router(analises_router)
 app.include_router(producao_router)
 app.include_router(rpi_admin_router)
@@ -94,6 +96,7 @@ app.include_router(usuarios_router)
 app.include_router(saas_router)
 app.include_router(confiabilidade_router)
 app.include_router(tenant_router)
+app.include_router(observabilidade_router)
 app.mount("/static", StaticFiles(directory=web_dir / "static"), name="static")
 
 
@@ -352,6 +355,15 @@ async def painel_saas() -> FileResponse:
 )
 async def painel_confiabilidade() -> FileResponse:
     return FileResponse(web_dir / "admin-confiabilidade.html")
+
+
+@app.get(
+    "/admin/observabilidade",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("production.view"))],
+)
+async def painel_observabilidade() -> FileResponse:
+    return FileResponse(web_dir / "admin-observabilidade.html")
 
 
 @app.get("/privacidade", include_in_schema=False)

@@ -20,6 +20,7 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 ### Pesquisa de marcas
 
 - pesquisa exata e ampliada executadas automaticamente;
+- cada resultado recebe `score_busca` de 0 a 100, versão do algoritmo e fatores explicáveis (regra, peso, evidência e processo); esse score é separado do risco;
 - busca por expressão completa, termos isolados, radicais e variações;
 - consolidação de ocorrências sem duplicidade;
 - classificação por relevância e situação processual;
@@ -52,6 +53,7 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 - **automações**: ao mudar a fase ou o status, o sistema cria a tarefa correspondente — configurável em Configuração › Regras automáticas;
 - **cadências**: sequências de passos (dia e canal — e-mail, WhatsApp, ligação) aplicáveis a uma oportunidade, que geram as tarefas nas datas certas;
 - agrupamento de várias pesquisas no mesmo contato e identificação de pesquisas duplicadas;
+- políticas de responsável e próxima ação configuráveis por organização, com automações idempotentes e eventos tipados na timeline;
 - histórico de ligações, reuniões, WhatsApp, e-mails e outros contatos;
 - busca por nome, empresa, marca, e-mail, telefone, CPF/CNPJ e status;
 - lembretes com prazo, prioridade e responsável; agenda de retornos, propostas, documentos, processos e atualizações cadastrais;
@@ -75,6 +77,7 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 - alertas de antecedência, vencimento e escalonamento automático;
 - central de notificações com registro individual de leitura;
 - histórico auditável de criação, alteração, entrega, protocolo, escalonamento e leitura.
+- confirmação humana de responsável, prazo, origem e justificativa antes de tratar uma sugestão como providência jurídica.
 
 ### Financeiro
 
@@ -85,6 +88,7 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 - cadastro de formas de pagamento e limite de parcelas;
 - tabela de retribuições do INPI (GRUs de marca) com código de serviço e valores normal e reduzido;
 - baixas, cancelamentos e estornos com justificativa;
+- operações concorrentes protegidas por transação, idempotência e auditoria; o financeiro permanece operacional e não substitui a contabilidade;
 - log financeiro em formato de tabela;
 - exportação de dados conforme as permissões do usuário.
 
@@ -209,8 +213,10 @@ docker compose logs -f worker
 | Log financeiro | <http://localhost:8000/admin/producao/log-financeiro> |
 | Usuários e acessos | <http://localhost:8000/admin/usuarios> |
 | Empresas e planos | <http://localhost:8000/admin/saas> |
+| Observabilidade técnica | <http://localhost:8000/admin/observabilidade> |
 | Mailpit | <http://localhost:8025> |
 | Swagger | <http://localhost:8000/docs> |
+| Saúde da RPI | <http://localhost:8000/health/rpi> |
 | Saúde da aplicação | <http://localhost:8000/health> |
 
 ## Fluxo operacional recomendado
@@ -247,6 +253,10 @@ o estado `ok`, `atrasado`, `erro` ou `processando` para monitoramento.
 As requisições recebem `X-Request-ID`, propagado para auditoria, logs estruturados e jobs.
 Retries do worker usam backoff exponencial; produtores podem informar uma chave idempotente
 ao enfileirar operações que não devem ser duplicadas.
+
+As métricas de importação registram duração, quantidade de registros, atraso, falhas,
+retries e anomalias. Arquivos parciais, corrompidos, vazios ou com edição pulada entram em
+revisão; uma alteração oficial pequena não é rejeitada apenas pelo tamanho.
 
 Para acompanhar a execução:
 
@@ -384,10 +394,15 @@ O vínculo automático só ocorre para usuário existente e ativo, com e-mail ve
 - rate limit com Redis;
 - isolamento multiempresa com RLS no PostgreSQL;
 - trilha de auditoria para acessos e alterações sensíveis;
+- request ID correlacionável, mascaramento de dados sensíveis e versionamento/rotação de segredos;
 - armazenamento de IP somente como hash auditável;
 - chaves de integração armazenadas como hash;
 - consentimento de marketing separado do aviso de privacidade;
 - exportação, anonimização e política de retenção para dados pessoais.
+
+O isolamento RLS é exercitado com PostgreSQL real em cenários de duas organizações,
+incluindo tentativas de acesso por IDs cruzados na API. A auditoria registra request ID,
+ator, tenant, ação e resultado sem expor segredos.
 
 Não armazene segredos no Git. O arquivo `.env` é local e deve permanecer fora do repositório.
 
@@ -467,7 +482,8 @@ evidência e processo. Esse score ordena a busca: não é probabilidade de regis
 risco.
 
 Copie `data/search-benchmark.example.json`, preencha casos conferidos por um especialista e
-execute:
+execute o benchmark técnico. O dataset versionado em `data/search-benchmark.candidate.v1.json`
+continua pendente de revisão especialista; isso não constitui aprovação jurídica.
 
 ```powershell
 uv run python -m app.cli.avaliar_busca_marcas `
@@ -479,16 +495,21 @@ uv run python -m app.cli.avaliar_busca_marcas `
 O relatório registra Recall e Precision @5/10/20, MRR, latência média/p50/p95/p99, posição e
 score dos resultados esperados e falsos negativos críticos. Para bloquear regressões:
 
+`score_busca` (ordenação), `score_risco` (regras determinísticas) e indicador histórico
+(modelo aprovado) são conceitos independentes; nenhum deles representa garantia de registro.
+
 ```powershell
 uv run python -m app.cli.avaliar_busca_marcas `
-  .\data\search-benchmark.v1.json `
-  --baseline .\data\search-benchmark-baseline.v1.json `
+  .\data\search-benchmark.candidate.v1.json `
+  --permitir-pendente `
+  --baseline .\data\search-benchmark-baseline.candidate.v1.json `
   --limiares .\data\search-benchmark-thresholds.v1.json `
   --gate
 ```
 
-Datasets pendentes são recusados por padrão. A opção `--permitir-pendente` existe apenas para
-gerar uma baseline candidata, nunca para aprovação jurídica. A governança e a evidência de
+Datasets pendentes são recusados por padrão. A opção `--permitir-pendente` permite executar o
+benchmark/gate técnico do candidato, mas nunca promove dataset nem equivale a aprovação jurídica.
+A governança e a evidência de
 `EXPLAIN ANALYZE` estão em `docs/busca-benchmark-fase4.md`.
 
 ## API

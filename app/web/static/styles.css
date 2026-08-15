@@ -4688,3 +4688,16 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
 @media (max-width: 520px) {
   .auth-password-rules { grid-template-columns: 1fr; }
 }
+
+.observability-toolbar { display: flex; align-items: center; gap: 12px; color: #66736b; font-size: .82rem; }
+.observability-service { display: grid; grid-template-columns: auto 1fr; gap: 2px 9px; align-items: center; padding: 16px; border: 1px solid #e0e8e2; border-radius: 14px; background: #fff; }
+.observability-service strong { font-size: .9rem; text-transform: capitalize; }
+.observability-service small { grid-column: 2; color: #77847c; }
+.observability-dot { width: 11px; height: 11px; border-radius: 50%; background: #bd3b32; box-shadow: 0 0 0 4px #fde9e5; }
+.observability-dot.positive { background: #087052; box-shadow: 0 0 0 4px #dff3e9; }
+.observability-detail-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.observability-detail-grid article { display: grid; gap: 5px; padding: 14px; border-radius: 12px; background: #f2f5f1; }
+.observability-detail-grid strong { font-size: 1.15rem; }
+.observability-detail-grid span, .observability-detail-grid small { color: #66736b; font-size: .78rem; }
+@media (max-width: 900px) { .observability-detail-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .observability-toolbar { align-items: flex-start; flex-direction: column; } .observability-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

@@ -62,10 +62,10 @@ function renderPrognostico(prog) {
   sec.dataset.veredito = prog.veredito;
 
   const cabecalho = document.createElement("div");
-  const eyebrow = paragrafo("Prognóstico de registrabilidade", "eyebrow");
+  const eyebrow = paragrafo("Triagem determinística de registrabilidade", "eyebrow");
   const titulo = document.createElement("h2");
   titulo.textContent = prog.titulo;
-  const tag = paragrafo(`Tendência: ${rotulos[prog.veredito] || prog.veredito}`, "prognostico-tag");
+  const tag = paragrafo(`Leitura técnica: ${rotulos[prog.veredito] || prog.veredito}`, "prognostico-tag");
   tag.dataset.veredito = prog.veredito;
   cabecalho.append(eyebrow, titulo, tag);
   sec.append(cabecalho, paragrafo(prog.resumo));

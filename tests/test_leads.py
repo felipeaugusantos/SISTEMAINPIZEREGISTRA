@@ -14,9 +14,10 @@ from app.api.leads import (
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
-from app.models import Lead, PesquisaMarca, StatusLead, VersaoRelatorioMarca
+from app.models import EventoAuditoria, Lead, PesquisaMarca, StatusLead, VersaoRelatorioMarca
 from app.settings import get_settings
-from tests.conftest import FakeResult, auth_override, sessao_override, usuario_teste
+from app.trademarks.analysis_workflow import EstadoAnalise
+from tests.conftest import FakeResult, FakeSession, auth_override, sessao_override, usuario_teste
 from tests.test_relatorio_pdf import _relatorio_exemplo
 
 _settings = get_settings()
@@ -257,6 +258,9 @@ def test_resumo_distingue_relatorio_completo_gerado_pelo_time() -> None:
 
     pesquisa.relatorio_completo_gerado_em = datetime.now(UTC)
     pesquisa.relatorio_completo_gerado_por = "Admin Teste"
+    pesquisa.analysis_state = EstadoAnalise.VALIDATED.value
+    pesquisa.validated_at = datetime.now(UTC)
+    pesquisa.validated_by = "Revisor Teste"
     gerado = _resumo_pesquisa(pesquisa, "moderado", 40, True)
     assert gerado.relatorio_completo_gerado is True
     assert gerado.relatorio_completo_gerado_por == "Admin Teste"
@@ -283,6 +287,9 @@ def test_resumo_do_contato_agrega_historico_risco_e_relatorios() -> None:
         atividade="Comércio",
         tipo_pesquisa="completa",
         relatorio_completo_gerado_em=datetime(2026, 2, 2, tzinfo=UTC),
+        analysis_state=EstadoAnalise.VALIDATED.value,
+        validated_at=datetime(2026, 2, 2, tzinfo=UTC),
+        validated_by="Revisor Teste",
     )
     antiga.criado_em = datetime(2026, 2, 1, tzinfo=UTC)
     recente = PesquisaMarca(
@@ -321,6 +328,9 @@ def test_operador_gera_relatorio_completo_e_registra_primeira_geracao() -> None:
         marca="ACME",
         atividade="Tecnologia",
         tipo_pesquisa="completa",
+        analysis_state=EstadoAnalise.VALIDATED.value,
+        validated_at=datetime.now(UTC),
+        validated_by="Revisor Teste",
     )
     versao = VersaoRelatorioMarca(
         pesquisa_id=pesquisa.id,
@@ -328,6 +338,9 @@ def test_operador_gera_relatorio_completo_e_registra_primeira_geracao() -> None:
         schema_versao="relatorio-marca-4.2",
         conteudo_hash="hash",
         payload=_relatorio_exemplo(com_prognostico=True).model_dump(mode="json"),
+        validated_at=pesquisa.validated_at,
+        validated_by=pesquisa.validated_by,
+        validation_notes="Versão conferida pelo especialista.",
     )
     app.dependency_overrides[get_session] = sessao_override(
         FakeResult(scalar=pesquisa),
@@ -346,5 +359,45 @@ def test_operador_gera_relatorio_completo_e_registra_primeira_geracao() -> None:
     assert resposta.headers["content-type"] == "application/pdf"
     assert resposta.content.startswith(b"%PDF")
     assert resposta.headers["x-relatorio-completo-primeira-geracao"] == "true"
+    assert resposta.headers["x-analysis-state"] == "VALIDATED"
     assert pesquisa.relatorio_completo_gerado_em is not None
     assert pesquisa.relatorio_completo_gerado_por == "admin@teste.local"
+
+
+def test_relatorio_completo_e_bloqueado_enquanto_revisao_esta_pendente() -> None:
+    pesquisa = PesquisaMarca(
+        id="pesquisa-pendente",
+        organizacao_id=1,
+        marca="ACME",
+        tipo_pesquisa="completa",
+        analysis_state=EstadoAnalise.PENDING_REVIEW.value,
+    )
+    versao = VersaoRelatorioMarca(
+        pesquisa_id=pesquisa.id,
+        numero_versao=1,
+        schema_versao="relatorio-marca-4.3",
+        conteudo_hash="hash-pendente",
+        payload=_relatorio_exemplo().model_dump(mode="json"),
+    )
+    sessao = FakeSession([FakeResult(scalar=pesquisa), FakeResult(scalar=versao)])
+
+    async def override_session():
+        yield sessao
+
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/pesquisas/pesquisa-pendente/relatorio-completo.pdf",
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 409
+    assert "validação formal" in resposta.json()["detail"]
+    assert pesquisa.relatorio_completo_gerado_em is None
+    assert any(
+        isinstance(item, EventoAuditoria) and item.acao == "bloquear_relatorio"
+        for item in sessao.adicionados
+    )

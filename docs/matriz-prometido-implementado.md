@@ -1,13 +1,15 @@
 # Matriz “prometido × implementado”
 
-Revisão técnica em **11/08/2026**. Esta matriz transforma promessas comerciais em critérios verificáveis e deve ser atualizada antes de cada demonstração, proposta ou liberação para cliente.
+Revisão técnica em **15/08/2026**. Esta matriz transforma promessas comerciais em critérios verificáveis e deve ser atualizada antes de cada demonstração, proposta ou liberação para cliente.
 
 ## Como interpretar
 
-- **Implementado:** existe fluxo utilizável, persistência e cobertura de testes no sistema atual.
-- **Parcial:** existe uma parte funcional, mas há dependência operacional ou escopo incompleto.
-- **Não implementado:** não deve ser anunciado como funcionalidade disponível.
-- **Operacional:** depende da equipe, contrato ou integração externa, e não apenas do software.
+- **IMPLEMENTADO:** existe fluxo utilizável, persistência e cobertura de testes no sistema atual.
+- **PARCIAL:** existe uma parte funcional, mas há dependência operacional ou escopo incompleto.
+- **NÃO_IMPLEMENTADO:** não deve ser anunciado como funcionalidade disponível.
+- **DEPRECATED:** compatibilidade mantida temporariamente, sem uso recomendado em novos fluxos.
+
+Dependências de equipe, contrato ou integração externa são descritas como condição operacional na última coluna; não constituem uma classificação separada.
 
 ## Pesquisa, análise e relatório
 
@@ -28,7 +30,7 @@ Revisão técnica em **11/08/2026**. Esta matriz transforma promessas comerciais
 | Histórico de contatos | Implementado | Ligações, reuniões, WhatsApp, e-mail e observações em linha do tempo auditável | A interação precisa ser registrada pelo operador |
 | Acompanhamento de processos no INPI | Implementado | Carteira, cadastro manual, busca por procurador, vinculação e movimentações da RPI | Não equivale a monitoramento oficial de prazo jurídico |
 | Alertas por e-mail e WhatsApp | Parcial | Infraestrutura de e-mail existe para autenticação; links de WhatsApp existem no CRM | Não há automação transacional completa de alertas de processo por e-mail/WhatsApp |
-| Atendimento humano especializado | Operacional | Parecer humano, responsáveis e histórico são suportados pelo sistema | Depende de equipe qualificada, escala e SLA contratados |
+| Atendimento humano especializado | PARCIAL | Parecer humano, responsáveis e histórico são suportados pelo sistema | Depende de equipe qualificada, escala e SLA contratados |
 | Protocolo de pedido em 24 horas | Não implementado | Não há protocolo automatizado de depósito no INPI | Exige fluxo jurídico, procuração, documentos, pagamento e integração específica |
 
 ## Plataforma e gestão
@@ -39,7 +41,7 @@ Revisão técnica em **11/08/2026**. Esta matriz transforma promessas comerciais
 | Gestão financeira | Implementado | Contas a pagar/receber, parcelas, formas, baixas, estornos, cancelamentos e log | Não substitui contabilidade fiscal nem conciliação bancária |
 | Segurança administrativa | Implementado | Senhas Argon2, MFA TOTP, CSRF, sessões, trilha de auditoria e rate limit | MFA deve ser obrigatório para perfis privilegiados antes da produção ampla |
 | Login Google e Apple | Parcial | Fluxos OAuth e vinculação de identidade estão implementados | Depende das credenciais, branding e aprovação dos provedores |
-| Recuperação de senha por e-mail | Implementado em teste | Tokens seguros e Mailpit no ambiente local | Produção requer provedor SMTP, domínio e políticas SPF/DKIM/DMARC |
+| Recuperação de senha por e-mail | PARCIAL | Tokens seguros e Mailpit no ambiente local | Produção requer provedor SMTP, domínio e políticas SPF/DKIM/DMARC |
 | Painel do próprio cliente | Não implementado | O painel atual é operacional/interno | Criar autenticação e experiência específicas para o titular/contratante |
 | Cobrança automática de assinatura | Parcial | Planos, trial, limites e suspensão existem no núcleo SaaS | Falta integração com gateway, webhook idempotente e conciliação |
 | Monitoramento de marketplaces e domínios | Não implementado | O escopo atual é INPI/RPI | Exige novas fontes, termos de uso, conectores e regras próprias |

@@ -18,7 +18,6 @@ from app.models import (
     Processo,
     RotuloHistoricoMarca,
 )
-from app.queueing import enfileirar
 from app.schemas import (
     AprendizadoAcaoResponse,
     AprendizadoAdminResponse,
@@ -39,6 +38,7 @@ from app.trademarks.learning import (
     treinar_modelo,
     validar_modelo_para_cliente,
 )
+from app.trademarks.model_status import StatusModelo, normalizar_status_modelo
 
 router = APIRouter(prefix="/v1/admin/aprendizado", tags=["aprendizado marcário"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -51,7 +51,7 @@ def _modelo(item: ModeloRegistrabilidade) -> AprendizadoModeloResponse:
         id=item.id,
         versao=item.versao,
         algoritmo=item.algoritmo,
-        status=item.status,
+        status=normalizar_status_modelo(item.status),
         metricas=item.metricas,
         dataset=item.dataset,
         corte_treino=item.corte_treino,
@@ -164,7 +164,14 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
         .scalars()
         .all()
     )
-    ativo = next((item for item in modelos if item.status == "ativo"), None)
+    ativo = next(
+        (
+            item
+            for item in modelos
+            if normalizar_status_modelo(item.status) is StatusModelo.ACTIVE
+        ),
+        None,
+    )
     rotulos = (
         await session.execute(
             select(RotuloHistoricoMarca, Processo, EvidenciaDecisaoMarca)
@@ -248,7 +255,9 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
                 marca=pesquisa.marca,
                 atividade=pesquisa.atividade,
                 modelo_versao=modelo.versao,
+                modelo_status=normalizar_status_modelo(modelo.status),
                 modo=item.modo,
+                indicador_historico_registrabilidade=item.probabilidade_deferimento,
                 probabilidade_deferimento=item.probabilidade_deferimento,
                 probabilidade_inferior=item.probabilidade_inferior,
                 probabilidade_superior=item.probabilidade_superior,
@@ -317,7 +326,11 @@ async def treinar(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return AprendizadoAcaoResponse(
-        mensagem="Modelo candidato treinado e avaliado temporalmente",
+        mensagem=(
+            "Modelo treinado em SHADOW e promovido para VALIDATION pelos gates técnicos"
+            if normalizar_status_modelo(modelo.status) is StatusModelo.VALIDATION
+            else "Modelo treinado em SHADOW; bloqueios técnicos impedem validação"
+        ),
         modelo=_modelo(modelo),
     )
 
@@ -338,7 +351,10 @@ async def ativar(
         await ativar_modelo(session, modelo, administrador.email)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return AprendizadoAcaoResponse(mensagem="Modelo ativado em modo sombra", modelo=_modelo(modelo))
+    return AprendizadoAcaoResponse(
+        mensagem="Modelo promovido de VALIDATION para ACTIVE",
+        modelo=_modelo(modelo),
+    )
 
 
 @router.patch("/rotulos/{rotulo_id}", response_model=AprendizadoAcaoResponse)
@@ -436,20 +452,9 @@ async def revisar_previsao(
         or 0
     )
     minimo_revisoes = int(controle.minimo_revisoes_humanas or 30)
-    if revisoes >= minimo_revisoes:
-        try:
-            await enfileirar(
-                "registrabilidade.ativar_candidato",
-                {
-                    "organizacao_id": usuario.organizacao_id,
-                    "solicitado_por": "ativacao-automatica",
-                },
-            )
-        except Exception:
-            pass
     return AprendizadoAcaoResponse(
         mensagem=(
-            "Comparação humana registrada; validação automática enfileirada"
+            "Comparação humana registrada; gates completos, ativação explícita disponível"
             if revisoes >= minimo_revisoes
             else (
                 "Comparação humana registrada "

@@ -31,11 +31,11 @@
           <p class="eyebrow">Pipeline histórico</p><h2>Preparar e treinar</h2>
           <p>Os candidatos são limitados às marcas existentes antes do depósito analisado. Arquivamentos formais não são usados como negativa de registrabilidade.</p>
           <label><span>Quantidade de processos</span><input id="dataset-limit" type="number" min="30" max="5000" value="500" /></label>
-          <div class="learning-actions"><button id="build-dataset" class="secondary-button" type="button">Reconstruir dataset</button><button id="train-model" class="primary-button" type="button">Treinar candidato</button></div>
+          <div class="learning-actions"><button id="build-dataset" class="secondary-button" type="button">Reconstruir dataset</button><button id="train-model" class="primary-button" type="button">Treinar modelo SHADOW</button></div>
         </section>
         <form id="learning-control" class="production-control-card">
           <p class="eyebrow">Política de exibição</p><h2>Estimativa imediata</h2>
-          <p>A probabilidade preliminar é calculada e exibida na primeira consulta. A avaliação humana e as metas abaixo aprimoram o modelo, mas não bloqueiam o relatório.</p>
+          <p>O indicador histórico só pode ser exibido após gates técnicos, revisão humana mínima e promoção explícita de VALIDATION para ACTIVE. Modelos SHADOW e DISABLED nunca aparecem ao cliente.</p>
           <label class="production-toggle"><input id="learning-enabled" type="checkbox" /><span aria-hidden="true"></span><b>Motor estatístico ativo</b></label>
           <label class="learning-rollout-control"><span>Cobertura das consultas</span><input id="learning-rollout" type="range" min="100" max="100" step="1" disabled /><output id="learning-rollout-output">100%</output></label>
           <label class="production-toggle"><input id="learning-client" type="checkbox" checked disabled /><span aria-hidden="true"></span><b>Exibição preliminar automática ao cliente</b></label>

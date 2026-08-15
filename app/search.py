@@ -1,5 +1,6 @@
 import re
 import unicodedata
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 
 from sqlalchemy import case, exists, func, or_, select
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import ClassificacaoMarca, Processo, TipoProcesso
+from app.search_ranking import ScoreBusca, calcular_score_nominativo, configuracao_ranking
 
 PALAVRAS_IGNORADAS = {
     "A",
@@ -25,8 +27,15 @@ PALAVRAS_IGNORADAS = {
 }
 MAX_VARIACOES_POR_PALAVRA = 8
 MAX_VARIACOES_TOTAL = 24
-VERSAO_BUSCA = "busca-marcas-3.0"
+VERSAO_BUSCA = "busca-marcas-4.0"
 LIMIAR_TRIGRAMA = 0.30
+
+
+@dataclass(frozen=True, slots=True)
+class OcorrenciaBusca:
+    processo: Processo
+    criterios: list[str]
+    score: ScoreBusca
 
 
 def normalizar_texto(valor: str) -> str:
@@ -144,7 +153,7 @@ async def buscar_marcas(
     tipo_pesquisa: str,
     classe_nice: str | None,
     limite: int = 200,
-) -> tuple[int, list[tuple[Processo, list[str]]], dict]:
+) -> tuple[int, list[OcorrenciaBusca], dict]:
     # A expressão deve ser idêntica ao índice GIN trigram para evitar varredura
     # completa dos milhões de processos.
     titulo_normalizado = func.immutable_unaccent(Processo.titulo)
@@ -202,8 +211,11 @@ async def buscar_marcas(
     ).one()
 
     total = int(contagens[3] or 0)
+    similaridade_sql = func.similarity(
+        titulo_normalizado, func.immutable_unaccent(marca_limpa)
+    )
     consulta = (
-        select(Processo)
+        select(Processo, similaridade_sql.label("similaridade_nominativa"))
         .where(*filtros)
         .options(
             selectinload(Processo.titulares),
@@ -216,16 +228,31 @@ async def buscar_marcas(
                 (filtro_frase, 1),
                 else_=2,
             ),
-            func.similarity(titulo_normalizado, func.immutable_unaccent(marca_limpa)).desc(),
+            similaridade_sql.desc(),
             Processo.atualizado_em.desc(),
             Processo.numero,
         )
         .limit(limite)
     )
-    processos = (await session.execute(consulta)).scalars().all()
-    ocorrencias = [
-        (processo, identificar_criterios(processo.titulo, marca_limpa)) for processo in processos
-    ]
+    candidatos = (await session.execute(consulta)).all()
+    ocorrencias: list[OcorrenciaBusca] = []
+    for processo, similaridade in candidatos:
+        criterios = identificar_criterios(processo.titulo, marca_limpa)
+        classes_nice = {
+            classificacao.codigo
+            for classificacao in processo.classificacoes
+            if classificacao.sistema == "nice"
+        }
+        score = calcular_score_nominativo(
+            criterios=criterios,
+            similaridade=float(similaridade or 0),
+            processo=processo.numero,
+            titulo=processo.titulo,
+            mesma_classe=classe_nice if classe_nice in classes_nice else None,
+            situacao_ativa=processo.relevancia_situacao in {"alta", "ativa"},
+        )
+        ocorrencias.append(OcorrenciaBusca(processo=processo, criterios=criterios, score=score))
+    ocorrencias.sort(key=lambda item: (-item.score.total, item.processo.numero))
     evidencias = {
         "termo_original": marca_limpa,
         "expressao_completa": normalizar_texto(marca_limpa),
@@ -255,5 +282,6 @@ async def buscar_marcas(
             dict.fromkeys([normalizar_texto(marca_limpa), *radicais, *variacoes])
         ),
         "limiar_trigrama": LIMIAR_TRIGRAMA,
+        "ranking": configuracao_ranking(),
     }
     return total, ocorrencias, evidencias

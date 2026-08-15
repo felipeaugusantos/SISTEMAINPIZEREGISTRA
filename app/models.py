@@ -633,6 +633,33 @@ class RegraAutomacao(Base):
     )
 
 
+class PoliticaCRM(Base):
+    """Regras operacionais do funil configuradas por organização."""
+
+    __tablename__ = "politicas_crm"
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", name="uq_politica_crm_organizacao"),
+        CheckConstraint(
+            "dias_proxima_acao_padrao IS NULL OR "
+            "(dias_proxima_acao_padrao >= 0 AND dias_proxima_acao_padrao <= 365)",
+            name="ck_politica_crm_dias_proxima_acao",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    exigir_responsavel: Mapped[bool] = mapped_column(Boolean, default=True)
+    atribuir_ao_operador: Mapped[bool] = mapped_column(Boolean, default=False)
+    exigir_proxima_acao: Mapped[bool] = mapped_column(Boolean, default=True)
+    dias_proxima_acao_padrao: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    atualizado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Cadencia(Base):
     """Cadência de atendimento: sequência de passos aplicável a uma oportunidade."""
 
@@ -965,6 +992,15 @@ class PrazoJuridico(Base):
     status: Mapped[str] = mapped_column(String(30), default="pendente", index=True)
     prioridade: Mapped[str] = mapped_column(String(10), default="media", index=True)
     confirmado: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    confirmado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
+    )
+    confirmado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    confirmado_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    confirmacao_origem: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    confirmacao_observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
     antecedencia_dias: Mapped[int] = mapped_column(Integer, default=7)
     escalonar_dias_antes: Mapped[int] = mapped_column(Integer, default=2)
     escalonado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -1312,6 +1348,7 @@ class LembreteCRM(Base):
         ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
     )
     criado_por: Mapped[str] = mapped_column(String(254))
+    idempotency_key: Mapped[str | None] = mapped_column(String(180), nullable=True, index=True)
     concluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     concluido_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(
@@ -1324,6 +1361,41 @@ class LembreteCRM(Base):
     lead: Mapped[Lead] = relationship(back_populates="lembretes", lazy="selectin")
     responsavel: Mapped["UsuarioOperacoes | None"] = relationship(
         foreign_keys=[responsavel_id], lazy="selectin"
+    )
+
+
+class EventoDominio(Base):
+    """Envelope versionado e tipado para a timeline CRM, jurídica e financeira."""
+
+    __tablename__ = "eventos_dominio"
+    __table_args__ = (
+        UniqueConstraint(
+            "organizacao_id", "dominio", "idempotency_key",
+            name="uq_evento_operacional_idempotencia",
+        ),
+        CheckConstraint(
+            "dominio IN ('crm','juridico','financeiro')",
+            name="ck_evento_operacional_dominio",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    dominio: Mapped[str] = mapped_column(String(20), index=True)
+    tipo: Mapped[str] = mapped_column(String(60), index=True)
+    versao: Mapped[int] = mapped_column(Integer, default=1)
+    entidade_tipo: Mapped[str] = mapped_column(String(40), index=True)
+    entidade_id: Mapped[str] = mapped_column(String(64), index=True)
+    ator_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
+    )
+    ator: Mapped[str] = mapped_column(String(254))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    idempotency_key: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    ocorrido_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
     )
 
 
@@ -1349,6 +1421,14 @@ class PesquisaMarca(Base):
         ForeignKey("pesquisas_marca.id", ondelete="SET NULL"), nullable=True, index=True
     )
     dados_complementares_registrabilidade: Mapped[dict] = mapped_column(JSON, default=dict)
+    analysis_state: Mapped[str] = mapped_column(
+        String(30), default="DRAFT", server_default="DRAFT", index=True
+    )
+    validated_by: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    validated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    analysis_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     relatorio_completo_gerado_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
@@ -1574,7 +1654,7 @@ class ModeloRegistrabilidade(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     versao: Mapped[str] = mapped_column(String(60), unique=True, index=True)
     algoritmo: Mapped[str] = mapped_column(String(50), default="regressao_logistica")
-    status: Mapped[str] = mapped_column(String(20), default="candidato", index=True)
+    status: Mapped[str] = mapped_column(String(20), default="SHADOW", index=True)
     atributos: Mapped[list[str]] = mapped_column(JSON)
     parametros: Mapped[dict] = mapped_column(JSON)
     calibracao: Mapped[dict] = mapped_column(JSON)
@@ -1772,6 +1852,11 @@ class VersaoRelatorioMarca(Base):
     schema_versao: Mapped[str] = mapped_column(String(30), index=True)
     conteudo_hash: Mapped[str] = mapped_column(String(64), index=True)
     payload: Mapped[dict] = mapped_column(JSON)
+    validated_by: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    validated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    validation_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     gerado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

@@ -12,7 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
-from app.crm import aplicar_regras_automacao, avancar_fase_lead, sincronizar_fase_por_status
+from app.crm import (
+    aplicar_politica_oportunidade,
+    aplicar_regras_automacao,
+    avancar_fase_lead,
+    registrar_evento_operacional,
+    sincronizar_fase_por_status,
+)
 from app.database import get_session
 from app.models import (
     MOTIVOS_PERDA,
@@ -53,6 +59,7 @@ from app.schemas import (
     RelatorioMarcaResponse,
 )
 from app.tenancy import OrganizacaoPublicaDep
+from app.trademarks.analysis_workflow import EstadoAnalise, revisao_obrigatoria_pendente
 
 router = APIRouter(tags=["leads"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -123,7 +130,7 @@ def _auditar(
             ator=usuario.ator,
             acao=acao[:20],
             recurso=recurso[:180],
-            sucesso=True,
+            sucesso=status_http < 400,
             status_http=status_http,
             ip_hash=hash_ip(cliente_ip(request)),
             detalhes=detalhes,
@@ -209,6 +216,12 @@ def _resumo_pesquisa(
     relatorio_disponivel: bool,
     exclusao_status: str | None = None,
 ) -> PesquisaLeadResumo:
+    estado_analise = pesquisa.analysis_state or EstadoAnalise.DRAFT.value
+    relatorio_validado_gerado = bool(
+        estado_analise == EstadoAnalise.VALIDATED.value
+        and pesquisa.validated_at is not None
+        and pesquisa.relatorio_completo_gerado_em is not None
+    )
     return PesquisaLeadResumo(
         id=pesquisa.id,
         marca=pesquisa.marca,
@@ -220,9 +233,13 @@ def _resumo_pesquisa(
         risco_nivel=risco_nivel,
         risco_pontuacao=risco_pontuacao,
         relatorio_disponivel=relatorio_disponivel,
-        relatorio_completo_gerado=pesquisa.relatorio_completo_gerado_em is not None,
+        relatorio_completo_gerado=relatorio_validado_gerado,
         relatorio_completo_gerado_em=pesquisa.relatorio_completo_gerado_em,
         relatorio_completo_gerado_por=pesquisa.relatorio_completo_gerado_por,
+        analysis_state=estado_analise,
+        review_required=revisao_obrigatoria_pendente(estado_analise),
+        validated_by=pesquisa.validated_by,
+        validated_at=pesquisa.validated_at,
         relatorio_url=f"/relatorios/{pesquisa.id}",
         pdf_url=(
             f"/v1/pesquisas-marca/{pesquisa.id}/relatorio.pdf" if relatorio_disponivel else None
@@ -244,7 +261,7 @@ async def gerar_relatorio_completo_admin(
             select(PesquisaMarca).where(
                 PesquisaMarca.id == pesquisa_id,
                 PesquisaMarca.organizacao_id == usuario.organizacao_id,
-            )
+            ).with_for_update()
         )
     ).scalar_one_or_none()
     if pesquisa is None:
@@ -256,12 +273,41 @@ async def gerar_relatorio_completo_admin(
             .where(VersaoRelatorioMarca.pesquisa_id == pesquisa.id)
             .order_by(VersaoRelatorioMarca.numero_versao.desc())
             .limit(1)
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if versao is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Abra a análise para preparar os dados antes de gerar o relatório completo.",
+        )
+    if (
+        pesquisa.analysis_state != EstadoAnalise.VALIDATED.value
+        or pesquisa.validated_at is None
+        or pesquisa.validated_by is None
+        or versao.validated_at is None
+        or versao.validated_by is None
+    ):
+        _auditar(
+            session,
+            usuario,
+            request,
+            "bloquear_relatorio",
+            f"pesquisa:{pesquisa.id}",
+            {
+                "motivo": "revisao_obrigatoria_pendente",
+                "analysis_state": pesquisa.analysis_state,
+                "versao": versao.numero_versao,
+            },
+            status_http=status.HTTP_409_CONFLICT,
+        )
+        await session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "O relatório completo só pode ser emitido após a revisão obrigatória e a "
+                "validação formal da versão atual."
+            ),
         )
 
     relatorio = RelatorioMarcaResponse.model_validate(versao.payload)
@@ -280,6 +326,9 @@ async def gerar_relatorio_completo_admin(
             "relatorio": "completo",
             "primeira_geracao": primeira_geracao,
             "versao": versao.numero_versao,
+            "analysis_state": pesquisa.analysis_state,
+            "validated_by": pesquisa.validated_by,
+            "validated_at": pesquisa.validated_at.isoformat(),
         },
     )
     await session.commit()
@@ -292,6 +341,8 @@ async def gerar_relatorio_completo_admin(
                 f'attachment; filename="relatorio-completo-{nome_arquivo}.pdf"'
             ),
             "X-Relatorio-Completo-Primeira-Geracao": str(primeira_geracao).lower(),
+            "X-Analysis-State": pesquisa.analysis_state,
+            "X-Validated-By": pesquisa.validated_by,
         },
     )
 
@@ -738,11 +789,7 @@ async def atualizar_status_lead(
     )
     aberta = lead.status not in (StatusLead.CONVERTIDO, StatusLead.DESCARTADO)
     if mexeu_crm and aberta:
-        faltando = []
-        if lead.responsavel_id is None:
-            faltando.append("responsável")
-        if lead.proxima_acao_em is None:
-            faltando.append("próxima ação")
+        faltando = await aplicar_politica_oportunidade(session, lead, usuario.id)
         if faltando:
             raise HTTPException(
                 status_code=422,
@@ -755,6 +802,17 @@ async def atualizar_status_lead(
         # Automações disparadas por mudança de status (ex.: sem_retorno).
         await aplicar_regras_automacao(
             session, lead, "status", lead.status.value, por=usuario.nome or "sistema"
+        )
+        registrar_evento_operacional(
+            session,
+            organizacao_id=usuario.organizacao_id,
+            dominio="crm",
+            tipo="crm.status_alterado",
+            entidade_tipo="lead",
+            entidade_id=lead.id,
+            ator=usuario.ator,
+            ator_id=usuario.id,
+            payload=alteracoes["status"],
         )
     if dados.registrar_contato:
         agora = datetime.now(UTC)
@@ -1662,7 +1720,15 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
     eventos.sort(key=lambda e: _para_dt(e["data"]), reverse=True)
     for e in eventos:
         e["data"] = _para_dt(e["data"]).isoformat()
-    return {"eventos": eventos}
+        e["dominio"] = "crm"
+        e["versao"] = 1
+        e["entidade"] = {"tipo": "lead", "id": str(lead.id)}
+        e["payload"] = {
+            "titulo": e.get("titulo"),
+            "detalhe": e.get("detalhe"),
+            "autor": e.get("autor"),
+        }
+    return {"schema": "timeline.operacional.v1", "eventos": eventos}
 
 
 @router.delete("/v1/admin/leads/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)

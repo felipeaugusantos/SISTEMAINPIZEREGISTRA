@@ -44,6 +44,7 @@ def test_conflito_exato_ativo_mesma_classe_e_alto_renome_e_critico() -> None:
         "afinidade_classes",
         "alto_renome",
     ]
+    assert all(fator.evidencia["processo"] == "123456789" for fator in resultado.fatores)
 
 
 def test_situacao_inativa_reduz_pontuacao_sem_ocultar_conflito() -> None:
@@ -83,6 +84,8 @@ def test_regras_registram_versao_e_modo_sombra() -> None:
 
     assert regras["versao"] == VERSAO_MOTOR
     assert regras["modo"] == MODO_MOTOR == "sombra"
+    assert regras["tipo_score"] == "RISCO_DETERMINISTICO_POR_REGRAS"
+    assert "não é probabilidade" in regras["interpretacao"]
 
 
 def test_risco_nao_faz_parte_do_relatorio_do_cliente() -> None:

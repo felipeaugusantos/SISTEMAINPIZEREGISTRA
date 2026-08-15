@@ -46,10 +46,12 @@ from app.schemas import (
     TitularResponse,
 )
 from app.search import buscar_marcas, normalizar_texto
+from app.search_ranking import adicionar_contexto_score
 from app.tenancy import OrganizacaoPublicaDep, validar_limite_pesquisas
 from app.trademarks.affinity import avaliar_afinidade
 from app.trademarks.agent import registrar_execucao_agente
 from app.trademarks.learning import extrair_atributos_par, registrar_previsao_sombra
+from app.trademarks.model_status import normalizar_status_modelo
 from app.trademarks.nice import mapear_atividade
 from app.trademarks.quality import avaliar_qualidade_base
 from app.trademarks.registrability import (
@@ -240,7 +242,9 @@ async def gerar_resumo_pesquisa(
         normalizar_texto(item.marca) for item in registros_alto_renome if item.marca
     }
     itens = []
-    for processo, criterios in ocorrencias:
+    for ocorrencia in ocorrencias:
+        processo = ocorrencia.processo
+        criterios = ocorrencia.criterios
         ultima_movimentacao = processo.movimentacoes[0] if processo.movimentacoes else None
         situacao = normalizar_despacho(
             ultima_movimentacao.codigo_despacho if ultima_movimentacao else None,
@@ -263,10 +267,23 @@ async def gerar_resumo_pesquisa(
             afinidade_nivel=afinidade.nivel,
             relevancia_situacao=situacao.relevancia,
         )
+        score_busca = adicionar_contexto_score(
+            ocorrencia.score,
+            processo=processo.numero,
+            classes_atividade=codigos_atividade,
+            classes_processo=classes_processo,
+            afinidade_nivel=afinidade.nivel,
+            afinidade_revisao=afinidade.revisao,
+            situacao_ativa=situacao.relevancia == "ativa",
+            alto_renome=processo_alto_renome,
+        )
         itens.append(
             MarcaRelatorioItem.model_validate(processo).model_copy(
                 update={
                     "criterios_encontro": criterios,
+                    "score_busca": score_busca.total,
+                    "score_busca_versao": score_busca.versao,
+                    "fatores_score_busca": score_busca.fatores_json(),
                     "situacao": situacao_oficial,
                     "situacao_normalizada": situacao.codigo,
                     "relevancia_situacao": situacao.relevancia,
@@ -302,6 +319,7 @@ async def gerar_resumo_pesquisa(
         )
     itens.sort(
         key=lambda item: (
+            -item.score_busca,
             ORDEM_RELEVANCIA.get(item.relevancia, 99),
             (
                 0
@@ -318,7 +336,7 @@ async def gerar_resumo_pesquisa(
     )
     qualidade = await avaliar_qualidade_base(
         session,
-        [processo for processo, _ in ocorrencias],
+        [ocorrencia.processo for ocorrencia in ocorrencias],
     )
     ultima_rpi = (await session.execute(select(func.max(Movimentacao.numero_rpi)))).scalar_one()
     alto_renome_atualizado_em = (
@@ -446,14 +464,14 @@ async def gerar_resumo_pesquisa(
         ),
         estimativa_mensagem=(
             (
-                "A estimativa estatística foi validada para exibição nesta pesquisa."
+                "O indicador histórico foi validado para exibição nesta pesquisa."
                 if previsao.elegivel_cliente
-                else "A estimativa preliminar foi calculada automaticamente e o modelo ainda "
-                "está em validação interna. Leia a faixa de incerteza e os avisos de qualidade."
+                else "O indicador histórico foi calculado para validação interna. Leia a "
+                "faixa de incerteza e os avisos de qualidade."
             )
             if previsao is not None and modelo_previsao is not None
             else (
-                "O modelo estatístico permanece em validação interna. Nenhuma probabilidade "
+                "O modelo estatístico permanece em validação interna. Nenhum indicador histórico "
                 "é exibida até que os critérios mínimos de dados, calibração e revisão humana "
                 "sejam atendidos."
             )
@@ -465,6 +483,7 @@ async def gerar_resumo_pesquisa(
         ),
         estimativa_registrabilidade=(
             EstimativaRegistrabilidadeResponse(
+                indicador_historico_registrabilidade=previsao.probabilidade_deferimento,
                 probabilidade_deferimento=previsao.probabilidade_deferimento,
                 probabilidade_inferior=previsao.probabilidade_inferior,
                 probabilidade_superior=previsao.probabilidade_superior,
@@ -473,20 +492,20 @@ async def gerar_resumo_pesquisa(
                 confianca_rotulo=previsao.confianca_rotulo,
                 cobertura_entrada=previsao.cobertura_entrada,
                 modelo_versao=modelo_previsao.versao,
+                modelo_status=normalizar_status_modelo(modelo_previsao.status),
                 escopo=previsao.escopo_estimativa,
                 amostras_referencia=previsao.amostras_referencia,
                 corte_dados=previsao.corte_dados,
                 revisao_humana_obrigatoria=False,
                 fatores_principais=previsao.fatores_principais,
                 aviso=(
-                    "Estimativa estatística preliminar do deferimento no exame de mérito, "
-                    "baseada em decisões históricas publicadas. O modelo ainda está em "
-                    "validação interna; esta informação não constitui garantia de registro "
-                    "e não substitui o exame do INPI."
+                    "Indicador histórico de registrabilidade baseado em decisões publicadas "
+                    "com características semelhantes. O modelo está em validação interna; "
+                    "não representa previsão ou garantia de decisão do INPI."
                     if not previsao.elegivel_cliente
-                    else "Estimativa estatística preliminar do deferimento no exame de "
-                    "mérito, baseada em decisões históricas publicadas. Não constitui "
-                    "garantia de registro e não substitui o exame do INPI."
+                    else "Indicador histórico de registrabilidade baseado em decisões "
+                    "publicadas com características semelhantes. Não representa previsão "
+                    "ou garantia de decisão do INPI."
                 ),
             )
             if (previsao is not None and modelo_previsao is not None and previsao.elegivel_cliente)

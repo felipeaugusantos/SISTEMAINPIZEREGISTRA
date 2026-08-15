@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/styles.css?v=23" />
     <link rel="stylesheet" href="/static/admin-analise.css?v=5" />
     <script src="/static/admin-shell.js?v=36" defer></script>
-    <script src="/static/admin-analise.js?v=8" defer></script>
+    <script src="/static/admin-analise.js?v=9" defer></script>
   </head>
   <body class="admin-body" data-admin-section="leads">
     <header class="topbar"><span>Central de análise</span></header>
@@ -34,7 +34,7 @@
           <p class="eyebrow">Fluxo recomendado</p>
           <h2>Checklist</h2>
           <ol id="analysis-progress"></ol>
-          <p class="analysis-progress-note">As etapas respeitam suas permissões. A probabilidade preliminar não depende da revisão humana.</p>
+          <p class="analysis-progress-note">As etapas respeitam suas permissões. O indicador histórico só é exibido quando o modelo está ACTIVE e aprovado nos gates técnicos e humanos.</p>
         </aside>
         <div id="analysis-sections" class="analysis-sections">
           <section class="analysis-loading"><span class="loading-spinner"></span><p>Montando o dossiê técnico…</p></section>
@@ -52,10 +52,10 @@
         <details id="help-overview" open><summary>1. Confira o contexto</summary><p>Valide a marca, a atividade informada, o cliente e a atualização da base antes de interpretar qualquer indicador.</p></details>
         <details id="help-validation"><summary>2. Validação técnica e matriz oficial</summary><p>Confira situações, classes de Nice, afinidade, alto renome e a Matriz de Registrabilidade INPI. “Não analisado” significa que faltam dados ou avaliação profissional; nunca deve ser interpretado como favorável.</p></details>
         <details id="help-risk"><summary>3. Motor de risco</summary><p>A pontuação é determinística e auditável. Ela mede conflitos encontrados; não é a mesma coisa que a probabilidade estatística de deferimento.</p></details>
-        <details id="help-learning"><summary>4. Aprendizado supervisionado</summary><p>A probabilidade usa decisões históricas. Leia junto a faixa de incerteza, confiança, cobertura e alertas de qualidade. Ela é preliminar e não garante registro.</p></details>
+        <details id="help-learning"><summary>4. Aprendizado supervisionado</summary><p>O indicador usa decisões históricas. Leia junto a faixa de incerteza, confiança, cobertura e alertas de qualidade. Ele não prevê nem garante a decisão do INPI.</p></details>
         <details id="help-opinion"><summary>6. Parecer humano</summary><p>Registre sua classificação e justificativa com base nos conflitos relevantes. O parecer fica versionado e alimenta a comparação entre máquina e especialista.</p></details>
-        <details id="help-report"><summary>7. Relatório completo</summary><p>Gere somente após conferir as etapas anteriores. A primeira geração registra data e responsável; novas gerações preservam esse histórico.</p></details>
-        <section class="help-glossary"><h3>Indicadores essenciais</h3><dl><dt>Risco</dt><dd>Pontuação por regras de conflito.</dd><dt>Probabilidade</dt><dd>Estimativa histórica de deferimento.</dd><dt>Confiança</dt><dd>Estabilidade estatística da estimativa.</dd><dt>Cobertura</dt><dd>Quanto a pesquisa se parece com os exemplos conhecidos pelo modelo.</dd></dl></section>
+        <details id="help-report"><summary>7. Workflow e relatório completo</summary><p>Inicie a revisão, registre o parecer humano e valide formalmente a versão atual. O relatório completo permanece bloqueado enquanto o estado não for VALIDATED; uma nova versão exige nova validação.</p></details>
+        <section class="help-glossary"><h3>Indicadores essenciais</h3><dl><dt>Risco determinístico</dt><dd>Pontuação auditável por regras de conflito.</dd><dt>Indicador histórico</dt><dd>Frequência calibrada observada em casos semelhantes; não é previsão jurídica.</dd><dt>Confiança</dt><dd>Estabilidade estatística do indicador.</dd><dt>Cobertura</dt><dd>Quanto a pesquisa se parece com os exemplos conhecidos pelo modelo.</dd></dl></section>
       </div>
     </dialog>
 

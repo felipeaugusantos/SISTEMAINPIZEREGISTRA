@@ -1,7 +1,8 @@
 from dataclasses import asdict, dataclass
 
-VERSAO_MOTOR = "deterministico-1.0"
+VERSAO_MOTOR = "deterministico-2.0"
 MODO_MOTOR = "sombra"
+TIPO_SCORE = "RISCO_DETERMINISTICO_POR_REGRAS"
 
 PESOS_NOME = {
     "Nome idêntico": 40,
@@ -32,7 +33,7 @@ LIMITES = (
 class FatorRisco:
     regra: str
     pontos: int
-    evidencia: str
+    evidencia: dict[str, object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +85,17 @@ def pontuar_conflito(entrada: ConflitoEntrada) -> ConflitoPontuado:
     ]
     if correspondencias:
         pontos, criterio = max(correspondencias)
-        fatores.append(FatorRisco("semelhanca_nome", pontos, criterio))
+        fatores.append(
+            FatorRisco(
+                "semelhanca_nome",
+                pontos,
+                {
+                    "criterio": criterio,
+                    "processo": entrada.numero,
+                    "titulo": entrada.titulo or "",
+                },
+            )
+        )
 
     relevancia = entrada.relevancia_situacao or "incerta"
     pontos_situacao = PESOS_SITUACAO.get(relevancia, PESOS_SITUACAO["incerta"])
@@ -92,7 +103,10 @@ def pontuar_conflito(entrada: ConflitoEntrada) -> ConflitoPontuado:
         FatorRisco(
             "situacao_processual",
             pontos_situacao,
-            entrada.situacao_normalizada or "Situação não classificada",
+            {
+                "situacao": entrada.situacao_normalizada or "nao_classificada",
+                "processo": entrada.numero,
+            },
         )
     )
 
@@ -106,7 +120,12 @@ def pontuar_conflito(entrada: ConflitoEntrada) -> ConflitoPontuado:
             FatorRisco(
                 "afinidade_classes",
                 pontos_afinidade,
-                f"{chave_afinidade[0]} ({chave_afinidade[1]})",
+                {
+                    "nivel": chave_afinidade[0],
+                    "revisao": chave_afinidade[1],
+                    "classes": list(entrada.classes_processo),
+                    "processo": entrada.numero,
+                },
             )
         )
 
@@ -115,7 +134,10 @@ def pontuar_conflito(entrada: ConflitoEntrada) -> ConflitoPontuado:
             FatorRisco(
                 "alto_renome",
                 PESO_ALTO_RENOME,
-                "Coincidência com registro ou nome nominativo da lista oficial",
+                {
+                    "fonte": "lista oficial vigente de marcas de alto renome",
+                    "processo": entrada.numero,
+                },
             )
         )
 
@@ -156,6 +178,11 @@ def regras_para_json() -> dict:
     return {
         "versao": VERSAO_MOTOR,
         "modo": MODO_MOTOR,
+        "tipo_score": TIPO_SCORE,
+        "interpretacao": (
+            "Pontuação determinística de risco de conflito; não é probabilidade, "
+            "estimativa histórica ou garantia de decisão do INPI."
+        ),
         "pesos_nome": PESOS_NOME,
         "pesos_situacao": PESOS_SITUACAO,
         "pesos_afinidade": {

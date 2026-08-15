@@ -216,7 +216,7 @@ IMPEDIMENTO_CODIGOS = (
 )
 
 _RESSALVA_PROGNOSTICO = (
-    "Prognóstico indicativo, baseado nos critérios automatizáveis do Manual de Marcas do "
+    "Triagem determinística, baseada nos critérios automatizáveis do Manual de Marcas do "
     "INPI. O exame de mérito possui etapas subjetivas (distintividade concreta, "
     "interpretação do examinador) que não podem ser antecipadas com certeza. Não constitui "
     "garantia de registro nem dispensa análise jurídica."
@@ -237,26 +237,26 @@ def construir_prognostico_registrabilidade(matriz: dict) -> dict:
 
     if impedimentos:
         veredito = "desfavoravel"
-        titulo = "Risco de indeferimento"
+        titulo = "Possíveis impedimentos identificados"
         resumo = (
-            "A triagem encontrou possíveis impedimentos que, se confirmados no exame de "
-            "mérito do INPI, tendem ao indeferimento."
+            "A triagem encontrou evidências que podem fundamentar impedimento, se confirmadas "
+            "pela análise jurídica e pelo exame de mérito do INPI."
         )
         destaques = impedimentos
     elif atencoes:
         veredito = "atencao"
-        titulo = "Deferimento possível, com ressalvas"
+        titulo = "Atenção técnica com ressalvas"
         resumo = (
-            "Não há impedimento evidente, mas existem pontos que precisam de ajuste ou "
-            "conferência para melhorar a chance de deferimento."
+            "Não há impedimento automático evidente, mas existem pontos que precisam de "
+            "conferência técnica antes de qualquer conclusão."
         )
         destaques = atencoes
     else:
         veredito = "favoravel"
-        titulo = "Tendência de deferimento"
+        titulo = "Nenhum impedimento automático identificado"
         resumo = (
-            "A triagem automática não encontrou anterioridades impeditivas nem impedimentos "
-            "legais aparentes nos critérios substantivos analisados."
+            "A triagem automática não encontrou impedimentos aparentes nos critérios "
+            "substantivos analisados; isso não indica probabilidade de deferimento."
         )
         destaques = []
 

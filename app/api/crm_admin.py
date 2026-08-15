@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
-from app.crm import REGRAS_AUTOMACAO, normalizar_empresa
+from app.crm import REGRAS_AUTOMACAO, normalizar_empresa, obter_politica_crm
 from app.database import get_session
 from app.models import (
     Cadencia,
@@ -21,6 +21,7 @@ from app.models import (
     Lead,
     LembreteCRM,
     PesquisaMarca,
+    PoliticaCRM,
     RegraAutomacao,
     StatusLead,
     UsuarioOperacoes,
@@ -710,6 +711,48 @@ async def remover_contato(contato_id: int, session: SessionDep, usuario: CRMMana
 class AutomacaoUpdate(BaseModel):
     ativo: bool
     dias: int = Field(ge=0, le=180)
+
+
+class PoliticaCRMUpdate(BaseModel):
+    exigir_responsavel: bool = True
+    atribuir_ao_operador: bool = False
+    exigir_proxima_acao: bool = True
+    dias_proxima_acao_padrao: int | None = Field(default=None, ge=0, le=365)
+
+
+def _politica_dict(politica: PoliticaCRM) -> dict:
+    return {
+        "exigir_responsavel": politica.exigir_responsavel,
+        "atribuir_ao_operador": politica.atribuir_ao_operador,
+        "exigir_proxima_acao": politica.exigir_proxima_acao,
+        "dias_proxima_acao_padrao": politica.dias_proxima_acao_padrao,
+        "atualizado_por": politica.atualizado_por,
+        "atualizado_em": politica.atualizado_em,
+    }
+
+
+@router.get("/politica")
+async def consultar_politica_crm(session: SessionDep, usuario: CRMViewDep) -> dict:
+    return _politica_dict(await obter_politica_crm(session, usuario.organizacao_id))
+
+
+@router.put("/politica")
+async def editar_politica_crm(
+    dados: PoliticaCRMUpdate, session: SessionDep, usuario: CRMManageDep
+) -> dict:
+    politica = (
+        await session.execute(
+            select(PoliticaCRM).where(PoliticaCRM.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one_or_none()
+    if politica is None:
+        politica = PoliticaCRM(organizacao_id=usuario.organizacao_id)
+        session.add(politica)
+    for campo, valor in dados.model_dump().items():
+        setattr(politica, campo, valor)
+    politica.atualizado_por = usuario.ator
+    await session.commit()
+    return _politica_dict(politica)
 
 
 @router.get("/automacoes")

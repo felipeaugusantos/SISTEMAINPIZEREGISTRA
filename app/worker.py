@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.api.juridico import executar_motor_organizacao
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
 from app.database import session_factory
-from app.models import AlertaSistema, Lead, ModeloRegistrabilidade, Organizacao
+from app.models import AlertaSistema, Lead, Organizacao
 from app.queueing import (
     FAILED_KEY,
     MAX_ATTEMPTS,
@@ -24,10 +24,10 @@ from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
 from app.trademarks.agent import reconciliar_resultados_reais, reprocessar_agentes_pendentes
 from app.trademarks.learning import (
-    ativar_modelo,
     executar_pipeline_aprendizado,
     reprocessar_previsoes_pendentes,
 )
+from app.trademarks.model_status import StatusModelo
 
 logger = logging.getLogger("ze_registra.worker")
 logger.setLevel(logging.INFO)
@@ -145,7 +145,7 @@ async def processar(tipo: str, payload: dict) -> None:
                 administrador=payload.get("solicitado_por") or "worker",
                 limite_dataset=int(payload.get("limite_dataset") or 3000),
             )
-            aguardando_revisoes = resultado["modelo_status"] == "candidato" and any(
+            aguardando_revisoes = resultado["modelo_status"] == StatusModelo.VALIDATION.value and any(
                 "Revisões humanas insuficientes" in bloqueio for bloqueio in resultado["bloqueios"]
             )
             session.add(
@@ -158,12 +158,12 @@ async def processar(tipo: str, payload: dict) -> None:
                         else (
                             "MODELO_APRENDIZADO_AGUARDANDO_REVISOES"
                             if aguardando_revisoes
-                            else "MODELO_APRENDIZADO_REPROVADO"
+                            else "MODELO_APRENDIZADO_BLOQUEADO"
                         )
                     ),
                     mensagem=(
                         (
-                            f"Modelo candidato criado em modo sombra; "
+                            f"Modelo em VALIDATION; "
                             f"{resultado['reprocessamento']['processadas']} previsão(ões) "
                             "interna(s) preparada(s). Ativação bloqueada: "
                             + "; ".join(resultado["bloqueios"])
@@ -178,36 +178,17 @@ async def processar(tipo: str, payload: dict) -> None:
                 )
             )
         elif tipo == "registrabilidade.ativar_candidato":
-            modelo = (
-                await session.execute(
-                    select(ModeloRegistrabilidade)
-                    .where(ModeloRegistrabilidade.status == "candidato")
-                    .order_by(ModeloRegistrabilidade.treinado_em.desc())
-                    .limit(1)
+            # Compatibilidade com tarefas antigas já enfileiradas. Promoções agora exigem
+            # ação autenticada e explícita no endpoint administrativo.
+            session.add(
+                AlertaSistema(
+                    organizacao_id=payload.get("organizacao_id") or 1,
+                    severidade="aviso",
+                    codigo="ATIVACAO_AUTOMATICA_MODELO_IGNORADA",
+                    mensagem="Ativação automática ignorada; use a promoção explícita VALIDATION → ACTIVE.",
+                    detalhes={"solicitado_por": payload.get("solicitado_por")},
                 )
-            ).scalar_one_or_none()
-            if modelo is not None:
-                try:
-                    reprocessamento = await ativar_modelo(
-                        session,
-                        modelo,
-                        payload.get("solicitado_por") or "ativacao-automatica",
-                    )
-                except ValueError:
-                    pass
-                else:
-                    session.add(
-                        AlertaSistema(
-                            organizacao_id=payload.get("organizacao_id") or 1,
-                            severidade="info",
-                            codigo="MODELO_APRENDIZADO_ATIVADO",
-                            mensagem=(
-                                f"Modelo {modelo.versao} ativado automaticamente; "
-                                f"{reprocessamento['processadas']} previsão(ões) reprocessada(s)."
-                            ),
-                            detalhes=reprocessamento,
-                        )
-                    )
+            )
         elif tipo == "alto_renome.sincronizar":
             await sincronizar_alto_renome(get_settings().alto_renome_page_url)
         elif tipo == "juridico.executar_motor":

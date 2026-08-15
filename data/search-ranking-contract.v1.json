@@ -1,0 +1,24 @@
+{
+  "version": "ranking-contract-v1",
+  "observacao": "Contrato técnico determinístico; não substitui o dataset jurídico revisado.",
+  "casos": [
+    {
+      "id": "nome-identico",
+      "criterios": ["Nome idêntico", "Elemento do nome", "Radical semelhante"],
+      "similaridade": 1.0,
+      "score_esperado": 89.0
+    },
+    {
+      "id": "expressao-completa",
+      "criterios": ["Expressão completa", "Elemento do nome", "Radical semelhante"],
+      "similaridade": 0.8,
+      "score_esperado": 70.0
+    },
+    {
+      "id": "variacao-radical",
+      "criterios": ["Variação ortográfica ou fonética", "Radical semelhante"],
+      "similaridade": 0.65,
+      "score_esperado": 26.0
+    }
+  ]
+}

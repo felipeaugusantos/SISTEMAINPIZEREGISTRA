@@ -5,8 +5,9 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import VersaoRelatorioMarca
+from app.models import PesquisaMarca, VersaoRelatorioMarca
 from app.schemas import RelatorioMarcaResponse
+from app.trademarks.analysis_workflow import EstadoAnalise
 
 SCHEMA_RELATORIO = "relatorio-marca-4.3"
 
@@ -29,6 +30,7 @@ async def versionar_relatorio(
     session: AsyncSession,
     relatorio: RelatorioMarcaResponse,
 ) -> RelatorioMarcaResponse:
+    pesquisa = await session.get(PesquisaMarca, relatorio.id, with_for_update=True)
     conteudo_hash = _hash_conteudo(relatorio)
     ultima = (
         await session.execute(
@@ -65,4 +67,11 @@ async def versionar_relatorio(
             gerado_em=gerado_em,
         )
     )
+    if pesquisa is not None:
+        pesquisa.analysis_state = EstadoAnalise.PENDING_REVIEW.value
+        pesquisa.validated_by = None
+        pesquisa.validated_at = None
+        pesquisa.analysis_notes = "Nova versão disponível para revisão humana obrigatória."
+        pesquisa.relatorio_completo_gerado_em = None
+        pesquisa.relatorio_completo_gerado_por = None
     return versionado

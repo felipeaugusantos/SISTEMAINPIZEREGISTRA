@@ -20,10 +20,10 @@ async def executar(args: argparse.Namespace) -> None:
             print(f"Dataset: {rotulos} rótulos e {pares} pares processados")
         if args.treinar:
             modelo = await treinar_modelo(session)
-            print(f"Modelo candidato: {modelo.versao} · métricas {modelo.metricas}")
+            print(f"Modelo {modelo.status}: {modelo.versao} · métricas {modelo.metricas}")
             if args.ativar:
                 await ativar_modelo(session, modelo, args.administrador)
-                print("Modelo ativado em modo sombra")
+                print("Modelo promovido explicitamente de VALIDATION para ACTIVE")
 
 
 def main() -> None:

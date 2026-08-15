@@ -7,6 +7,7 @@ from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
 from app.models import (
+    AvaliacaoRiscoMarca,
     EventoAuditoria,
     ExecucaoAgenteRegistrabilidade,
     Lead,
@@ -15,6 +16,11 @@ from app.models import (
     RotuloHistoricoMarca,
     StatusLead,
     VersaoRelatorioMarca,
+)
+from app.trademarks.analysis_workflow import (
+    AcaoWorkflowAnalise,
+    EstadoAnalise,
+    proximo_estado_analise,
 )
 from tests.conftest import FakeResult, FakeSession, auth_override, sessao_override, usuario_teste
 
@@ -27,6 +33,29 @@ def _cleanup() -> None:
 
 def test_api_da_central_exige_autenticacao() -> None:
     assert TestClient(app).get("/v1/admin/analises/pesquisa-1").status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("origem", "acao", "destino"),
+    [
+        ("DRAFT", "SUBMIT_REVIEW", "PENDING_REVIEW"),
+        ("PENDING_REVIEW", "START_REVIEW", "IN_REVIEW"),
+        ("IN_REVIEW", "REQUEST_CHANGES", "CHANGES_REQUESTED"),
+        ("CHANGES_REQUESTED", "START_REVIEW", "IN_REVIEW"),
+        ("IN_REVIEW", "VALIDATE", "VALIDATED"),
+        ("VALIDATED", "REOPEN", "IN_REVIEW"),
+    ],
+)
+def test_transicoes_formais_do_workflow(origem: str, acao: str, destino: str) -> None:
+    assert proximo_estado_analise(origem, acao).value == destino
+
+
+def test_workflow_rejeita_pulo_da_fila_para_validacao() -> None:
+    with pytest.raises(ValueError, match="Transição não permitida"):
+        proximo_estado_analise(
+            EstadoAnalise.PENDING_REVIEW,
+            AcaoWorkflowAnalise.VALIDATE,
+        )
 
 
 def test_api_da_central_consolida_pesquisa_e_status_do_relatorio() -> None:
@@ -69,11 +98,29 @@ def test_api_da_central_consolida_pesquisa_e_status_do_relatorio() -> None:
         },
         gerado_em=agora,
     )
+    evento_workflow = EventoAuditoria(
+        id=9,
+        organizacao_id=1,
+        actor_id=1,
+        ator="revisor@teste.local",
+        acao="workflow_transition",
+        recurso="pesquisa:pesquisa-1",
+        resource_type="analysis_workflow",
+        resource_id="pesquisa-1",
+        sucesso=True,
+        status_http=200,
+        detalhes={"action": "START_REVIEW"},
+        before_state={"state": "PENDING_REVIEW"},
+        after_state={"state": "IN_REVIEW"},
+        criado_em=agora,
+    )
     app.dependency_overrides[get_session] = sessao_override(
         FakeResult(itens=[(pesquisa, lead)]),
         FakeResult(scalar=versao),
         FakeResult(scalar=None),
         FakeResult(itens=[]),
+        FakeResult(scalar=None),
+        FakeResult(itens=[evento_workflow]),
     )
     app.dependency_overrides[obter_usuario_atual] = auth_override()
 
@@ -89,6 +136,9 @@ def test_api_da_central_consolida_pesquisa_e_status_do_relatorio() -> None:
     assert data["risco"] is None
     assert data["relatorio_completo"]["gerado"] is False
     assert data["permissoes"]["relatorio_gerar"] is True
+    assert data["workflow"]["state"] == "PENDING_REVIEW"
+    assert data["workflow"]["review_required"] is True
+    assert data["workflow"]["history"][0]["after"] == {"state": "IN_REVIEW"}
 
 
 def test_central_executa_e_persiste_agente_com_snapshot_atual() -> None:
@@ -268,3 +318,137 @@ def test_dados_complementares_sao_persistidos_para_recalcular_matriz() -> None:
     assert pesquisa.dados_complementares_registrabilidade["forma_apresentacao"] == "nominativa"
     assert pesquisa.dados_complementares_registrabilidade["atividade_compativel"] is True
     assert pesquisa.dados_complementares_registrabilidade["preenchido_por"] == usuario.email
+
+
+def _objetos_workflow(estado: EstadoAnalise) -> tuple[
+    PesquisaMarca, VersaoRelatorioMarca, AvaliacaoRiscoMarca
+]:
+    agora = datetime.now(UTC)
+    pesquisa = PesquisaMarca(
+        id="pesquisa-workflow",
+        organizacao_id=1,
+        marca="ACME",
+        tipo_pesquisa="completa",
+        analysis_state=estado.value,
+    )
+    versao = VersaoRelatorioMarca(
+        pesquisa_id=pesquisa.id,
+        numero_versao=3,
+        schema_versao="relatorio-marca-4.3",
+        conteudo_hash="workflow-hash",
+        payload={},
+    )
+    avaliacao = AvaliacaoRiscoMarca(
+        pesquisa_id=pesquisa.id,
+        versao_motor="deterministico-2.0",
+        modo="sombra",
+        pontuacao=42,
+        nivel="moderado",
+        principais_conflitos=[],
+        regras_aplicadas={},
+        nivel_humano="moderado",
+        avaliador="Especialista",
+        observacoes_humanas="Evidências conferidas no processo.",
+        avaliado_em=agora,
+    )
+    return pesquisa, versao, avaliacao
+
+
+def test_endpoint_registra_tentativa_de_pular_etapa_no_historico() -> None:
+    pesquisa, versao, avaliacao = _objetos_workflow(EstadoAnalise.PENDING_REVIEW)
+    sessao = FakeSession(
+        [FakeResult(scalar=pesquisa), FakeResult(scalar=versao), FakeResult(scalar=avaliacao)]
+    )
+
+    async def override_session():
+        yield sessao
+
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).patch(
+        "/v1/admin/analises/pesquisa-workflow/workflow",
+        headers={"X-CSRF-Token": "csrf-teste"},
+        json={"action": "VALIDATE", "notes": "Tentativa de validação direta."},
+    )
+
+    assert resposta.status_code == 409
+    evento = next(item for item in sessao.adicionados if isinstance(item, EventoAuditoria))
+    assert evento.sucesso is False
+    assert evento.before_state == {"state": "PENDING_REVIEW"}
+    assert evento.detalhes["action"] == "VALIDATE"
+    assert sessao.commits == 1
+
+
+def test_validacao_final_exige_permissao_de_risco() -> None:
+    pesquisa, versao, avaliacao = _objetos_workflow(EstadoAnalise.IN_REVIEW)
+    sessao = FakeSession(
+        [FakeResult(scalar=pesquisa), FakeResult(scalar=versao), FakeResult(scalar=avaliacao)]
+    )
+
+    async def override_session():
+        yield sessao
+
+    usuario = usuario_teste("operador", {"validation.review"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).patch(
+        "/v1/admin/analises/pesquisa-workflow/workflow",
+        headers={"X-CSRF-Token": "csrf-teste"},
+        json={"action": "VALIDATE", "notes": "Versão revisada integralmente."},
+    )
+
+    assert resposta.status_code == 403
+    assert pesquisa.analysis_state == EstadoAnalise.IN_REVIEW.value
+    evento = next(item for item in sessao.adicionados if isinstance(item, EventoAuditoria))
+    assert evento.status_http == 403
+
+
+def test_alteracao_do_workflow_exige_permissao_de_revisao_tecnica() -> None:
+    usuario = usuario_teste("operador", {"leads.view"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).patch(
+        "/v1/admin/analises/pesquisa-workflow/workflow",
+        headers={"X-CSRF-Token": "csrf-teste"},
+        json={"action": "START_REVIEW", "notes": "Início da revisão."},
+    )
+
+    assert resposta.status_code == 403
+
+
+def test_validacao_vincula_responsavel_data_notas_e_versao() -> None:
+    pesquisa, versao, avaliacao = _objetos_workflow(EstadoAnalise.IN_REVIEW)
+    sessao = FakeSession(
+        [FakeResult(scalar=pesquisa), FakeResult(scalar=versao), FakeResult(scalar=avaliacao)]
+    )
+
+    async def override_session():
+        yield sessao
+
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).patch(
+        "/v1/admin/analises/pesquisa-workflow/workflow",
+        headers={"X-CSRF-Token": "csrf-teste"},
+        json={"action": "VALIDATE", "notes": "Versão e evidências revisadas."},
+    )
+
+    assert resposta.status_code == 200, resposta.text
+    assert resposta.json()["state"] == "VALIDATED"
+    assert pesquisa.validated_by == usuario.email
+    assert pesquisa.validated_at is not None
+    assert versao.validated_by == usuario.email
+    assert versao.validated_at == pesquisa.validated_at
+    assert versao.validation_notes == "Versão e evidências revisadas."
+    evento = next(item for item in sessao.adicionados if isinstance(item, EventoAuditoria))
+    assert evento.before_state == {"state": "IN_REVIEW"}
+    assert evento.after_state == {"state": "VALIDATED"}

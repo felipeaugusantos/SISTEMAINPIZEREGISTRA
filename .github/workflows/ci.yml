@@ -51,6 +51,8 @@ jobs:
           cache: npm
       - run: uv sync --frozen
       - run: uv run ruff check app tests migrations --ignore E501
+      - name: Enforce search ranking regression contract
+        run: uv run pytest -q tests/test_search_benchmark.py tests/test_search_ranking.py
       - name: Create restricted application role
         run: >-
           docker exec "$(docker ps -q --filter ancestor=postgres:16-alpine)"

@@ -104,7 +104,10 @@ function fullReportStatus(item, compact = false) {
       : "Relatório completo já gerado";
     return `<span class="full-report-status ready" title="${escapeHtml(detail)}">Completo gerado${compact ? "" : ` · ${escapeHtml(detail)}`}</span>`;
   }
-  return `<span class="full-report-status pending">Completo não gerado</span>`;
+  if (item.review_required) {
+    return `<span class="full-report-status pending">Revisão obrigatória · ${escapeHtml(String(item.analysis_state || "PENDING_REVIEW").replaceAll("_", " "))}</span>`;
+  }
+  return `<span class="full-report-status pending">Validado · aguardando emissão</span>`;
 }
 
 function aggregateReportStatus(lead) {
@@ -325,7 +328,9 @@ async function loadLeads() {
 function researchCard(item) {
   const reportAction = !item.relatorio_disponivel
     ? `<span class="full-report-hint">Abra a análise para preparar o relatório completo.</span>`
-    : state.canManage
+    : item.analysis_state !== "VALIDATED"
+      ? `<span class="full-report-hint">Conclua a revisão obrigatória na Central de Análise.</span>`
+      : state.canManage
       ? `<button class="secondary-button generate-full-report" type="button" data-research-id="${escapeHtml(item.id)}">${item.relatorio_completo_gerado ? "Baixar completo novamente" : "Gerar relatório completo"}</button>`
       : `<span class="full-report-hint">Geração disponível para operadores autorizados.</span>`;
   return `<article class="lead-research-card">

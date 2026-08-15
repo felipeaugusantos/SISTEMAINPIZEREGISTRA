@@ -1,3 +1,4 @@
+import hashlib
 import json
 import math
 import random
@@ -29,6 +30,7 @@ from app.models import (
 )
 from app.normalization import normalizar_numero_processo
 from app.search import normalizar_texto
+from app.trademarks.model_status import StatusModelo, normalizar_status_modelo
 
 VERSAO_ATRIBUTOS = "atributos-marcarios-1.1"
 VERSAO_ESTIMATIVA = "deferimento-merito-2.0"
@@ -759,6 +761,7 @@ def _metricas(
     especificidade = tn / (tn + fp) if tn + fp else 0.0
     brier = sum((p - y) ** 2 for p, y in zip(probabilidades, alvos, strict=True)) / total
     ece = 0.0
+    calibracao_por_faixa = []
     for inicio in (0.0, 0.2, 0.4, 0.6, 0.8):
         itens = [
             (p, y)
@@ -766,10 +769,19 @@ def _metricas(
             if inicio <= p < inicio + 0.2 or (inicio == 0.8 and p == 1.0)
         ]
         if itens:
-            ece += (
-                len(itens)
-                / total
-                * abs(sum(p for p, _ in itens) / len(itens) - sum(y for _, y in itens) / len(itens))
+            probabilidade_media = sum(p for p, _ in itens) / len(itens)
+            taxa_observada = sum(y for _, y in itens) / len(itens)
+            erro_faixa = abs(probabilidade_media - taxa_observada)
+            ece += len(itens) / total * erro_faixa
+            calibracao_por_faixa.append(
+                {
+                    "inicio": inicio,
+                    "fim": min(1.0, inicio + 0.2),
+                    "amostras": len(itens),
+                    "probabilidade_media": probabilidade_media,
+                    "taxa_observada": taxa_observada,
+                    "erro_absoluto": erro_faixa,
+                }
             )
     return {
         "amostras": len(alvos),
@@ -781,15 +793,40 @@ def _metricas(
         "f1": 2 * precisao * recall / (precisao + recall) if precisao + recall else 0.0,
         "brier": brier,
         "ece": ece,
+        "calibracao_por_faixa": calibracao_por_faixa,
         "limiar": limiar,
         "matriz_confusao": {"tp": tp, "fp": fp, "tn": tn, "fn": fn},
     }
 
 
+def _distribuicoes_dataset(
+    agrupadas: dict[int, tuple[RotuloHistoricoMarca, Processo, list[dict[str, float]]]],
+) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]]]:
+    por_classe: dict[str, dict[str, int]] = {}
+    por_periodo: dict[str, dict[str, int]] = {}
+
+    def adicionar(destino: dict[str, dict[str, int]], chave: str, deferida: bool) -> None:
+        contagem = destino.setdefault(chave, {"total": 0, "deferidas": 0, "indeferidas": 0})
+        contagem["total"] += 1
+        contagem["deferidas" if deferida else "indeferidas"] += 1
+
+    for rotulo, processo, _ in agrupadas.values():
+        for classe in sorted(
+            {
+                item.codigo
+                for item in processo.classificacoes
+                if item.sistema == "nice" and item.codigo
+            }
+        ) or ["SEM_CLASSE"]:
+            adicionar(por_classe, classe, bool(rotulo.alvo_deferimento))
+        adicionar(por_periodo, str(rotulo.data_referencia.year), bool(rotulo.alvo_deferimento))
+    return por_classe, por_periodo
+
+
 async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
     linhas = (
         await session.execute(
-            select(RotuloHistoricoMarca, ParTreinamentoMarca, Processo.titulo)
+            select(RotuloHistoricoMarca, ParTreinamentoMarca, Processo)
             .outerjoin(
                 ParTreinamentoMarca, ParTreinamentoMarca.rotulo_id == RotuloHistoricoMarca.id
             )
@@ -798,12 +835,13 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
                 RotuloHistoricoMarca.status_revisao != "rejeitada",
                 RotuloHistoricoMarca.elegivel_treinamento.is_(True),
             )
+            .options(selectinload(Processo.classificacoes))
             .order_by(RotuloHistoricoMarca.data_referencia, RotuloHistoricoMarca.id)
         )
     ).all()
-    agrupadas: dict[int, tuple[RotuloHistoricoMarca, str, list[dict[str, float]]]] = {}
-    for rotulo, par, titulo in linhas:
-        agrupadas.setdefault(rotulo.id, (rotulo, titulo or "", []))
+    agrupadas: dict[int, tuple[RotuloHistoricoMarca, Processo, list[dict[str, float]]]] = {}
+    for rotulo, par, processo in linhas:
+        agrupadas.setdefault(rotulo.id, (rotulo, processo, []))
         if par is not None:
             agrupadas[rotulo.id][2].append(par.atributos)
     amostras = [
@@ -813,7 +851,8 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
             int(rotulo.alvo_deferimento),
             float(rotulo.confianca if rotulo.confianca is not None else 1.0),
         )
-        for rotulo, titulo, pares in agrupadas.values()
+        for rotulo, processo, pares in agrupadas.values()
+        for titulo in [processo.titulo or ""]
     ]
     if len(amostras) < 30 or len({item[2] for item in amostras}) < 2:
         raise ValueError("São necessários ao menos 30 rótulos com deferimentos e indeferimentos")
@@ -845,10 +884,17 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
     probs_teste = [calibrar(_probabilidade(x, parametros), calibracao) for _, x, _, _ in teste]
     metricas = _metricas(probs_teste, [y for _, _, y, _ in teste], limiar)
     metricas["validacao"] = _metricas(probs_validacao_cal, alvos_validacao, limiar)
+    distribuicao_classes, distribuicao_periodos = _distribuicoes_dataset(agrupadas)
+    identidade_dataset = "|".join(
+        f"{rotulo.id}:{processo.id}:{rotulo.data_referencia.isoformat()}:"
+        f"{int(bool(rotulo.alvo_deferimento))}"
+        for rotulo, processo, _ in sorted(agrupadas.values(), key=lambda item: item[0].id)
+    )
+    dataset_hash = hashlib.sha256(identidade_dataset.encode("utf-8")).hexdigest()
     versao = f"registrabilidade-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
     modelo = ModeloRegistrabilidade(
         versao=versao,
-        status="candidato",
+        status=StatusModelo.SHADOW.value,
         atributos=list(ATRIBUTOS_MODELO),
         parametros=parametros,
         calibracao=calibracao,
@@ -856,6 +902,8 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
         dataset={
             "versao_atributos": VERSAO_ATRIBUTOS,
             "versao_estimativa": VERSAO_ESTIMATIVA,
+            "dataset_version": f"dataset-{dataset_hash[:16]}",
+            "dataset_sha256": dataset_hash,
             "escopo": ESCOPO_ESTIMATIVA,
             "total": len(amostras),
             "treino": len(treino),
@@ -869,6 +917,8 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
                 )
                 for fundamento in sorted({item[0].fundamento for item in agrupadas.values()})
             },
+            "distribuicao_por_classe": distribuicao_classes,
+            "distribuicao_por_periodo": distribuicao_periodos,
             "divisao": "temporal_70_15_15",
             "bootstrap_modelos": len(parametros["bootstrap_modelos"]),
             "balanceamento_treino": {
@@ -895,7 +945,9 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
         revisoes_humanas,
         incluir_revisoes_humanas=False,
     )
-    modelo.status = "reprovado" if bloqueios_qualidade else "candidato"
+    modelo.status = (
+        StatusModelo.SHADOW.value if bloqueios_qualidade else StatusModelo.VALIDATION.value
+    )
     modelo.dataset = {
         **modelo.dataset,
         "bloqueios_qualidade": bloqueios_qualidade,
@@ -910,6 +962,8 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
 async def ativar_modelo(
     session: AsyncSession, modelo: ModeloRegistrabilidade, administrador: str
 ) -> dict[str, Any]:
+    if normalizar_status_modelo(modelo.status) is not StatusModelo.VALIDATION:
+        raise ValueError("Somente modelos em VALIDATION podem ser promovidos para ACTIVE")
     controle = await obter_controle(session)
     revisoes = await session.scalar(
         select(func.count())
@@ -919,14 +973,14 @@ async def ativar_modelo(
     bloqueios = validar_modelo_para_cliente(modelo, controle, int(revisoes or 0))
     if bloqueios:
         raise ValueError(
-            "Modelo reprovado pelos critérios automáticos: " + "; ".join(bloqueios)
+            "Modelo bloqueado pelos gates de ativação: " + "; ".join(bloqueios)
         )
     await session.execute(
         update(ModeloRegistrabilidade)
-        .where(ModeloRegistrabilidade.status == "ativo")
-        .values(status="arquivado")
+        .where(ModeloRegistrabilidade.status == StatusModelo.ACTIVE.value)
+        .values(status=StatusModelo.DISABLED.value)
     )
-    modelo.status = "ativo"
+    modelo.status = StatusModelo.ACTIVE.value
     modelo.ativado_em = datetime.now(UTC)
     modelo.ativado_por = administrador
     controle.inferencia_habilitada = True
@@ -1002,6 +1056,9 @@ def prever(atributos: dict[str, float], modelo: ModeloRegistrabilidade) -> Predi
             {
                 "atributo": nome,
                 "rotulo": ROTULOS_ATRIBUTOS.get(nome, nome.replace("_", " ")),
+                "valor_entrada": round(float(atributos.get(nome, 0.0)), 6),
+                "media_referencia": round(float(modelo.parametros["medias"][nome]), 6),
+                "peso_modelo": round(float(modelo.parametros["pesos"][nome]), 6),
                 "impacto": round(impacto, 4),
                 "efeito": "favoravel" if impacto >= 0 else "risco",
             }
@@ -1051,6 +1108,10 @@ def validar_modelo_para_cliente(
         )
     if int(dataset.get("bootstrap_modelos", 0)) < 10:
         bloqueios.append("Modelo sem intervalo bootstrap válido")
+    if not dataset.get("distribuicao_por_classe"):
+        bloqueios.append("Distribuição por classe Nice não documentada")
+    if not dataset.get("distribuicao_por_periodo"):
+        bloqueios.append("Distribuição temporal não documentada")
     positivos = int(dataset.get("positivos", 0))
     negativos = int(dataset.get("negativos", 0))
     total = int(dataset.get("total", 0))
@@ -1083,9 +1144,15 @@ def validar_estimativa_para_cliente(
 def decidir_exibicao_estimativa(
     controle: ControleAprendizadoMarca,
     alertas_qualidade: list[str],
+    *,
+    modelo_status: str,
 ) -> tuple[str, bool, list[str]]:
-    """Dispensa revisão humana, mas preserva os gates técnicos automáticos."""
-    if controle.exibir_cliente and not alertas_qualidade:
+    """Expõe somente modelo ACTIVE aprovado nos gates técnicos e humanos."""
+    if (
+        normalizar_status_modelo(modelo_status) is StatusModelo.ACTIVE
+        and controle.exibir_cliente
+        and not alertas_qualidade
+    ):
         return "cliente", True, alertas_qualidade
     return "sombra", False, alertas_qualidade
 
@@ -1123,7 +1190,7 @@ async def registrar_previsao_sombra(
         modelo = (
             await session.execute(
                 select(ModeloRegistrabilidade)
-                .where(ModeloRegistrabilidade.status == "ativo")
+                .where(ModeloRegistrabilidade.status == StatusModelo.ACTIVE.value)
                 .order_by(ModeloRegistrabilidade.ativado_em.desc())
                 .limit(1)
             )
@@ -1152,7 +1219,9 @@ async def registrar_previsao_sombra(
         resultado, modelo, controle, int(revisoes or 0)
     )
     previsao.modo, previsao.elegivel_cliente, motivos_inelegibilidade = decidir_exibicao_estimativa(
-        controle, motivos_inelegibilidade
+        controle,
+        motivos_inelegibilidade,
+        modelo_status=modelo.status,
     )
     if modelo_candidato is not None:
         previsao.modo = "sombra"
@@ -1215,7 +1284,7 @@ async def reprocessar_previsoes_pendentes(
         modelo = (
             await session.execute(
                 select(ModeloRegistrabilidade)
-                .where(ModeloRegistrabilidade.status == "ativo")
+                .where(ModeloRegistrabilidade.status == StatusModelo.ACTIVE.value)
                 .order_by(ModeloRegistrabilidade.ativado_em.desc())
                 .limit(1)
             )
@@ -1296,11 +1365,11 @@ async def executar_pipeline_aprendizado(
         controle,
         revisoes_humanas,
     )
-    ativado = modelo.status == "candidato" and not bloqueios_ativacao
-    reprocessamento: dict[str, Any] = {"status": "modelo_reprovado", "processadas": 0}
-    if ativado:
-        reprocessamento = await ativar_modelo(session, modelo, administrador)
-    elif modelo.status == "candidato":
+    # Treinamento e validação nunca promovem automaticamente para ACTIVE. A exposição
+    # exige uma ação explícita posterior do superadministrador.
+    ativado = False
+    reprocessamento: dict[str, Any] = {"status": "modelo_em_shadow", "processadas": 0}
+    if modelo.status in {StatusModelo.SHADOW.value, StatusModelo.VALIDATION.value}:
         reprocessamento = await reprocessar_previsoes_pendentes(
             session,
             modelo_candidato=modelo,

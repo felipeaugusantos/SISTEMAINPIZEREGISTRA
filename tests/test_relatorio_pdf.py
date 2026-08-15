@@ -12,6 +12,7 @@ from app.schemas import (
     AfinidadeClassesResponse,
     ClasseNiceCandidataResponse,
     ClassificacaoMarcaResponse,
+    FatorScoreBuscaResponse,
     MarcaRelatorioItem,
     MotivoPrognosticoResponse,
     PrognosticoRegistrabilidadeResponse,
@@ -50,6 +51,15 @@ def _relatorio_exemplo(
                     )
                 ],
                 criterios_encontro=["Nome idêntico"],
+                score_busca=89,
+                score_busca_versao="ranking-busca-4.0",
+                fatores_score_busca=[
+                    FatorScoreBuscaResponse(
+                        regra="NOME_IDENTICO",
+                        peso=55,
+                        evidencia={"processo": "943906024"},
+                    )
+                ],
                 alto_renome=True,
                 afinidade_classes=AfinidadeClassesResponse(
                     nivel="alta",
@@ -86,7 +96,7 @@ def _relatorio_exemplo(
         prognostico_registrabilidade=(
             PrognosticoRegistrabilidadeResponse(
                 veredito="desfavoravel",
-                titulo="Risco de indeferimento",
+                titulo="Possíveis impedimentos identificados",
                 resumo="A triagem encontrou possíveis impedimentos no exame de mérito.",
                 motivos=[
                     MotivoPrognosticoResponse(
@@ -97,7 +107,7 @@ def _relatorio_exemplo(
                 ],
                 pendencias=["Distintividade", "Liceidade"],
                 versao_matriz="teste",
-                ressalva="Prognóstico indicativo; não constitui garantia de registro.",
+                ressalva="Triagem determinística; não constitui garantia de registro.",
             )
             if com_prognostico
             else None
@@ -118,7 +128,8 @@ def test_gera_pdf_valido() -> None:
     assert len(pdf) > 1000
     texto = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
     # Sem prognóstico, a seção não aparece (a estimativa de ML foi aposentada do relatório).
-    assert "Prognóstico de registrabilidade" not in texto
+    assert "Triagem determinística de registrabilidade" not in texto
+    assert "Score de busca 89/100" in texto
 
 
 def test_gera_pdf_sem_ocorrencias() -> None:
@@ -131,8 +142,8 @@ def test_gera_pdf_com_prognostico_deterministico() -> None:
     assert pdf[:5] == b"%PDF-"
     assert len(pdf) > 1000
     texto = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
-    assert "Prognóstico de registrabilidade" in texto
-    assert "Risco de indeferimento" in texto
+    assert "Triagem determinística de registrabilidade" in texto
+    assert "Possíveis impedimentos identificados" in texto
     assert "Disponibilidade e anterioridades" in texto
     assert "garantia de registro" in texto
 
@@ -143,7 +154,7 @@ def test_resumo_cliente_tem_uma_pagina_e_nao_expoe_ocorrencias() -> None:
     texto = "\n".join(page.extract_text() or "" for page in leitor.pages)
 
     assert len(leitor.pages) == 1
-    assert "Prognóstico de registrabilidade" in texto
+    assert "Triagem determinística de registrabilidade" in texto
     assert "Análise técnica" in texto
     assert "69 pontos" in texto
     assert "risco alto" in texto

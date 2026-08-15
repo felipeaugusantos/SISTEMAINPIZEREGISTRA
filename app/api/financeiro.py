@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
+from app.crm import registrar_evento_operacional
 from app.database import get_session
 from app.models import (
     CategoriaFinanceira,
@@ -146,6 +147,17 @@ def _registrar_historico(
             detalhes=detalhes,
         )
     )
+    registrar_evento_operacional(
+        session,
+        organizacao_id=usuario.organizacao_id,
+        dominio="financeiro",
+        tipo=f"financeiro.{acao}",
+        entidade_tipo="parcela" if parcela_id else "lancamento",
+        entidade_id=parcela_id or lancamento_id,
+        ator=usuario.ator,
+        ator_id=usuario.id,
+        payload={"lancamento_id": lancamento_id, **detalhes},
+    )
 
 
 async def _forma_pagamento(
@@ -163,7 +175,9 @@ async def _forma_pagamento(
     ]
     if exigir_ativa:
         filtros.append(FormaPagamentoFinanceira.ativo.is_(True))
-    forma = (await session.execute(select(FormaPagamentoFinanceira).where(*filtros))).scalar_one_or_none()
+    forma = (
+        await session.execute(select(FormaPagamentoFinanceira).where(*filtros))
+    ).scalar_one_or_none()
     if not forma:
         raise HTTPException(404, "Forma de pagamento não encontrada ou inativa")
     return forma
@@ -649,7 +663,14 @@ async def criar_retribuicao(
     )
     session.add(item)
     await session.flush()
-    _auditar(session, request, usuario, "criar_retribuicao", f"retribuicao:{item.id}", {"servico": servico})
+    _auditar(
+        session,
+        request,
+        usuario,
+        "criar_retribuicao",
+        f"retribuicao:{item.id}",
+        {"servico": servico},
+    )
     await session.commit()
     return {"id": item.id, "status": "criada"}
 
@@ -751,6 +772,18 @@ async def criar_lancamento(
                 valor_pago=Decimal(0),
             )
         )
+    _registrar_historico(
+        session,
+        usuario,
+        lancamento.id,
+        "criacao",
+        "Lançamento criado",
+        {
+            "tipo": dados.tipo,
+            "valor": str(dados.valor_total),
+            "parcelas": dados.quantidade_parcelas,
+        },
+    )
     _auditar(
         session,
         request,
@@ -783,6 +816,7 @@ async def editar_lancamento(
                 LancamentoFinanceiro.id == lancamento_id,
                 LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
             )
+            .with_for_update(of=LancamentoFinanceiro)
         )
     ).scalar_one_or_none()
     if not lancamento:
@@ -852,6 +886,18 @@ async def editar_lancamento(
             await session.delete(parcela)
         lancamento.status = "aberto"
 
+    _registrar_historico(
+        session,
+        usuario,
+        lancamento.id,
+        "edicao",
+        "Lançamento atualizado",
+        {
+            "anterior": anterior,
+            "valor_total": str(dados.valor_total),
+            "parcelas": dados.quantidade_parcelas,
+        },
+    )
     _auditar(
         session,
         request,
@@ -877,6 +923,10 @@ async def _parcela(
     parcela = (
         await session.execute(
             select(ParcelaFinanceira)
+            .join(
+                LancamentoFinanceiro,
+                LancamentoFinanceiro.id == ParcelaFinanceira.lancamento_id,
+            )
             .options(
                 selectinload(ParcelaFinanceira.lancamento).selectinload(
                     LancamentoFinanceiro.parcelas
@@ -885,7 +935,9 @@ async def _parcela(
             .where(
                 ParcelaFinanceira.id == parcela_id,
                 ParcelaFinanceira.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
             )
+            .with_for_update(of=(LancamentoFinanceiro, ParcelaFinanceira))
         )
     ).scalar_one_or_none()
     if not parcela:
@@ -995,6 +1047,7 @@ async def cancelar(
                 LancamentoFinanceiro.id == lancamento_id,
                 LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
             )
+            .with_for_update(of=LancamentoFinanceiro)
         )
     ).scalar_one_or_none()
     if not lancamento:

@@ -1,7 +1,21 @@
-[
-  {
-    "marca": "SUBSTITUA POR UMA MARCA REVISADA",
-    "classe_nice": "35",
-    "processos_esperados": ["NUMERO_VALIDADO_PELO_ESPECIALISTA"]
-  }
-]
+{
+  "dataset_version": "marcas-juridico-v1",
+  "revisao": {
+    "status": "aprovado",
+    "revisado_por": "NOME DO ESPECIALISTA",
+    "papel": "especialista em marcas",
+    "revisado_em": "2026-08-14",
+    "observacoes": "Documente a fonte e o motivo jurídico de cada conflito esperado."
+  },
+  "casos": [
+    {
+      "id": "caso-001",
+      "marca": "SUBSTITUA POR UMA MARCA REVISADA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": ["NUMERO_VALIDADO_PELO_ESPECIALISTA"],
+      "processos_criticos": ["NUMERO_VALIDADO_PELO_ESPECIALISTA"],
+      "justificativa": "Explique por que a ausência deste processo é crítica."
+    }
+  ]
+}

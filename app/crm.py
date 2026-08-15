@@ -8,12 +8,77 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     ORDEM_FASE_LEAD,
     EmpresaCRM,
+    EventoDominio,
     HistoricoFaseLead,
     Lead,
     LembreteCRM,
+    PoliticaCRM,
     RegraAutomacao,
     StatusLead,
 )
+
+
+def registrar_evento_operacional(
+    session: AsyncSession,
+    *,
+    organizacao_id: int,
+    dominio: str,
+    tipo: str,
+    entidade_tipo: str,
+    entidade_id: int | str,
+    ator: str,
+    ator_id: int | None = None,
+    payload: dict | None = None,
+    idempotency_key: str | None = None,
+) -> EventoDominio:
+    evento = EventoDominio(
+        organizacao_id=organizacao_id,
+        dominio=dominio,
+        tipo=tipo,
+        versao=1,
+        entidade_tipo=entidade_tipo,
+        entidade_id=str(entidade_id),
+        ator_id=ator_id,
+        ator=ator[:254],
+        payload=payload or {},
+        idempotency_key=idempotency_key,
+    )
+    session.add(evento)
+    return evento
+
+
+async def obter_politica_crm(session: AsyncSession, organizacao_id: int) -> PoliticaCRM:
+    politica = (
+        await session.execute(
+            select(PoliticaCRM).where(PoliticaCRM.organizacao_id == organizacao_id)
+        )
+    ).scalar_one_or_none()
+    return politica or PoliticaCRM(
+        organizacao_id=organizacao_id,
+        exigir_responsavel=True,
+        atribuir_ao_operador=False,
+        exigir_proxima_acao=True,
+        dias_proxima_acao_padrao=None,
+    )
+
+
+async def aplicar_politica_oportunidade(
+    session: AsyncSession, lead: Lead, operador_id: int | None = None
+) -> list[str]:
+    """Aplica defaults e retorna os campos obrigatórios ainda ausentes."""
+    politica = await obter_politica_crm(session, lead.organizacao_id)
+    if lead.responsavel_id is None and politica.atribuir_ao_operador and operador_id:
+        lead.responsavel_id = operador_id
+    if lead.proxima_acao_em is None and politica.dias_proxima_acao_padrao is not None:
+        lead.proxima_acao_em = datetime.now(UTC) + timedelta(
+            days=politica.dias_proxima_acao_padrao
+        )
+    faltando: list[str] = []
+    if politica.exigir_responsavel and lead.responsavel_id is None:
+        faltando.append("responsável")
+    if politica.exigir_proxima_acao and lead.proxima_acao_em is None:
+        faltando.append("próxima ação")
+    return faltando
 
 # --- Regras de automação embutidas (Terceira entrega, item 2) --------------
 # evento: "fase" ou "status"; gatilho: valor que dispara a regra.
@@ -94,6 +159,17 @@ async def aplicar_regras_automacao(
         if override is not None and not override.ativo:
             continue
         dias = override.dias if override is not None else regra["dias"]
+        chave_idempotencia = f"lead:{lead.id}:{evento}:{valor}:{chave}"
+        existente = (
+            await session.execute(
+                select(LembreteCRM.id).where(
+                    LembreteCRM.organizacao_id == lead.organizacao_id,
+                    LembreteCRM.idempotency_key == chave_idempotencia,
+                )
+            )
+        ).scalar_one_or_none()
+        if existente is not None:
+            continue
         session.add(
             LembreteCRM(
                 organizacao_id=lead.organizacao_id,
@@ -107,7 +183,19 @@ async def aplicar_regras_automacao(
                 status="pendente",
                 criado_por=f"Automação ({por})"[:254],
                 criado_por_id=None,
+                idempotency_key=chave_idempotencia,
             )
+        )
+        registrar_evento_operacional(
+            session,
+            organizacao_id=lead.organizacao_id,
+            dominio="crm",
+            tipo="automacao.lembrete_criado",
+            entidade_tipo="lead",
+            entidade_id=lead.id,
+            ator=por,
+            payload={"regra": chave, "evento": evento, "valor": valor, "dias": dias},
+            idempotency_key=chave_idempotencia,
         )
         aplicadas.append(chave)
     return aplicadas
@@ -157,6 +245,16 @@ async def avancar_fase_lead(
         HistoricoFaseLead(
             organizacao_id=lead.organizacao_id, lead_id=lead.id, fase=nova_fase, por=por
         )
+    )
+    registrar_evento_operacional(
+        session,
+        organizacao_id=lead.organizacao_id,
+        dominio="crm",
+        tipo="crm.fase_alterada",
+        entidade_tipo="lead",
+        entidade_id=lead.id,
+        ator=por,
+        payload={"fase": nova_fase, "status": lead.status.value},
     )
     await aplicar_regras_automacao(session, lead, "fase", nova_fase, por)
     return True

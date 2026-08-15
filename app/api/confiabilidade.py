@@ -81,6 +81,7 @@ async def painel(session: SessionDep, usuario: AdminDep) -> dict:
                         "AGENTES_REPROCESSADOS",
                         "MODELO_APRENDIZADO_ATIVADO",
                         "MODELO_APRENDIZADO_AGUARDANDO_REVISOES",
+                        "MODELO_APRENDIZADO_BLOQUEADO",
                         "MODELO_APRENDIZADO_REPROVADO",
                     }
                 ),

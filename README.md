@@ -8,6 +8,13 @@ O sistema consulta exclusivamente a **Seção V — Marcas** da Revista da Propr
 
 O escopo comercial auditado, incluindo recursos parciais e ainda não implementados, está documentado na [matriz “prometido × implementado”](docs/matriz-prometido-implementado.md).
 
+## Estado da Release Candidate
+
+- **IMPLEMENTADO:** instalação e upgrade por Alembic, RPI monitorada, Busca V4 técnica, risco determinístico, revisão humana, SaaS/RLS, CRM, jurídico, financeiro operacional, auditoria e backup/restore.
+- **EXPERIMENTAL:** indicador histórico de registrabilidade; permanece indisponível sem modelo `ACTIVE` aprovado pelos gates.
+- **PENDENTE DE VALIDAÇÃO:** dataset candidato da busca e eficácia jurídica das métricas; o dataset continua `pendente_revisao_especialista`.
+- **PLANEJADO:** itens marcados como não implementados na matriz comercial, sem promessa de disponibilidade.
+
 ## Funcionalidades
 
 ### Pesquisa de marcas
@@ -19,7 +26,7 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 - identificação de titulares, procuradores, classes Nice e movimentações;
 - consulta limitada à Seção V — Marcas da RPI;
 - resumo público e relatório completo interno versionado;
-- geração de PDF com pontuação, chance indicativa e critérios analisados.
+- geração de PDF com pontuação de risco determinística, indicador histórico e critérios analisados.
 
 ### Central de análise
 
@@ -74,7 +81,7 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 - painel com indicadores e pendências;
 - contas a pagar e contas a receber;
 - cadastro e manutenção de lançamentos;
-- parcelas, vencimentos e pagamentos parciais ou integrais;
+- parcelas, vencimentos e baixa integral por parcela; pagamento parcial de uma mesma parcela não é suportado;
 - cadastro de formas de pagamento e limite de parcelas;
 - tabela de retribuições do INPI (GRUs de marca) com código de serviço e valores normal e reduzido;
 - baixas, cancelamentos e estornos com justificativa;
@@ -298,7 +305,7 @@ O motor determinístico calcula uma pontuação de conflito de 0 a 100 e classif
 
 A pontuação considera correspondência do nome, situação processual, classes, afinidade mercadológica e alto renome. Cada ponto permanece associado à regra e à evidência que o originou.
 
-A chance histórica supervisionada é separada da pontuação determinística. Ela só é exibida quando o modelo atende aos critérios mínimos de amostra, validação temporal, recall, especificidade, calibração, cobertura e revisão humana.
+O indicador histórico de registrabilidade é separado da pontuação determinística. Ele é uma estimativa baseada em casos históricos semelhantes, não representa previsão do INPI e só é exibido quando o modelo `ACTIVE` atende aos critérios mínimos de amostra, validação temporal, recall, especificidade, calibração, cobertura e revisão humana.
 
 ### Preparação do aprendizado supervisionado
 
@@ -313,7 +320,13 @@ docker compose exec api /app/.venv/bin/python -m app.cli.treinar_registrabilidad
   --treinar
 ```
 
-O modelo é inicialmente executado em modo sombra. A ativação não elimina a revisão humana e nunca transforma a estimativa em garantia de deferimento.
+O ciclo formal é `SHADOW → VALIDATION → ACTIVE → DISABLED`. Modelos começam em `SHADOW`; os gates técnicos podem encaminhá-los para `VALIDATION`, mas somente uma promoção administrativa explícita os torna `ACTIVE`. A ativação não elimina a revisão humana e nunca transforma a estimativa histórica em garantia de deferimento.
+
+### Workflow humano da análise
+
+O relatório completo validado segue o fluxo `DRAFT → PENDING_REVIEW → IN_REVIEW → VALIDATED`. O revisor pode enviar uma análise em andamento para `CHANGES_REQUESTED`, retomá-la em `IN_REVIEW` ou reabrir uma versão `VALIDATED`. A validação final exige parecer humano de risco, notas, permissão de revisão técnica e permissão de revisão de risco.
+
+Cada transição, inclusive tentativas bloqueadas, é registrada na auditoria com estado anterior, ação, responsável e data. A validação fica vinculada à versão corrente do relatório; a criação de uma nova versão remove a liberação anterior e retorna a análise para `PENDING_REVIEW`. Enquanto o estado não for `VALIDATED`, o endpoint de relatório completo responde com conflito e não emite o documento como parecer validado.
 
 ## E-mail e recuperação de senha
 
@@ -415,6 +428,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\restaurar-banc
   -Arquivo .\backups\inpi-AAAAMMDD-HHMMSS.dump -Confirmar
 ```
 
+O procedimento completo, incluindo secrets, migrations, RPI e validação pós-restore, está em [Operação e recuperação de desastre](docs/operacao-recuperacao-desastre.md).
+
 ## Desenvolvimento
 
 Instale as dependências:
@@ -445,18 +460,36 @@ uv run pytest -q
 
 O pipeline do GitHub também valida RLS e constrói a imagem Docker de produção.
 
-## Benchmark da Busca V3
+## Benchmark da Busca V4
 
-Copie `data/search-benchmark.example.json`, preencha casos conferidos por um especialista e execute:
+Cada resultado possui `score_busca` (0–100), versão e fatores explicáveis com regra, peso,
+evidência e processo. Esse score ordena a busca: não é probabilidade de registro nem score de
+risco.
+
+Copie `data/search-benchmark.example.json`, preencha casos conferidos por um especialista e
+execute:
 
 ```powershell
 uv run python -m app.cli.avaliar_busca_marcas `
   .\data\search-benchmark.json `
-  --limite 50 `
+  --limite 20 `
   --saida .\data\search-benchmark-result.json
 ```
 
-O resultado registra Recall@K, Precision@K e latência por caso.
+O relatório registra Recall e Precision @5/10/20, MRR, latência média/p50/p95/p99, posição e
+score dos resultados esperados e falsos negativos críticos. Para bloquear regressões:
+
+```powershell
+uv run python -m app.cli.avaliar_busca_marcas `
+  .\data\search-benchmark.v1.json `
+  --baseline .\data\search-benchmark-baseline.v1.json `
+  --limiares .\data\search-benchmark-thresholds.v1.json `
+  --gate
+```
+
+Datasets pendentes são recusados por padrão. A opção `--permitir-pendente` existe apenas para
+gerar uma baseline candidata, nunca para aprovação jurídica. A governança e a evidência de
+`EXPLAIN ANALYZE` estão em `docs/busca-benchmark-fase4.md`.
 
 ## API
 

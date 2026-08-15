@@ -209,6 +209,19 @@ def _celula_marca(item: MarcaRelatorioItem, estilos: dict[str, ParagraphStyle]) 
         marcadores.append("coincide com alto renome")
     if marcadores:
         conteudo.append(Paragraph(_texto(" · ".join(marcadores)), estilos["celula_menor"]))
+    if item.fatores_score_busca:
+        fatores = " · ".join(
+            f"{fator.regra}: +{fator.peso:g}" for fator in item.fatores_score_busca[:3]
+        )
+        conteudo.append(
+            Paragraph(
+                _texto(
+                    f"Score de busca {item.score_busca:g}/100 ({item.score_busca_versao}) · "
+                    f"{fatores}"
+                ),
+                estilos["celula_menor"],
+            )
+        )
     conteudo.append(Paragraph(_texto(item.relevancia_rotulo), estilos["rotulo"]))
     return conteudo
 
@@ -382,7 +395,7 @@ def gerar_pdf_relatorio(
         story.append(
             Paragraph(
                 "A pontuação acima mede risco de conflito: quanto maior o valor, maior a "
-                "atenção necessária. Ela não é um percentual de chance de registro.",
+                "atenção necessária. Ela não é uma probabilidade de registro.",
                 estilos["celula_menor"],
             )
         )
@@ -427,7 +440,7 @@ def gerar_pdf_relatorio(
             "atencao": "Atenção",
             "desfavoravel": "Desfavorável",
         }
-        story.append(Paragraph("Prognóstico de registrabilidade", estilos["secao"]))
+        story.append(Paragraph("Triagem determinística de registrabilidade", estilos["secao"]))
         motivos = "".join(
             f"• <b>{_texto(item.criterio)}:</b> {_texto(item.conclusao)} "
             f"({_texto(item.referencia)})<br/>"
@@ -442,7 +455,7 @@ def gerar_pdf_relatorio(
         }
         cor = cores_veredito.get(prognostico.veredito, "#10251d")
         partes = [
-            f'<b><font color="{cor}">Tendência: {tendencia}</font></b> — '
+            f'<b><font color="{cor}">Leitura técnica: {tendencia}</font></b> — '
             f"{_texto(prognostico.titulo)}<br/>",
             f"{_texto(prognostico.resumo)}<br/>",
         ]

@@ -19,12 +19,19 @@ from app.models import (
     VersaoRelatorioMarca,
 )
 from app.proxy import cliente_ip
-from app.schemas import DadosComplementaresRegistrabilidadeUpdate
+from app.schemas import DadosComplementaresRegistrabilidadeUpdate, WorkflowAnaliseUpdate
 from app.trademarks.agent import (
     execucao_para_dict,
     executar_agente_para_pesquisa,
     reconciliar_resultados_reais,
 )
+from app.trademarks.analysis_workflow import (
+    AcaoWorkflowAnalise,
+    EstadoAnalise,
+    proximo_estado_analise,
+    revisao_obrigatoria_pendente,
+)
+from app.trademarks.model_status import normalizar_status_modelo
 from app.trademarks.registrability import (
     construir_indicador_deterministico,
     construir_matriz_registrabilidade,
@@ -54,6 +61,19 @@ def _mascarar_email(email: str) -> str:
 def _mascarar_telefone(telefone: str) -> str:
     digitos = "".join(caractere for caractere in telefone if caractere.isdigit())
     return f"***{digitos[-4:]}" if digitos else "***"
+
+
+def _evento_workflow_para_dict(evento: EventoAuditoria) -> dict:
+    return {
+        "id": evento.id,
+        "actor": evento.ator,
+        "success": evento.sucesso,
+        "status_http": evento.status_http,
+        "before": evento.before_state,
+        "after": evento.after_state,
+        "details": evento.detalhes or {},
+        "created_at": evento.criado_em,
+    }
 
 
 @router.patch("/{pesquisa_id}/dados-complementares")
@@ -177,7 +197,26 @@ async def obter_central_analise(
             .limit(1)
         )
     ).scalar_one_or_none()
+    historico_workflow = (
+        (
+            await session.execute(
+                select(EventoAuditoria)
+                .where(
+                    EventoAuditoria.organizacao_id == usuario.organizacao_id,
+                    EventoAuditoria.resource_type == "analysis_workflow",
+                    EventoAuditoria.resource_id == pesquisa.id,
+                )
+                .order_by(EventoAuditoria.criado_em.desc(), EventoAuditoria.id.desc())
+                .limit(30)
+            )
+        )
+        .scalars()
+        .all()
+    )
     relatorio = versao.payload if versao is not None else {}
+    estado_analise = pesquisa.analysis_state or (
+        EstadoAnalise.PENDING_REVIEW.value if versao is not None else EstadoAnalise.DRAFT.value
+    )
     qualidade = relatorio.get("qualidade_base") or {}
     itens = relatorio.get("itens") or []
     previsao, modelo = previsao_linha if previsao_linha is not None else (None, None)
@@ -191,6 +230,13 @@ async def obter_central_analise(
         "aprendizado_visualizar": _modulo_liberado(usuario, "aprendizado", "learning.view"),
         "aprendizado_revisar": _modulo_liberado(usuario, "aprendizado", "learning.manage"),
         "relatorio_gerar": usuario.pode("leads.manage"),
+        "workflow_revisar": _modulo_liberado(
+            usuario, "validacao", "validation.review"
+        ),
+        "workflow_validar": _modulo_liberado(
+            usuario, "validacao", "validation.review"
+        )
+        and _modulo_liberado(usuario, "risco", "risk.review"),
     }
     validacao_visivel = permissoes["validacao_visualizar"]
     risco_visivel = permissoes["risco_visualizar"]
@@ -305,7 +351,7 @@ async def obter_central_analise(
                 "confianca_rotulo": previsao.confianca_rotulo,
                 "cobertura": previsao.cobertura_entrada,
                 "modelo": modelo.versao,
-                "modelo_status": modelo.status,
+                "modelo_status": normalizar_status_modelo(modelo.status).value,
                 "modo": previsao.modo,
                 "elegivel_cliente": previsao.elegivel_cliente,
                 "alertas_qualidade": previsao.motivos_inelegibilidade or [],
@@ -326,10 +372,159 @@ async def obter_central_analise(
         ),
         "relatorio_completo": {
             "base_disponivel": versao is not None,
-            "gerado": pesquisa.relatorio_completo_gerado_em is not None,
+            "gerado": (
+                estado_analise == EstadoAnalise.VALIDATED.value
+                and pesquisa.relatorio_completo_gerado_em is not None
+            ),
             "gerado_em": pesquisa.relatorio_completo_gerado_em,
             "gerado_por": pesquisa.relatorio_completo_gerado_por,
         },
+        "workflow": {
+            "state": estado_analise,
+            "review_required": revisao_obrigatoria_pendente(estado_analise),
+            "validated_by": pesquisa.validated_by,
+            "validated_at": pesquisa.validated_at,
+            "notes": pesquisa.analysis_notes,
+            "report_version": versao.numero_versao if versao is not None else None,
+            "history": [_evento_workflow_para_dict(item) for item in historico_workflow],
+        },
+    }
+
+
+@router.patch("/{pesquisa_id}/workflow")
+async def atualizar_workflow_analise(
+    pesquisa_id: str,
+    dados: WorkflowAnaliseUpdate,
+    request: Request,
+    session: SessionDep,
+    usuario: AnalysisWriteDep,
+) -> dict:
+    pesquisa = (
+        await session.execute(
+            select(PesquisaMarca).where(
+                PesquisaMarca.id == pesquisa_id,
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+            ).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if pesquisa is None:
+        raise HTTPException(status_code=404, detail="Pesquisa não encontrada")
+
+    versao = (
+        await session.execute(
+            select(VersaoRelatorioMarca)
+            .where(VersaoRelatorioMarca.pesquisa_id == pesquisa.id)
+            .order_by(VersaoRelatorioMarca.numero_versao.desc())
+            .limit(1)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    avaliacao = (
+        await session.execute(
+            select(AvaliacaoRiscoMarca).where(
+                AvaliacaoRiscoMarca.pesquisa_id == pesquisa.id
+            )
+        )
+    ).scalar_one_or_none()
+    estado_anterior = pesquisa.analysis_state
+
+    try:
+        destino = proximo_estado_analise(estado_anterior, dados.action)
+        if versao is None:
+            raise ValueError("A análise ainda não possui uma versão de relatório")
+        if dados.action in {
+            AcaoWorkflowAnalise.REQUEST_CHANGES,
+            AcaoWorkflowAnalise.VALIDATE,
+            AcaoWorkflowAnalise.REOPEN,
+        } and not dados.notes:
+            raise ValueError("Informe notas para esta transição")
+        if dados.action is AcaoWorkflowAnalise.VALIDATE:
+            if not _modulo_liberado(usuario, "risco", "risk.review"):
+                raise PermissionError("A validação final também exige a permissão risk.review")
+            if (
+                avaliacao is None
+                or avaliacao.avaliado_em is None
+                or not avaliacao.observacoes_humanas
+            ):
+                raise ValueError("Registre o parecer humano de risco antes da validação final")
+    except PermissionError as exc:
+        status_erro = 403
+        detalhe = str(exc)
+    except ValueError as exc:
+        status_erro = 409
+        detalhe = str(exc)
+    else:
+        status_erro = 0
+        detalhe = ""
+
+    if status_erro:
+        session.add(
+            EventoAuditoria(
+                organizacao_id=usuario.organizacao_id,
+                actor_id=usuario.id,
+                ator=usuario.ator,
+                acao="workflow_transition",
+                recurso=f"pesquisa:{pesquisa.id}",
+                resource_type="analysis_workflow",
+                resource_id=pesquisa.id,
+                sucesso=False,
+                status_http=status_erro,
+                ip_hash=hash_ip(cliente_ip(request)),
+                detalhes={"action": dados.action.value, "reason": detalhe},
+                before_state={"state": estado_anterior},
+                after_state=None,
+            )
+        )
+        await session.commit()
+        raise HTTPException(status_code=status_erro, detail=detalhe)
+
+    agora = datetime.now(UTC)
+    pesquisa.analysis_state = destino.value
+    if dados.notes:
+        pesquisa.analysis_notes = dados.notes
+    if destino is EstadoAnalise.VALIDATED:
+        pesquisa.validated_by = usuario.ator
+        pesquisa.validated_at = agora
+        versao.validated_by = usuario.ator
+        versao.validated_at = agora
+        versao.validation_notes = dados.notes
+    elif dados.action is AcaoWorkflowAnalise.REOPEN:
+        pesquisa.validated_by = None
+        pesquisa.validated_at = None
+        versao.validated_by = None
+        versao.validated_at = None
+        versao.validation_notes = None
+
+    evento = EventoAuditoria(
+        organizacao_id=usuario.organizacao_id,
+        actor_id=usuario.id,
+        ator=usuario.ator,
+        acao="workflow_transition",
+        recurso=f"pesquisa:{pesquisa.id}",
+        resource_type="analysis_workflow",
+        resource_id=pesquisa.id,
+        sucesso=True,
+        status_http=200,
+        ip_hash=hash_ip(cliente_ip(request)),
+        detalhes={
+            "action": dados.action.value,
+            "notes": dados.notes,
+            "report_version": versao.numero_versao,
+        },
+        before_state={"state": estado_anterior},
+        after_state={"state": destino.value},
+    )
+    session.add(evento)
+    await session.commit()
+    await session.refresh(evento)
+    return {
+        "state": destino.value,
+        "review_required": revisao_obrigatoria_pendente(destino),
+        "validated_by": pesquisa.validated_by,
+        "validated_at": pesquisa.validated_at,
+        "notes": pesquisa.analysis_notes,
+        "report_version": versao.numero_versao,
+        "history_event": _evento_workflow_para_dict(evento),
     }
 
 

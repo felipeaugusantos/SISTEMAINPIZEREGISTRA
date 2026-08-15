@@ -303,6 +303,30 @@ async def test_rls_real_isola_toda_matriz_e_ids_cruzados_na_api() -> None:
                         )
                         == 0
                     )
+                assert (
+                    await app_conn.execute(
+                        "UPDATE empresas_crm SET observacoes = 'bloqueado' WHERE id = $1",
+                        ids["b"]["empresas_crm"],
+                    )
+                    == "UPDATE 0"
+                )
+                assert (
+                    await app_conn.execute(
+                        "DELETE FROM contatos WHERE id = $1", ids["b"]["contatos"]
+                    )
+                    == "DELETE 0"
+                )
+                insercao_cruzada = app_conn.transaction()
+                await insercao_cruzada.start()
+                with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                    await app_conn.execute(
+                        "INSERT INTO empresas_crm "
+                        "(organizacao_id, nome, nome_normalizado) VALUES ($1, $2, $3)",
+                        ids["orgs"][1],
+                        "Empresa cruzada bloqueada",
+                        f"empresa-cruzada-{uuid4().hex}",
+                    )
+                await insercao_cruzada.rollback()
         finally:
             await app_conn.close()
 
@@ -341,7 +365,16 @@ async def test_rls_real_isola_toda_matriz_e_ids_cruzados_na_api() -> None:
                 transport=transport, base_url="http://testserver"
             ) as client:
                 respostas = (
+                    await client.get(
+                        f"/v1/admin/crm/empresas/{ids['b']['empresas_crm']}"
+                    ),
                     await client.get(f"/v1/admin/leads/{ids['b']['leads']}"),
+                    await client.get(
+                        f"/v1/admin/analises/{ids['b']['pesquisas_marca']}"
+                    ),
+                    await client.get(
+                        f"/v1/admin/leads/{ids['b']['leads']}/documentos"
+                    ),
                     await client.get(
                         f"/v1/admin/carteira/{ids['b']['processos_monitorados']}/historico-kanban"
                     ),
@@ -350,7 +383,7 @@ async def test_rls_real_isola_toda_matriz_e_ids_cruzados_na_api() -> None:
                         f"{ids['b']['lancamentos_financeiros']}/historico"
                     ),
                 )
-            assert [resposta.status_code for resposta in respostas] == [404, 404, 404]
+            assert [resposta.status_code for resposta in respostas] == [404] * 6
         finally:
             app.dependency_overrides.clear()
     finally:

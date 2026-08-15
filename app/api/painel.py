@@ -28,6 +28,7 @@ from app.models import (
     PrazoJuridico,
     StatusLead,
 )
+from app.trademarks.model_status import StatusModelo
 
 router = APIRouter(prefix="/v1/admin", tags=["painel executivo"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -41,6 +42,8 @@ _DESTINO_ALERTA = {
     "AGENTES_REPROCESSADOS": "/admin/aprendizado",
     "MODELO_APRENDIZADO_ATIVADO": "/admin/aprendizado",
     "MODELO_APRENDIZADO_AGUARDANDO_REVISOES": "/admin/aprendizado",
+    "MODELO_APRENDIZADO_BLOQUEADO": "/admin/aprendizado",
+    # Compatibilidade com alertas persistidos antes da nomenclatura formal da Fase 5.
     "MODELO_APRENDIZADO_REPROVADO": "/admin/aprendizado",
 }
 
@@ -187,7 +190,7 @@ async def _bloco_aprendizado(session: AsyncSession) -> dict:
     modelo = (
         await session.execute(
             select(ModeloRegistrabilidade)
-            .where(ModeloRegistrabilidade.status == "ativo")
+            .where(ModeloRegistrabilidade.status == StatusModelo.ACTIVE.value)
             .order_by(ModeloRegistrabilidade.treinado_em.desc())
             .limit(1)
         )

@@ -4,6 +4,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models import StatusLead, TipoProcesso
+from app.trademarks.analysis_workflow import AcaoWorkflowAnalise, EstadoAnalise
+from app.trademarks.model_status import StatusModelo
 
 
 class DadosComplementaresRegistrabilidadeUpdate(BaseModel):
@@ -41,6 +43,26 @@ class DadosComplementaresRegistrabilidadeUpdate(BaseModel):
     @classmethod
     def limpar_textos_opcionais(cls, valor: str | None) -> str | None:
         return valor.strip() or None if isinstance(valor, str) else valor
+
+
+class WorkflowAnaliseUpdate(BaseModel):
+    action: AcaoWorkflowAnalise
+    notes: str | None = Field(default=None, min_length=3, max_length=4000)
+
+    @field_validator("notes")
+    @classmethod
+    def limpar_notas_workflow(cls, valor: str | None) -> str | None:
+        return valor.strip() if valor is not None else None
+
+
+class WorkflowAnaliseResponse(BaseModel):
+    state: EstadoAnalise
+    review_required: bool
+    validated_by: str | None
+    validated_at: datetime | None
+    notes: str | None
+    report_version: int | None = None
+    history: list[dict] = Field(default_factory=list)
 
 
 class BrandingConfig(BaseModel):
@@ -286,6 +308,12 @@ class AfinidadeClassesResponse(BaseModel):
     classes_processo: list[str]
 
 
+class FatorScoreBuscaResponse(BaseModel):
+    regra: str
+    peso: float
+    evidencia: dict[str, object]
+
+
 class EvidenciasBuscaResponse(BaseModel):
     termo_original: str
     expressao_completa: str
@@ -299,6 +327,7 @@ class EvidenciasBuscaResponse(BaseModel):
     estrategias_executadas: list[str] = Field(default_factory=list)
     termos_consultados: list[str] = Field(default_factory=list)
     limiar_trigrama: float = Field(default=0.30, ge=0, le=1)
+    ranking: dict[str, object] = Field(default_factory=dict)
 
 
 class QualidadeBaseResponse(BaseModel):
@@ -327,7 +356,8 @@ class ConclusaoIndicativaResponse(BaseModel):
 
 
 class EstimativaRegistrabilidadeResponse(BaseModel):
-    probabilidade_deferimento: float = Field(ge=0, le=1)
+    indicador_historico_registrabilidade: float = Field(ge=0, le=1)
+    probabilidade_deferimento: float = Field(ge=0, le=1, deprecated=True)
     probabilidade_inferior: float | None = Field(default=None, ge=0, le=1)
     probabilidade_superior: float | None = Field(default=None, ge=0, le=1)
     nivel: Literal["favoravel", "atencao", "alto_risco", "critico"]
@@ -335,15 +365,15 @@ class EstimativaRegistrabilidadeResponse(BaseModel):
     confianca_rotulo: Literal["baixa", "media", "alta"] = "baixa"
     cobertura_entrada: float = Field(default=0, ge=0, le=1)
     modelo_versao: str
+    modelo_status: StatusModelo
     escopo: Literal["deferimento_exame_merito"] = "deferimento_exame_merito"
     amostras_referencia: int = Field(default=0, ge=0)
     corte_dados: date | None = None
     revisao_humana_obrigatoria: bool = False
     fatores_principais: list[dict]
     aviso: str = (
-        "Estimativa estatística preliminar do deferimento no exame de mérito, baseada em "
-        "decisões históricas publicadas. É exibida desde a primeira consulta, não constitui "
-        "garantia de registro e não substitui o exame do INPI."
+        "Indicador histórico de registrabilidade baseado em decisões publicadas com "
+        "características semelhantes. Não representa previsão ou garantia de decisão do INPI."
     )
 
 
@@ -368,6 +398,9 @@ class MarcaRelatorioItem(ProcessoResumo):
     natureza: str | None
     classificacoes: list[ClassificacaoMarcaResponse]
     criterios_encontro: list[str] = Field(default_factory=list)
+    score_busca: float = Field(default=0, ge=0, le=100)
+    score_busca_versao: str = ""
+    fatores_score_busca: list[FatorScoreBuscaResponse] = Field(default_factory=list)
     alto_renome: bool = False
     afinidade_classes: AfinidadeClassesResponse | None = None
     relevancia: Literal["critica", "alta", "media", "baixa"] = "baixa"
@@ -406,8 +439,8 @@ class RelatorioMarcaResponse(BaseModel):
         "validacao_interna"
     )
     estimativa_mensagem: str = (
-        "O modelo estatístico permanece em validação interna. Nenhuma probabilidade é "
-        "exibida até que os critérios mínimos de dados, calibração e revisão humana sejam "
+        "O modelo estatístico permanece em validação interna. Nenhum indicador histórico é "
+        "exibido até que os critérios mínimos de dados, calibração e revisão humana sejam "
         "atendidos."
     )
     estimativa_registrabilidade: EstimativaRegistrabilidadeResponse | None = None
@@ -430,8 +463,7 @@ class ResumoPublicoMarcaResponse(BaseModel):
     conclusao: ConclusaoIndicativaResponse | None = None
     risco_pontuacao: int | None = Field(default=None, ge=0, le=100)
     risco_nivel: str | None = None
-    # Prognóstico determinístico de deferido/indeferido (substitui a estimativa de ML,
-    # que não tinha poder preditivo e permanece apenas em modo sombra/interno).
+    # Triagem determinística separada do indicador histórico supervisionado.
     prognostico_registrabilidade: PrognosticoRegistrabilidadeResponse | None = None
     detalhes_internos_disponiveis: bool = True
 
@@ -462,6 +494,10 @@ class PesquisaLeadResumo(BaseModel):
     relatorio_completo_gerado: bool = False
     relatorio_completo_gerado_em: datetime | None = None
     relatorio_completo_gerado_por: str | None = None
+    analysis_state: EstadoAnalise = EstadoAnalise.DRAFT
+    review_required: bool = True
+    validated_by: str | None = None
+    validated_at: datetime | None = None
     relatorio_url: str
     pdf_url: str | None = None
     exclusao_status: str | None = None
@@ -717,7 +753,7 @@ class AprendizadoModeloResponse(BaseModel):
     id: int
     versao: str
     algoritmo: str
-    status: str
+    status: StatusModelo
     metricas: dict
     dataset: dict
     corte_treino: date | None
@@ -758,7 +794,9 @@ class AprendizadoPrevisaoResponse(BaseModel):
     marca: str
     atividade: str | None
     modelo_versao: str
+    modelo_status: StatusModelo
     modo: str
+    indicador_historico_registrabilidade: float
     probabilidade_deferimento: float
     probabilidade_inferior: float | None
     probabilidade_superior: float | None

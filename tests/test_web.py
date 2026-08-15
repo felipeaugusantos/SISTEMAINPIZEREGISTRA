@@ -120,7 +120,8 @@ def test_learning_panel_has_responsive_control_grid() -> None:
 
     assert 'class="learning-rollout-control"' in learning
     assert 'id="learning-min-test-samples"' in learning
-    assert "A avaliação humana e as metas abaixo aprimoram o modelo, mas não bloqueiam" in learning
+    assert "gates técnicos, revisão humana mínima" in learning
+    assert "Modelos SHADOW e DISABLED nunca aparecem ao cliente" in learning
     assert "Exibição preliminar automática ao cliente" in learning
     assert ".production-grid.learning-control-grid" in styles
     assert ".learning-control-grid .learning-thresholds input" in styles
@@ -137,14 +138,15 @@ def test_leads_exibe_status_e_acao_do_relatorio_completo() -> None:
     script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
     styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
 
-    assert "admin-leads.js?v=43" in page
+    assert "admin-leads.js?v=44" in page
     assert "Pipeline de atendimento" in page
     assert 'data-priority="atrasadas"' in page
     assert "Histórico de pesquisas" in page
     assert "Última pesquisa" in page
     assert "Por contato" in page
     assert "Por pesquisa" in page
-    assert "Completo não gerado" in script
+    assert "Revisão obrigatória" in script
+    assert 'item.analysis_state !== "VALIDATED"' in script
     assert "Completo gerado" in script
     assert "/relatorio-completo.pdf" in script
     assert 'method: "POST"' in script
@@ -178,7 +180,7 @@ def test_dossie_envia_e_exibe_leitura_supervisionada() -> None:
     page = (web_dir / "admin-analise.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-analise.js").read_text(encoding="utf-8")
 
-    assert "admin-analise.js?v=8" in page
+    assert "admin-analise.js?v=9" in page
     assert "admin-analise.css?v=5" in page
     assert 'observacoes: values.get("observacoes_humanas")' in script
     assert "Boolean(item.avaliado_em)" in script

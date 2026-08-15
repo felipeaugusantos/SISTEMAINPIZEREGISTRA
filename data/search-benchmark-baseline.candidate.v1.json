@@ -1,0 +1,2775 @@
+{
+  "dataset_version": "acervo-local-candidato-v1",
+  "dataset_revisao": {
+    "status": "pendente_revisao_especialista",
+    "revisado_por": null,
+    "papel": null,
+    "revisado_em": null,
+    "observacoes": "Casos extraídos do acervo local para revisão; não constituem validação jurídica."
+  },
+  "casos": [
+    {
+      "id": "exato-ze-registra-45",
+      "marca_pesquisada": "Zé Registra",
+      "processos_esperados": [
+        "924189100"
+      ],
+      "processos_encontrados": [
+        "931463602",
+        "924189100",
+        "840290896",
+        "935939350",
+        "939842653",
+        "931386969",
+        "939844605",
+        "918064627",
+        "923775030",
+        "932405282",
+        "940018985",
+        "921201656",
+        "926845462",
+        "938512617",
+        "922038597",
+        "932536808",
+        "935189467",
+        "918064112",
+        "918064325",
+        "928005810"
+      ],
+      "posicoes_esperadas": {
+        "924189100": 2
+      },
+      "resultados": [
+        {
+          "posicao": 1,
+          "processo": "931463602",
+          "titulo": "Zé Registra",
+          "score": 100.0,
+          "motivo_score": [
+            {
+              "regra": "NOME_IDENTICO",
+              "peso": 55.0,
+              "evidencia": {
+                "criterio": "Nome idêntico",
+                "titulo": "Zé Registra",
+                "processo": "931463602"
+              }
+            },
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "Zé Registra",
+                "processo": "931463602"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "Zé Registra",
+                "processo": "931463602"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 20.0,
+              "evidencia": {
+                "similaridade": 1.0,
+                "processo": "931463602"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "931463602"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "931463602"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 2,
+          "processo": "924189100",
+          "titulo": "Zé Registra",
+          "score": 99.0,
+          "motivo_score": [
+            {
+              "regra": "NOME_IDENTICO",
+              "peso": 55.0,
+              "evidencia": {
+                "criterio": "Nome idêntico",
+                "titulo": "Zé Registra",
+                "processo": "924189100"
+              }
+            },
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "Zé Registra",
+                "processo": "924189100"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "Zé Registra",
+                "processo": "924189100"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 20.0,
+              "evidencia": {
+                "similaridade": 1.0,
+                "processo": "924189100"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "924189100"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 3,
+          "processo": "840290896",
+          "titulo": "REGISTRA",
+          "score": 44.0,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "REGISTRA",
+                "processo": "840290896"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "REGISTRA",
+                "processo": "840290896"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 15.0,
+              "evidencia": {
+                "similaridade": 0.75,
+                "processo": "840290896"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "840290896"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "840290896"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 4,
+          "processo": "935939350",
+          "titulo": "registra +",
+          "score": 44.0,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "registra +",
+                "processo": "935939350"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "registra +",
+                "processo": "935939350"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 15.0,
+              "evidencia": {
+                "similaridade": 0.75,
+                "processo": "935939350"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "935939350"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "935939350"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 5,
+          "processo": "939842653",
+          "titulo": "Registra-e",
+          "score": 41.86,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "Registra-e",
+                "processo": "939842653"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "Registra-e",
+                "processo": "939842653"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 12.86,
+              "evidencia": {
+                "similaridade": 0.6429,
+                "processo": "939842653"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "939842653"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "939842653"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 6,
+          "processo": "931386969",
+          "titulo": "Registra UP",
+          "score": 41.0,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "Registra UP",
+                "processo": "931386969"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "Registra UP",
+                "processo": "931386969"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 12.0,
+              "evidencia": {
+                "similaridade": 0.6,
+                "processo": "931386969"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "931386969"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "931386969"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 7,
+          "processo": "939844605",
+          "titulo": "Registra 67",
+          "score": 41.0,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "Registra 67",
+                "processo": "939844605"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "Registra 67",
+                "processo": "939844605"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 12.0,
+              "evidencia": {
+                "similaridade": 0.6,
+                "processo": "939844605"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "939844605"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "939844605"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 8,
+          "processo": "918064627",
+          "titulo": "REGISTRAL",
+          "score": 40.43,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "REGISTRAL",
+                "processo": "918064627"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "REGISTRAL",
+                "processo": "918064627"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 11.43,
+              "evidencia": {
+                "similaridade": 0.5714,
+                "processo": "918064627"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "918064627"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "918064627"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 9,
+          "processo": "923775030",
+          "titulo": "RegistrAÊ",
+          "score": 40.43,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "RegistrAÊ",
+                "processo": "923775030"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "RegistrAÊ",
+                "processo": "923775030"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 11.43,
+              "evidencia": {
+                "similaridade": 0.5714,
+                "processo": "923775030"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "923775030"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "923775030"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 10,
+          "processo": "932405282",
+          "titulo": "Registraz",
+          "score": 40.43,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "Registraz",
+                "processo": "932405282"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "Registraz",
+                "processo": "932405282"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 11.43,
+              "evidencia": {
+                "similaridade": 0.5714,
+                "processo": "932405282"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "932405282"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "932405282"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 11,
+          "processo": "940018985",
+          "titulo": "Registraê!",
+          "score": 40.43,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "Registraê!",
+                "processo": "940018985"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "Registraê!",
+                "processo": "940018985"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 11.43,
+              "evidencia": {
+                "similaridade": 0.5714,
+                "processo": "940018985"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "940018985"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "940018985"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 12,
+          "processo": "921201656",
+          "titulo": "Registra Sim",
+          "score": 40.25,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "Registra Sim",
+                "processo": "921201656"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "Registra Sim",
+                "processo": "921201656"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 11.25,
+              "evidencia": {
+                "similaridade": 0.5625,
+                "processo": "921201656"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "921201656"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "921201656"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 13,
+          "processo": "926845462",
+          "titulo": "Registra[LAB]",
+          "score": 40.25,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "Registra[LAB]",
+                "processo": "926845462"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "Registra[LAB]",
+                "processo": "926845462"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 11.25,
+              "evidencia": {
+                "similaridade": 0.5625,
+                "processo": "926845462"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "926845462"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "926845462"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 14,
+          "processo": "938512617",
+          "titulo": "REGISTRA UAI",
+          "score": 40.25,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "REGISTRA UAI",
+                "processo": "938512617"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "REGISTRA UAI",
+                "processo": "938512617"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 11.25,
+              "evidencia": {
+                "similaridade": 0.5625,
+                "processo": "938512617"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "938512617"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "938512617"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 15,
+          "processo": "922038597",
+          "titulo": "REGISTRASE",
+          "score": 39.67,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "REGISTRASE",
+                "processo": "922038597"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "REGISTRASE",
+                "processo": "922038597"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 10.67,
+              "evidencia": {
+                "similaridade": 0.5333,
+                "processo": "922038597"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "922038597"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "922038597"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 16,
+          "processo": "932536808",
+          "titulo": "+ 55 Registra",
+          "score": 36.0,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "+ 55 Registra",
+                "processo": "932536808"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "+ 55 Registra",
+                "processo": "932536808"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 12.0,
+              "evidencia": {
+                "similaridade": 0.6,
+                "processo": "932536808"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "932536808"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 17,
+          "processo": "935189467",
+          "titulo": "REGISTRAT",
+          "score": 35.43,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "REGISTRAT",
+                "processo": "935189467"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "REGISTRAT",
+                "processo": "935189467"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 11.43,
+              "evidencia": {
+                "similaridade": 0.5714,
+                "processo": "935189467"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "935189467"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 18,
+          "processo": "918064112",
+          "titulo": "REGISTRALI",
+          "score": 34.67,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "REGISTRALI",
+                "processo": "918064112"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "REGISTRALI",
+                "processo": "918064112"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 10.67,
+              "evidencia": {
+                "similaridade": 0.5333,
+                "processo": "918064112"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "918064112"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 19,
+          "processo": "918064325",
+          "titulo": "REGISTRALE",
+          "score": 34.67,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "REGISTRALE",
+                "processo": "918064325"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "REGISTRALE",
+                "processo": "918064325"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 10.67,
+              "evidencia": {
+                "similaridade": 0.5333,
+                "processo": "918064325"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "918064325"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 20,
+          "processo": "928005810",
+          "titulo": "Registrada",
+          "score": 34.67,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "Registrada",
+                "processo": "928005810"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "Registrada",
+                "processo": "928005810"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 10.67,
+              "evidencia": {
+                "similaridade": 0.5333,
+                "processo": "928005810"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "45",
+                "processo": "928005810"
+              }
+            }
+          ]
+        }
+      ],
+      "metricas": {
+        "5": {
+          "recall": 1.0,
+          "precision": 0.2
+        },
+        "10": {
+          "recall": 1.0,
+          "precision": 0.1
+        },
+        "20": {
+          "recall": 1.0,
+          "precision": 0.05
+        }
+      },
+      "reciprocal_rank": 0.5,
+      "latencia_ms": 3500.24,
+      "falsos_negativos": [],
+      "falsos_negativos_criticos": [],
+      "versao_busca": "busca-marcas-4.0",
+      "versao_ranking": "ranking-busca-4.0"
+    },
+    {
+      "id": "exato-imonitora-42",
+      "marca_pesquisada": "iMonitora",
+      "processos_esperados": [
+        "922061700"
+      ],
+      "processos_encontrados": [
+        "922061700",
+        "936813342",
+        "922783705",
+        "904428982",
+        "932647383",
+        "919564437",
+        "919564496",
+        "938567942",
+        "936112212",
+        "942886550",
+        "938288423",
+        "942732251",
+        "919500439",
+        "920159125",
+        "934229864",
+        "907887651",
+        "904095746",
+        "822553910",
+        "904024652",
+        "935994025"
+      ],
+      "posicoes_esperadas": {
+        "922061700": 1
+      },
+      "resultados": [
+        {
+          "posicao": 1,
+          "processo": "922061700",
+          "titulo": "iMonitora",
+          "score": 99.0,
+          "motivo_score": [
+            {
+              "regra": "NOME_IDENTICO",
+              "peso": 55.0,
+              "evidencia": {
+                "criterio": "Nome idêntico",
+                "titulo": "iMonitora",
+                "processo": "922061700"
+              }
+            },
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "iMonitora",
+                "processo": "922061700"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "iMonitora",
+                "processo": "922061700"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 20.0,
+              "evidencia": {
+                "similaridade": 1.0,
+                "processo": "922061700"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "922061700"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 2,
+          "processo": "936813342",
+          "titulo": "iMonitora Especialistas em Observabilidade",
+          "score": 68.76,
+          "motivo_score": [
+            {
+              "regra": "EXPRESSAO_COMPLETA",
+              "peso": 40.0,
+              "evidencia": {
+                "criterio": "Expressão completa",
+                "titulo": "iMonitora Especialistas em Observabilidade",
+                "processo": "936813342"
+              }
+            },
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "iMonitora Especialistas em Observabilidade",
+                "processo": "936813342"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "iMonitora Especialistas em Observabilidade",
+                "processo": "936813342"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 4.76,
+              "evidencia": {
+                "similaridade": 0.2381,
+                "processo": "936813342"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "936813342"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 3,
+          "processo": "922783705",
+          "titulo": "IMONITORE",
+          "score": 34.33,
+          "motivo_score": [
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "IMONITORE",
+                "processo": "922783705"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 13.33,
+              "evidencia": {
+                "similaridade": 0.6667,
+                "processo": "922783705"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "922783705"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "922783705"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 4,
+          "processo": "904428982",
+          "titulo": "monitora",
+          "score": 26.67,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 11.67,
+              "evidencia": {
+                "similaridade": 0.5833,
+                "processo": "904428982"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "904428982"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "904428982"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 5,
+          "processo": "932647383",
+          "titulo": "VMmonitora",
+          "score": 25.0,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 10.0,
+              "evidencia": {
+                "similaridade": 0.5,
+                "processo": "932647383"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "932647383"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "932647383"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 6,
+          "processo": "919564437",
+          "titulo": "MONITORAGORA",
+          "score": 24.33,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 9.33,
+              "evidencia": {
+                "similaridade": 0.4667,
+                "processo": "919564437"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "919564437"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "919564437"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 7,
+          "processo": "919564496",
+          "titulo": "MONITORAGORA",
+          "score": 24.33,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 9.33,
+              "evidencia": {
+                "similaridade": 0.4667,
+                "processo": "919564496"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "919564496"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "919564496"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 8,
+          "processo": "938567942",
+          "titulo": "SD Monitora",
+          "score": 24.33,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 9.33,
+              "evidencia": {
+                "similaridade": 0.4667,
+                "processo": "938567942"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "938567942"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "938567942"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 9,
+          "processo": "936112212",
+          "titulo": "MONITORAI",
+          "score": 23.57,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 8.57,
+              "evidencia": {
+                "similaridade": 0.4286,
+                "processo": "936112212"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "936112212"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "936112212"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 10,
+          "processo": "942886550",
+          "titulo": "INMONITOR",
+          "score": 23.57,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 8.57,
+              "evidencia": {
+                "similaridade": 0.4286,
+                "processo": "942886550"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "942886550"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "942886550"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 11,
+          "processo": "938288423",
+          "titulo": "Monitora Grid",
+          "score": 23.24,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 8.24,
+              "evidencia": {
+                "similaridade": 0.4118,
+                "processo": "938288423"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "938288423"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "938288423"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 12,
+          "processo": "942732251",
+          "titulo": "VIVO MONITORA",
+          "score": 23.24,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 8.24,
+              "evidencia": {
+                "similaridade": 0.4118,
+                "processo": "942732251"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "942732251"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "942732251"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 13,
+          "processo": "919500439",
+          "titulo": "MonitoraBR",
+          "score": 23.0,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 8.0,
+              "evidencia": {
+                "similaridade": 0.4,
+                "processo": "919500439"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "919500439"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "919500439"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 14,
+          "processo": "920159125",
+          "titulo": "MonIToraTI",
+          "score": 23.0,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 8.0,
+              "evidencia": {
+                "similaridade": 0.4,
+                "processo": "920159125"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "920159125"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "920159125"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 15,
+          "processo": "934229864",
+          "titulo": "ic monitor",
+          "score": 23.0,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 8.0,
+              "evidencia": {
+                "similaridade": 0.4,
+                "processo": "934229864"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "934229864"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "934229864"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 16,
+          "processo": "907887651",
+          "titulo": "MONITORA",
+          "score": 21.67,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 11.67,
+              "evidencia": {
+                "similaridade": 0.5833,
+                "processo": "907887651"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "907887651"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 17,
+          "processo": "904095746",
+          "titulo": "Monitora Car",
+          "score": 18.75,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 8.75,
+              "evidencia": {
+                "similaridade": 0.4375,
+                "processo": "904095746"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "904095746"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 18,
+          "processo": "822553910",
+          "titulo": "I MONITOR",
+          "score": 18.57,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 8.57,
+              "evidencia": {
+                "similaridade": 0.4286,
+                "processo": "822553910"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "822553910"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 19,
+          "processo": "904024652",
+          "titulo": "MONITORAR",
+          "score": 18.57,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 8.57,
+              "evidencia": {
+                "similaridade": 0.4286,
+                "processo": "904024652"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "904024652"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 20,
+          "processo": "935994025",
+          "titulo": "MONITORAR",
+          "score": 18.57,
+          "motivo_score": [
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 8.57,
+              "evidencia": {
+                "similaridade": 0.4286,
+                "processo": "935994025"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "42",
+                "processo": "935994025"
+              }
+            }
+          ]
+        }
+      ],
+      "metricas": {
+        "5": {
+          "recall": 1.0,
+          "precision": 0.2
+        },
+        "10": {
+          "recall": 1.0,
+          "precision": 0.1
+        },
+        "20": {
+          "recall": 1.0,
+          "precision": 0.05
+        }
+      },
+      "reciprocal_rank": 1.0,
+      "latencia_ms": 2679.19,
+      "falsos_negativos": [],
+      "falsos_negativos_criticos": [],
+      "versao_busca": "busca-marcas-4.0",
+      "versao_ranking": "ranking-busca-4.0"
+    },
+    {
+      "id": "expressao-sertur-39",
+      "marca_pesquisada": "SERTUR VIAGENS E TURISMO",
+      "processos_esperados": [
+        "937307238"
+      ],
+      "processos_encontrados": [
+        "937307238",
+        "924495880",
+        "937316547",
+        "823971287",
+        "903395070",
+        "943902487",
+        "902415450",
+        "939890852",
+        "942926595",
+        "911056572",
+        "913041440",
+        "931903564",
+        "934283940",
+        "939766434",
+        "826389139",
+        "935382305",
+        "902230310",
+        "822865505",
+        "822912384",
+        "932754759"
+      ],
+      "posicoes_esperadas": {
+        "937307238": 1
+      },
+      "resultados": [
+        {
+          "posicao": 1,
+          "processo": "937307238",
+          "titulo": "SERTUR VIAGENS E TURISMO",
+          "score": 100.0,
+          "motivo_score": [
+            {
+              "regra": "NOME_IDENTICO",
+              "peso": 55.0,
+              "evidencia": {
+                "criterio": "Nome idêntico",
+                "titulo": "SERTUR VIAGENS E TURISMO",
+                "processo": "937307238"
+              }
+            },
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SERTUR VIAGENS E TURISMO",
+                "processo": "937307238"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SERTUR VIAGENS E TURISMO",
+                "processo": "937307238"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 20.0,
+              "evidencia": {
+                "similaridade": 1.0,
+                "processo": "937307238"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "937307238"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "937307238"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 2,
+          "processo": "924495880",
+          "titulo": "S&S VIAGENS E TURISMO",
+          "score": 44.2,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "S&S VIAGENS E TURISMO",
+                "processo": "924495880"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "S&S VIAGENS E TURISMO",
+                "processo": "924495880"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 15.2,
+              "evidencia": {
+                "similaridade": 0.76,
+                "processo": "924495880"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "924495880"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "924495880"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 3,
+          "processo": "937316547",
+          "titulo": "SERRATOUR TURISMO E VIAGENS",
+          "score": 43.67,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SERRATOUR TURISMO E VIAGENS",
+                "processo": "937316547"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SERRATOUR TURISMO E VIAGENS",
+                "processo": "937316547"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.67,
+              "evidencia": {
+                "similaridade": 0.7333,
+                "processo": "937316547"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "937316547"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "937316547"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 4,
+          "processo": "823971287",
+          "titulo": "SP VIAGENS E TURISMO",
+          "score": 43.62,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SP VIAGENS E TURISMO",
+                "processo": "823971287"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SP VIAGENS E TURISMO",
+                "processo": "823971287"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.62,
+              "evidencia": {
+                "similaridade": 0.7308,
+                "processo": "823971287"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "823971287"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "823971287"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 5,
+          "processo": "903395070",
+          "titulo": "S2 VIAGENS E TURISMO",
+          "score": 43.62,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "S2 VIAGENS E TURISMO",
+                "processo": "903395070"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "S2 VIAGENS E TURISMO",
+                "processo": "903395070"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.62,
+              "evidencia": {
+                "similaridade": 0.7308,
+                "processo": "903395070"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "903395070"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "903395070"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 6,
+          "processo": "943902487",
+          "titulo": "SC VIAGENS E TURISMO",
+          "score": 43.62,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SC VIAGENS E TURISMO",
+                "processo": "943902487"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SC VIAGENS E TURISMO",
+                "processo": "943902487"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.62,
+              "evidencia": {
+                "similaridade": 0.7308,
+                "processo": "943902487"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "943902487"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "943902487"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 7,
+          "processo": "902415450",
+          "titulo": "Martur Viagens e Turismo",
+          "score": 43.29,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "Martur Viagens e Turismo",
+                "processo": "902415450"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "Martur Viagens e Turismo",
+                "processo": "902415450"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.29,
+              "evidencia": {
+                "similaridade": 0.7143,
+                "processo": "902415450"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "902415450"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "902415450"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 8,
+          "processo": "939890852",
+          "titulo": "SELMA VIAGENS E TURISMO",
+          "score": 43.29,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SELMA VIAGENS E TURISMO",
+                "processo": "939890852"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SELMA VIAGENS E TURISMO",
+                "processo": "939890852"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.29,
+              "evidencia": {
+                "similaridade": 0.7143,
+                "processo": "939890852"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "939890852"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "939890852"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 9,
+          "processo": "942926595",
+          "titulo": "SUZY TUR VIAGENS E TURISMO",
+          "score": 43.29,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SUZY TUR VIAGENS E TURISMO",
+                "processo": "942926595"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SUZY TUR VIAGENS E TURISMO",
+                "processo": "942926595"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.29,
+              "evidencia": {
+                "similaridade": 0.7143,
+                "processo": "942926595"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "942926595"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "942926595"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 10,
+          "processo": "911056572",
+          "titulo": "Edtur Viagens e Turismo",
+          "score": 43.07,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "Edtur Viagens e Turismo",
+                "processo": "911056572"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "Edtur Viagens e Turismo",
+                "processo": "911056572"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.07,
+              "evidencia": {
+                "similaridade": 0.7037,
+                "processo": "911056572"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "911056572"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "911056572"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 11,
+          "processo": "913041440",
+          "titulo": "SHL VIAGENS E TURISMO",
+          "score": 43.07,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SHL VIAGENS E TURISMO",
+                "processo": "913041440"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SHL VIAGENS E TURISMO",
+                "processo": "913041440"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.07,
+              "evidencia": {
+                "similaridade": 0.7037,
+                "processo": "913041440"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "913041440"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "913041440"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 12,
+          "processo": "931903564",
+          "titulo": "SWT VIAGENS E TURISMO",
+          "score": 43.07,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SWT VIAGENS E TURISMO",
+                "processo": "931903564"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SWT VIAGENS E TURISMO",
+                "processo": "931903564"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.07,
+              "evidencia": {
+                "similaridade": 0.7037,
+                "processo": "931903564"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "931903564"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "931903564"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 13,
+          "processo": "934283940",
+          "titulo": "SCS VIAGENS E TURISMO",
+          "score": 43.07,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SCS VIAGENS E TURISMO",
+                "processo": "934283940"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SCS VIAGENS E TURISMO",
+                "processo": "934283940"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.07,
+              "evidencia": {
+                "similaridade": 0.7037,
+                "processo": "934283940"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "934283940"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "934283940"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 14,
+          "processo": "939766434",
+          "titulo": "SVO VIAGENS E TURISMO",
+          "score": 43.07,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SVO VIAGENS E TURISMO",
+                "processo": "939766434"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SVO VIAGENS E TURISMO",
+                "processo": "939766434"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.07,
+              "evidencia": {
+                "similaridade": 0.7037,
+                "processo": "939766434"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "939766434"
+              }
+            },
+            {
+              "regra": "SITUACAO_ATIVA",
+              "peso": 5.0,
+              "evidencia": {
+                "situacao": "ativa",
+                "processo": "939766434"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 15,
+          "processo": "826389139",
+          "titulo": "SP VIAGENS E TURISMO",
+          "score": 38.62,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SP VIAGENS E TURISMO",
+                "processo": "826389139"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SP VIAGENS E TURISMO",
+                "processo": "826389139"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.62,
+              "evidencia": {
+                "similaridade": 0.7308,
+                "processo": "826389139"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "826389139"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 16,
+          "processo": "935382305",
+          "titulo": "SB turismo e viagens",
+          "score": 38.62,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SB turismo e viagens",
+                "processo": "935382305"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SB turismo e viagens",
+                "processo": "935382305"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.62,
+              "evidencia": {
+                "similaridade": 0.7308,
+                "processo": "935382305"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "935382305"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 17,
+          "processo": "902230310",
+          "titulo": "Martur Viagens e Turismo",
+          "score": 38.29,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "Martur Viagens e Turismo",
+                "processo": "902230310"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "Martur Viagens e Turismo",
+                "processo": "902230310"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.29,
+              "evidencia": {
+                "similaridade": 0.7143,
+                "processo": "902230310"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "902230310"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 18,
+          "processo": "822865505",
+          "titulo": "SSA VIAGENS E TURISMO",
+          "score": 38.07,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SSA VIAGENS E TURISMO",
+                "processo": "822865505"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SSA VIAGENS E TURISMO",
+                "processo": "822865505"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.07,
+              "evidencia": {
+                "similaridade": 0.7037,
+                "processo": "822865505"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "822865505"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 19,
+          "processo": "822912384",
+          "titulo": "SKM VIAGENS E TURISMO",
+          "score": 38.07,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "SKM VIAGENS E TURISMO",
+                "processo": "822912384"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "SKM VIAGENS E TURISMO",
+                "processo": "822912384"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.07,
+              "evidencia": {
+                "similaridade": 0.7037,
+                "processo": "822912384"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "822912384"
+              }
+            }
+          ]
+        },
+        {
+          "posicao": 20,
+          "processo": "932754759",
+          "titulo": "RG TUR VIAGENS E TURISMO",
+          "score": 38.07,
+          "motivo_score": [
+            {
+              "regra": "ELEMENTO_NOMINATIVO",
+              "peso": 8.0,
+              "evidencia": {
+                "criterio": "Elemento do nome",
+                "titulo": "RG TUR VIAGENS E TURISMO",
+                "processo": "932754759"
+              }
+            },
+            {
+              "regra": "RADICAL_SEMELHANTE",
+              "peso": 6.0,
+              "evidencia": {
+                "criterio": "Radical semelhante",
+                "titulo": "RG TUR VIAGENS E TURISMO",
+                "processo": "932754759"
+              }
+            },
+            {
+              "regra": "SIMILARIDADE_NOMINATIVA",
+              "peso": 14.07,
+              "evidencia": {
+                "similaridade": 0.7037,
+                "processo": "932754759"
+              }
+            },
+            {
+              "regra": "MESMA_CLASSE",
+              "peso": 10.0,
+              "evidencia": {
+                "classe": "39",
+                "processo": "932754759"
+              }
+            }
+          ]
+        }
+      ],
+      "metricas": {
+        "5": {
+          "recall": 1.0,
+          "precision": 0.2
+        },
+        "10": {
+          "recall": 1.0,
+          "precision": 0.1
+        },
+        "20": {
+          "recall": 1.0,
+          "precision": 0.05
+        }
+      },
+      "reciprocal_rank": 1.0,
+      "latencia_ms": 1709.93,
+      "falsos_negativos": [],
+      "falsos_negativos_criticos": [],
+      "versao_busca": "busca-marcas-4.0",
+      "versao_ranking": "ranking-busca-4.0"
+    }
+  ],
+  "metricas": {
+    "5": {
+      "recall": 1.0,
+      "precision": 0.20000000000000004
+    },
+    "10": {
+      "recall": 1.0,
+      "precision": 0.10000000000000002
+    },
+    "20": {
+      "recall": 1.0,
+      "precision": 0.05000000000000001
+    }
+  },
+  "mrr": 0.8333333333333334,
+  "latencia_ms": {
+    "media": 2629.786666666667,
+    "p50": 2679.19,
+    "p95": 3418.1349999999998,
+    "p99": 3483.8189999999995
+  },
+  "falsos_negativos_criticos": 0,
+  "limite_resultados": 20
+}

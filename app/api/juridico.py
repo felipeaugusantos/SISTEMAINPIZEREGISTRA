@@ -9,7 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
-from app.crm import obter_ou_criar_empresa
+from app.crm import obter_ou_criar_empresa, registrar_evento_operacional
 from app.database import get_session
 from app.models import (
     EmpresaCRM,
@@ -205,6 +205,7 @@ class PrazoUpdate(BaseModel):
     escalonar_para_id: int | None = Field(default=None, ge=1)
     prioridade: Literal["baixa", "media", "alta", "critica"] | None = None
     confirmar: bool = False
+    confirmacao_observacoes: str | None = Field(default=None, min_length=3, max_length=2000)
     descricao_evento: str | None = Field(default=None, max_length=500)
 
 
@@ -325,6 +326,17 @@ def _evento(
             detalhes=detalhes or {},
         )
     )
+    registrar_evento_operacional(
+        session,
+        organizacao_id=usuario.organizacao_id,
+        dominio="juridico",
+        tipo=f"juridico.{tipo}",
+        entidade_tipo="prazo" if prazo_id else "processo_monitorado",
+        entidade_id=prazo_id or monitorado_id,
+        ator=usuario.ator,
+        ator_id=getattr(usuario, "id", None),
+        payload={"processo_monitorado_id": monitorado_id, **(detalhes or {})},
+    )
 
 
 async def _usuario_valido(
@@ -396,6 +408,10 @@ def _serializar_prazo(row) -> dict:
         "status": prazo.status,
         "prioridade": prazo.prioridade,
         "confirmado": prazo.confirmado,
+        "confirmado_por": prazo.confirmado_por,
+        "confirmado_em": prazo.confirmado_em,
+        "confirmacao_origem": prazo.confirmacao_origem,
+        "confirmacao_observacoes": prazo.confirmacao_observacoes,
         "responsavel_id": prazo.responsavel_id,
         "responsavel": responsavel,
         "escalonar_para_id": prazo.escalonar_para_id,
@@ -667,6 +683,11 @@ async def criar_prazo(
         status="pendente",
         prioridade=dados.prioridade,
         confirmado=True,
+        confirmado_por_id=usuario.id,
+        confirmado_por=usuario.ator,
+        confirmado_em=datetime.now(UTC),
+        confirmacao_origem="criacao_manual",
+        confirmacao_observacoes="Prazo criado e confirmado manualmente pelo operador.",
         responsavel_id=dados.responsavel_id,
         escalonar_para_id=dados.escalonar_para_id,
         antecedencia_dias=dados.antecedencia_dias,
@@ -710,8 +731,18 @@ async def atualizar_prazo(
             raise HTTPException(404, "Responsável não encontrado")
     anterior = prazo.status
     if dados.confirmar:
+        responsavel_final = dados.responsavel_id or prazo.responsavel_id
+        if responsavel_final is None:
+            raise HTTPException(422, "Defina o responsável antes de confirmar o prazo")
+        if not dados.confirmacao_observacoes:
+            raise HTTPException(422, "Informe as observações da confirmação jurídica")
         prazo.confirmado = True
         prazo.status = "pendente"
+        prazo.confirmado_por_id = usuario.id
+        prazo.confirmado_por = usuario.ator
+        prazo.confirmado_em = datetime.now(UTC)
+        prazo.confirmacao_origem = "revisao_humana"
+        prazo.confirmacao_observacoes = dados.confirmacao_observacoes.strip()
     if dados.status:
         prazo.status = dados.status
         if dados.status == "concluido":
@@ -731,7 +762,12 @@ async def atualizar_prazo(
         "prazo_atualizado",
         descricao,
         prazo.id,
-        {"status_anterior": anterior, "status_atual": prazo.status},
+        {
+            "status_anterior": anterior,
+            "status_atual": prazo.status,
+            "confirmado": prazo.confirmado,
+            "confirmacao_origem": prazo.confirmacao_origem,
+        },
     )
     _auditar(
         session, request, usuario, "atualizar_prazo", f"prazo:{prazo.id}", {"status": prazo.status}

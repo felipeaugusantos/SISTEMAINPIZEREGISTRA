@@ -1,0 +1,39 @@
+{
+  "dataset_version": "acervo-local-candidato-v1",
+  "revisao": {
+    "status": "pendente_revisao_especialista",
+    "revisado_por": null,
+    "papel": null,
+    "revisado_em": null,
+    "observacoes": "Casos extraídos do acervo local para revisão; não constituem validação jurídica."
+  },
+  "casos": [
+    {
+      "id": "exato-ze-registra-45",
+      "marca": "Zé Registra",
+      "classe_nice": "45",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": ["924189100"],
+      "processos_criticos": ["924189100"],
+      "justificativa": "Coincidência nominativa exata na mesma classe; requer confirmação jurídica."
+    },
+    {
+      "id": "exato-imonitora-42",
+      "marca": "iMonitora",
+      "classe_nice": "42",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": ["922061700"],
+      "processos_criticos": ["922061700"],
+      "justificativa": "Coincidência nominativa exata na mesma classe; requer confirmação jurídica."
+    },
+    {
+      "id": "expressao-sertur-39",
+      "marca": "SERTUR VIAGENS E TURISMO",
+      "classe_nice": "39",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": ["937307238"],
+      "processos_criticos": ["937307238"],
+      "justificativa": "Coincidência nominativa exata na mesma classe; requer confirmação jurídica."
+    }
+  ]
+}

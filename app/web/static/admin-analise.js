@@ -33,8 +33,8 @@ function permissionState(permission) { return permission ? null : { state: "rest
 const riskRanges = [
   { level: "baixo", range: "0–24", title: "Baixo risco", meaning: "Cenário mais favorável", detail: "Poucos indícios de conflito relevante nos dados analisados." },
   { level: "moderado", range: "25–49", title: "Risco moderado", meaning: "Registro exige atenção", detail: "Existem conflitos que precisam de conferência antes do protocolo." },
-  { level: "alto", range: "50–74", title: "Alto risco", meaning: "Chance relevante de impedimento", detail: "Há sinais fortes de conflito e a viabilidade tende a ser desfavorável." },
-  { level: "critico", range: "75–100", title: "Risco crítico", meaning: "Grande chance de não registrar", detail: "Os conflitos encontrados indicam forte possibilidade de indeferimento." },
+  { level: "alto", range: "50–74", title: "Alto risco", meaning: "Impedimentos relevantes identificados", detail: "Há sinais fortes de conflito que exigem avaliação técnica." },
+  { level: "critico", range: "75–100", title: "Risco crítico", meaning: "Conflitos substantivos identificados", detail: "Os conflitos encontrados exigem revisão jurídica antes de qualquer conclusão." },
 ];
 
 function riskLegend(item) {
@@ -110,12 +110,12 @@ function renderDeterministicLearning(data) {
   const indicator = data.validacao?.indicador_deterministico;
   const risk = data.risco;
   const matrix = data.validacao?.matriz_registrabilidade;
-  const candidate = data.aprendizado?.modelo_status === "candidato" ? data.aprendizado : null;
+  const candidate = ["SHADOW", "VALIDATION"].includes(data.aprendizado?.modelo_status) ? data.aprendizado : null;
   const candidateReview = candidate && data.permissoes.aprendizado_revisar ? `
     <section class="analysis-opinion">
-      <h3>Previsão candidata · somente uso interno</h3>
-      <div class="analysis-probability"><strong>${percent(candidate.probabilidade)}</strong><span>estimativa do modelo candidato<br>faixa ${percent(candidate.probabilidade_inferior)} a ${percent(candidate.probabilidade_superior)}</span></div>
-      <p>Esta estimativa não está liberada ao cliente. Registre a leitura humana para ampliar a validação do modelo.</p>
+      <h3>Indicador histórico ${escapeHtml(candidate.modelo_status)} · somente uso interno</h3>
+      <div class="analysis-probability"><strong>${percent(candidate.probabilidade)}</strong><span>indicador histórico de registrabilidade<br>faixa ${percent(candidate.probabilidade_inferior)} a ${percent(candidate.probabilidade_superior)}</span></div>
+      <p>Estimativa baseada em casos históricos semelhantes. Não representa previsão ou garantia de decisão do INPI.</p>
       <form id="learning-review-form" class="analysis-action-form" data-id="${candidate.id}"><label>Leitura humana<select name="nivel_humano" required>${["favoravel","atencao","alto_risco","critico"].map(value => `<option value="${value}" ${candidate.nivel_humano === value ? "selected" : ""}>${label(value)}</option>`).join("")}</select></label><label>Avaliador<input name="avaliador" minlength="2" value="${escapeHtml(candidate.avaliador || data.usuario.nome)}" required></label><label class="wide">Observações<textarea name="observacoes_humanas" minlength="3" rows="4" required>${escapeHtml(candidate.observacoes_humanas || "")}</textarea></label><button class="primary-button" type="submit">Salvar leitura supervisionada</button></form>
     </section>` : "";
   const body = indicator ? `
@@ -130,20 +130,20 @@ function renderDeterministicLearning(data) {
     ${matrix ? `<div class="official-summary"><span class="atendido">${matrix.contagens.atendido || 0} atendidos</span><span class="alerta">${matrix.contagens.alerta || 0} alertas</span><span class="possivel_impedimento">${matrix.contagens.possivel_impedimento || 0} possíveis impedimentos</span><span class="nao_analisado">${matrix.contagens.nao_analisado || 0} não analisados</span></div>` : ""}
     <p class="analysis-empty"><strong>Modelo supervisionado em validação.</strong> ${escapeHtml(indicator.aviso)}</p>${candidateReview}` : `
     <p class="analysis-empty"><strong>Modelo supervisionado em validação.</strong> A análise determinística será apresentada assim que o snapshot técnico e o motor de risco forem calculados.</p>${candidateReview}`;
-  return step({ id: "learning", number: 3, title: "Aprendizado supervisionado", subtitle: "Probabilidade histórica e incerteza", state: "attention", stateLabel: "Modelo em validação", body });
+  return step({ id: "learning", number: 3, title: "Aprendizado supervisionado", subtitle: "Indicador histórico e incerteza", state: "attention", stateLabel: "Modelo em validação", body });
 }
 
 function renderLearning(data) {
   const denied = permissionState(data.permissoes.aprendizado_visualizar);
-  if (denied) return step({ id: "learning", number: 3, title: "Aprendizado supervisionado", subtitle: "Probabilidade histórica e incerteza", ...denied });
+  if (denied) return step({ id: "learning", number: 3, title: "Aprendizado supervisionado", subtitle: "Indicador histórico e incerteza", ...denied });
   const item = data.aprendizado;
-  if (!item || item.modelo_status !== "ativo") return renderDeterministicLearning(data);
+  if (!item || item.modelo_status !== "ACTIVE") return renderDeterministicLearning(data);
   const alerts = item.alertas_qualidade || [];
   const review = data.permissoes.aprendizado_revisar ? `<form id="learning-review-form" class="analysis-action-form" data-id="${item.id}"><label>Leitura humana<select name="nivel_humano" required>${["favoravel","atencao","alto_risco","critico"].map(value => `<option value="${value}" ${item.nivel_humano === value ? "selected" : ""}>${label(value)}</option>`).join("")}</select></label><label>Avaliador<input name="avaliador" minlength="2" value="${escapeHtml(item.avaliador || data.usuario.nome)}" required></label><label class="wide">Observações<textarea name="observacoes_humanas" minlength="3" rows="4" required>${escapeHtml(item.observacoes_humanas || "")}</textarea></label><button class="primary-button" type="submit">Salvar leitura supervisionada</button></form>` : "";
   const reviewed = Boolean(item.avaliado_em);
   const state = reviewed ? "completed" : alerts.length ? "attention" : "pending";
   const stateLabel = reviewed ? "Leitura registrada" : alerts.length ? "Aguardando leitura" : "Pendente";
-  return step({ id: "learning", number: 3, title: "Aprendizado supervisionado", subtitle: `Modelo ${item.modelo}`, state, stateLabel, body: `<div class="analysis-probability"><strong>${percent(item.probabilidade)}</strong><span>de deferimento estimado<br>faixa ${percent(item.probabilidade_inferior)} a ${percent(item.probabilidade_superior)}</span></div><div class="analysis-grid"><div class="analysis-stat"><span>Confiança</span><strong>${escapeHtml(item.confianca_rotulo)} · ${percent(item.confianca)}</strong></div><div class="analysis-stat"><span>Cobertura</span><strong>${percent(item.cobertura)}</strong></div><div class="analysis-stat"><span>Leitura humana</span><strong>${escapeHtml(label(item.nivel_humano || "pendente"))}</strong></div>${reviewed ? `<div class="analysis-stat"><span>Registrada em</span><strong>${formatDate(item.avaliado_em)}</strong></div>` : ""}</div>${alerts.length ? `<ul class="analysis-alerts">${alerts.map(alert => `<li>${escapeHtml(alert)}</li>`).join("")}</ul>` : ""}<p class="analysis-empty">Estimativa preliminar baseada em decisões históricas. Não constitui garantia de registro.</p>${review}` });
+  return step({ id: "learning", number: 3, title: "Aprendizado supervisionado", subtitle: `Modelo ${item.modelo} · ACTIVE`, state, stateLabel, body: `<div class="analysis-probability"><strong>${percent(item.probabilidade)}</strong><span>indicador histórico de registrabilidade<br>faixa ${percent(item.probabilidade_inferior)} a ${percent(item.probabilidade_superior)}</span></div><div class="analysis-grid"><div class="analysis-stat"><span>Confiança</span><strong>${escapeHtml(item.confianca_rotulo)} · ${percent(item.confianca)}</strong></div><div class="analysis-stat"><span>Cobertura</span><strong>${percent(item.cobertura)}</strong></div><div class="analysis-stat"><span>Leitura humana</span><strong>${escapeHtml(label(item.nivel_humano || "pendente"))}</strong></div>${reviewed ? `<div class="analysis-stat"><span>Registrada em</span><strong>${formatDate(item.avaliado_em)}</strong></div>` : ""}</div>${alerts.length ? `<ul class="analysis-alerts">${alerts.map(alert => `<li>${escapeHtml(alert)}</li>`).join("")}</ul>` : ""}<p class="analysis-empty">Estimativa baseada em casos históricos semelhantes. Não representa previsão ou garantia de decisão do INPI.</p>${review}` });
 }
 
 function renderAgent(data) {
@@ -160,7 +160,7 @@ function renderAgent(data) {
     ? `<button id="reconcile-agent-outcome" class="secondary-button" type="button">Verificar decisão real na RPI</button>`
     : "";
   return step({ id: "agent", number: 4, title: "Agente de Registrabilidade", subtitle: `Versão ${item.versao_agente} · decisão baseada em evidências`, state, stateLabel: item.abstencao ? "Dados insuficientes" : label(item.decisao), body: `
-    <div class="analysis-grid"><div class="analysis-stat"><span>Cenário consolidado</span><strong>${escapeHtml(label(item.decisao))}</strong></div><div class="analysis-stat"><span>Chance histórica estimada</span><strong>${escapeHtml(probability)}</strong><small>Faixa ${escapeHtml(interval)}</small></div><div class="analysis-stat"><span>Cobertura conjunta</span><strong>${percent(item.cobertura)}</strong></div>${outcome}</div>
+    <div class="analysis-grid"><div class="analysis-stat"><span>Cenário consolidado</span><strong>${escapeHtml(label(item.decisao))}</strong></div><div class="analysis-stat"><span>Indicador histórico de registrabilidade</span><strong>${escapeHtml(probability)}</strong><small>Faixa ${escapeHtml(interval)}</small></div><div class="analysis-stat"><span>Cobertura conjunta</span><strong>${percent(item.cobertura)}</strong></div>${outcome}</div>
     ${reasons ? `<h3>Fundamentos da decisão</h3><ul class="analysis-alerts">${reasons}</ul>` : ""}
     <p class="analysis-empty">${escapeHtml(item.aviso)}</p><div class="analysis-action-row">${reconcile}</div>` });
 }
@@ -172,8 +172,21 @@ function renderOpinion(data) {
 
 function renderReport(data) {
   const report = data.relatorio_completo;
-  const action = data.permissoes.relatorio_gerar && report.base_disponivel ? `<button id="generate-full-report" class="primary-button" type="button">${report.gerado ? "Baixar completo novamente" : "Gerar relatório completo"}</button>` : "";
-  return step({ id: "report", number: 5, title: "Relatório completo", subtitle: "Documento interno para revisão e contato com o cliente", state: report.gerado ? "completed" : "pending", stateLabel: report.gerado ? "Já gerado" : "Não gerado", body: `<div class="analysis-grid"><div class="analysis-stat"><span>Status</span><strong>${report.gerado ? "Completo gerado" : "Completo não gerado"}</strong></div><div class="analysis-stat"><span>Primeira geração</span><strong>${formatDate(report.gerado_em)}</strong></div><div class="analysis-stat"><span>Responsável</span><strong>${escapeHtml(report.gerado_por || "Não informado")}</strong></div></div><p class="analysis-empty">Gere o documento após conferir as evidências. A primeira geração é registrada de forma permanente.</p><div class="analysis-action-row">${action}</div>` });
+  const workflow = data.workflow;
+  const validated = workflow.state === "VALIDATED";
+  const action = data.permissoes.relatorio_gerar && report.base_disponivel && validated ? `<button id="generate-full-report" class="primary-button" type="button">${report.gerado ? "Baixar completo novamente" : "Gerar relatório validado"}</button>` : "";
+  const transitions = {
+    PENDING_REVIEW: [["START_REVIEW", "Iniciar revisão"]],
+    IN_REVIEW: [["VALIDATE", "Validar versão"], ["REQUEST_CHANGES", "Solicitar ajustes"]],
+    CHANGES_REQUESTED: [["START_REVIEW", "Retomar revisão"]],
+    VALIDATED: [["REOPEN", "Reabrir análise"]],
+  }[workflow.state] || [];
+  const allowedTransitions = transitions.filter(([key]) => key !== "VALIDATE" || data.permissoes.workflow_validar);
+  const workflowForm = data.permissoes.workflow_revisar && allowedTransitions.length ? `<form id="workflow-form" class="analysis-action-form"><label>Ação<select name="action" required>${allowedTransitions.map(([value, text]) => `<option value="${value}">${text}</option>`).join("")}</select></label><label class="wide">Notas da revisão<textarea name="notes" minlength="3" maxlength="4000" rows="3" placeholder="Registre a justificativa da transição"></textarea></label><button class="primary-button" type="submit">Atualizar workflow</button></form>` : "";
+  const history = (workflow.history || []).map(item => `<li><strong>${escapeHtml(item.after?.state || item.details?.action || "Tentativa")}</strong> · ${escapeHtml(item.actor)} · ${formatDate(item.created_at)}${item.success ? "" : ` · bloqueada: ${escapeHtml(item.details?.reason || "regra do workflow")}`}</li>`).join("");
+  const reportState = report.gerado ? "completed" : workflow.review_required ? "attention" : "pending";
+  const stateLabel = report.gerado ? "Relatório validado" : workflow.review_required ? "Revisão pendente" : "Pronto para emissão";
+  return step({ id: "report", number: 5, title: "Workflow humano e relatório", subtitle: "Validação formal vinculada à versão atual", state: reportState, stateLabel, body: `<div class="analysis-grid"><div class="analysis-stat"><span>Estado da análise</span><strong>${escapeHtml(label(workflow.state))}</strong></div><div class="analysis-stat"><span>Versão em revisão</span><strong>${escapeHtml(workflow.report_version || "—")}</strong></div><div class="analysis-stat"><span>Validado por</span><strong>${escapeHtml(workflow.validated_by || "Pendente")}</strong></div><div class="analysis-stat"><span>Validado em</span><strong>${formatDate(workflow.validated_at)}</strong></div></div>${workflow.notes ? `<div class="analysis-opinion">${escapeHtml(workflow.notes)}</div>` : ""}<p class="analysis-empty">Enquanto a revisão obrigatória estiver pendente, o documento não pode ser emitido como relatório completo validado.</p>${workflowForm}${history ? `<h3>Histórico do workflow</h3><ul class="analysis-alerts">${history}</ul>` : ""}<div class="analysis-action-row">${action}</div>` });
 }
 
 function renderProgress(data) {
@@ -182,7 +195,7 @@ function renderProgress(data) {
     ["risk", "Motor de risco", data.permissoes.risco_visualizar ? (data.risco ? (data.risco.avaliado_em ? "completed" : "attention") : "pending") : "restricted"],
     ["learning", "Aprendizado", data.permissoes.aprendizado_visualizar ? (data.aprendizado ? (data.aprendizado.avaliado_em ? "completed" : ((data.aprendizado.alertas_qualidade || []).length ? "attention" : "pending")) : "pending") : "restricted"],
     ["opinion", "Parecer humano", data.risco?.avaliado_em ? "completed" : "pending"],
-    ["report", "Relatório completo", data.relatorio_completo.gerado ? "completed" : "pending"],
+    ["report", "Workflow e relatório", data.relatorio_completo.gerado ? "completed" : (data.workflow.review_required ? "attention" : "pending")],
   ];
   progress.innerHTML = steps.map(([id, title, state], index) => `<li class="${state}"><a href="#step-${id}"><i>${state === "completed" ? "✓" : index + 1}</i><span>${escapeHtml(title)}</span></a></li>`).join("");
 }
@@ -278,6 +291,7 @@ sections.addEventListener("submit", async event => {
   try {
     if (form.id === "risk-review-form") await sendJson(`/v1/admin/fase3/avaliacoes/${form.dataset.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nivel_humano: values.get("nivel_humano"), avaliador: values.get("avaliador"), observacoes_humanas: values.get("observacoes_humanas") }) });
     if (form.id === "learning-review-form") await sendJson(`/v1/admin/aprendizado/previsoes/${form.dataset.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nivel_humano: values.get("nivel_humano"), avaliador: values.get("avaliador"), observacoes: values.get("observacoes_humanas") }) });
+    if (form.id === "workflow-form") await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/workflow`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: values.get("action"), notes: values.get("notes")?.trim() || null }) });
     showMessage("Etapa atualizada com sucesso.", "success"); await load();
   } catch (error) { showMessage(error.message, "error"); button.disabled = false; }
 });

@@ -29,8 +29,10 @@ function itemCard(item) {
   const normalizedStatus = item.situacao_normalizada ? `<p class="normalized-status">Leitura padronizada: ${escapeHtml(item.situacao_normalizada.replaceAll("_", " "))}</p>` : "";
   const relevance = `<span class="affinity-badge ${escapeHtml(item.relevancia || "baixa")}" title="${escapeHtml((item.justificativas_relevancia || []).join(" · "))}">${escapeHtml(item.relevancia_rotulo || "Baixa relevância aparente")}</span>`;
   const rpi = item.ultima_rpi ? `<p class="result-date">Última movimentação: RPI ${escapeHtml(item.ultima_rpi)} · ${dateLabel(item.data_ultima_rpi)}</p>` : "";
+  const scoreFactors = (item.fatores_score_busca || []).map((factor) => `${factor.regra}: +${factor.peso}`).join(" · ");
+  const searchScore = `<span class="class-badge" title="${escapeHtml(scoreFactors)}">Score de busca ${Number(item.score_busca || 0).toFixed(1)}</span>`;
   return `<a class="result-card" href="${escapeHtml(item.url_detalhe || `/processos/${encodeURIComponent(item.numero)}`)}">
-    <div><div class="result-topline"><span class="type-badge marca">Marca</span><span class="process-number">${escapeHtml(item.numero)}</span>${classes.length ? `<span class="class-badge">${escapeHtml(classes.join(", "))}</span>` : ""}${highRenown}</div>
+    <div><div class="result-topline"><span class="type-badge marca">Marca</span><span class="process-number">${escapeHtml(item.numero)}</span>${classes.length ? `<span class="class-badge">${escapeHtml(classes.join(", "))}</span>` : ""}${searchScore}${highRenown}</div>
     <h3 class="result-title">${escapeHtml(item.titulo || "Elemento nominativo não informado")}</h3><p class="result-owner">${escapeHtml(ownersLabel(item.titulares))}</p><div class="match-reasons" aria-label="Motivos da ocorrência">${relevance}${reasons}${affinityBadge}</div></div>
     <div class="result-meta"><p class="result-status">${escapeHtml(item.situacao || "Situação não informada")}</p>${normalizedStatus}<p class="result-date">Depósito: ${dateLabel(item.data_deposito)}</p>${rpi}</div></a>`;
 }
@@ -59,7 +61,7 @@ async function loadReport() {
       box.dataset.veredito = prognostico.veredito;
       const motivos = (prognostico.motivos || []).map((m) => `<li><strong>${escapeHtml(m.criterio)}:</strong> ${escapeHtml(m.conclusao)} <small>(${escapeHtml(m.referencia)})</small></li>`).join("");
       const pendencias = (prognostico.pendencias || []).map((p) => escapeHtml(p)).join(" · ");
-      box.innerHTML = `<div><p class="eyebrow">Prognóstico de registrabilidade</p><h2>${escapeHtml(prognostico.titulo)}</h2><p class="prognostico-tag" data-veredito="${escapeHtml(prognostico.veredito)}">Tendência: ${escapeHtml(rotulos[prognostico.veredito] || prognostico.veredito)}</p></div>
+      box.innerHTML = `<div><p class="eyebrow">Triagem determinística de registrabilidade</p><h2>${escapeHtml(prognostico.titulo)}</h2><p class="prognostico-tag" data-veredito="${escapeHtml(prognostico.veredito)}">Leitura técnica: ${escapeHtml(rotulos[prognostico.veredito] || prognostico.veredito)}</p></div>
         <p>${escapeHtml(prognostico.resumo)}</p>
         ${motivos ? `<p><strong>Motivos identificados:</strong></p><ul class="prognostico-motivos">${motivos}</ul>` : ""}
         ${pendencias ? `<p><strong>Ainda dependem de avaliação:</strong> ${pendencias}.</p>` : ""}

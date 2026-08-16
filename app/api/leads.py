@@ -1121,6 +1121,13 @@ class PropostaInput(BaseModel):
     observacoes: str | None = Field(default=None, max_length=4000)
 
 
+# Valores padrão do rascunho comercial quando a proposta é criada diretamente
+# pelo funil, sem interromper o usuário para preencher um formulário.
+HONORARIOS_PROPOSTA_PADRAO = Decimal("1500.00")
+TAXA_GRU_PROPOSTA_PADRAO = Decimal("415.00")
+CONDICOES_PROPOSTA_PADRAO = "50% na contratação e 50% no protocolo"
+
+
 class PropostaStatusInput(BaseModel):
     status: Literal["rascunho", "enviada", "visualizada", "aceita", "recusada", "expirada", "cancelada"]
 
@@ -1441,6 +1448,11 @@ async def criar_proposta(
     lead_id: int, dados: PropostaInput, session: SessionDep, usuario: LeadsManageDep
 ) -> dict:
     lead = await _lead_da_org(session, lead_id, usuario.organizacao_id)
+    lead_obj = (
+        await session.execute(
+            select(Lead).where(Lead.id == lead, Lead.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one()
     pesquisa = (
         await session.execute(
             select(PesquisaMarca)
@@ -1457,12 +1469,12 @@ async def criar_proposta(
         marca=dados.marca or (pesquisa.marca if pesquisa else None),
         classes=dados.classes or (pesquisa.classe_nice if pesquisa else None),
         escopo=dados.escopo.strip(),
-        honorarios=dados.honorarios,
-        taxa_gru=dados.taxa_gru,
-        condicoes_pagamento=dados.condicoes_pagamento,
+        honorarios=dados.honorarios if dados.honorarios is not None else HONORARIOS_PROPOSTA_PADRAO,
+        taxa_gru=dados.taxa_gru if dados.taxa_gru is not None else TAXA_GRU_PROPOSTA_PADRAO,
+        condicoes_pagamento=dados.condicoes_pagamento or CONDICOES_PROPOSTA_PADRAO,
         observacoes=dados.observacoes,
         criado_por=usuario.id,
-        dados={"cliente": lead.nome, "email": lead.email, "protocolo_prazo": "24 horas úteis"},
+        dados={"cliente": lead_obj.nome, "email": lead_obj.email, "protocolo_prazo": "24 horas úteis"},
     )
     session.add(proposta)
     await session.flush()

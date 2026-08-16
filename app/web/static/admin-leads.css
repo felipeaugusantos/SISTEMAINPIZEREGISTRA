@@ -816,6 +816,53 @@ table.lead-docs select {
   min-width: 0;
 }
 
+/* Ações da proposta precisam de espaço próprio para não serem cortadas pela tabela. */
+.lead-propostas .doc-table-scroll {
+  overflow-x: auto;
+}
+
+.lead-propostas table.lead-proposals-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.lead-propostas table.lead-proposals-table th:nth-child(1),
+.lead-propostas table.lead-proposals-table td:nth-child(1) { width: 14%; }
+.lead-propostas table.lead-proposals-table th:nth-child(2),
+.lead-propostas table.lead-proposals-table td:nth-child(2) { width: 9%; }
+.lead-propostas table.lead-proposals-table th:nth-child(3),
+.lead-propostas table.lead-proposals-table td:nth-child(3) { width: 18%; }
+.lead-propostas table.lead-proposals-table th:nth-child(4),
+.lead-propostas table.lead-proposals-table td:nth-child(4) { width: 13%; }
+.lead-propostas table.lead-proposals-table th:nth-child(5),
+.lead-propostas table.lead-proposals-table td:nth-child(5) { width: 13%; }
+.lead-propostas table.lead-proposals-table th:nth-child(6),
+.lead-propostas table.lead-proposals-table td:nth-child(6) { width: 33%; }
+
+.lead-propostas .proposal-actions {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 6px;
+}
+
+.lead-propostas .proposal-actions .secondary-button {
+  min-width: 0;
+  width: 100%;
+  padding: 8px 7px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.15;
+}
+
+@media (max-width: 560px) {
+  .lead-propostas .proposal-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .chk-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -64,7 +64,7 @@ def test_admin_leads_requires_authentication() -> None:
     assert response.status_code == 200
     assert "Leads e pesquisas" in response.text
     assert 'data-admin-section="leads"' in response.text
-    assert "/static/admin-leads.css?v=11" in response.text
+    assert "/static/admin-leads.css?v=12" in response.text
     assert client.get("/static/admin-leads.css").status_code == 200
     script = client.get("/static/admin-leads.js")
     assert "renderPropostas" in script.text
@@ -154,7 +154,7 @@ def test_leads_exibe_status_e_acao_do_relatorio_completo() -> None:
     script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
     styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
 
-    assert "admin-leads.js?v=44" in page
+    assert "admin-leads.js?v=47" in page
     assert "Pipeline de atendimento" in page
     assert 'data-priority="atrasadas"' in page
     assert "Histórico de pesquisas" in page

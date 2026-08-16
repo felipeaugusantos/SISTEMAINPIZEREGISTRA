@@ -402,6 +402,7 @@ async function openLead(id) {
   await renderPropostas(lead);
 }
 
+// Criação direta: mantém o botão sem prompts e usa os dados já disponíveis.
 const FASE_LABELS = {
   contato_inicial: "Contato inicial",
   relatorio_enviado: "Relatório enviado",
@@ -1077,8 +1078,8 @@ async function renderPropostas(lead) {
   if (!box) return;
   try {
     const data = await (await fetch(`/v1/admin/leads/${lead.id}/propostas`)).json();
-    const rows = (data.propostas || []).map(p => `<tr><td>${escapeHtml(p.numero)}</td><td>v${p.versao}</td><td>${escapeHtml(p.marca || "A definir")}</td><td><span class="role-badge">${escapeHtml(p.status)}</span></td><td>${formatCurrency(p.total)}</td><td><button class="secondary-button proposal-pdf" data-id="${p.id}" type="button">PDF</button><button class="secondary-button proposal-link" data-id="${p.id}" type="button">Gerar link</button><button class="secondary-button proposal-preview" data-id="${p.id}" type="button">Visualizar</button>${state.canManage && p.status === "rascunho" ? `<button class="secondary-button proposal-send" data-id="${p.id}" type="button">Enviar por e-mail</button>` : ""}${state.canManage && p.status === "enviada" ? `<button class="secondary-button proposal-accept" data-id="${p.id}" type="button">Registrar aceite</button>` : ""}</td></tr>`).join("");
-    box.innerHTML = `<header><div><p class="eyebrow">Comercial</p><h3>Propostas de registro</h3></div>${state.canManage ? `<button id="new-proposal" class="secondary-button" type="button">Criar proposta</button>` : ""}</header>${rows ? `<div class="doc-table-scroll"><table class="lead-docs"><thead><tr><th>Número</th><th>Versão</th><th>Marca</th><th>Status</th><th>Total</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<p>Nenhuma proposta criada.</p>`}`;
+    const rows = (data.propostas || []).map(p => `<tr><td data-label="Número">${escapeHtml(p.numero)}</td><td data-label="Versão">v${p.versao}</td><td data-label="Marca">${escapeHtml(p.marca || "A definir")}</td><td data-label="Status"><span class="role-badge">${escapeHtml(p.status)}</span></td><td data-label="Total">${formatCurrency(p.total)}</td><td data-label="Ações"><div class="proposal-actions"><button class="secondary-button proposal-pdf" data-id="${p.id}" type="button">PDF</button><button class="secondary-button proposal-link" data-id="${p.id}" type="button">Gerar link</button><button class="secondary-button proposal-preview" data-id="${p.id}" type="button">Visualizar</button>${state.canManage && p.status === "rascunho" ? `<button class="secondary-button proposal-send" data-id="${p.id}" type="button">Enviar por e-mail</button>` : ""}${state.canManage && p.status === "enviada" ? `<button class="secondary-button proposal-accept" data-id="${p.id}" type="button">Registrar aceite</button>` : ""}</div></td></tr>`).join("");
+    box.innerHTML = `<header><div><p class="eyebrow">Comercial</p><h3>Propostas de registro</h3></div>${state.canManage ? `<button id="new-proposal" class="secondary-button" type="button">Criar proposta</button>` : ""}</header>${rows ? `<div class="doc-table-scroll"><table class="lead-docs lead-proposals-table"><thead><tr><th>Número</th><th>Versão</th><th>Marca</th><th>Status</th><th>Total</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<p>Nenhuma proposta criada.</p>`}`;
     box.querySelector("#new-proposal")?.addEventListener("click", () => criarProposta(lead, box));
     box.querySelectorAll(".proposal-preview").forEach(button => button.addEventListener("click", () => visualizarProposta(button.dataset.id)));
     box.querySelectorAll(".proposal-pdf").forEach(button => button.addEventListener("click", () => window.open(`/v1/admin/propostas/${button.dataset.id}/pdf`, "_blank")));
@@ -1103,13 +1104,13 @@ function formatCurrency(value) {
 
 async function criarProposta(lead, box) {
   const payload = {
-    validade_em: prompt("Validade da proposta (AAAA-MM-DD):", "") || null,
-    marca: prompt("Marca:", lead.pesquisas?.[0]?.marca || "") || null,
-    classes: prompt("Classes Nice:", lead.pesquisas?.[0]?.classe_nice || "") || null,
-    escopo: prompt("Escopo:", "Pesquisa, preparação e protocolo de registro de marca no INPI") || "Registro de marca no INPI",
-    honorarios: Number(prompt("Honorários (R$):", "0") || 0),
-    taxa_gru: Number(prompt("Taxa GRU estimada (R$):", "0") || 0),
-    condicoes_pagamento: prompt("Condições de pagamento:", "") || null,
+    validade_em: null,
+    marca: lead.pesquisas?.[0]?.marca || null,
+    classes: lead.pesquisas?.[0]?.classe_nice || null,
+    escopo: "Pesquisa, preparação e protocolo de registro de marca no INPI",
+    honorarios: 1500,
+    taxa_gru: 415,
+    condicoes_pagamento: "50% na contratação e 50% no protocolo",
   };
   const response = await fetch(`/v1/admin/leads/${lead.id}/propostas`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   if (response.ok) await renderPropostas(lead, box);

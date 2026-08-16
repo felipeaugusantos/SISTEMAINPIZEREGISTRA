@@ -361,6 +361,7 @@ async function openLead(id) {
     <section class="lead-history lg-full"><header><div><p class="eyebrow">Histórico</p><h3>${lead.pesquisas.length} pesquisa${lead.pesquisas.length === 1 ? "" : "s"}</h3></div></header>${lead.pesquisas.length ? lead.pesquisas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
     <section class="lead-documentos lg-full" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section>
     <section class="lead-guias lg-full" id="lead-guias"><p class="lead-funil-loading">Carregando guias do INPI…</p></section>
+    <section class="lead-propostas lg-full" id="lead-propostas"><p class="lead-funil-loading">Carregando propostas…</p></section>
     <section class="lead-checklist" id="lead-checklist"><p class="lead-funil-loading">Carregando checklist…</p></section>
     ${state.canManage ? `<form id="lead-crm-form" data-lead-id="${lead.id}" class="lead-crm-form">
       <label><span>Status</span><select name="status">${statusOptions(lead.status)}</select></label>
@@ -398,6 +399,7 @@ async function openLead(id) {
   await renderDocumentos(lead.id);
   await renderChecklistFase(lead.id);
   await renderGuiasInpi(lead.id);
+  await renderPropostas(lead);
 }
 
 const FASE_LABELS = {
@@ -1070,3 +1072,54 @@ loadOwners().then(async () => {
   const leadId = new URLSearchParams(location.search).get("lead_id");
   if (/^\d+$/.test(leadId || "")) await openLead(Number(leadId));
 });
+async function renderPropostas(lead) {
+  const box = document.querySelector("#lead-propostas");
+  if (!box) return;
+  try {
+    const data = await (await fetch(`/v1/admin/leads/${lead.id}/propostas`)).json();
+    const rows = (data.propostas || []).map(p => `<tr><td>${escapeHtml(p.numero)}</td><td>v${p.versao}</td><td>${escapeHtml(p.marca || "A definir")}</td><td><span class="role-badge">${escapeHtml(p.status)}</span></td><td>${formatCurrency(p.total)}</td><td><button class="secondary-button proposal-pdf" data-id="${p.id}" type="button">PDF</button><button class="secondary-button proposal-link" data-id="${p.id}" type="button">Gerar link</button><button class="secondary-button proposal-preview" data-id="${p.id}" type="button">Visualizar</button>${state.canManage && p.status === "rascunho" ? `<button class="secondary-button proposal-send" data-id="${p.id}" type="button">Enviar por e-mail</button>` : ""}${state.canManage && p.status === "enviada" ? `<button class="secondary-button proposal-accept" data-id="${p.id}" type="button">Registrar aceite</button>` : ""}</td></tr>`).join("");
+    box.innerHTML = `<header><div><p class="eyebrow">Comercial</p><h3>Propostas de registro</h3></div>${state.canManage ? `<button id="new-proposal" class="secondary-button" type="button">Criar proposta</button>` : ""}</header>${rows ? `<div class="doc-table-scroll"><table class="lead-docs"><thead><tr><th>Número</th><th>Versão</th><th>Marca</th><th>Status</th><th>Total</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<p>Nenhuma proposta criada.</p>`}`;
+    box.querySelector("#new-proposal")?.addEventListener("click", () => criarProposta(lead, box));
+    box.querySelectorAll(".proposal-preview").forEach(button => button.addEventListener("click", () => visualizarProposta(button.dataset.id)));
+    box.querySelectorAll(".proposal-pdf").forEach(button => button.addEventListener("click", () => window.open(`/v1/admin/propostas/${button.dataset.id}/pdf`, "_blank")));
+    box.querySelectorAll(".proposal-link").forEach(button => button.addEventListener("click", async () => {
+      const response = await fetch(`/v1/admin/propostas/${button.dataset.id}/link`, { method: "POST" });
+      if (response.ok) { const data = await response.json(); await navigator.clipboard?.writeText(data.link); alert(`Link gerado e copiado:\n${data.link}`); }
+      else alert("NÃ£o foi possÃ­vel gerar o link.");
+    }));
+    box.querySelectorAll(".proposal-send, .proposal-accept").forEach(button => button.addEventListener("click", async () => {
+      const response = button.classList.contains("proposal-send")
+        ? await fetch(`/v1/admin/propostas/${button.dataset.id}/enviar`, { method: "POST" })
+        : await fetch(`/v1/admin/propostas/${button.dataset.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "aceita" }) });
+      if (response.ok) await renderPropostas(lead);
+      else alert("Não foi possível atualizar a proposta.");
+    }));
+  } catch { box.innerHTML = "<p class=\"status-message error\">Não foi possível carregar as propostas.</p>"; }
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
+}
+
+async function criarProposta(lead, box) {
+  const payload = {
+    validade_em: prompt("Validade da proposta (AAAA-MM-DD):", "") || null,
+    marca: prompt("Marca:", lead.pesquisas?.[0]?.marca || "") || null,
+    classes: prompt("Classes Nice:", lead.pesquisas?.[0]?.classe_nice || "") || null,
+    escopo: prompt("Escopo:", "Pesquisa, preparação e protocolo de registro de marca no INPI") || "Registro de marca no INPI",
+    honorarios: Number(prompt("Honorários (R$):", "0") || 0),
+    taxa_gru: Number(prompt("Taxa GRU estimada (R$):", "0") || 0),
+    condicoes_pagamento: prompt("Condições de pagamento:", "") || null,
+  };
+  const response = await fetch(`/v1/admin/leads/${lead.id}/propostas`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  if (response.ok) await renderPropostas(lead, box);
+  else alert("Não foi possível criar a proposta.");
+}
+
+async function visualizarProposta(id) {
+  const response = await fetch(`/v1/admin/propostas/${id}/documento`);
+  if (!response.ok) return alert("Não foi possível abrir a proposta.");
+  const data = await response.json();
+  const win = window.open("", "_blank", "noopener,noreferrer");
+  if (win) win.document.write(`<pre style="white-space:pre-wrap;font:16px/1.5 Arial;padding:32px">${escapeHtml(data.texto)}</pre>`);
+}

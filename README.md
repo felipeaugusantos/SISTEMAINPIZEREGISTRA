@@ -48,6 +48,7 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 - **resultados e motivos de perda** estruturados (ganho/perdido: preço, concorrente, sem resposta, fora do perfil);
 - **linha do tempo unificada** por oportunidade (criação, mudanças de fase, contatos, pesquisas, documentos, GRUs e desfecho);
 - **documentos** por oportunidade (procuração, GRU, protocolo, oposição, certificado) e **checklist por etapa** do funil;
+- **propostas comerciais versionadas** por oportunidade, com aceite registrado, dados institucionais da Zé Registra e prazo operacional de protocolo em até 24 horas úteis após aceite, pagamento e documentos completos;
 - **guias do INPI (GRU)**: sugestão por fase a partir da tabela de retribuições, registro da guia emitida e controle de vencimento;
 - **dashboard de funil e produtividade** (conversão, ganhos/perdidas, perdas por motivo e desempenho por responsável) na Visão Geral;
 - **automações**: ao mudar a fase ou o status, o sistema cria a tarefa correspondente — configurável em Configuração › Regras automáticas;

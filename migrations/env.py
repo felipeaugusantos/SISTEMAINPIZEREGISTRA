@@ -11,6 +11,7 @@ from app.models import (  # noqa: F401
     Movimentacao,
     PesquisaMarca,
     Processo,
+    PropostaComercial,
     Titular,
 )
 from app.settings import get_settings

@@ -66,6 +66,9 @@ def test_admin_leads_requires_authentication() -> None:
     assert 'data-admin-section="leads"' in response.text
     assert "/static/admin-leads.css?v=11" in response.text
     assert client.get("/static/admin-leads.css").status_code == 200
+    script = client.get("/static/admin-leads.js")
+    assert "renderPropostas" in script.text
+    assert "/v1/admin/leads/${lead.id}/propostas" in script.text
     _limpar_auth()
 
 

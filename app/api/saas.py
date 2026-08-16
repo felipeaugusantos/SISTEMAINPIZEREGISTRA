@@ -69,6 +69,7 @@ class OrganizacaoInput(BaseModel):
 
 class OrganizacaoUpdate(BaseModel):
     nome: str | None = Field(default=None, min_length=2, max_length=180)
+    documento: str | None = Field(default=None, max_length=30)
     plano_id: int | None = None
     status: str | None = Field(default=None, pattern=r"^(ativa|trial|suspensa|cancelada)$")
     assinatura_status: str | None = Field(default=None, max_length=30)

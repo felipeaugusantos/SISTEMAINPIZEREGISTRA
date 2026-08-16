@@ -1,13 +1,16 @@
 import csv
+import hashlib
+import html
 import io
+import secrets
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import case, exists, func, or_, select
+from sqlalchemy import case, desc, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -20,6 +23,7 @@ from app.crm import (
     sincronizar_fase_por_status,
 )
 from app.database import get_session
+from app.emailing import enviar_proposta_email
 from app.models import (
     MOTIVOS_PERDA,
     ORDEM_FASE_LEAD,
@@ -38,7 +42,9 @@ from app.models import (
     HistoricoFaseLead,
     Lead,
     LembreteCRM,
+    Organizacao,
     PesquisaMarca,
+    PropostaComercial,
     RetribuicaoInpi,
     SolicitacaoExclusaoPesquisa,
     StatusLead,
@@ -48,7 +54,7 @@ from app.models import (
 from app.normalization import normalizar_numero_processo
 from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
-from app.relatorios import gerar_pdf_relatorio
+from app.relatorios import gerar_pdf_proposta, gerar_pdf_relatorio
 from app.schemas import (
     LeadCreate,
     LeadDetalheResponse,
@@ -58,6 +64,7 @@ from app.schemas import (
     PesquisaLeadResumo,
     RelatorioMarcaResponse,
 )
+from app.settings import get_settings
 from app.tenancy import OrganizacaoPublicaDep
 from app.trademarks.analysis_workflow import EstadoAnalise, revisao_obrigatoria_pendente
 
@@ -1103,6 +1110,21 @@ class DocumentosInput(BaseModel):
     documentos: list[DocumentoInput] = Field(default_factory=list)
 
 
+class PropostaInput(BaseModel):
+    validade_em: date | None = None
+    marca: str | None = Field(default=None, max_length=200)
+    classes: str | None = Field(default=None, max_length=200)
+    escopo: str = Field(default="Registro de marca no INPI", min_length=5, max_length=4000)
+    honorarios: Decimal | None = Field(default=None, ge=0)
+    taxa_gru: Decimal | None = Field(default=None, ge=0)
+    condicoes_pagamento: str | None = Field(default=None, max_length=2000)
+    observacoes: str | None = Field(default=None, max_length=4000)
+
+
+class PropostaStatusInput(BaseModel):
+    status: Literal["rascunho", "enviada", "visualizada", "aceita", "recusada", "expirada", "cancelada"]
+
+
 async def _lead_da_org(session: AsyncSession, lead_id: int, organizacao_id: int) -> int:
     lead = (
         await session.execute(
@@ -1365,6 +1387,290 @@ async def remover_checklist_item(
     await session.delete(item)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- Propostas comerciais por lead ----------------------------------------
+
+
+def _proposta_dict(proposta: PropostaComercial, org: Organizacao | None = None) -> dict:
+    branding = (org.branding or {}) if org else {}
+    return {
+        "id": proposta.id,
+        "lead_id": proposta.lead_id,
+        "numero": proposta.numero,
+        "versao": proposta.versao,
+        "status": proposta.status,
+        "validade_em": proposta.validade_em,
+        "marca": proposta.marca,
+        "classes": proposta.classes,
+        "escopo": proposta.escopo,
+        "honorarios": proposta.honorarios,
+        "taxa_gru": proposta.taxa_gru,
+        "total": (proposta.honorarios or 0) + (proposta.taxa_gru or 0),
+        "condicoes_pagamento": proposta.condicoes_pagamento,
+        "observacoes": proposta.observacoes,
+        "enviado_em": proposta.enviado_em,
+        "aceito_em": proposta.aceito_em,
+        "criado_em": proposta.criado_em,
+        "empresa": {
+            "nome": org.nome if org else None,
+            **branding,
+        },
+    }
+
+
+@router.get("/v1/admin/leads/{lead_id}/propostas")
+async def listar_propostas(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
+    lead = await _lead_da_org(session, lead_id, usuario.organizacao_id)
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    itens = (
+        await session.execute(
+            select(PropostaComercial)
+            .where(
+                PropostaComercial.lead_id == lead,
+                PropostaComercial.organizacao_id == usuario.organizacao_id,
+            )
+            .order_by(desc(PropostaComercial.criado_em))
+        )
+    ).scalars().all()
+    return {"propostas": [_proposta_dict(item, org) for item in itens]}
+
+
+@router.post("/v1/admin/leads/{lead_id}/propostas", status_code=status.HTTP_201_CREATED)
+async def criar_proposta(
+    lead_id: int, dados: PropostaInput, session: SessionDep, usuario: LeadsManageDep
+) -> dict:
+    lead = await _lead_da_org(session, lead_id, usuario.organizacao_id)
+    pesquisa = (
+        await session.execute(
+            select(PesquisaMarca)
+            .where(PesquisaMarca.lead_id == lead, PesquisaMarca.organizacao_id == usuario.organizacao_id)
+            .order_by(PesquisaMarca.criado_em.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    proposta = PropostaComercial(
+        organizacao_id=usuario.organizacao_id,
+        lead_id=lead,
+        numero="TEMP",
+        validade_em=dados.validade_em,
+        marca=dados.marca or (pesquisa.marca if pesquisa else None),
+        classes=dados.classes or (pesquisa.classe_nice if pesquisa else None),
+        escopo=dados.escopo.strip(),
+        honorarios=dados.honorarios,
+        taxa_gru=dados.taxa_gru,
+        condicoes_pagamento=dados.condicoes_pagamento,
+        observacoes=dados.observacoes,
+        criado_por=usuario.id,
+        dados={"cliente": lead.nome, "email": lead.email, "protocolo_prazo": "24 horas úteis"},
+    )
+    session.add(proposta)
+    await session.flush()
+    proposta.numero = f"PROP-{datetime.now(UTC).year}-{proposta.id:06d}"
+    await session.commit()
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    return _proposta_dict(proposta, org)
+
+
+@router.patch("/v1/admin/propostas/{proposta_id}/status")
+async def atualizar_status_proposta(
+    proposta_id: int,
+    dados: PropostaStatusInput,
+    session: SessionDep,
+    usuario: LeadsManageDep,
+) -> dict:
+    proposta = (
+        await session.execute(
+            select(PropostaComercial).where(
+                PropostaComercial.id == proposta_id,
+                PropostaComercial.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if proposta is None:
+        raise HTTPException(status_code=404, detail="Proposta não encontrada")
+    agora = datetime.now(UTC)
+    proposta.status = dados.status
+    if dados.status == "enviada":
+        proposta.enviado_em = agora
+        lead = (
+            await session.execute(
+                select(Lead).where(
+                    Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id
+                )
+            )
+        ).scalar_one_or_none()
+        if lead and lead.fase:
+            await avancar_fase_lead(session, lead, "proposta_enviada", usuario.nome or "sistema")
+            await aplicar_regras_automacao(session, lead, "fase", "proposta_enviada", usuario.nome or "sistema")
+    elif dados.status == "aceita":
+        proposta.aceito_em = agora
+        lead = (
+            await session.execute(
+                select(Lead).where(
+                    Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id
+                )
+            )
+        ).scalar_one_or_none()
+        if lead and lead.fase:
+            await avancar_fase_lead(session, lead, "proposta_aceita", usuario.nome or "sistema")
+            await aplicar_regras_automacao(session, lead, "fase", "proposta_aceita", usuario.nome or "sistema")
+    await session.commit()
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    return _proposta_dict(proposta, org)
+
+
+@router.get("/v1/admin/propostas/{proposta_id}/documento")
+async def documento_proposta(
+    proposta_id: int, session: SessionDep, usuario: LeadsViewDep
+) -> dict:
+    proposta = (
+        await session.execute(
+            select(PropostaComercial).where(
+                PropostaComercial.id == proposta_id,
+                PropostaComercial.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if proposta is None:
+        raise HTTPException(status_code=404, detail="Proposta não encontrada")
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    return {
+        "proposta": _proposta_dict(proposta, org),
+        "texto": (
+            f"PROPOSTA DE REGISTRO DE MARCA\\n\\n{org.nome}\\n{(org.branding or {}).get('cnpj', '')}\\n"
+            f"{(org.branding or {}).get('endereco', '')}\\n"
+            f"Telefone: {(org.branding or {}).get('telefone', org.telefone_contato or '')}\\n"
+            f"E-mail: {(org.branding or {}).get('email', org.email_contato or '')}\\n"
+            f"Site: {(org.branding or {}).get('site', '')}\\n\\n"
+            f"Cliente: {proposta.dados.get('cliente', '')}\\nMarca: {proposta.marca or 'A definir'}\\n"
+            f"Classes: {proposta.classes or 'A definir'}\\n\\n{proposta.escopo}\\n\\n"
+            "Após aceite, pagamento e recebimento dos documentos, o protocolo será realizado em até 24 horas úteis.\\n"
+            "O protocolo não representa garantia de concessão; a decisão pertence ao INPI."
+        ),
+    }
+
+
+async def _proposta_por_token(session: AsyncSession, token: str) -> PropostaComercial | None:
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    proposta = (
+        await session.execute(
+            select(PropostaComercial).where(PropostaComercial.public_token_hash == digest)
+        )
+    ).scalar_one_or_none()
+    if proposta is None or not proposta.public_token_expira_em or proposta.public_token_expira_em < datetime.now(UTC):
+        return None
+    return proposta
+
+
+@router.get("/v1/admin/propostas/{proposta_id}/pdf")
+async def pdf_proposta(proposta_id: int, session: SessionDep, usuario: LeadsViewDep) -> Response:
+    proposta = (
+        await session.execute(
+            select(PropostaComercial).where(
+                PropostaComercial.id == proposta_id,
+                PropostaComercial.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if proposta is None:
+        raise HTTPException(status_code=404, detail="Proposta não encontrada")
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    pdf = gerar_pdf_proposta(_proposta_dict(proposta, org))
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="proposta-{proposta.numero}.pdf"'},
+    )
+
+
+@router.post("/v1/admin/propostas/{proposta_id}/link")
+async def criar_link_proposta(proposta_id: int, session: SessionDep, usuario: LeadsManageDep) -> dict:
+    proposta = (
+        await session.execute(
+            select(PropostaComercial).where(
+                PropostaComercial.id == proposta_id,
+                PropostaComercial.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if proposta is None:
+        raise HTTPException(status_code=404, detail="Proposta não encontrada")
+    token = secrets.token_urlsafe(40)
+    proposta.public_token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    proposta.public_token_expira_em = datetime.now(UTC) + timedelta(days=7)
+    await session.commit()
+    base = get_settings().app_public_url.rstrip("/")
+    return {"link": f"{base}/propostas/{token}", "expira_em": proposta.public_token_expira_em}
+
+
+@router.post("/v1/admin/propostas/{proposta_id}/enviar")
+async def enviar_link_proposta(proposta_id: int, session: SessionDep, usuario: LeadsManageDep) -> dict:
+    proposta = (
+        await session.execute(
+            select(PropostaComercial).where(
+                PropostaComercial.id == proposta_id,
+                PropostaComercial.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if proposta is None:
+        raise HTTPException(status_code=404, detail="Proposta não encontrada")
+    lead = (
+        await session.execute(select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    if lead is None or not lead.email:
+        raise HTTPException(status_code=422, detail="O lead não possui e-mail cadastrado")
+    token = secrets.token_urlsafe(40)
+    proposta.public_token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    proposta.public_token_expira_em = datetime.now(UTC) + timedelta(days=7)
+    proposta.status = "enviada"
+    proposta.enviado_em = datetime.now(UTC)
+    await session.commit()
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    link = f"{get_settings().app_public_url.rstrip('/')}/propostas/{token}"
+    pdf = gerar_pdf_proposta(_proposta_dict(proposta, org))
+    await enviar_proposta_email(lead.email, lead.nome, link, pdf, proposta.numero)
+    return {"link": link, "destinatario": lead.email, "expira_em": proposta.public_token_expira_em}
+
+
+@router.get("/propostas/{token}", response_class=HTMLResponse, include_in_schema=False)
+async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLResponse:
+    proposta = await _proposta_por_token(session, token)
+    if proposta is None:
+        return HTMLResponse("<h1>Link expirado</h1><p>Solicite uma nova proposta ao atendimento.</p>", status_code=404)
+    org = await session.get(Organizacao, proposta.organizacao_id)
+    def safe(value: object) -> str:
+        return html.escape(str(value or ""))
+    if proposta.status == "enviada":
+        proposta.status = "visualizada"
+        await session.commit()
+    return HTMLResponse(
+        f"""<!doctype html><html lang='pt-BR'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>Proposta {safe(proposta.numero)} - {safe(org.nome)}</title><style>body{{font:16px Arial;color:#17231c;background:#f5f7f5;margin:0;padding:24px}}main{{max-width:760px;margin:auto;background:white;padding:36px;border-radius:18px;border:1px solid #d8ddd6}}h1{{font-family:Georgia,serif}}.muted{{color:#5b665f}}.button{{display:inline-block;background:#086044;color:#fff;padding:13px 20px;border-radius:9px;text-decoration:none;border:0;font-weight:700;cursor:pointer}}</style>
+        <main><p class='muted'>{safe(org.nome)}</p><h1>Proposta de registro de marca</h1><p>Proposta <strong>{safe(proposta.numero)}</strong> · versão {proposta.versao}</p>
+        <h2>Marca</h2><p>{safe(proposta.marca or 'A definir')} · Classes {safe(proposta.classes or 'A definir')}</p><h2>Escopo</h2><p>{safe(proposta.escopo)}</p>
+        <p class='muted'>Após aceite, pagamento e documentação completa, o protocolo será realizado em até 24 horas úteis. O protocolo não garante a concessão da marca.</p>
+        <form method='post' action='/propostas/{token}/aceitar'><button class='button' type='submit'>Aceitar proposta</button></form></main></html>"""
+    )
+
+
+@router.post("/propostas/{token}/aceitar", response_class=HTMLResponse, include_in_schema=False)
+async def aceitar_proposta_publica(token: str, session: SessionDep) -> HTMLResponse:
+    proposta = await _proposta_por_token(session, token)
+    if proposta is None:
+        return HTMLResponse("<h1>Link expirado</h1>", status_code=404)
+    if proposta.public_aceito_em is None:
+        proposta.public_aceito_em = datetime.now(UTC)
+        proposta.aceito_em = proposta.public_aceito_em
+        proposta.status = "aceita"
+        lead = (
+            await session.execute(select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == proposta.organizacao_id))
+        ).scalar_one_or_none()
+        if lead is not None:
+            await avancar_fase_lead(session, lead, "proposta_aceita", "Cliente via link")
+        await session.commit()
+    return HTMLResponse("<h1>Proposta aceita</h1><p>Recebemos seu aceite. Nossa equipe dará continuidade ao atendimento.</p>")
 
 
 # --- Guias do INPI (GRU) por lead -----------------------------------------

@@ -69,6 +69,13 @@ class BrandingConfig(BaseModel):
     nome_exibido: str | None = Field(default=None, min_length=2, max_length=80)
     cor_primaria: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     logo_url: str | None = Field(default=None, max_length=500)
+    cnpj: str | None = Field(default=None, max_length=30)
+    endereco: str | None = Field(default=None, max_length=300)
+    telefone: str | None = Field(default=None, max_length=30)
+    email: str | None = Field(default=None, max_length=254)
+    site: str | None = Field(default=None, max_length=200)
+    atividade: str | None = Field(default=None, max_length=150)
+    fundacao: str | None = Field(default=None, max_length=20)
 
     @field_validator("nome_exibido", "logo_url", mode="before")
     @classmethod

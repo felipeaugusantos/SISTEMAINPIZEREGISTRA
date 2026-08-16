@@ -92,3 +92,32 @@ async def enviar_recuperacao_senha(destinatario: str, nome: str, token: str) -> 
                 await asyncio.sleep(min(2 ** (tentativa - 1), 4))
     if ultimo_erro is not None:
         raise ultimo_erro
+
+
+async def enviar_proposta_email(destinatario: str, nome: str, link: str, pdf_bytes: bytes, numero: str) -> None:
+    """Envia a proposta com link seguro e PDF anexado, quando SMTP estiver habilitado."""
+    settings = get_settings()
+    if not settings.email_enabled:
+        return
+    mensagem = EmailMessage()
+    mensagem["Subject"] = f"Proposta de registro de marca {numero} - Zé Registra"
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = destinatario
+    mensagem.set_content(
+        f"Olá, {nome or 'cliente'}.\n\n"
+        "Sua proposta de registro de marca está disponível no link abaixo:\n\n"
+        f"{link}\n\n"
+        "O PDF da proposta também está anexado."
+    )
+    mensagem.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=f"proposta-{numero}.pdf")
+    ultimo_erro: Exception | None = None
+    for tentativa in range(1, max(1, settings.smtp_max_attempts) + 1):
+        try:
+            await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+            return
+        except Exception as exc:
+            ultimo_erro = exc
+            if tentativa < settings.smtp_max_attempts:
+                await asyncio.sleep(min(2 ** (tentativa - 1), 4))
+    if ultimo_erro is not None:
+        raise ultimo_erro

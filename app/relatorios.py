@@ -12,7 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
@@ -47,6 +47,72 @@ _DISCLAIMER = (
     "oficial ao INPI nem a análise jurídica de registrabilidade, semelhança fonética ou "
     "afinidade mercadológica."
 )
+
+
+def gerar_pdf_proposta(proposta: dict) -> bytes:
+    """Gera a proposta comercial versionada em PDF a partir dos dados persistidos."""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=20 * mm,
+        leftMargin=20 * mm,
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
+        title=f"Proposta {proposta.get('numero', '')}",
+        author=proposta.get("empresa", {}).get("nome", "Zé Registra"),
+    )
+    estilos = _estilos()
+    estilos["proposta_titulo"] = ParagraphStyle(
+        "proposta_titulo", parent=estilos["titulo"], fontSize=25, leading=29, spaceAfter=12
+    )
+    estilos["proposta_secao"] = ParagraphStyle(
+        "proposta_secao", parent=estilos["secao"], fontSize=13, leading=16, spaceBefore=12
+    )
+    estilos["proposta_corpo"] = ParagraphStyle(
+        "proposta_corpo", parent=estilos["sub"], fontSize=10, leading=15, textColor=_COR_TINTA
+    )
+    estilos["proposta_rodape"] = ParagraphStyle(
+        "proposta_rodape", parent=estilos["sub"], fontSize=8, leading=10, alignment=TA_CENTER
+    )
+    empresa = proposta.get("empresa", {})
+    def p(texto: object, estilo: str = "proposta_corpo") -> Paragraph:
+        return Paragraph(escape(str(texto or "")).replace("\n", "<br/>"), estilos[estilo])
+
+    story = [
+        ReportImage(str(_CAMINHO_PERSONAGEM.parent / "logo-zeregistra.png"), width=58 * mm, height=15 * mm, kind="proportional"),
+        Spacer(1, 4 * mm),
+        p("PROPOSTA DE REGISTRO DE MARCA", "proposta_titulo"),
+        p(empresa.get("nome", "Zé Registra"), "marca"),
+        p(" · ".join(filter(None, [empresa.get("cnpj"), empresa.get("endereco")])), "sub"),
+        p(" · ".join(filter(None, [empresa.get("telefone"), empresa.get("email"), empresa.get("site")])), "sub"),
+        Spacer(1, 10 * mm),
+        p(f"Proposta {proposta.get('numero', '')} · Versão {proposta.get('versao', 1)}", "sub"),
+        p("1. Objeto", "proposta_secao"),
+        p(proposta.get("escopo", "Registro de marca no INPI")),
+        p("2. Dados da marca", "proposta_secao"),
+        p(f"Marca: {proposta.get('marca') or 'A definir'}<br/>Classes Nice: {proposta.get('classes') or 'A definir'}"),
+        p("3. Investimento", "proposta_secao"),
+    ]
+    valores = [
+        [p("Item", "sub"), p("Valor", "sub")],
+        [p("Honorários profissionais"), p(f"R$ {proposta.get('honorarios') or 0:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))],
+        [p("Taxa oficial GRU estimada"), p(f"R$ {proposta.get('taxa_gru') or 0:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))],
+        [p("Total estimado"), p(f"R$ {proposta.get('total') or 0:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))],
+    ]
+    tabela = Table(valores, colWidths=[125 * mm, 40 * mm])
+    tabela.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), _COR_MENTA),
+        ("GRID", (0, 0), (-1, -1), 0.5, _COR_LINHA),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    story.extend([tabela, p("4. Condições de pagamento", "proposta_secao"), p(proposta.get("condicoes_pagamento") or "A combinar"), p("5. Prazo operacional", "proposta_secao"), p("Após o aceite, confirmação do pagamento e recebimento integral dos documentos, o protocolo será realizado em até 24 horas úteis, salvo pendências ou indisponibilidade dos sistemas oficiais do INPI."), p("6. Condições importantes", "proposta_secao"), p("O protocolo não representa garantia de concessão. A decisão final pertence ao INPI. A pesquisa e a análise são indicativas e não substituem exame oficial ou análise jurídica especializada."), Spacer(1, 8 * mm), p("Esta proposta foi gerada pelo Zé Registra e possui versão auditável no sistema.", "proposta_rodape")])
+    doc.build(story)
+    return buffer.getvalue()
 
 
 def _estilos() -> dict[str, ParagraphStyle]:

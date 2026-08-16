@@ -1276,6 +1276,45 @@ class GuiaInpi(Base):
     )
 
 
+class PropostaComercial(Base):
+    """Proposta versionada de registro de marca vinculada a uma oportunidade."""
+
+    __tablename__ = "propostas_comerciais"
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "numero", name="uq_proposta_org_numero"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    lead_id: Mapped[int] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), index=True
+    )
+    numero: Mapped[str] = mapped_column(String(40), index=True)
+    versao: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(20), default="rascunho", index=True)
+    validade_em: Mapped[date | None] = mapped_column(Date, nullable=True)
+    marca: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    classes: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    escopo: Mapped[str] = mapped_column(Text, default="Registro de marca no INPI")
+    honorarios: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    taxa_gru: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    condicoes_pagamento: Mapped[str | None] = mapped_column(Text, nullable=True)
+    observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dados: Mapped[dict] = mapped_column(JSON, default=dict)
+    enviado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    aceito_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    public_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
+    public_token_expira_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    public_aceito_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    criado_por: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class CanalContato(StrEnum):
     TELEFONE = "telefone"
     EMAIL = "email"

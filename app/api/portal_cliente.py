@@ -14,10 +14,12 @@ from app.auth import hash_ip, hash_senha, hash_token, verificar_senha
 from app.proxy import requisicao_https
 from app.auth import exigir_permissao
 from app.database import get_session
+from app.emailing import enviar_recuperacao_portal
 from app.models import (
-    ArquivoClientePortal, AssinaturaDocumentoLead, ClientePortal, DocumentoLead, GuiaInpi, Lead,
-    MensagemClientePortal, NotificacaoClientePortal, Processo, PropostaComercial,
-    SessaoClientePortal, EventoAuditoria,
+    ArquivoClientePortal, AssinaturaDocumentoLead, AssinaturaPropostaComercial, ClientePortal, DocumentoLead, GuiaInpi, Lead,
+    LancamentoFinanceiro, MensagemClientePortal, NotificacaoClientePortal, ParcelaFinanceira,
+    Processo, PropostaComercial, RecuperacaoClientePortal, SessaoClientePortal, EventoAuditoria,
+    VersaoDocumentoLead,
 )
 
 router = APIRouter(tags=["portal-cliente"])
@@ -33,6 +35,15 @@ class ClienteLogin(BaseModel):
 
 class MensagemInput(BaseModel):
     mensagem: str = Field(min_length=1, max_length=4000)
+
+
+class RecuperacaoSolicitacao(BaseModel):
+    email: EmailStr
+
+
+class RecuperacaoRedefinicao(BaseModel):
+    token: str = Field(min_length=20, max_length=200)
+    nova_senha: str = Field(min_length=8, max_length=200)
 
 
 async def obter_cliente_portal(request: Request, session: SessionDep) -> ClientePortal:
@@ -61,6 +72,10 @@ def _auditar_cliente(session: AsyncSession, cliente: ClientePortal, request: Req
     session.add(EventoAuditoria(organizacao_id=cliente.organizacao_id, ator=cliente.email, acao=acao[:20], recurso=recurso[:180], sucesso=True, status_http=200, ip_hash=hash_ip(request.client.host if request.client else None), detalhes={"cliente_id": cliente.id}))
 
 
+def _auditar_operador(session: AsyncSession, usuario: object, request: Request, acao: str, recurso: str, detalhes: dict | None = None) -> None:
+    session.add(EventoAuditoria(organizacao_id=usuario.organizacao_id, actor_id=usuario.id, ator=usuario.ator, acao=acao[:20], recurso=recurso[:180], sucesso=True, status_http=200, ip_hash=hash_ip(request.client.host if request.client else None), detalhes=detalhes or {}))
+
+
 def _cliente_dict(cliente: ClientePortal) -> dict:
     return {"id": cliente.id, "lead_id": cliente.lead_id, "nome": cliente.nome, "email": cliente.email}
 
@@ -79,6 +94,41 @@ async def login_cliente(dados: ClienteLogin, request: Request, response: Respons
     return {"cliente": _cliente_dict(cliente)}
 
 
+@router.post("/v1/portal/recuperacao/solicitar")
+async def solicitar_recuperacao_portal(dados: RecuperacaoSolicitacao, request: Request, session: SessionDep) -> dict:
+    cliente = (await session.execute(select(ClientePortal).where(ClientePortal.email == str(dados.email).lower(), ClientePortal.ativo.is_(True)))).scalar_one_or_none()
+    # Resposta indistinguível evita enumeração de clientes.
+    if cliente is not None:
+        token = secrets.token_urlsafe(48)
+        session.add(RecuperacaoClientePortal(cliente_id=cliente.id, token_hash=hash_token(token), expira_em=datetime.now(UTC) + timedelta(minutes=30)))
+        _auditar_cliente(session, cliente, request, "recuperacao_solicitada", "portal:recuperacao")
+        await session.commit()
+        try:
+            await enviar_recuperacao_portal(cliente.email, cliente.nome, token)
+        except Exception:
+            # Não revelar existência da conta nem transformar falha de SMTP em vazamento.
+            pass
+    return {"status": "ok", "mensagem": "Se a conta existir, a recuperação foi criada."}
+
+
+@router.post("/v1/portal/recuperacao/redefinir")
+async def redefinir_acesso_portal(dados: RecuperacaoRedefinicao, request: Request, response: Response, session: SessionDep) -> dict:
+    registro = (await session.execute(select(RecuperacaoClientePortal).where(RecuperacaoClientePortal.token_hash == hash_token(dados.token), RecuperacaoClientePortal.usado_em.is_(None), RecuperacaoClientePortal.expira_em > datetime.now(UTC)))).scalar_one_or_none()
+    if registro is None:
+        raise HTTPException(status_code=400, detail="Token de recuperação inválido ou expirado")
+    cliente = await session.get(ClientePortal, registro.cliente_id)
+    if cliente is None or not cliente.ativo:
+        raise HTTPException(status_code=400, detail="Conta indisponível")
+    cliente.senha_hash = hash_senha(dados.nova_senha)
+    registro.usado_em = datetime.now(UTC)
+    for sessao in (await session.execute(select(SessaoClientePortal).where(SessaoClientePortal.cliente_id == cliente.id, SessaoClientePortal.revogada_em.is_(None)))).scalars():
+        sessao.revogada_em = datetime.now(UTC)
+    _auditar_cliente(session, cliente, request, "recuperacao_redefinida", "portal:recuperacao")
+    await session.commit()
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"status": "ok", "mensagem": "Acesso redefinido. Faça login novamente."}
+
+
 @router.post("/v1/portal/logout")
 async def logout_cliente(request: Request, response: Response, session: SessionDep) -> dict:
     token = request.cookies.get(SESSION_COOKIE)
@@ -86,13 +136,18 @@ async def logout_cliente(request: Request, response: Response, session: SessionD
         sessao = (await session.execute(select(SessaoClientePortal).where(SessaoClientePortal.token_hash == hash_token(token)))).scalar_one_or_none()
         if sessao:
             sessao.revogada_em = datetime.now(UTC)
+            cliente = await session.get(ClientePortal, sessao.cliente_id)
+            if cliente is not None:
+                _auditar_cliente(session, cliente, request, "logout_cliente", "portal:logout")
             await session.commit()
     response.delete_cookie(SESSION_COOKIE, path="/")
     return {"ok": True}
 
 
 @router.get("/v1/portal/me")
-async def portal_me(cliente: ClientDep) -> dict:
+async def portal_me(request: Request, cliente: ClientDep, session: SessionDep) -> dict:
+    _auditar_cliente(session, cliente, request, "consultar_perfil", "portal:me")
+    await session.commit()
     return {"cliente": _cliente_dict(cliente)}
 
 
@@ -110,46 +165,88 @@ async def criar_acesso_cliente(lead_id: int, request: Request, session: SessionD
         session.add(cliente)
     else:
         cliente.nome, cliente.email, cliente.senha_hash, cliente.ativo, cliente.bloqueado_em = lead.nome, lead.email.lower(), hash_senha(senha_temporaria), True, None
+    _auditar_operador(session, usuario, request, "criar_acesso_portal", f"lead:{lead_id}", {"cliente_id": cliente.id if cliente.id else None})
     await session.commit()
     return {"cliente": _cliente_dict(cliente), "senha_temporaria": senha_temporaria, "portal": "/portal"}
 
 
 @router.get("/v1/admin/leads/{lead_id}/portal-acesso")
-async def consultar_acesso_cliente(lead_id: int, session: SessionDep, usuario: ClientManageDep) -> dict:
+async def consultar_acesso_cliente(lead_id: int, request: Request, session: SessionDep, usuario: ClientManageDep) -> dict:
+    lead = (await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    if lead.responsavel_id != usuario.id and usuario.perfil != "administrador" and not usuario.superadmin:
+        raise HTTPException(status_code=403, detail="Somente o responsável pelo atendimento pode abrir este acesso")
     cliente = (await session.execute(select(ClientePortal).where(
         ClientePortal.lead_id == lead_id,
         ClientePortal.organizacao_id == usuario.organizacao_id,
     ))).scalar_one_or_none()
     if cliente is None:
         return {"existe": False, "ativo": False}
+    _auditar_operador(session, usuario, request, "consultar_acesso_portal", f"cliente:{cliente.id}")
+    await session.commit()
     return {"existe": True, "ativo": cliente.ativo and cliente.bloqueado_em is None, "cliente": _cliente_dict(cliente), "portal": "/portal"}
 
 
 @router.patch("/v1/admin/portal-clientes/{cliente_id}/acesso")
-async def alterar_acesso_cliente(cliente_id: int, ativo: bool, session: SessionDep, usuario: ClientManageDep) -> dict:
+async def alterar_acesso_cliente(cliente_id: int, ativo: bool, request: Request, session: SessionDep, usuario: ClientManageDep) -> dict:
     cliente = (await session.execute(select(ClientePortal).where(ClientePortal.id == cliente_id, ClientePortal.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
     if cliente is None:
         raise HTTPException(status_code=404, detail="Cliente do portal não encontrado")
+    lead = await session.get(Lead, cliente.lead_id)
+    if lead is not None and lead.responsavel_id != usuario.id and usuario.perfil != "administrador" and not usuario.superadmin:
+        raise HTTPException(status_code=403, detail="Somente o responsável pelo atendimento pode alterar este acesso")
     cliente.ativo = ativo
     if not ativo:
         for sessao in (await session.execute(select(SessaoClientePortal).where(SessaoClientePortal.cliente_id == cliente.id, SessaoClientePortal.revogada_em.is_(None)))).scalars():
             sessao.revogada_em = datetime.now(UTC)
+    _auditar_operador(session, usuario, request, "alterar_acesso_portal", f"cliente:{cliente.id}", {"ativo": ativo})
     await session.commit()
     return {"ok": True, "ativo": cliente.ativo}
 
 
 @router.get("/v1/portal/resumo")
-async def portal_resumo(cliente: ClientDep, session: SessionDep) -> dict:
-    lead = (await session.execute(select(Lead).where(Lead.id == cliente.lead_id))).scalar_one()
-    propostas = (await session.execute(select(PropostaComercial).where(PropostaComercial.lead_id == lead.id).order_by(PropostaComercial.criado_em.desc()))).scalars().all()
-    documentos = (await session.execute(select(DocumentoLead).where(DocumentoLead.lead_id == lead.id))).scalars().all()
-    guias = (await session.execute(select(GuiaInpi).where(GuiaInpi.lead_id == lead.id).order_by(GuiaInpi.criado_em.desc()))).scalars().all()
+async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDep) -> dict:
+    lead = (await session.execute(select(Lead).where(Lead.id == cliente.lead_id, Lead.organizacao_id == cliente.organizacao_id))).scalar_one()
+    propostas = (await session.execute(select(PropostaComercial).where(PropostaComercial.lead_id == lead.id, PropostaComercial.organizacao_id == cliente.organizacao_id).order_by(PropostaComercial.criado_em.desc()))).scalars().all()
+    documentos = (await session.execute(select(DocumentoLead).where(DocumentoLead.lead_id == lead.id, DocumentoLead.organizacao_id == cliente.organizacao_id))).scalars().all()
+    guias = (await session.execute(select(GuiaInpi).where(GuiaInpi.lead_id == lead.id, GuiaInpi.organizacao_id == cliente.organizacao_id).order_by(GuiaInpi.criado_em.desc()))).scalars().all()
+    pagamentos = (await session.execute(select(LancamentoFinanceiro).where(LancamentoFinanceiro.lead_id == lead.id, LancamentoFinanceiro.organizacao_id == cliente.organizacao_id).order_by(LancamentoFinanceiro.criado_em.desc()))).scalars().all()
+    parcelas = (await session.execute(select(ParcelaFinanceira).join(LancamentoFinanceiro).where(ParcelaFinanceira.organizacao_id == cliente.organizacao_id, LancamentoFinanceiro.lead_id == lead.id).order_by(ParcelaFinanceira.vencimento))).scalars().all()
     processos = []
     if lead.processo_numero:
         processo = (await session.execute(select(Processo).where(Processo.numero == lead.processo_numero))).scalar_one_or_none()
         if processo:
             processos.append({"numero": processo.numero, "titulo": processo.titulo, "situacao": processo.situacao})
-    return {"cliente": _cliente_dict(cliente), "lead": {"id": lead.id, "marca": lead.marca, "fase": lead.fase}, "processos": processos, "propostas": [{"id": p.id, "numero": p.numero, "status": p.status, "total": (p.honorarios or 0) + (p.taxa_gru or 0), "aceito_em": p.aceito_em, "sla_status": p.sla_status} for p in propostas], "documentos": [{"id": d.id, "tipo": d.tipo, "status": d.status, "numero": d.numero, "versao": d.versao, "hash": d.hash_documento, "validade_em": d.validade_em, "obrigatorio": d.obrigatorio, "assinado_em": d.assinado_em} for d in documentos], "guias": [{"id": g.id, "descricao": g.descricao, "status": g.status, "valor": g.valor, "vencimento": g.vencimento} for g in guias]}
+    _auditar_cliente(session, cliente, request, "consultar_resumo", "portal:resumo")
+    await session.commit()
+    return {"cliente": _cliente_dict(cliente), "lead": {"id": lead.id, "marca": lead.marca, "fase": lead.fase}, "processos": processos, "propostas": [{"id": p.id, "numero": p.numero, "status": p.status, "total": (p.honorarios or 0) + (p.taxa_gru or 0), "aceito_em": p.aceito_em, "sla_status": p.sla_status} for p in propostas], "documentos": [{"id": d.id, "tipo": d.tipo, "status": d.status, "numero": d.numero, "versao": d.versao, "hash": d.hash_documento, "validade_em": d.validade_em, "obrigatorio": d.obrigatorio, "assinado_em": d.assinado_em} for d in documentos], "guias": [{"id": g.id, "descricao": g.descricao, "status": g.status, "valor": g.valor, "vencimento": g.vencimento, "numero_gru": g.numero_gru, "pago_em": g.pago_em} for g in guias], "pagamentos": [{"id": p.id, "descricao": p.descricao, "tipo": p.tipo, "status": p.status, "valor": p.valor_total, "competencia": p.competencia} for p in pagamentos], "parcelas": [{"id": p.id, "lancamento_id": p.lancamento_id, "numero": p.numero, "vencimento": p.vencimento, "valor": p.valor, "valor_pago": p.valor_pago, "status": p.status, "pago_em": p.pago_em} for p in parcelas]}
+
+
+@router.post("/v1/portal/propostas/{proposta_id}/assinar")
+async def assinar_proposta_portal(proposta_id: int, request: Request, cliente: ClientDep, session: SessionDep) -> dict:
+    proposta = (await session.execute(select(PropostaComercial).where(
+        PropostaComercial.id == proposta_id,
+        PropostaComercial.lead_id == cliente.lead_id,
+        PropostaComercial.organizacao_id == cliente.organizacao_id,
+    ))).scalar_one_or_none()
+    if proposta is None:
+        raise HTTPException(status_code=404, detail="Proposta não encontrada")
+    if proposta.status not in {"enviada", "visualizada", "aceita"}:
+        raise HTTPException(status_code=409, detail="Proposta indisponível para assinatura")
+    agora = datetime.now(UTC)
+    ip_hash = hash_ip(request.client.host if request.client else None)
+    assinatura_hash = hashlib.sha256("|".join(str(valor or "") for valor in (proposta.numero, proposta.versao, proposta.marca, proposta.classes, proposta.escopo, proposta.honorarios, proposta.taxa_gru, proposta.condicoes_pagamento)).encode()).hexdigest()
+    if proposta.public_aceito_em is None:
+        proposta.public_aceito_em = agora
+        proposta.aceito_em = agora
+        proposta.public_aceito_ip_hash = ip_hash
+        proposta.status = "aceita"
+        proposta.sla_status = "aguardando_pagamento"
+        session.add(AssinaturaPropostaComercial(organizacao_id=cliente.organizacao_id, proposta_id=proposta.id, versao=proposta.versao, hash_documento=assinatura_hash, cliente_id=cliente.id, ip_hash=ip_hash, provedor="portal"))
+    _auditar_cliente(session, cliente, request, "assinar_proposta", f"proposta:{proposta.id}")
+    await session.commit()
+    return {"ok": True, "proposta_id": proposta.id, "versao": proposta.versao, "hash": assinatura_hash, "assinado_em": proposta.aceito_em}
 
 
 @router.post("/v1/portal/documentos/{documento_id}/assinar")
@@ -165,22 +262,62 @@ async def assinar_documento_portal(documento_id: int, request: Request, cliente:
         raise HTTPException(status_code=409, detail="Documento expirado; solicite uma nova versão")
     conteudo = f"{documento.tipo}|{documento.numero or ''}|{documento.data or ''}|{documento.observacoes or ''}|v{documento.versao}".encode()
     digest = hashlib.sha256(conteudo).hexdigest()
+    nova_assinatura = not (documento.assinado_em and documento.hash_documento == digest)
     if documento.assinado_em and documento.hash_documento != digest:
+        session.add(VersaoDocumentoLead(
+            organizacao_id=documento.organizacao_id,
+            documento_id=documento.id,
+            versao=documento.versao,
+            hash_documento=documento.hash_documento or digest,
+            conteudo={"tipo": documento.tipo, "numero": documento.numero, "data": documento.data.isoformat() if documento.data else None, "status": documento.status, "observacoes": documento.observacoes},
+            criado_por_tipo="cliente",
+            criado_por_id=cliente.id,
+        ))
         documento.versao += 1
         documento.assinado_em = None
     documento.hash_documento = digest
     documento.assinado_em = datetime.now(UTC)
     documento.assinado_ip_hash = hash_ip(request.client.host if request.client else None)
     documento.assinado_por_cliente_id = cliente.id
-    session.add(AssinaturaDocumentoLead(organizacao_id=cliente.organizacao_id, documento_id=documento.id, cliente_id=cliente.id, versao=documento.versao, hash_documento=digest, ip_hash=documento.assinado_ip_hash))
+    if nova_assinatura:
+        session.add(AssinaturaDocumentoLead(organizacao_id=cliente.organizacao_id, documento_id=documento.id, cliente_id=cliente.id, versao=documento.versao, hash_documento=digest, ip_hash=documento.assinado_ip_hash))
     _auditar_cliente(session, cliente, request, "assinar_documento", f"documento:{documento.id}")
     await session.commit()
     return {"ok": True, "documento_id": documento.id, "versao": documento.versao, "hash": digest, "assinado_em": documento.assinado_em}
 
 
+@router.get("/v1/portal/processos")
+async def listar_processos_portal(request: Request, cliente: ClientDep, session: SessionDep) -> dict:
+    lead = (await session.execute(select(Lead).where(Lead.id == cliente.lead_id, Lead.organizacao_id == cliente.organizacao_id))).scalar_one()
+    processos = []
+    if lead.processo_numero:
+        processo = (await session.execute(select(Processo).where(Processo.numero == lead.processo_numero))).scalar_one_or_none()
+        if processo:
+            processos.append({"id": processo.id, "numero": processo.numero, "titulo": processo.titulo, "situacao": processo.situacao, "situacao_normalizada": processo.situacao_normalizada, "fonte": processo.fonte})
+    _auditar_cliente(session, cliente, request, "consultar_processos", "portal:processos")
+    await session.commit()
+    return {"processos": processos}
+
+
+@router.get("/v1/portal/documentos/{documento_id}/download")
+async def baixar_documento_portal(documento_id: int, request: Request, cliente: ClientDep, session: SessionDep) -> FileResponse:
+    documento = (await session.execute(select(DocumentoLead).where(DocumentoLead.id == documento_id, DocumentoLead.lead_id == cliente.lead_id, DocumentoLead.organizacao_id == cliente.organizacao_id))).scalar_one_or_none()
+    caminho_registrado = getattr(documento, "caminho", None) if documento else None
+    if documento is None or not caminho_registrado:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    caminho = Path(caminho_registrado).resolve()
+    if not caminho.is_file():
+        raise HTTPException(status_code=404, detail="Arquivo do documento não encontrado")
+    _auditar_cliente(session, cliente, request, "baixar_documento", f"documento:{documento.id}")
+    await session.commit()
+    return FileResponse(caminho, media_type="application/octet-stream", filename=getattr(documento, "nome", None) or caminho.name)
+
+
 @router.get("/v1/portal/mensagens")
-async def portal_mensagens(cliente: ClientDep, session: SessionDep) -> dict:
+async def portal_mensagens(request: Request, cliente: ClientDep, session: SessionDep) -> dict:
     itens = (await session.execute(select(MensagemClientePortal).where(MensagemClientePortal.cliente_id == cliente.id).order_by(MensagemClientePortal.criado_em))).scalars().all()
+    _auditar_cliente(session, cliente, request, "consultar_mensagens", "portal:mensagens")
+    await session.commit()
     return {"mensagens": [{"id": i.id, "autor_tipo": i.autor_tipo, "mensagem": i.mensagem, "criado_em": i.criado_em} for i in itens]}
 
 
@@ -205,15 +342,16 @@ async def enviar_arquivo_portal(request: Request, cliente: ClientDep, session: S
     if len(conteudo) > 15 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
     destino.write_bytes(conteudo)
-    item = ArquivoClientePortal(organizacao_id=cliente.organizacao_id, lead_id=cliente.lead_id, cliente_id=cliente.id, nome=arquivo.filename or nome, caminho=str(destino), content_type=arquivo.content_type, tamanho=len(conteudo))
+    arquivo_hash = hashlib.sha256(conteudo).hexdigest()
+    item = ArquivoClientePortal(organizacao_id=cliente.organizacao_id, lead_id=cliente.lead_id, cliente_id=cliente.id, nome=arquivo.filename or nome, caminho=str(destino), content_type=arquivo.content_type, tamanho=len(conteudo), arquivo_hash=arquivo_hash)
     session.add(item)
     _auditar_cliente(session, cliente, request, "upload_cliente", f"arquivo:{item.nome}")
     await session.commit()
-    return {"id": item.id, "nome": item.nome, "tamanho": item.tamanho}
+    return {"id": item.id, "nome": item.nome, "tamanho": item.tamanho, "hash": item.arquivo_hash}
 
 
 @router.get("/v1/portal/arquivos")
-async def listar_arquivos_portal(cliente: ClientDep, session: SessionDep) -> dict:
+async def listar_arquivos_portal(request: Request, cliente: ClientDep, session: SessionDep) -> dict:
     itens = (
         await session.execute(
             select(ArquivoClientePortal)
@@ -225,6 +363,8 @@ async def listar_arquivos_portal(cliente: ClientDep, session: SessionDep) -> dic
             .order_by(ArquivoClientePortal.criado_em.desc())
         )
     ).scalars().all()
+    _auditar_cliente(session, cliente, request, "consultar_arquivos", "portal:arquivos")
+    await session.commit()
     return {
         "arquivos": [
             {
@@ -232,6 +372,7 @@ async def listar_arquivos_portal(cliente: ClientDep, session: SessionDep) -> dic
                 "nome": item.nome,
                 "content_type": item.content_type,
                 "tamanho": item.tamanho,
+                "hash": item.arquivo_hash,
                 "criado_em": item.criado_em,
             }
             for item in itens
@@ -239,8 +380,22 @@ async def listar_arquivos_portal(cliente: ClientDep, session: SessionDep) -> dic
     }
 
 
+@router.get("/v1/portal/arquivos/{arquivo_id}/download")
+async def baixar_arquivo_portal(arquivo_id: int, request: Request, cliente: ClientDep, session: SessionDep) -> FileResponse:
+    item = (await session.execute(select(ArquivoClientePortal).where(ArquivoClientePortal.id == arquivo_id, ArquivoClientePortal.cliente_id == cliente.id, ArquivoClientePortal.lead_id == cliente.lead_id, ArquivoClientePortal.organizacao_id == cliente.organizacao_id))).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    caminho = Path(item.caminho).resolve()
+    base = (Path("data") / "portal" / str(cliente.organizacao_id) / str(cliente.id)).resolve()
+    if not caminho.is_file() or base not in caminho.parents:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    _auditar_cliente(session, cliente, request, "baixar_arquivo", f"arquivo:{item.id}")
+    await session.commit()
+    return FileResponse(caminho, media_type=item.content_type or "application/octet-stream", filename=item.nome)
+
+
 @router.get("/v1/portal/notificacoes")
-async def listar_notificacoes_portal(cliente: ClientDep, session: SessionDep) -> dict:
+async def listar_notificacoes_portal(request: Request, cliente: ClientDep, session: SessionDep) -> dict:
     itens = (
         await session.execute(
             select(NotificacaoClientePortal)
@@ -248,6 +403,8 @@ async def listar_notificacoes_portal(cliente: ClientDep, session: SessionDep) ->
             .order_by(NotificacaoClientePortal.criado_em.desc())
         )
     ).scalars().all()
+    _auditar_cliente(session, cliente, request, "consultar_notificacoes", "portal:notificacoes")
+    await session.commit()
     return {
         "notificacoes": [
             {
@@ -262,8 +419,19 @@ async def listar_notificacoes_portal(cliente: ClientDep, session: SessionDep) ->
     }
 
 
+@router.patch("/v1/portal/notificacoes/{notificacao_id}/ler")
+async def marcar_notificacao_lida(notificacao_id: int, request: Request, cliente: ClientDep, session: SessionDep) -> dict:
+    item = (await session.execute(select(NotificacaoClientePortal).where(NotificacaoClientePortal.id == notificacao_id, NotificacaoClientePortal.cliente_id == cliente.id))).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Notificação não encontrada")
+    item.lida_em = datetime.now(UTC)
+    _auditar_cliente(session, cliente, request, "marcar_notificacao", f"notificacao:{item.id}")
+    await session.commit()
+    return {"ok": True, "lida_em": item.lida_em}
+
+
 @router.get("/v1/portal/eventos")
-async def listar_eventos_portal(cliente: ClientDep, session: SessionDep) -> dict:
+async def listar_eventos_portal(request: Request, cliente: ClientDep, session: SessionDep) -> dict:
     itens = (
         await session.execute(
             select(EventoAuditoria)
@@ -275,6 +443,8 @@ async def listar_eventos_portal(cliente: ClientDep, session: SessionDep) -> dict
             .limit(200)
         )
     ).scalars().all()
+    _auditar_cliente(session, cliente, request, "consultar_eventos", "portal:eventos")
+    await session.commit()
     return {
         "eventos": [
             {

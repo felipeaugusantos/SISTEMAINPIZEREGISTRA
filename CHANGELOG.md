@@ -1,5 +1,12 @@
 # Changelog
 
+## RC2 — Fase 13 — 2026-08-17
+
+- Documentação consolidada de instalação, ambiente, migrations, deploy, rollback, operação, suporte, permissões e indicadores.
+- Checklist final de aceite e evidências do Release Candidate.
+- README atualizado com comandos de instalação, atualização e execução.
+- Critérios de segurança, RPI, CRM, propostas, documentos, financeiro, busca, interface, observabilidade e testes formalizados.
+
 ## RC1 — 2026-08-17
 
 - Confiabilidade da RPI: validação de arquivos corrompidos/parciais, checksum e idempotência.

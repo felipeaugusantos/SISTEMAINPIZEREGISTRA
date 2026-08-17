@@ -566,6 +566,20 @@ A documentação interativa completa fica disponível em <http://localhost:8000/
 - organizações, planos e integrações;
 - produção, confiabilidade e auditoria.
 
+## Entrega documental da Fase 13
+
+A documentação operacional consolidada está em [docs/fase13-documentacao-entrega.md](docs/fase13-documentacao-entrega.md). Ela reúne instalação, variáveis de ambiente, migrations, comandos, deploy, rollback, suporte, permissões e indicadores.
+
+O checklist de aceite do Release Candidate está em [docs/release-candidate.md](docs/release-candidate.md). Antes de produção, execute a suíte automatizada, aplique migrations em homologação, valide um backup restaurado e confirme todos os gates do checklist.
+
+Comandos essenciais:
+
+```powershell
+\.venv\Scripts\python.exe -m pytest -q
+\.venv\Scripts\alembic.exe upgrade head
+\.venv\Scripts\uvicorn.exe app.main:app --host 0.0.0.0 --port 8000
+```
+
 ## Estado do projeto
 
 O projeto está em fase de testes e validação operacional. Antes de disponibilizá-lo para novos clientes, revise as configurações de segurança, domínio, SMTP, backup, monitoramento, credenciais e políticas de privacidade do ambiente de destino.

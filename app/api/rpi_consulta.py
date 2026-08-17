@@ -57,6 +57,8 @@ async def listar_revistas_rpi(
                 "importado_em": item.importado_em,
                 "registros_processados": item.registros_processados,
                 "movimentacoes_processadas": item.movimentacoes_processadas,
+                "status_integridade": item.status_integridade,
+                "anomalias": item.anomalias or [],
             }
             for item in itens
         ],
@@ -99,16 +101,14 @@ async def consultar_rpi(
     if fim is not None:
         filtros.append(Movimentacao.data_rpi <= fim)
 
-    total = None
+    count_query = (
+        select(func.count(Movimentacao.id))
+        .select_from(Movimentacao)
+        .join(Processo, Processo.id == Movimentacao.processo_id)
+        .where(*filtros)
+    )
+    total = int((await session.execute(count_query)).scalar_one())
     tem_mais = False
-    if numero_rpi is None:
-        count_query = (
-            select(func.count(Movimentacao.id))
-            .select_from(Movimentacao)
-            .join(Processo, Processo.id == Movimentacao.processo_id)
-            .where(*filtros)
-        )
-        total = int((await session.execute(count_query)).scalar_one())
     linhas = (
         await session.execute(
             select(Movimentacao, Processo)
@@ -119,9 +119,8 @@ async def consultar_rpi(
             .offset(deslocamento)
         )
     ).all()
-    if numero_rpi is not None:
-        tem_mais = len(linhas) > limite
-        linhas = linhas[:limite]
+    tem_mais = len(linhas) > limite
+    linhas = linhas[:limite]
     return {
         "total": total,
         "limite": limite,

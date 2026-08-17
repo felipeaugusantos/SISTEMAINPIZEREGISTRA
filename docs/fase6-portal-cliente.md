@@ -1,24 +1,21 @@
-# Fase 6 - Portal do cliente
+# Fase 6 — Portal do cliente
 
-## Entregas validadas
+O portal usa sessão própria em cookie `HttpOnly`, com expiração, revogação e
+invalidação automática quando o acesso é bloqueado. A recuperação usa token
+hashado, de uso único e validade de 30 minutos; nenhum token é devolvido pela API.
 
-- login separado do ambiente operacional;
-- processos, propostas, documentos, pagamentos e GRUs no resumo do cliente;
-- pendencias documentais e assinatura pelo portal;
-- mensagens, envio e listagem de arquivos;
-- notificacoes e historico de eventos auditados;
-- criacao de acesso pelo responsavel do atendimento;
-- bloqueio e revogacao imediata das sessoes ativas;
-- filtros simultaneos por cliente, lead e organizacao em todas as consultas.
+O responsável pelo atendimento (ou administrador) pode gerar, consultar, abrir e
+revogar o acesso pelo lead. Todas as consultas e alterações relevantes registram
+`EventoAuditoria`, organização, cliente, recurso, IP hash e horário.
 
-## Evidencias do gate
+O cliente só recebe dados derivados do seu `cliente_id`, `lead_id` e
+`organizacao_id`. Processos, propostas, documentos, GRUs, pagamentos, parcelas,
+mensagens, arquivos, notificações e eventos são filtrados por esse escopo. IDs de
+outro tenant retornam 404 e não revelam a existência do recurso.
 
-Validacao executada em 2026-08-17:
+Novas rotas incluem recuperação de acesso, processos, download protegido de
+arquivos, leitura de notificações e dados financeiros no resumo. O download de
+arquivos valida também o caminho físico dentro da pasta do cliente.
 
-- controles de RLS e isolamento verificados no PostgreSQL real;
-- MFA, auditoria e revogacao validados nos testes de seguranca;
-- rotas de portal compiladas e integradas ao app;
-- suite completa: 354 testes aprovados.
-
-O gate foi aprovado: o cliente fica restrito ao proprio lead e organizacao, e o
-operador consegue desativar o acesso e revogar as sessoes existentes.
+Aplicar com `alembic upgrade head`; a revisão `e52f7a8b9c01` cria os tokens de
+recuperação do portal.

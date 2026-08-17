@@ -199,6 +199,16 @@ async def processar(tipo: str, payload: dict) -> None:
             ).scalars()
             for organizacao_id in organizacoes:
                 await executar_motor_organizacao(session, organizacao_id)
+        elif tipo == "vigilancia.executar_semanal":
+            from app.vigilancia import executar_vigilancia_semanal
+            resultado = await executar_vigilancia_semanal(session, payload.get("organizacao_id"))
+            session.add(AlertaSistema(
+                organizacao_id=payload.get("organizacao_id") or 1,
+                severidade="info",
+                codigo="VIGILANCIA_SEMANAL_CONCLUIDA",
+                mensagem=f"Vigilancia semanal concluida: {resultado['criadas']} colidencia(s) nova(s).",
+                detalhes=resultado,
+            ))
         else:
             raise ValueError(f"Tipo de trabalho desconhecido: {tipo}")
         await session.commit()
@@ -244,6 +254,7 @@ async def main() -> None:
                     "privacidade.verificar_retencao",
                     "registrabilidade.reconciliar_resultados",
                     "juridico.executar_motor",
+                    "vigilancia.executar_semanal",
                 ):
                     try:
                         await processar_rastreado(tarefa, {})

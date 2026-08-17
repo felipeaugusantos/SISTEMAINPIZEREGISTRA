@@ -46,3 +46,8 @@ def test_sla_vencido_sem_protocolo() -> None:
 def test_protocolo_concluido_tem_precedencia() -> None:
     proposta = _proposta(status="aceita", protocolo_em=datetime.now(UTC))
     assert _atualizar_sla_proposta(proposta) == "protocolado"
+
+
+def test_proposta_pode_preservar_a_pesquisa_de_origem() -> None:
+    proposta = _proposta(pesquisa_id="12345678-1234-1234-1234-123456789abc")
+    assert proposta.pesquisa_id == "12345678-1234-1234-1234-123456789abc"

@@ -94,6 +94,20 @@ async def enviar_recuperacao_senha(destinatario: str, nome: str, token: str) -> 
         raise ultimo_erro
 
 
+async def enviar_recuperacao_portal(destinatario: str, nome: str, token: str) -> None:
+    """Envia recuperação do portal sem reutilizar o link do Centro de Operações."""
+    settings = get_settings()
+    if not settings.email_enabled:
+        return
+    mensagem = EmailMessage()
+    mensagem["Subject"] = "Recuperação de acesso ao Portal do cliente — Zé Registra"
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = destinatario
+    link = f"{settings.app_public_url.rstrip('/')}/portal#recuperacao={quote(token, safe='')}"
+    mensagem.set_content(f"Olá, {nome or 'cliente'}.\n\nAcesse o portal para redefinir seu acesso:\n{link}\n\nO link expira em 30 minutos e pode ser usado uma única vez.")
+    await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+
+
 async def enviar_proposta_email(destinatario: str, nome: str, link: str, pdf_bytes: bytes, numero: str) -> None:
     """Envia a proposta com link seguro e PDF anexado, quando SMTP estiver habilitado."""
     settings = get_settings()

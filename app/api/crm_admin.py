@@ -392,6 +392,7 @@ async def listar_lembretes(
         .scalars()
         .all()
     )
+    alertas_atraso = [item for item in itens if item.status == "pendente" and item.lembrar_em < agora]
     metricas = (
         await session.execute(
             select(
@@ -432,6 +433,14 @@ async def listar_lembretes(
             "cadastros_para_atualizar": int(total_cadastros or 0),
         },
         "itens": [_serializar_lembrete(item) for item in itens],
+        "alertas_atraso": [
+            {
+                **_serializar_lembrete(item),
+                "tipo_alerta": "acao_atrasada",
+                "gerado_em": agora,
+            }
+            for item in alertas_atraso
+        ],
         "cadastros_para_atualizar": [
             {
                 "lead_id": lead_id,

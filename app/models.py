@@ -460,8 +460,37 @@ class RpiImportacao(Base):
     arquivo_tamanho_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     status_integridade: Mapped[str] = mapped_column(String(20), default="desconhecido", index=True)
     anomalias: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    erro: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tentativas: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    fonte_oficial: Mapped[str] = mapped_column(
+        String(120), default="INPI - Revista da Propriedade Industrial", server_default="INPI - Revista da Propriedade Industrial"
+    )
     importado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class RpiImportacaoHistorico(Base):
+    """Tentativas de importação preservadas para rastreabilidade e reprocessamento."""
+
+    __tablename__ = "rpi_importacoes_historico"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    numero_rpi: Mapped[int] = mapped_column(Integer, index=True)
+    tipo: Mapped[str] = mapped_column(String(10), index=True)
+    arquivo_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    arquivo_tamanho_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    registros_processados: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    titulares_processados: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    classes_processadas: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    movimentacoes_processadas: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    anomalias: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    erro: Mapped[str | None] = mapped_column(Text, nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
     )
 
 
@@ -757,6 +786,7 @@ class ContratacaoServico(Base):
     servico_id: Mapped[int] = mapped_column(ForeignKey("servicos_financeiros.id", ondelete="RESTRICT"), index=True)
     lead_id: Mapped[int | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True)
     processo_id: Mapped[int | None] = mapped_column(ForeignKey("processos.id", ondelete="SET NULL"), nullable=True, index=True)
+    proposta_id: Mapped[int | None] = mapped_column(ForeignKey("propostas_comerciais.id", ondelete="SET NULL"), nullable=True, index=True)
     lancamento_id: Mapped[int | None] = mapped_column(ForeignKey("lancamentos_financeiros.id", ondelete="SET NULL"), nullable=True, unique=True)
     status: Mapped[str] = mapped_column(String(20), default="contratada", index=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -774,6 +804,7 @@ class LancamentoFinanceiro(Base):
 
     lead_id: Mapped[int | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True)
     processo_id: Mapped[int | None] = mapped_column(ForeignKey("processos.id", ondelete="SET NULL"), nullable=True, index=True)
+    proposta_id: Mapped[int | None] = mapped_column(ForeignKey("propostas_comerciais.id", ondelete="SET NULL"), nullable=True, index=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True, index=True)
     categoria_id: Mapped[int | None] = mapped_column(
         ForeignKey("categorias_financeiras.id", ondelete="SET NULL"), nullable=True, index=True
@@ -923,6 +954,7 @@ class ProcessoMonitorado(Base):
         ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
     )
     status: Mapped[str] = mapped_column(String(20), default="ativo", index=True)
+    prioridade: Mapped[str] = mapped_column(String(10), default="media", server_default="media", index=True)
     etapa_kanban: Mapped[str] = mapped_column(
         String(30), default="triagem", server_default="triagem", index=True
     )
@@ -1025,6 +1057,8 @@ class PrazoJuridico(Base):
     confirmado_por_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
     )
+
+
     confirmado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     confirmado_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
@@ -1328,6 +1362,9 @@ class PropostaComercial(Base):
     lead_id: Mapped[int] = mapped_column(
         ForeignKey("leads.id", ondelete="CASCADE"), index=True
     )
+    pesquisa_id: Mapped[str | None] = mapped_column(
+        ForeignKey("pesquisas_marca.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     numero: Mapped[str] = mapped_column(String(40), index=True)
     versao: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(20), default="rascunho", index=True)
@@ -1345,8 +1382,14 @@ class PropostaComercial(Base):
     public_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
     public_token_expira_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     public_aceito_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    public_aceito_ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pagamento_status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
     pagamento_confirmado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    pagamento_confirmado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    pagamento_confirmado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    pagamento_confirmado_ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     sla_inicio_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sla_prazo_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sla_status: Mapped[str] = mapped_column(String(30), default="aguardando_aceite", index=True)
@@ -1359,6 +1402,22 @@ class PropostaComercial(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AssinaturaPropostaComercial(Base):
+    """Evidência imutável do aceite/assinatura eletrônica da proposta."""
+
+    __tablename__ = "assinaturas_propostas_comerciais"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    proposta_id: Mapped[int] = mapped_column(ForeignKey("propostas_comerciais.id", ondelete="CASCADE"), index=True)
+    versao: Mapped[int] = mapped_column(Integer)
+    hash_documento: Mapped[str] = mapped_column(String(64), index=True)
+    cliente_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    assinado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    provedor: Mapped[str] = mapped_column(String(30), default="interno")
+
+
 class ClientePortal(Base):
     """Identidade externa vinculada a um único lead e sua organização."""
 
@@ -1368,6 +1427,9 @@ class ClientePortal(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
     lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    processo_id: Mapped[int | None] = mapped_column(ForeignKey("processos.id", ondelete="SET NULL"), nullable=True, index=True)
+    proposta_id: Mapped[int | None] = mapped_column(ForeignKey("propostas_comerciais.id", ondelete="SET NULL"), nullable=True, index=True)
+    lancamento_id: Mapped[int | None] = mapped_column(ForeignKey("lancamentos_financeiros.id", ondelete="SET NULL"), nullable=True, index=True)
     nome: Mapped[str] = mapped_column(String(150))
     email: Mapped[str] = mapped_column(String(254), index=True)
     senha_hash: Mapped[str] = mapped_column(Text)
@@ -1391,6 +1453,21 @@ class SessaoClientePortal(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class RecuperacaoClientePortal(Base):
+    """Token de recuperação de acesso de cliente, de uso único e curto."""
+
+    __tablename__ = "recuperacoes_clientes_portal"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    cliente_id: Mapped[int] = mapped_column(
+        ForeignKey("clientes_portal.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expira_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    usado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ArquivoClientePortal(Base):
     __tablename__ = "arquivos_clientes_portal"
 
@@ -1402,6 +1479,7 @@ class ArquivoClientePortal(Base):
     caminho: Mapped[str] = mapped_column(Text)
     content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
     tamanho: Mapped[int] = mapped_column(BigInteger, default=0)
+    arquivo_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -1458,10 +1536,50 @@ class ColidenciaVigilancia(Base):
     justificativa: Mapped[str] = mapped_column(Text)
     revisado_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True)
     revisado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    aprovado_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True)
+    aprovado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    falso_positivo: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    falso_positivo_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    comunicada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class VigilanciaExecucao(Base):
+    __tablename__ = "vigilancia_execucoes"
+    __table_args__ = (UniqueConstraint("organizacao_id", "chave", name="uq_vigilancia_execucao_chave"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    chave: Mapped[str] = mapped_column(String(120), nullable=False)
+    frequencia: Mapped[str] = mapped_column(String(20), default="semanal")
+    status: Mapped[str] = mapped_column(String(20), default="executando", index=True)
+    encontrados: Mapped[int] = mapped_column(Integer, default=0)
+    criados: Mapped[int] = mapped_column(Integer, default=0)
+    falsos_positivos: Mapped[int] = mapped_column(Integer, default=0)
+    resumo: Mapped[dict] = mapped_column(JSON, default=dict)
+    iniciado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finalizado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    erro: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class HistoricoAlertaVigilancia(Base):
+    __tablename__ = "historico_alertas_vigilancia"
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_historico_alerta_vigilancia_key"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    colidencia_id: Mapped[int] = mapped_column(ForeignKey("colidencias_vigilancia.id", ondelete="CASCADE"), index=True)
+    cliente_id: Mapped[int] = mapped_column(ForeignKey("clientes_portal.id", ondelete="CASCADE"), index=True)
+    canal: Mapped[str] = mapped_column(String(30))
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(180), nullable=False)
+    justificativa: Mapped[str] = mapped_column(Text)
+    detalhes: Mapped[dict] = mapped_column(JSON, default=dict)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    enviado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class VersaoDocumentoLead(Base):
@@ -1545,6 +1663,11 @@ class LembreteCRM(Base):
     """Alerta interno com prazo e responsável vinculado a um cliente do CRM."""
 
     __tablename__ = "lembretes_crm"
+    __table_args__ = (
+        UniqueConstraint(
+            "organizacao_id", "idempotency_key", name="uq_lembrete_crm_idempotencia"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(
@@ -1885,6 +2008,26 @@ class ModeloRegistrabilidade(Base):
     ativado_por: Mapped[str | None] = mapped_column(String(150), nullable=True)
 
 
+class ModeloRankingBusca(Base):
+    """Versão publicada do ranking nominativo/visual, separada do risco jurídico."""
+
+    __tablename__ = "modelos_ranking_busca"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    versao: Mapped[str] = mapped_column(String(60), unique=True, index=True)
+    algoritmo: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(20), default="SHADOW", index=True)
+    parametros: Mapped[dict] = mapped_column(JSON, default=dict)
+    metricas: Mapped[dict] = mapped_column(JSON, default=dict)
+    evidencias: Mapped[dict] = mapped_column(JSON, default=dict)
+    dataset_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    bloqueado_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    publicado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    publicado_por: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class PrevisaoRegistrabilidade(Base):
     __tablename__ = "previsoes_registrabilidade"
     __table_args__ = (
@@ -2139,3 +2282,27 @@ class ControleProducao(Base):
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class ReciboFinanceiro(Base):
+    __tablename__ = "recibos_financeiros"
+    __table_args__ = (UniqueConstraint("organizacao_id", "parcela_id", name="uq_recibo_financeiro_parcela"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    parcela_id: Mapped[int] = mapped_column(ForeignKey("parcelas_financeiras.id", ondelete="CASCADE"), index=True)
+    numero: Mapped[str] = mapped_column(String(60), unique=True, index=True)
+    emitido_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    dados: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class RenovacaoFinanceira(Base):
+    __tablename__ = "renovacoes_financeiras"
+    __table_args__ = (UniqueConstraint("organizacao_id", "processo_id", "tipo", "referencia", name="uq_renovacao_financeira"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    processo_id: Mapped[int] = mapped_column(ForeignKey("processos.id", ondelete="CASCADE"), index=True)
+    tipo: Mapped[str] = mapped_column(String(30), default="renovacao")
+    referencia: Mapped[str] = mapped_column(String(40))
+    vencimento: Mapped[date] = mapped_column(Date, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

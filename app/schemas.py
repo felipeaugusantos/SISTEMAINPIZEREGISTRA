@@ -335,6 +335,9 @@ class EvidenciasBuscaResponse(BaseModel):
     termos_consultados: list[str] = Field(default_factory=list)
     limiar_trigrama: float = Field(default=0.30, ge=0, le=1)
     ranking: dict[str, object] = Field(default_factory=dict)
+    revisao_humana_obrigatoria: bool = True
+    natureza: str = "triagem_tecnica_de_anterioridades"
+    parecer_juridico_definitivo: bool = False
 
 
 class QualidadeBaseResponse(BaseModel):

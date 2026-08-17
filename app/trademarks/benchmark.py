@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+import math
 
 
 def avaliar_gate_regressao(metricas: dict, baseline: dict | None, tolerancia: float = 0.0) -> dict:
@@ -6,7 +7,7 @@ def avaliar_gate_regressao(metricas: dict, baseline: dict | None, tolerancia: fl
         return {"bloqueado": False, "regressoes": []}
     regressoes = []
     for chave in ("recall_at_5", "recall_at_10", "recall_at_20", "mrr"):
-        if chave in baseline and float(metricas.get(chave, 0)) + tolerancia < float(baseline[chave]):
+        if chave in baseline and float(metricas.get(chave, 0)) < float(baseline[chave]):
             regressoes.append({"metrica": chave, "baseline": baseline[chave], "atual": metricas.get(chave, 0)})
     return {"bloqueado": bool(regressoes), "regressoes": regressoes}
 
@@ -34,5 +35,13 @@ def avaliar_benchmark(casos: Iterable[dict]) -> dict:
         falsos_negativos += int(bool(relevantes) and not relevantes.intersection(retornados[:20]))
     metricas["mrr"] = round(sum(mrr) / len(mrr), 4) if mrr else 0.0
     metricas["falso_negativo_critico"] = falsos_negativos
+    metricas["falsos_negativos_criticos"] = falsos_negativos
+    metricas["revisao_humana_obrigatoria"] = True
+    metricas["natureza"] = "triagem_tecnica_de_anterioridades"
+    latencias = sorted(float(caso["latencia_ms"]) for caso in casos if caso.get("latencia_ms") is not None)
+    for nome, percentil in (("p50", 0.50), ("p95", 0.95), ("p99", 0.99)):
+        if latencias:
+            indice = min(len(latencias) - 1, math.ceil((len(latencias) - 1) * percentil))
+            metricas[nome] = latencias[indice]
     metricas["casos"] = len(casos)
     return metricas

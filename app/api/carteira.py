@@ -184,6 +184,7 @@ class AtualizacaoMonitoramento(BaseModel):
     observacoes: str | None = Field(default=None, max_length=4000)
     procurador: str | None = Field(default=None, max_length=500)
     etapa_kanban: EtapaKanban | None = None
+    prioridade: Literal["alta", "media", "baixa"] | None = None
 
     @field_validator("procurador", mode="before")
     @classmethod
@@ -427,7 +428,16 @@ async def listar_carteira(
                 UsuarioOperacoes, UsuarioOperacoes.id == ProcessoMonitorado.responsavel_id
             )
             .where(*filtros)
-            .order_by(prioridade_situacao, ProcessoMonitorado.atualizado_em.desc(), Processo.numero)
+            .order_by(
+                case(
+                    (ProcessoMonitorado.prioridade == "alta", 0),
+                    (ProcessoMonitorado.prioridade == "media", 1),
+                    else_=2,
+                ),
+                prioridade_situacao,
+                ProcessoMonitorado.atualizado_em.desc(),
+                Processo.numero,
+            )
             .limit(limite)
             .offset(deslocamento)
         )
@@ -464,6 +474,7 @@ async def listar_carteira(
                 "fonte": processo.fonte,
                 "processo_atualizado_em": processo.atualizado_em,
                 "status": monitorado.status,
+                "prioridade": monitorado.prioridade,
                 "etapa_kanban": monitorado.etapa_kanban,
                 "etapa_atualizada_em": monitorado.etapa_atualizada_em,
                 "etapa_atualizada_por": monitorado.etapa_atualizada_por,
@@ -1249,9 +1260,12 @@ async def atualizar_monitoramento(
         "empresa_id": monitorado.empresa_id,
         "responsavel_id": monitorado.responsavel_id,
         "etapa_kanban": monitorado.etapa_kanban,
+        "prioridade": monitorado.prioridade,
     }
     if dados.status is not None:
         monitorado.status = dados.status
+    if dados.prioridade is not None:
+        monitorado.prioridade = dados.prioridade
     if dados.empresa_id is not None or dados.empresa_nome:
         empresa = await _empresa(
             session, usuario, dados.empresa_id, dados.empresa_nome
@@ -1299,6 +1313,7 @@ async def atualizar_monitoramento(
                 "empresa_id": monitorado.empresa_id,
                 "responsavel_id": monitorado.responsavel_id,
                 "etapa_kanban": monitorado.etapa_kanban,
+                "prioridade": monitorado.prioridade,
             },
         },
     )

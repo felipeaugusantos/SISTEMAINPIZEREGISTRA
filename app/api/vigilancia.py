@@ -14,10 +14,12 @@ from app.models import (
     ClientePortal,
     ColidenciaVigilancia,
     Lead,
-    NotificacaoClientePortal,
     PreferenciaVigilancia,
     Processo,
+    HistoricoAlertaVigilancia,
+    VigilanciaExecucao,
 )
+from app.vigilancia import enfileirar_alerta
 
 router = APIRouter(tags=["vigilancia preventiva"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -35,6 +37,10 @@ class PreferenciaInput(BaseModel):
 class RevisaoInput(BaseModel):
     status: str = Field(pattern="^(aprovado|descartado)$")
     justificativa: str = Field(min_length=3, max_length=2000)
+
+
+class FalsoPositivoInput(BaseModel):
+    motivo: str = Field(min_length=3, max_length=2000)
 
 
 def _preferencia_dict(item: PreferenciaVigilancia) -> dict:
@@ -81,7 +87,7 @@ async def listar_colidencias_cliente(cliente: ClientDep, session: SessionDep) ->
         ColidenciaVigilancia.organizacao_id == cliente.organizacao_id,
         ColidenciaVigilancia.cliente_id == cliente.id,
     ).order_by(ColidenciaVigilancia.criado_em.desc()))).scalars().all()
-    return {"colidencias": [{"id": i.id, "processo_id": i.processo_id, "score_risco": i.score_risco, "status": i.status, "evidencias": i.evidencias, "justificativa": i.justificativa, "criado_em": i.criado_em} for i in itens]}
+    return {"colidencias": [{"id": i.id, "processo_id": i.processo_id, "rpi_numero": i.rpi_numero, "score_risco": i.score_risco, "status": i.status, "falso_positivo": i.falso_positivo, "evidencias": i.evidencias, "justificativa": i.justificativa, "revisado_em": i.revisado_em, "comunicada_em": i.comunicada_em, "criado_em": i.criado_em} for i in itens]}
 
 
 @router.post("/v1/admin/vigilancia/clientes/{cliente_id}/executar")
@@ -149,7 +155,10 @@ async def revisar_colidencia(colidencia_id: int, dados: RevisaoInput, request: R
     if not item.evidencias or not item.evidencias.get("regra"):
         raise HTTPException(status_code=409, detail="Colidencia sem regra e evidencias nao pode ser comunicada")
     status_anterior = item.status
-    item.status, item.revisado_por, item.revisado_em, item.justificativa = dados.status, operador.id, datetime.now(UTC), dados.justificativa
+    agora = datetime.now(UTC)
+    item.status, item.revisado_por, item.revisado_em, item.justificativa = dados.status, operador.id, agora, dados.justificativa
+    if dados.status == "aprovado":
+        item.aprovado_por, item.aprovado_em = operador.id, agora
     preferencia = (await session.execute(select(PreferenciaVigilancia).where(
         PreferenciaVigilancia.organizacao_id == item.organizacao_id,
         PreferenciaVigilancia.cliente_id == item.cliente_id,
@@ -157,6 +166,69 @@ async def revisar_colidencia(colidencia_id: int, dados: RevisaoInput, request: R
     ))).scalar_one_or_none()
     comunicacao_liberada = dados.status == "aprovado" and preferencia is not None and bool(preferencia.canais)
     if comunicacao_liberada and status_anterior != "aprovado":
-        session.add(NotificacaoClientePortal(cliente_id=item.cliente_id, titulo="Nova colidencia aprovada", mensagem=f"Foi aprovada uma ocorrencia de vigilancia para o processo {item.processo_id}. Consulte as evidencias no portal."))
+        canal = next((c for c in (preferencia.canais or []) if c in {"portal", "email", "whatsapp"}), None)
+        if canal:
+            await enfileirar_alerta(session, item, preferencia, canal)
+        item.comunicada_em = agora
     await session.commit()
     return {"id": item.id, "status": item.status, "comunicacao_liberada": comunicacao_liberada}
+
+
+@router.post("/v1/admin/vigilancia/colidencias/{colidencia_id}/comunicar")
+async def comunicar_colidencia(colidencia_id: int, request: Request, session: SessionDep, operador: ManageDep) -> dict:
+    item = (await session.execute(select(ColidenciaVigilancia).where(
+        ColidenciaVigilancia.id == colidencia_id, ColidenciaVigilancia.organizacao_id == operador.organizacao_id
+    ))).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Colidencia nao encontrada")
+    preferencia = (await session.execute(select(PreferenciaVigilancia).where(
+        PreferenciaVigilancia.organizacao_id == item.organizacao_id,
+        PreferenciaVigilancia.cliente_id == item.cliente_id,
+        PreferenciaVigilancia.ativo.is_(True),
+    ))).scalar_one_or_none()
+    if preferencia is None:
+        raise HTTPException(status_code=409, detail="Regra de vigilancia inativa ou inexistente")
+    canais = [c for c in (preferencia.canais or []) if c in {"portal", "email", "whatsapp"}]
+    if not canais:
+        raise HTTPException(status_code=409, detail="Nenhum canal configurado")
+    alertas = []
+    for canal in canais:
+        try:
+            alertas.append(await enfileirar_alerta(session, item, preferencia, canal))
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    item.comunicada_em = datetime.now(UTC)
+    await session.commit()
+    return {"id": item.id, "alertas": [{"id": a.id, "canal": a.canal, "status": a.status} for a in alertas]}
+
+
+@router.post("/v1/admin/vigilancia/colidencias/{colidencia_id}/falso-positivo")
+async def marcar_falso_positivo(colidencia_id: int, dados: FalsoPositivoInput, session: SessionDep, operador: ManageDep) -> dict:
+    item = (await session.execute(select(ColidenciaVigilancia).where(
+        ColidenciaVigilancia.id == colidencia_id, ColidenciaVigilancia.organizacao_id == operador.organizacao_id
+    ))).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Colidencia nao encontrada")
+    agora = datetime.now(UTC)
+    item.falso_positivo, item.falso_positivo_motivo = True, dados.motivo
+    item.status, item.revisado_por, item.revisado_em, item.justificativa = "descartado", operador.id, agora, dados.motivo
+    await session.commit()
+    return {"id": item.id, "status": item.status, "falso_positivo": True}
+
+
+@router.post("/v1/admin/vigilancia/executar-semanal")
+async def executar_semanal(session: SessionDep, operador: ManageDep) -> dict:
+    from app.vigilancia import executar_vigilancia_semanal
+    return await executar_vigilancia_semanal(session, operador.organizacao_id)
+
+
+@router.get("/v1/admin/vigilancia/relatorios")
+async def relatorios_vigilancia(session: SessionDep, operador: ManageDep) -> dict:
+    execucoes = (await session.execute(select(VigilanciaExecucao).where(
+        VigilanciaExecucao.organizacao_id == operador.organizacao_id
+    ).order_by(VigilanciaExecucao.iniciado_em.desc()).limit(52))).scalars().all()
+    alertas = (await session.execute(select(HistoricoAlertaVigilancia).where(
+        HistoricoAlertaVigilancia.organizacao_id == operador.organizacao_id
+    ).order_by(HistoricoAlertaVigilancia.criado_em.desc()).limit(200))).scalars().all()
+    return {"execucoes": [{"chave": e.chave, "status": e.status, "encontrados": e.encontrados, "criados": e.criados, "finalizado_em": e.finalizado_em} for e in execucoes],
+            "historico_alertas": [{"id": a.id, "colidencia_id": a.colidencia_id, "canal": a.canal, "status": a.status, "criado_em": a.criado_em, "enviado_em": a.enviado_em} for a in alertas]}

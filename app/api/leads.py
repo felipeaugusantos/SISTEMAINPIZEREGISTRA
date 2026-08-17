@@ -28,8 +28,8 @@ from app.models import (
     MOTIVOS_PERDA,
     ORDEM_FASE_LEAD,
     TIPOS_DOCUMENTO_LEAD,
-    AvaliacaoRiscoMarca,
     AssinaturaPropostaComercial,
+    AvaliacaoRiscoMarca,
     Cadencia,
     CanalContato,
     ChecklistFaseLead,
@@ -51,8 +51,8 @@ from app.models import (
     SolicitacaoExclusaoPesquisa,
     StatusLead,
     UsuarioOperacoes,
-    VersaoRelatorioMarca,
     VersaoDocumentoLead,
+    VersaoRelatorioMarca,
 )
 from app.normalization import normalizar_numero_processo
 from app.proxy import cliente_ip
@@ -2396,7 +2396,7 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
         eventos.append(
             {
                 "tipo": "fase",
-                "data": f.criado_em,
+                "data": f.entrou_em,
                 "titulo": f"Fase: {FASE_LABELS.get(f.fase, f.fase)}",
                 "detalhe": f"por {f.por}" if f.por else None,
             }

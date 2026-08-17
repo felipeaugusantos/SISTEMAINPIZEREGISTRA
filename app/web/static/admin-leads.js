@@ -398,10 +398,11 @@ async function openLead(id) {
     dialogContent.prepend(portalCard);
     fetch(`/v1/admin/leads/${lead.id}/portal-acesso`).then(async r => { const body = await r.json().catch(() => ({})); if (!r.ok) { const erro = new Error(body.detail || "Não foi possível verificar o acesso."); erro.status = r.status; throw erro; } return body; }).then(access => {
       portalCard.innerHTML = access.existe
-        ? `<strong>Portal do cliente</strong><p>${access.ativo ? "Acesso ativo." : "Acesso bloqueado."}</p><a class="secondary-button" href="/portal" target="_blank" rel="noopener">Abrir portal do cliente</a>`
+        ? `<strong>Portal do cliente</strong><p>${access.ativo ? "Acesso ativo." : "Acesso bloqueado."}</p><div class="portal-credentials"><label>Usuário <input readonly value="${escapeHtml(access.cliente?.email || lead.email || "")}" /></label></div><a class="secondary-button" href="/portal" target="_blank" rel="noopener">Abrir portal do cliente</a><button type="button" class="primary-button" data-portal-generate>Gerar nova senha temporária</button>`
         : `<strong>Portal do cliente</strong><p>Este cliente ainda não possui acesso.</p><button type="button" class="primary-button" data-portal-generate>Gerar acesso do cliente</button>`;
       const generateButton = portalCard.querySelector("[data-portal-generate]");
       if (generateButton) generateButton.addEventListener("click", async () => {
+        const actionLabel = generateButton.textContent;
         generateButton.disabled = true;
         generateButton.textContent = "Gerando…";
         try {
@@ -413,7 +414,7 @@ async function openLead(id) {
           portalCard.innerHTML = `<strong>Portal do cliente</strong><p>Acesso gerado. Envie ao cliente o link e a senha temporária.</p><div class="portal-credentials"><label>Link <input readonly value="${escapeHtml(portalUrl)}" /></label><label>Usuário <input readonly value="${escapeHtml(result.cliente?.email || lead.email || "")}" /></label><label>Senha temporária <input readonly value="${escapeHtml(result.senha_temporaria || "")}" /></label></div><a class="secondary-button" href="${escapeHtml(portalPath)}" target="_blank" rel="noopener">Abrir portal do cliente</a>`;
         } catch (error) {
           generateButton.disabled = false;
-          generateButton.textContent = "Gerar acesso do cliente";
+          generateButton.textContent = actionLabel;
           const mensagem = error.status === 403 ? "Sem permissão para gerar este acesso." : error.status === 401 ? "Sua sessão expirou. Atualize a página e entre novamente." : (error.message || "Não foi possível gerar o acesso.");
           const aviso = portalCard.querySelector("p");
           if (aviso) aviso.textContent = mensagem;

@@ -396,11 +396,11 @@ async function openLead(id) {
     portalCard.className = "lead-portal-access";
     portalCard.innerHTML = "<strong>Portal do cliente</strong><p>Verificando acesso…</p>";
     dialogContent.prepend(portalCard);
-    fetch(`/v1/admin/leads/${lead.id}/portal-acesso`).then(r => r.json()).then(access => {
+    fetch(`/v1/admin/leads/${lead.id}/portal-acesso`).then(async r => { const body = await r.json().catch(() => ({})); if (!r.ok) { const erro = new Error(body.detail || "Não foi possível verificar o acesso."); erro.status = r.status; throw erro; } return body; }).then(access => {
       portalCard.innerHTML = access.existe
         ? `<strong>Portal do cliente</strong><p>${access.ativo ? "Acesso ativo." : "Acesso bloqueado."}</p><a class="secondary-button" href="/portal" target="_blank" rel="noopener">Abrir portal do cliente</a>`
         : "<strong>Portal do cliente</strong><p>Este cliente ainda não possui acesso.</p>";
-    }).catch(() => { portalCard.innerHTML = "<strong>Portal do cliente</strong><p>Não foi possível verificar o acesso.</p>"; });
+    }).catch(error => { const mensagem = error.status === 403 ? "Sem permissão ou este lead não está sob sua responsabilidade." : error.status === 401 ? "Sua sessão expirou. Atualize a página e entre novamente." : (error.message || "Não foi possível verificar o acesso."); portalCard.innerHTML = `<strong>Portal do cliente</strong><p>${mensagem}</p>`; });
   }
   const crmFormCard = dialogContent.querySelector("#lead-crm-form");
   const contactSummaryCard = dialogContent.querySelector(".lead-contact-summary");

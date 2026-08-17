@@ -25,6 +25,7 @@ from app.models import (
 router = APIRouter(tags=["portal-cliente"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ClientManageDep = Annotated[object, Depends(exigir_permissao("leads.manage"))]
+ClientViewDep = Annotated[object, Depends(exigir_permissao("leads.view"))]
 SESSION_COOKIE = "zr_client_session"
 
 
@@ -171,7 +172,7 @@ async def criar_acesso_cliente(lead_id: int, request: Request, session: SessionD
 
 
 @router.get("/v1/admin/leads/{lead_id}/portal-acesso")
-async def consultar_acesso_cliente(lead_id: int, request: Request, session: SessionDep, usuario: ClientManageDep) -> dict:
+async def consultar_acesso_cliente(lead_id: int, request: Request, session: SessionDep, usuario: ClientViewDep) -> dict:
     lead = (await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")

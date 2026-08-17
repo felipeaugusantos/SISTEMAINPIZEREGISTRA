@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     apple_team_id: str = ""
     apple_key_id: str = ""
     apple_private_key: str = ""
+    gateway_webhook_secret: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

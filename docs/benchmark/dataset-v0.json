@@ -1,0 +1,13 @@
+{
+  "versao": "v0",
+  "status": "pendente_revisao_especialista",
+  "escopo": "busca nominativa e figurativa de marcas",
+  "observacao": "Substituir os identificadores de exemplo por casos revisados e registrar os relevantes esperados.",
+  "casos": [
+    {"id": "caso-001", "consulta": "exemplo nominativo", "relevantes": [], "retornados": [], "falso_negativo_critico": false},
+    {"id": "caso-002", "consulta": "exemplo mista", "codigos_viena": ["27.5.1"], "relevantes": [], "retornados": [], "falso_negativo_critico": false},
+    {"id": "caso-003", "consulta": "exemplo figurativa", "codigos_viena": ["26.4.5"], "relevantes": [], "retornados": [], "falso_negativo_critico": false},
+    {"id": "caso-004", "consulta": "exemplo classe concorrente", "relevantes": [], "retornados": [], "falso_negativo_critico": true},
+    {"id": "caso-005", "consulta": "exemplo sem conflito", "relevantes": [], "retornados": [], "falso_negativo_critico": false}
+  ]
+}

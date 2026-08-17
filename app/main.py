@@ -4,19 +4,21 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func, select, text
+from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 
 from app.api.admin import router as admin_router
 from app.api.analises import router as analises_router
 from app.api.aprendizado import router as aprendizado_router
+from app.api.busca_admin import router as busca_admin_router
 from app.api.auth_routes import router as auth_router
 from app.api.carteira import router as carteira_router
 from app.api.confiabilidade import public_router as tenant_router
 from app.api.confiabilidade import router as confiabilidade_router
+from app.api.contratacoes import router as contratacoes_router
 from app.api.consulta import router as consulta_router
 from app.api.crm_admin import router as crm_router
 from app.api.exclusoes import router as exclusoes_router
@@ -29,6 +31,7 @@ from app.api.juridico import router as juridico_router
 from app.api.leads import router as leads_router
 from app.api.observabilidade import router as observabilidade_router
 from app.api.painel import router as painel_router
+from app.api.portal_cliente import router as portal_cliente_router
 from app.api.pesquisas import router as pesquisas_router
 from app.api.processos import router as processos_router
 from app.api.producao import router as producao_router
@@ -39,9 +42,10 @@ from app.api.saas import router as saas_router
 from app.api.social_auth import router as social_auth_router
 from app.api.usuarios import router as usuarios_router
 from app.api.visual import router as visual_router
+from app.api.vigilancia import router as vigilancia_router
 from app.auth import exigir_permissao
 from app.database import get_session
-from app.models import RpiImportacao, RpiSyncEstado, RpiSyncExecucao
+from app.models import EventoOperacional, RpiImportacao, RpiSyncEstado, RpiSyncExecucao
 from app.observability import observar_requisicao
 from app.queueing import status_fila
 from app.rpi.health import avaliar_saude_rpi
@@ -80,17 +84,20 @@ app.include_router(fase2_router)
 app.include_router(fase3_router)
 app.include_router(admin_router)
 app.include_router(painel_router)
+app.include_router(portal_cliente_router)
 app.include_router(observabilidade_router)
 app.include_router(analises_router)
 app.include_router(producao_router)
 app.include_router(rpi_admin_router)
 app.include_router(rpi_consulta_router)
 app.include_router(aprendizado_router)
+app.include_router(busca_admin_router)
 app.include_router(carteira_router)
 app.include_router(juridico_router)
 app.include_router(consulta_router)
 app.include_router(figurativa_router)
 app.include_router(visual_router)
+app.include_router(vigilancia_router)
 app.include_router(crm_router)
 app.include_router(exclusoes_router)
 app.include_router(financeiro_router)
@@ -99,6 +106,7 @@ app.include_router(social_auth_router)
 app.include_router(usuarios_router)
 app.include_router(saas_router)
 app.include_router(confiabilidade_router)
+app.include_router(contratacoes_router)
 app.include_router(tenant_router)
 app.include_router(observabilidade_router)
 app.mount("/static", StaticFiles(directory=web_dir / "static"), name="static")
@@ -414,6 +422,56 @@ async def health(
         status_code=200 if status_geral == "ok" else 503,
         content=conteudo,
     )
+
+
+@app.get("/health/db", tags=["infraestrutura"])
+async def health_db(session: Annotated[AsyncSession, Depends(get_session)]) -> JSONResponse:
+    inicio = datetime.now(UTC)
+    try:
+        await session.execute(text("SELECT 1"))
+        latencia = round((datetime.now(UTC) - inicio).total_seconds() * 1000, 2)
+        return JSONResponse(status_code=200, content={"status": "ok", "latencia_ms": latencia})
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={"status": "indisponivel", "erro": type(exc).__name__})
+
+
+@app.get("/health/queue", tags=["infraestrutura"])
+async def health_queue() -> JSONResponse:
+    fila = await status_fila()
+    obrigatoria = bool(settings.redis_required)
+    return JSONResponse(status_code=200 if fila["status"] == "ok" or not obrigatoria else 503, content=fila)
+
+
+@app.get("/metrics", tags=["infraestrutura"])
+async def metrics(session: Annotated[AsyncSession, Depends(get_session)]) -> PlainTextResponse:
+    """Métricas Prometheus simples, sem dados sensíveis e compatíveis com scraping."""
+    total, erros, duracao = (await session.execute(select(
+        func.count(EventoOperacional.id),
+        func.sum(case((EventoOperacional.sucesso.is_(False), 1), else_=0)),
+        func.avg(EventoOperacional.duracao_ms),
+    ))).one()
+    fila = await status_fila()
+    linhas = [
+        "# HELP ze_registra_http_requests_total Requisições operacionais registradas.",
+        "# TYPE ze_registra_http_requests_total counter",
+        f"ze_registra_http_requests_total {int(total or 0)}",
+        "# HELP ze_registra_http_errors_total Erros operacionais registrados.",
+        "# TYPE ze_registra_http_errors_total counter",
+        f"ze_registra_http_errors_total {int(erros or 0)}",
+        "# HELP ze_registra_http_duration_ms_avg Duração média das operações em milissegundos.",
+        "# TYPE ze_registra_http_duration_ms_avg gauge",
+        f"ze_registra_http_duration_ms_avg {float(duracao or 0):.2f}",
+    ]
+    if fila["status"] == "ok":
+        linhas.extend([
+            "# TYPE ze_registra_queue_pending gauge",
+            f"ze_registra_queue_pending {int(fila.get('pendentes') or 0)}",
+            "# TYPE ze_registra_queue_failed gauge",
+            f"ze_registra_queue_failed {int(fila.get('falhas') or 0)}",
+            "# TYPE ze_registra_queue_processing gauge",
+            f"ze_registra_queue_processing {int(fila.get('processando') or 0)}",
+        ])
+    return PlainTextResponse("\n".join(linhas) + "\n", media_type="text/plain; version=0.0.4")
 
 
 @app.get("/health/rpi", response_model=RpiHealthResponse, tags=["infraestrutura"])

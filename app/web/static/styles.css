@@ -14,6 +14,59 @@
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+/* Design system compartilhado — Fase 1 */
+:root {
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --focus-ring: 0 0 0 3px rgba(47, 143, 70, .2);
+}
+
+button, .primary-button, .secondary-button, .danger-button, input, select, textarea {
+  border-radius: var(--radius-md);
+  font: inherit;
+}
+
+button, .primary-button, .secondary-button, .danger-button {
+  align-items: center;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 7px;
+  justify-content: center;
+  min-height: 40px;
+  padding: 9px 14px;
+  transition: background .15s ease, border-color .15s ease, transform .15s ease;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: 0;
+}
+
+input, select, textarea {
+  background: #fff;
+  border: 1px solid #cbd4cd;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 9px 11px;
+  width: 100%;
+}
+
+textarea { min-height: 96px; resize: vertical; }
+
+table { border-collapse: collapse; width: 100%; }
+th { color: var(--muted); font-size: .72rem; letter-spacing: .05em; text-align: left; text-transform: uppercase; }
+th, td { padding: 11px 13px; vertical-align: middle; }
+td { border-top: 1px solid var(--line); }
+
+.status-message { border: 1px solid var(--line); border-radius: var(--radius-md); padding: 12px 14px; }
+.status-message.error { background: #fff0ec; border-color: #efb4a6; color: #8f3021; }
+.status-message.success { background: #eaf7ed; border-color: #a9d8b2; color: #216f34; }
+.status-message.loading { background: #f5f8f5; color: var(--muted); }
+
+dialog { border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow); max-width: min(720px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgba(23, 35, 28, .38); }
+
 @font-face {
   font-family: "Pigura";
   src: url("/static/assets/pigura.ttf") format("truetype");
@@ -4705,3 +4758,232 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
 .observability-detail-grid span, .observability-detail-grid small { color: #66736b; font-size: .78rem; }
 @media (max-width: 900px) { .observability-detail-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .observability-toolbar { align-items: flex-start; flex-direction: column; } .observability-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Design system compartilhado — Fase 2: consistência e responsividade */
+*, *::before, *::after { box-sizing: border-box; }
+
+button, a.primary-button, a.secondary-button, a.danger-button {
+  line-height: 1.25;
+  max-width: 100%;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+button:not(:disabled):hover,
+a.primary-button:hover,
+a.secondary-button:hover,
+a.danger-button:hover {
+  transform: translateY(-1px);
+}
+
+button:disabled,
+a[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: .58;
+}
+
+.admin-body .primary-button,
+.admin-body .secondary-button,
+.admin-body .danger-button {
+  min-height: 40px;
+  padding: 9px 14px;
+}
+
+.admin-body .primary-button,
+.admin-body .secondary-button,
+.admin-body .danger-button,
+.admin-body .dialog-close,
+.admin-body dialog > form > footer button {
+  flex: 0 0 auto;
+}
+
+.admin-body .admin-heading,
+.admin-body .admin-overview-hero,
+.admin-body .crm-hero,
+.admin-body .portfolio-hero,
+.admin-body .finance-hero,
+.admin-body .rpi-query-hero,
+.admin-body .section-header,
+.admin-body .section-header > header,
+.admin-body .crm-card > header,
+.admin-body .finance-card > header,
+.admin-body .rpi-results-card > header,
+.admin-body .portfolio-list-header {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.admin-body .admin-heading > *,
+.admin-body .admin-overview-hero > *,
+.admin-body .crm-hero > *,
+.admin-body .portfolio-hero > *,
+.admin-body .finance-hero > *,
+.admin-body .rpi-query-hero > *,
+.admin-body .section-header > *,
+.admin-body .crm-card > header > *,
+.admin-body .finance-card > header > *,
+.admin-body .rpi-results-card > header > *,
+.admin-body .portfolio-list-header > * {
+  min-width: 0;
+}
+
+.admin-body .hero-actions,
+.admin-body .crm-hero-actions,
+.admin-body .portfolio-hero-actions,
+.admin-body .analysis-heading-actions,
+.admin-body .lead-research-actions,
+.admin-body .reliability-actions,
+.admin-body .view-switch,
+.admin-body .finance-tabs,
+.admin-body .rpi-pagination,
+.admin-body .rpi-revista-pagination,
+.admin-body dialog > form > footer,
+.admin-body dialog > footer {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admin-body .hero-actions,
+.admin-body .crm-hero-actions,
+.admin-body .portfolio-hero-actions,
+.admin-body .analysis-heading-actions,
+.admin-body .lead-research-actions {
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.admin-body .leads-table-shell,
+.admin-body .portfolio-table-wrap,
+.admin-body .table-wrap,
+.admin-body .finance-table-wrap,
+.admin-body .data-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-body table {
+  min-width: 620px;
+}
+
+.admin-body th,
+.admin-body td {
+  overflow-wrap: anywhere;
+}
+
+.admin-body .status-message {
+  line-height: 1.45;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.admin-body dialog {
+  margin: auto;
+  max-height: calc(100dvh - 32px);
+  max-width: min(920px, calc(100vw - 32px));
+  overflow: hidden;
+  padding: 0;
+  width: min(920px, calc(100vw - 32px));
+}
+
+.admin-body dialog > form {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.admin-body dialog > form > header,
+.admin-body dialog > header {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.admin-body dialog > form > footer,
+.admin-body dialog > footer {
+  justify-content: flex-end;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-body .dialog-close,
+.admin-body dialog > header > button[aria-label="Fechar"],
+.admin-body dialog > form > header > button[aria-label="Fechar"] {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  flex: 0 0 40px;
+  height: 40px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 40px;
+}
+
+/* Consulta RPI: o campo ocupa o espaço restante e nunca empurra as ações para fora. */
+#rpi-query-form {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+#rpi-query-form label { min-width: 0; }
+#rpi-query-form input[name="busca"] { min-width: 0; }
+#rpi-open-records { min-width: 184px; }
+
+@media (max-width: 760px) {
+  .admin-body .hero-actions,
+  .admin-body .crm-hero-actions,
+  .admin-body .portfolio-hero-actions,
+  .admin-body .analysis-heading-actions,
+  .admin-body .lead-research-actions {
+    justify-content: flex-start;
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .admin-body .hero-actions > *,
+  .admin-body .crm-hero-actions > *,
+  .admin-body .portfolio-hero-actions > *,
+  .admin-body .analysis-heading-actions > *,
+  .admin-body .lead-research-actions > * {
+    flex: 1 1 160px;
+  }
+
+  #rpi-query-form { grid-template-columns: 1fr; }
+  #rpi-query-form button { width: 100%; }
+}
+
+@media (max-width: 520px) {
+  .admin-body .admin-main { padding-left: 16px; padding-right: 16px; }
+  .admin-body .admin-heading,
+  .admin-body .admin-overview-hero,
+  .admin-body .crm-hero,
+  .admin-body .portfolio-hero,
+  .admin-body .finance-hero,
+  .admin-body .rpi-query-hero,
+  .admin-body .overview-section,
+  .admin-body .crm-card,
+  .admin-body .finance-card,
+  .admin-body .rpi-query-card,
+  .admin-body .rpi-results-card { padding: 16px; }
+
+  .admin-body dialog > form { padding: 18px; }
+  .admin-body dialog > form > footer,
+  .admin-body dialog > footer { align-items: stretch; flex-direction: column-reverse; }
+  .admin-body dialog > form > footer > *,
+  .admin-body dialog > footer > * { width: 100%; }
+  .admin-body table { min-width: 520px; }
+}
+/* Portal do cliente */
+.portal-table { display:grid; gap:8px; margin:10px 0 18px; }
+.portal-row { display:flex; flex-wrap:wrap; gap:16px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--surface, #fff); }
+.portal-row span { min-width:130px; color:var(--muted); }

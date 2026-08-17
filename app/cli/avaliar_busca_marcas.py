@@ -195,7 +195,9 @@ def avaliar_regressao(
         for metrica in ("recall", "precision"):
             anterior = float(baseline["metricas"][chave][metrica])
             corrente = float(atual["metricas"][chave][metrica])
-            tolerancia = float(tolerancias[f"{metrica}_at_{k}"])
+            # Recall jurídico não admite regressão: a tolerância configurável só
+            # pode ser aplicada à precisão.
+            tolerancia = 0.0 if metrica == "recall" else float(tolerancias[f"{metrica}_at_{k}"])
             if corrente < anterior - tolerancia:
                 falhas.append(
                     f"{metrica}@{k} regrediu: baseline={anterior:.4f}, atual={corrente:.4f}"

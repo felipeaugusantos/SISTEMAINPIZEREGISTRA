@@ -15,6 +15,26 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 - **PENDENTE DE VALIDAÇÃO:** dataset candidato da busca e eficácia jurídica das métricas; o dataset continua `pendente_revisao_especialista`.
 - **PLANEJADO:** itens marcados como não implementados na matriz comercial, sem promessa de disponibilidade.
 
+## Melhorias consolidadas no RC1
+
+As fases de evolucao foram consolidadas na base atual:
+
+- RPI confiavel: importacao idempotente, checksum, validacao de arquivos parciais, anomalias, reprocessamento seguro, fila com retry/backoff, consulta paginada, filtros por situacao e endpoint `/health/rpi`;
+- seguranca SaaS: isolamento PostgreSQL/RLS entre organizacoes, permissoes por modulo, sessoes revogaveis, MFA/TOTP, rotacao de segredos e auditoria ampliada;
+- CRM comercial: empresa, contato e oportunidade separados, responsavel e proxima acao, timeline unica, cadencias idempotentes, alertas, dashboard e propostas ligadas a pesquisas;
+- propostas e protocolo: PDF versionado, link publico seguro, aceite eletronico, pagamento, checklist, SLA de 24 horas, responsavel, comprovante e motivo de atraso auditavel;
+- portal do cliente: login proprio, processos, propostas, documentos, GRUs, pagamentos, mensagens, arquivos, notificacoes, eventos e revogacao de acesso;
+- documentos: hash, IP, data/hora, validade, versionamento, assinatura e bloqueio por pendencia, com campo de provedor externo;
+- busca avancada: nome, mista, figurativa, Viena, OCR, similaridade visual, score explicavel, benchmark e estados SHADOW/VALIDATION/ACTIVE/DISABLED;
+- vigilancia preventiva: colidencias por nome/Nice/Viena, score de risco, fila de revisao, preferencias de frequencia/canais e notificacao somente apos regra, evidencia e aprovacao;
+- financeiro: catalogo, contratacao, parcelas, GRUs, inadimplencia, historico, permissoes separadas e webhook de gateway HMAC idempotente com lock transacional;
+- release: suite automatizada, E2E, benchmark, seguranca, health, documentacao operacional, checklist de RC1 e procedimento de rollback.
+
+O RC1 esta pronto para homologacao. Carga representativa, aprovacao visual formal,
+restauracao/rollback em banco descartavel e revisao do dataset juridico continuam
+como gates de liberacao para producao. Consulte [docs/rc1-checklist.md](docs/rc1-checklist.md)
+e [docs/fase11-release-candidate.md](docs/fase11-release-candidate.md).
+
 ### Atualizacoes recentes do painel
 
 - cadastro completo da empresa em **Empresas e planos**, com dados institucionais, endereco, site, atividade, fundacao e logo;
@@ -185,6 +205,7 @@ ADMIN_PASSWORD=troque-esta-senha
 AUDIT_IP_SALT=troque-este-segredo
 SECURITY_MASTER_KEY=troque-esta-chave
 SECURITY_MASTER_KEY_VERSION=1
+GATEWAY_WEBHOOK_SECRET=defina-um-segredo-do-gateway
 ```
 
 `SECURITY_MASTER_KEY` protege os segredos TOTP com Fernet (AES/HMAC). O ciphertext inclui
@@ -544,6 +565,20 @@ A documentação interativa completa fica disponível em <http://localhost:8000/
 - usuários, autenticação e MFA;
 - organizações, planos e integrações;
 - produção, confiabilidade e auditoria.
+
+## Entrega documental da Fase 13
+
+A documentação operacional consolidada está em [docs/fase13-documentacao-entrega.md](docs/fase13-documentacao-entrega.md). Ela reúne instalação, variáveis de ambiente, migrations, comandos, deploy, rollback, suporte, permissões e indicadores.
+
+O checklist de aceite do Release Candidate está em [docs/release-candidate.md](docs/release-candidate.md). Antes de produção, execute a suíte automatizada, aplique migrations em homologação, valide um backup restaurado e confirme todos os gates do checklist.
+
+Comandos essenciais:
+
+```powershell
+\.venv\Scripts\python.exe -m pytest -q
+\.venv\Scripts\alembic.exe upgrade head
+\.venv\Scripts\uvicorn.exe app.main:app --host 0.0.0.0 --port 8000
+```
 
 ## Estado do projeto
 

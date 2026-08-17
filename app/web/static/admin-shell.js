@@ -164,3 +164,19 @@ originalFetch("/v1/auth/me").then(async response => {
 document.querySelector("#admin-logout").addEventListener("click", async () => {
   await fetch("/v1/auth/logout", { method: "POST" }); location.href = "/login";
 });
+
+// Corrige textos legados com mojibake sem alterar dados persistidos.
+function normalizarEncodingVisual() {
+  const mapa = { "Ã§": "ç", "Ã£": "ã", "Ã¡": "á", "Ã©": "é", "Ã³": "ó", "Ãº": "ú", "Ã‰": "É", "Ãš": "Ú", "Ã§Ã£o": "ção", "â€”": "—", "â€“": "–", "â€¦": "…", "Â·": "·", "Ã—": "×" };
+  const corrigir = (valor) => Object.entries(mapa).reduce((texto, [ruim, bom]) => texto.split(ruim).join(bom), valor);
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const textos = [];
+  while (walker.nextNode()) textos.push(walker.currentNode);
+  textos.forEach(node => { node.nodeValue = corrigir(node.nodeValue); });
+  document.querySelectorAll("[title], [aria-label], input[placeholder]").forEach(el => {
+    ["title", "aria-label", "placeholder"].forEach(attr => { if (el.hasAttribute(attr)) el.setAttribute(attr, corrigir(el.getAttribute(attr))); });
+  });
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", normalizarEncodingVisual, { once: true });
+else normalizarEncodingVisual();
+new MutationObserver(() => normalizarEncodingVisual()).observe(document.body, { childList: true, subtree: true });

@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models import ClassificacaoMarca, Processo, TipoProcesso
 from app.search_ranking import ScoreBusca, calcular_score_nominativo, configuracao_ranking
+from app.search_model import resultado_busca_exige_revisao_humana
 
 PALAVRAS_IGNORADAS = {
     "A",
@@ -283,5 +284,6 @@ async def buscar_marcas(
         ),
         "limiar_trigrama": LIMIAR_TRIGRAMA,
         "ranking": configuracao_ranking(),
+        **resultado_busca_exige_revisao_humana(),
     }
     return total, ocorrencias, evidencias

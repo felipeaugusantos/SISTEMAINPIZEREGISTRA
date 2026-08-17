@@ -175,4 +175,25 @@ def configuracao_ranking() -> dict[str, object]:
         "peso_maximo_similaridade": PESO_MAXIMO_SIMILARIDADE,
         "pesos_contexto": PESOS_CONTEXTO,
         "score_maximo": SCORE_MAXIMO,
+        "modalidades": ["nominativa", "mista", "figurativa", "nice", "viena", "ocr", "similaridade_visual"],
+        "revisao_humana_obrigatoria": True,
     }
+
+
+def calcular_score_combinado(
+    *, nominativo: float, visual: float = 0.0, ocr: float = 0.0,
+    nice: float = 0.0, viena: float = 0.0, processo: str = "",
+) -> ScoreBusca:
+    """Combina sinais técnicos sem convertê-los em decisão jurídica."""
+    pesos = {"nominativo": 0.45, "visual": 0.25, "ocr": 0.10, "nice": 0.10, "viena": 0.10}
+    sinais = {"nominativo": nominativo, "visual": visual, "ocr": ocr, "nice": nice, "viena": viena}
+    fatores = tuple(
+        FatorScoreBusca(
+            regra=f"SINAL_{nome.upper()}",
+            peso=round(max(0.0, min(1.0, float(valor))) * 100 * peso, 2),
+            evidencia={"sinal": nome, "valor": round(float(valor), 4), "processo": processo},
+        )
+        for nome, valor in sinais.items()
+        if float(valor) > 0
+    )
+    return ScoreBusca(total=round(min(SCORE_MAXIMO, sum(item.peso for item in fatores)), 2), fatores=fatores, versao="ranking-combinado-1.0")

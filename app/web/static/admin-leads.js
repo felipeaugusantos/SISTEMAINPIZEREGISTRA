@@ -391,6 +391,17 @@ async function openLead(id) {
       <ol id="lead-contact-history" class="lead-contact-history"><li class="lead-contact-empty">Carregando contatos...</li></ol>
     </section>
     </aside>`;
+  if (state.canManage) {
+    const portalCard = document.createElement("section");
+    portalCard.className = "lead-portal-access";
+    portalCard.innerHTML = "<strong>Portal do cliente</strong><p>Verificando acesso…</p>";
+    dialogContent.prepend(portalCard);
+    fetch(`/v1/admin/leads/${lead.id}/portal-acesso`).then(r => r.json()).then(access => {
+      portalCard.innerHTML = access.existe
+        ? `<strong>Portal do cliente</strong><p>${access.ativo ? "Acesso ativo." : "Acesso bloqueado."}</p><a class="secondary-button" href="/portal" target="_blank" rel="noopener">Abrir portal do cliente</a>`
+        : "<strong>Portal do cliente</strong><p>Este cliente ainda não possui acesso.</p>";
+    }).catch(() => { portalCard.innerHTML = "<strong>Portal do cliente</strong><p>Não foi possível verificar o acesso.</p>"; });
+  }
   const crmFormCard = dialogContent.querySelector("#lead-crm-form");
   const contactSummaryCard = dialogContent.querySelector(".lead-contact-summary");
   if (crmFormCard && contactSummaryCard) contactSummaryCard.after(crmFormCard);
@@ -1091,7 +1102,7 @@ async function renderPropostas(lead) {
   if (!box) return;
   try {
     const data = await (await fetch(`/v1/admin/leads/${lead.id}/propostas`)).json();
-    const rows = (data.propostas || []).map(p => `<tr><td data-label="Número">${escapeHtml(p.numero)}</td><td data-label="Versão">v${p.versao}</td><td data-label="Marca">${escapeHtml(p.marca || "A definir")}</td><td data-label="Status"><span class="role-badge">${escapeHtml(p.status)}</span></td><td data-label="Total">${formatCurrency(p.total)}</td><td data-label="Ações"><div class="proposal-actions"><button class="secondary-button proposal-pdf" data-id="${p.id}" type="button">PDF</button><button class="secondary-button proposal-link" data-id="${p.id}" type="button">Gerar link</button><button class="secondary-button proposal-preview" data-id="${p.id}" type="button">Visualizar</button>${state.canManage && p.status === "rascunho" ? `<button class="secondary-button proposal-send" data-id="${p.id}" type="button">Enviar por e-mail</button>` : ""}${state.canManage && p.status === "enviada" ? `<button class="secondary-button proposal-accept" data-id="${p.id}" type="button">Registrar aceite</button>` : ""}</div></td></tr>`).join("");
+    const rows = (data.propostas || []).map(p => `<tr><td data-label="Número">${escapeHtml(p.numero)}</td><td data-label="Versão">v${p.versao}</td><td data-label="Marca">${escapeHtml(p.marca || "A definir")}</td><td data-label="Status"><span class="role-badge">${escapeHtml(p.status)}</span></td><td data-label="Total">${formatCurrency(p.total)}</td><td data-label="Ações"><div class="proposal-actions"><button class="secondary-button proposal-pdf" data-id="${p.id}" type="button">PDF</button><button class="secondary-button proposal-link" data-id="${p.id}" type="button">Gerar link</button><button class="secondary-button proposal-preview" data-id="${p.id}" type="button">Visualizar</button>${state.canManage && p.status === "rascunho" ? `<button class="secondary-button proposal-send" data-id="${p.id}" type="button">Enviar por e-mail</button>` : ""}${state.canManage && p.status === "enviada" ? `<button class="secondary-button proposal-accept" data-id="${p.id}" type="button">Registrar aceite</button>` : ""}${state.canManage ? `<button class="secondary-button proposal-version" data-id="${p.id}" type="button">Nova versão</button>` : ""}</div></td></tr>`).join("");
     box.innerHTML = `<header><div><p class="eyebrow">Comercial</p><h3>Propostas de registro</h3></div>${state.canManage ? `<button id="new-proposal" class="secondary-button" type="button">Criar proposta</button>` : ""}</header>${rows ? `<div class="doc-table-scroll"><table class="lead-docs lead-proposals-table"><thead><tr><th>Número</th><th>Versão</th><th>Marca</th><th>Status</th><th>Total</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<p>Nenhuma proposta criada.</p>`}`;
     box.querySelector("#new-proposal")?.addEventListener("click", () => criarProposta(lead, box));
     box.querySelectorAll(".proposal-preview").forEach(button => button.addEventListener("click", () => visualizarProposta(button.dataset.id)));
@@ -1100,6 +1111,10 @@ async function renderPropostas(lead) {
       const response = await fetch(`/v1/admin/propostas/${button.dataset.id}/link`, { method: "POST" });
       if (response.ok) { const data = await response.json(); await navigator.clipboard?.writeText(data.link); alert(`Link gerado e copiado:\n${data.link}`); }
       else alert("NÃ£o foi possÃ­vel gerar o link.");
+    }));
+    box.querySelectorAll(".proposal-version").forEach(button => button.addEventListener("click", async () => {
+      const response = await fetch(`/v1/admin/propostas/${button.dataset.id}/nova-versao`, { method: "POST" });
+      if (response.ok) await renderPropostas(lead); else alert("Não foi possível criar a nova versão.");
     }));
     box.querySelectorAll(".proposal-send, .proposal-accept").forEach(button => button.addEventListener("click", async () => {
       const response = button.classList.contains("proposal-send")
@@ -1117,6 +1132,7 @@ function formatCurrency(value) {
 
 async function criarProposta(lead, box) {
   const payload = {
+    pesquisa_id: lead.pesquisas?.[0]?.id || null,
     validade_em: null,
     marca: lead.pesquisas?.[0]?.marca || null,
     classes: lead.pesquisas?.[0]?.classe_nice || null,

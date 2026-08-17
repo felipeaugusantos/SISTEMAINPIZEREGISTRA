@@ -212,7 +212,7 @@ function researchRow(lead, item) {
     <td data-label="Atendimento"><strong>${escapeHtml(lead.responsavel_nome || "Não atribuído")}</strong><small>${escapeHtml(originLabel(lead.origem))}</small>${faseMini(lead.fase)}</td>
     <td data-label="Data da pesquisa"><time datetime="${escapeHtml(item.criado_em)}">${formatDate(item.criado_em)}</time></td>
     <td data-label="Status"><select class="lead-status status-${escapeHtml(lead.status)}" data-previous="${escapeHtml(lead.status)}" aria-label="Status de ${escapeHtml(lead.nome)}" ${lead.arquivado_em || !state.canManage ? "disabled" : ""}>${statusOptions(lead.status)}</select></td>
-    <td data-label="Ações"><div class="lead-row-actions"><a class="secondary-button" href="/admin/analises/${encodeURIComponent(item.id)}">Abrir análise</a><button class="view-lead secondary-button" type="button">Abrir contato</button>${deletionAction(item)}</div></td>
+    <td data-label="Ações"><div class="lead-row-actions"><a class="secondary-button" href="/admin/analises/${encodeURIComponent(item.id)}">Abrir análise</a><button class="view-lead secondary-button" type="button">Abrir contato</button>${state.canManage ? `<button class="generate-research-proposal secondary-button" type="button" data-research-id="${escapeHtml(item.id)}">Gerar proposta</button>` : ""}${deletionAction(item)}</div></td>
   </tr>`;
 }
 
@@ -359,7 +359,7 @@ async function openLead(id) {
     <section class="lead-funil lg-full" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
     <section class="lead-cadencia lg-full" id="lead-cadencia" hidden></section>
     <section class="lead-history lg-full"><header><div><p class="eyebrow">Histórico</p><h3>${lead.pesquisas.length} pesquisa${lead.pesquisas.length === 1 ? "" : "s"}</h3></div></header>${lead.pesquisas.length ? lead.pesquisas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
-    <details class="lead-collapsible lg-full"><summary>Documentos do atendimento</summary><section class="lead-documentos" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section></details>
+    <details class="lead-collapsible lg-full"><summary>Documentos do atendimento</summary><section class="lead-documentos lg-full" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section></details>
     <details class="lead-collapsible lg-full"><summary>Guias do INPI (GRU)</summary><section class="lead-guias" id="lead-guias"><p class="lead-funil-loading">Carregando guias do INPI…</p></section></details>
     <details class="lead-collapsible lg-full"><summary>Propostas de registro</summary><section class="lead-propostas" id="lead-propostas"><p class="lead-funil-loading">Carregando propostas…</p></section></details>
     <details class="lead-collapsible"><summary>Checklist da etapa</summary><section class="lead-checklist" id="lead-checklist"><p class="lead-funil-loading">Carregando checklist…</p></section></details>
@@ -391,6 +391,9 @@ async function openLead(id) {
       <ol id="lead-contact-history" class="lead-contact-history"><li class="lead-contact-empty">Carregando contatos...</li></ol>
     </section>
     </aside>`;
+  const crmFormCard = dialogContent.querySelector("#lead-crm-form");
+  const contactSummaryCard = dialogContent.querySelector(".lead-contact-summary");
+  if (crmFormCard && contactSummaryCard) contactSummaryCard.after(crmFormCard);
   await renderEmpresa(lead);
   await renderCadenciaLead(lead);
   await loadLeadContacts(lead.id);
@@ -962,6 +965,16 @@ leadsList.addEventListener("click", event => {
     openResearchDelete(state.canDeleteResearch ? "direct" : "request", deleteResearch.dataset.researchId);
     return;
   }
+  const proposalButton = event.target.closest(".generate-research-proposal");
+  if (proposalButton) {
+    const leadRow = proposalButton.closest("tr");
+    const lead = state.items.find(item => String(item.id) === String(leadRow?.dataset.leadId));
+    if (lead) {
+      proposalButton.disabled = true;
+      criarProposta(lead, null).finally(() => { proposalButton.disabled = false; });
+    }
+    return;
+  }
   const row = event.target.closest("tr");
   if (!row) return;
   const historyButton = event.target.closest(".toggle-researches");
@@ -1113,7 +1126,10 @@ async function criarProposta(lead, box) {
     condicoes_pagamento: "50% na contratação e 50% no protocolo",
   };
   const response = await fetch(`/v1/admin/leads/${lead.id}/propostas`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  if (response.ok) await renderPropostas(lead, box);
+  if (response.ok) {
+    if (box) await renderPropostas(lead, box);
+    else { alert("Proposta criada com sucesso."); openLead(lead.id); }
+  }
   else alert("Não foi possível criar a proposta.");
 }
 

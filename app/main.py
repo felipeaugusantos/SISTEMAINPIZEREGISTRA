@@ -33,10 +33,12 @@ from app.api.pesquisas import router as pesquisas_router
 from app.api.processos import router as processos_router
 from app.api.producao import router as producao_router
 from app.api.rpi_admin import router as rpi_admin_router
+from app.api.rpi_consulta import router as rpi_consulta_router
 from app.api.saas import exigir_superadmin
 from app.api.saas import router as saas_router
 from app.api.social_auth import router as social_auth_router
 from app.api.usuarios import router as usuarios_router
+from app.api.visual import router as visual_router
 from app.auth import exigir_permissao
 from app.database import get_session
 from app.models import RpiImportacao, RpiSyncEstado, RpiSyncExecucao
@@ -82,11 +84,13 @@ app.include_router(observabilidade_router)
 app.include_router(analises_router)
 app.include_router(producao_router)
 app.include_router(rpi_admin_router)
+app.include_router(rpi_consulta_router)
 app.include_router(aprendizado_router)
 app.include_router(carteira_router)
 app.include_router(juridico_router)
 app.include_router(consulta_router)
 app.include_router(figurativa_router)
+app.include_router(visual_router)
 app.include_router(crm_router)
 app.include_router(exclusoes_router)
 app.include_router(financeiro_router)
@@ -264,6 +268,15 @@ async def painel_retribuicoes() -> FileResponse:
 )
 async def painel_regras_automaticas() -> FileResponse:
     return FileResponse(web_dir / "admin-regras-automaticas.html")
+
+
+@app.get(
+    "/admin/configuracao/consulta-rpi",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("rpi.view"))],
+)
+async def painel_consulta_rpi() -> FileResponse:
+    return FileResponse(web_dir / "admin-consulta-rpi.html")
 
 
 @app.get(

@@ -4,6 +4,14 @@
 .portfolio-card h2{font-size:1.7rem}.portfolio-item{gap:18px;color:var(--ink);font-size:.8rem;line-height:1.42}.portfolio-process{display:grid;gap:3px}.portfolio-item h3{margin:0;font-size:.98rem;font-weight:800;line-height:1.25}.portfolio-item p,.portfolio-item small{margin:0;font-size:.76rem}.portfolio-item .process-number{width:max-content;font-size:.7rem;font-weight:850;letter-spacing:.02em}.portfolio-item-label{display:block;color:#617068;font-size:.68rem;font-weight:750}.portfolio-inpi{display:grid;gap:4px}.portfolio-inpi>strong{display:block;font-size:.86rem;line-height:1.3}.portfolio-inpi>p{display:grid;gap:2px}.portfolio-inpi>p span{color:#617068;font-size:.68rem}.portfolio-item .latest{display:grid;gap:3px;padding:11px 12px}.portfolio-item .latest small{font-size:.68rem}.portfolio-item .latest strong{font-size:.9rem;line-height:1.25}.portfolio-item .latest p{font-size:.76rem}.portfolio-status label{display:grid;gap:5px}.portfolio-status select{font-size:.78rem}.admin-body .portfolio-status button{min-height:38px;padding:8px 12px;font-size:.74rem;width:100%;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}
 .portfolio-status input{width:100%;padding:9px 12px;border:1px solid #cbd4cd;border-radius:11px;background:#fff;font:inherit;font-size:.78rem;box-sizing:border-box}
 
+/* Lista mais compacta para facilitar a leitura de muitos processos. */
+.portfolio-item { gap: 11px; padding: 12px 14px; }
+.portfolio-item .latest { padding: 8px 10px; }
+.portfolio-item .portfolio-status { gap: 5px; }
+.portfolio-item .portfolio-status input { padding: 7px 9px; }
+.portfolio-item .portfolio-status select { padding: 7px 9px; }
+.admin-body .portfolio-status button { min-height: 32px; padding: 6px 10px; }
+
 .attorney-summary{display:grid;gap:2px}.attorney-summary strong{color:#087252;font-size:1.05rem}.attorney-summary span{color:#607067;font-size:.7rem}.attorney-insights{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,.8fr);gap:14px;margin-top:12px;padding:13px 15px;border:1px solid #dce2dc;border-radius:13px;background:#fbfcf9}.attorney-insights>div>span{display:block;margin-bottom:7px;color:#617068;font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em}.attorney-variants{display:flex;flex-wrap:wrap;gap:6px}.attorney-variants>span{display:inline-flex;gap:6px;padding:5px 8px;border-radius:999px;color:#345247;background:#eaf2ed;font-size:.7rem}.attorney-variants b{color:#087252}.attorney-insights>p{margin:0;padding-left:14px;border-left:1px solid #dce2dc;color:#66776e;font-size:.7rem;line-height:1.45}@media(max-width:700px){.attorney-insights{grid-template-columns:1fr}.attorney-insights>p{padding:10px 0 0;border-top:1px solid #dce2dc;border-left:0}}
 
 /* Importação em lote de carteira (CSV/Excel). */

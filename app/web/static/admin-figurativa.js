@@ -3,6 +3,8 @@ const statusEl = document.querySelector("#figurativa-status");
 const resultado = document.querySelector("#figurativa-resultado");
 const lista = document.querySelector("#figurativa-lista");
 const resumo = document.querySelector("#fig-resumo");
+const imagemInput = document.querySelector("#imagem-referencia");
+const imagemStatus = document.querySelector("#imagem-status");
 
 function setStatus(texto, tipo) {
   statusEl.hidden = false;
@@ -74,6 +76,7 @@ form.addEventListener("submit", async event => {
   resultado.hidden = true;
   try {
     const params = new URLSearchParams({ codigos, limite: dados.limite });
+    if (dados.apresentacao) params.set("apresentacao", dados.apresentacao);
     const resposta = await api(`/v1/admin/figurativa/anterioridades?${params.toString()}`);
     lista.replaceChildren(...resposta.anterioridades.map(linha));
     if (!resposta.anterioridades.length) {
@@ -90,5 +93,24 @@ form.addEventListener("submit", async event => {
     resultado.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     setStatus(error.message, "error");
+  }
+});
+
+document.querySelector("#validar-imagem")?.addEventListener("click", async () => {
+  const arquivo = imagemInput?.files?.[0];
+  if (!arquivo) {
+    imagemStatus.textContent = "Selecione uma imagem antes de validar.";
+    return;
+  }
+  imagemStatus.textContent = "Validando imagem…";
+  const dados = new FormData();
+  dados.append("arquivo", arquivo);
+  try {
+    const resposta = await fetch("/v1/admin/figurativa/validar-imagem", { method: "POST", body: dados });
+    const payload = await resposta.json().catch(() => ({}));
+    if (!resposta.ok) throw new Error(payload.detail || "Não foi possível validar a imagem.");
+    imagemStatus.textContent = `Imagem válida (${payload.pixels} pixels de assinatura). ${payload.aviso}`;
+  } catch (error) {
+    imagemStatus.textContent = error.message;
   }
 });

@@ -24,6 +24,12 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 - abertura de contato com secoes operacionais recolhiveis para reduzir a rolagem e melhorar a leitura;
 - acoes de pesquisas e propostas alinhadas horizontalmente e responsivas;
 - cadencias carregadas e gerenciadas pela API com passos, canais, edicao e exclusao.
+- Consulta RPI com lista paginada, abertura de registros por revista, filtro por situaÃ§Ã£o no INPI e paginaÃ§Ã£o otimizada;
+- Busca figurativa por ClassificaÃ§Ã£o de Viena com filtro para marcas mistas e figurativas;
+- validaÃ§Ã£o experimental de imagens com assinatura visual perceptual, mantendo a decisÃ£o final humana;
+- benchmark da busca figurativa com Precision/Recall@5/10/20, MRR e detecÃ§Ã£o de falso negativo crÃ­tico;
+- validaÃ§Ãµes humanas registradas na auditoria com decisÃ£o e justificativa;
+- aÃ§Ã£o **Gerar proposta** diretamente na visÃ£o **Leads â†’ Por pesquisa**, alinhada Ã s aÃ§Ãµes de anÃ¡lise, contato e exclusÃ£o.
 
 ## Funcionalidades
 

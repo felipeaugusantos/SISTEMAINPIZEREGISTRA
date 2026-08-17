@@ -17,6 +17,7 @@ const adminSections = [
   { id: "observability", label: "Observabilidade", href: "/admin/observabilidade", symbol: "OB", permission: "production.view", profiles: ["administrador", "tech"] },
   { id: "configuracao", label: "Configuração", href: "/admin/configuracao/regras-automaticas", symbol: "CG", permission: "leads.view" },
   { id: "config-regras", label: "Regras automáticas", href: "/admin/configuracao/regras-automaticas", symbol: "RA", permission: "leads.view", parent: "configuracao" },
+  { id: "config-rpi", label: "Consulta RPI", href: "/admin/configuracao/consulta-rpi?v=7", symbol: "RPI", permission: "rpi.view", parent: "configuracao" },
   { id: "users", label: "Usuários e acessos", href: "/admin/usuarios", symbol: "UA", permission: "users.view" },
   { id: "saas", label: "Empresas e planos", href: "/admin/saas", symbol: "SA", superadmin: true },
 ];
@@ -125,7 +126,7 @@ function createAdminShell() {
   const productionHasActiveChild = activeSection === "finance-log";
   const productionPreference = localStorage.getItem("zr_admin_submenu_production");
   setSubmenu("production", productionHasActiveChild || productionPreference !== "closed");
-  const configHasActiveChild = activeSection === "config-regras";
+  const configHasActiveChild = ["config-regras", "config-rpi"].includes(activeSection);
   const configPreference = localStorage.getItem("zr_admin_submenu_configuracao");
   setSubmenu("configuracao", configHasActiveChild || configPreference !== "closed");
 

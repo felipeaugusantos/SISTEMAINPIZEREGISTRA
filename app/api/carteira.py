@@ -378,6 +378,14 @@ async def listar_carteira(
         .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
         .where(*filtros)
     )
+    prioridade_situacao = case(
+        (_expressao_grupo_situacao_inpi() == "deferido", 1),
+        (_expressao_grupo_situacao_inpi() == "em_tramitacao", 2),
+        (_expressao_grupo_situacao_inpi() == "registrado", 3),
+        (_expressao_grupo_situacao_inpi() == "indeferido", 4),
+        (_expressao_grupo_situacao_inpi() == "encerrado", 5),
+        else_=6,
+    )
     total = int(
         (await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     )
@@ -419,7 +427,7 @@ async def listar_carteira(
                 UsuarioOperacoes, UsuarioOperacoes.id == ProcessoMonitorado.responsavel_id
             )
             .where(*filtros)
-            .order_by(ProcessoMonitorado.atualizado_em.desc(), Processo.numero)
+            .order_by(prioridade_situacao, ProcessoMonitorado.atualizado_em.desc(), Processo.numero)
             .limit(limite)
             .offset(deslocamento)
         )

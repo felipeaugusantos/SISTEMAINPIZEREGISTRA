@@ -6,8 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Busca figurativa — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=23">
+  <link rel="stylesheet" href="/static/admin-figurativa.css?v=1">
   <script src="/static/admin-shell.js?v=36" defer></script>
-  <script src="/static/admin-figurativa.js?v=1" defer></script>
+  <script src="/static/admin-figurativa.js?v=2" defer></script>
 </head>
 <body class="admin-body" data-admin-section="figurativa">
   <main class="admin-main admin-dashboard">
@@ -42,6 +43,13 @@
               <small>(separados por vírgula — ex.: 27.5.1, 26.4.5)</small>
               <input name="codigos" required minlength="1" maxlength="500" placeholder="Ex.: 27.5.1, 26.4.5" autocomplete="off">
             </label>
+            <label>Tipo de apresentação
+              <select name="apresentacao">
+                <option value="">Mista e figurativa</option>
+                <option value="mista">Mista</option>
+                <option value="figurativa">Figurativa</option>
+              </select>
+            </label>
             <label>Máx. de resultados
               <select name="limite">
                 <option>25</option>
@@ -54,6 +62,7 @@
         <button class="primary-button form-submit" type="submit">Buscar anterioridades</button>
       </form>
       <p class="section-hint">Os códigos de Viena de uma marca aparecem na página de detalhe do processo. Copie-os de uma marca de referência e cole aqui para achar marcas com elementos figurativos parecidos.</p>
+      <div class="visual-search-box"><label>Imagem de referência (opcional)<input id="imagem-referencia" type="file" accept="image/png,image/jpeg,image/webp"></label><button id="validar-imagem" class="secondary-button" type="button">Validar imagem</button><span id="imagem-status" class="section-hint">A imagem será usada apenas como indicador técnico.</span></div>
       <div id="figurativa-status" class="status-message" role="status" aria-live="polite" hidden></div>
     </section>
 
@@ -75,6 +84,6 @@
         </table>
       </div>
     </section>
-  </main>
+</main>
 </body>
 </html>

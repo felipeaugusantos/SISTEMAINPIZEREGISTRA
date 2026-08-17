@@ -101,7 +101,10 @@ def avaliar_afinidade_viena(
 
 
 async def buscar_anterioridades_viena(
-    session: AsyncSession, codigos: list[str], limite: int = 50
+    session: AsyncSession,
+    codigos: list[str],
+    limite: int = 50,
+    apresentacao: str | None = None,
 ) -> list[dict]:
     """Marcas que compartilham códigos de Viena, ranqueadas por nº de códigos em comum."""
     alvo = [c.strip() for c in codigos if c.strip()]
@@ -124,7 +127,11 @@ async def buscar_anterioridades_viena(
             ClassificacaoMarca.sistema == "vienna",
             ClassificacaoMarca.codigo.in_(alvo),
         )
-        .group_by(Processo.id)
+    )
+    if apresentacao:
+        stmt = stmt.where(Processo.apresentacao == apresentacao)
+    stmt = (
+        stmt.group_by(Processo.id)
         .order_by(sobreposicao.desc(), Processo.data_deposito.desc().nullslast())
         .limit(limite)
     )

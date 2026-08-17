@@ -148,6 +148,7 @@ async def logout_cliente(request: Request, response: Response, session: SessionD
             sessao.revogada_em = datetime.now(UTC)
             cliente = await session.get(ClientePortal, sessao.cliente_id)
             if cliente is not None:
+                await aplicar_contexto_tenant(session, cliente.organizacao_id)
                 _auditar_cliente(session, cliente, request, "logout_cliente", "portal:logout")
             await session.commit()
     response.delete_cookie(SESSION_COOKIE, path="/")

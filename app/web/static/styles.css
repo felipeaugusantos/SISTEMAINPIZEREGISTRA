@@ -4987,3 +4987,41 @@ a[aria-disabled="true"] {
 .portal-table { display:grid; gap:8px; margin:10px 0 18px; }
 .portal-row { display:flex; flex-wrap:wrap; gap:16px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--surface, #fff); }
 .portal-row span { min-width:130px; color:var(--muted); }
+
+/* Zé Registra — tokens globais de marca (compatíveis com os componentes atuais) */
+:root {
+  --brand-green:#008037; --brand-green-deep:#005927; --brand-green-forest:#003d1a;
+  --brand-yellow:#00d15c; --brand-yellow-hover:#00a347; --brand-mint:#e6f5ed;
+  --brand-sage:#b3c6bc; --brand-smoke:#f0f4f2; --brand-smoke-2:#d1ded8; --brand-whatsapp:#25d366;
+  --background:#f0f4f2; --card:#fff; --surface-elevated:#fff; --foreground:#1a1a1a; --ink-soft:#2d4036;
+  --primary:#008037; --primary-deep:#005927; --accent-yellow:#00d15c; --accent-yellow-foreground:#1a1a1a;
+  --input:#d1ded8; --ring:#008037; --destructive:#b00020;
+  --font-display:"Sora",ui-sans-serif,system-ui,sans-serif; --font-body:"Manrope",ui-sans-serif,system-ui,sans-serif;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-display-xl:clamp(2.75rem,7vw,5.75rem); --fs-display-lg:clamp(2.25rem,5vw,4rem); --fs-display-md:clamp(1.75rem,3.5vw,2.75rem);
+  --fs-heading-lg:clamp(1.5rem,2.4vw,1.875rem); --fs-heading-md:clamp(1.25rem,1.8vw,1.5rem); --ls-display:-.03em; --ls-eyebrow:.14em;
+  --radius:1rem; --radius-md:calc(var(--radius) - 2px); --radius-xl:calc(var(--radius) + 4px); --radius-full:9999px;
+  --shadow-soft:0 1px 2px 0 rgb(0 61 26 / .06),0 2px 6px -1px rgb(0 61 26 / .08);
+  --shadow-elevated:0 8px 24px -6px rgb(0 61 26 / .16),0 4px 10px -2px rgb(0 61 26 / .08);
+  --shadow-glow:0 16px 48px -10px rgb(0 128 55 / .4); --shadow-yellow:0 16px 48px -10px rgb(0 209 92 / .5);
+  --gradient-ink:radial-gradient(60% 50% at 20% 0%,#005927,transparent 70%),radial-gradient(50% 40% at 90% 100%,rgb(0 128 55 / .6),transparent 70%),linear-gradient(180deg,#003d1a,#002611);
+  --gradient-green:radial-gradient(70% 60% at 80% 20%,#00a347,transparent 65%),linear-gradient(160deg,#008037,#005927);
+  --dotted-grid-image:radial-gradient(rgb(255 255 255 / .14) 1px,transparent 1px); --dotted-grid-size:22px 22px;
+  --forest:var(--brand-green); --forest-dark:var(--brand-green-deep); --mint:var(--brand-mint); --paper:var(--brand-smoke); --line:var(--brand-smoke-2);
+}
+body { font-family:var(--font-body); -webkit-font-smoothing:antialiased; }
+h1,h2,h3,h4,h5 { font-family:var(--font-display); font-weight:var(--fw-semibold); letter-spacing:var(--ls-display); }
+:where(a,button,input,select,textarea):focus-visible { outline:0; box-shadow:0 0 0 2px var(--background),0 0 0 4px var(--ring); }
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:.5rem; height:2.25rem; padding-inline:1rem; border-radius:var(--radius-md); font:var(--fw-medium) .875rem var(--font-body); transition:background .2s ease,transform .15s ease; }
+.btn:active { transform:scale(.98); }
+.btn-primary { background:var(--primary); color:#fff; }
+.btn-primary:hover { background:var(--primary-deep); }
+.btn-cta { background:var(--accent-yellow); color:var(--accent-yellow-foreground); border-radius:var(--radius-full); padding-inline:1.5rem; height:2.5rem; box-shadow:var(--shadow-yellow); }
+.btn-cta:hover { background:var(--brand-yellow-hover); }
+.btn-outline { background:transparent; color:var(--foreground); border:1px solid var(--border); }
+.card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-soft); padding:1.5rem; }
+.section { padding-block:5rem; }
+.section-dark { color:#fff; background-image:var(--dotted-grid-image),var(--gradient-ink); background-size:var(--dotted-grid-size),auto; }
+@media (min-width:768px) { .section { padding-block:7rem; } }
+@media (pointer:coarse) { .btn { min-height:2.75rem; } }
+.dark { --background:#003d1a; --foreground:#f0f4f2; --ink-soft:#b3c6bc; --card:#2d4036; --muted:#b3c6bc; --accent:#005927; --cream:#2d4036; --primary:#00d15c; --primary-deep:#008037; --border:rgb(255 255 255 / .12); --input:rgb(255 255 255 / .14); --ring:#00d15c; --destructive:#ff5470; --paper:#003d1a; --surface:#2d4036; }

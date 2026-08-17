@@ -1,6 +1,16 @@
 from collections.abc import Iterable
 
 
+def avaliar_gate_regressao(metricas: dict, baseline: dict | None, tolerancia: float = 0.0) -> dict:
+    if not baseline:
+        return {"bloqueado": False, "regressoes": []}
+    regressoes = []
+    for chave in ("recall_at_5", "recall_at_10", "recall_at_20", "mrr"):
+        if chave in baseline and float(metricas.get(chave, 0)) + tolerancia < float(baseline[chave]):
+            regressoes.append({"metrica": chave, "baseline": baseline[chave], "atual": metricas.get(chave, 0)})
+    return {"bloqueado": bool(regressoes), "regressoes": regressoes}
+
+
 def avaliar_benchmark(casos: Iterable[dict]) -> dict:
     casos = list(casos)
     metricas: dict[str, float] = {}

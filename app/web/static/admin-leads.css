@@ -1038,3 +1038,5 @@ table.lead-docs select {
     gap: 5px;
   }
 }
+.lead-portal-access { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:#f8faf7; }
+.lead-portal-access p { margin:0; color:var(--muted); }

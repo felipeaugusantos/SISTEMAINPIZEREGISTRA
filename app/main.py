@@ -17,6 +17,7 @@ from app.api.auth_routes import router as auth_router
 from app.api.carteira import router as carteira_router
 from app.api.confiabilidade import public_router as tenant_router
 from app.api.confiabilidade import router as confiabilidade_router
+from app.api.contratacoes import router as contratacoes_router
 from app.api.consulta import router as consulta_router
 from app.api.crm_admin import router as crm_router
 from app.api.exclusoes import router as exclusoes_router
@@ -29,6 +30,7 @@ from app.api.juridico import router as juridico_router
 from app.api.leads import router as leads_router
 from app.api.observabilidade import router as observabilidade_router
 from app.api.painel import router as painel_router
+from app.api.portal_cliente import router as portal_cliente_router
 from app.api.pesquisas import router as pesquisas_router
 from app.api.processos import router as processos_router
 from app.api.producao import router as producao_router
@@ -39,6 +41,7 @@ from app.api.saas import router as saas_router
 from app.api.social_auth import router as social_auth_router
 from app.api.usuarios import router as usuarios_router
 from app.api.visual import router as visual_router
+from app.api.vigilancia import router as vigilancia_router
 from app.auth import exigir_permissao
 from app.database import get_session
 from app.models import RpiImportacao, RpiSyncEstado, RpiSyncExecucao
@@ -80,6 +83,7 @@ app.include_router(fase2_router)
 app.include_router(fase3_router)
 app.include_router(admin_router)
 app.include_router(painel_router)
+app.include_router(portal_cliente_router)
 app.include_router(observabilidade_router)
 app.include_router(analises_router)
 app.include_router(producao_router)
@@ -91,6 +95,7 @@ app.include_router(juridico_router)
 app.include_router(consulta_router)
 app.include_router(figurativa_router)
 app.include_router(visual_router)
+app.include_router(vigilancia_router)
 app.include_router(crm_router)
 app.include_router(exclusoes_router)
 app.include_router(financeiro_router)
@@ -99,6 +104,7 @@ app.include_router(social_auth_router)
 app.include_router(usuarios_router)
 app.include_router(saas_router)
 app.include_router(confiabilidade_router)
+app.include_router(contratacoes_router)
 app.include_router(tenant_router)
 app.include_router(observabilidade_router)
 app.mount("/static", StaticFiles(directory=web_dir / "static"), name="static")

@@ -4,6 +4,10 @@ from dataclasses import asdict, dataclass
 from hashlib import sha256
 from pathlib import Path
 
+from defusedxml.ElementTree import ParseError, iterparse
+
+from app.models import TipoProcesso
+
 
 @dataclass(frozen=True, slots=True)
 class AnomaliaImportacao:
@@ -20,6 +24,28 @@ def calcular_integridade_arquivo(caminho: Path) -> tuple[str, int]:
             digest.update(bloco)
             tamanho += len(bloco)
     return digest.hexdigest(), tamanho
+
+
+def validar_arquivo_rpi(caminho: Path, tipo: TipoProcesso) -> int:
+    """Valida o XML inteiro antes de iniciar qualquer gravação no banco."""
+    if not caminho.is_file() or caminho.stat().st_size == 0:
+        raise ValueError("Arquivo da RPI ausente ou vazio")
+    tag = "processo" if tipo is TipoProcesso.MARCA else "despacho"
+    quantidade = 0
+    try:
+        contexto = iterparse(caminho, events=("start", "end"))
+        _, raiz = next(contexto)
+        atributo_data = "data" if tipo is TipoProcesso.MARCA else "dataPublicacao"
+        if raiz.tag != "revista" or not raiz.attrib.get("numero") or not raiz.attrib.get(atributo_data):
+            raise ValueError("Cabeçalho de RPI inválido")
+        for evento, elemento in contexto:
+            if evento == "end" and elemento.tag == tag:
+                quantidade += 1
+    except (OSError, ParseError, StopIteration) as exc:
+        raise ValueError("XML da RPI incompleto ou ilegível") from exc
+    if quantidade == 0:
+        raise ValueError("XML da RPI não contém registros")
+    return quantidade
 
 
 def avaliar_importacao(

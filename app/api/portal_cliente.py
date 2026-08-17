@@ -1,0 +1,294 @@
+import hashlib
+import secrets
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth import hash_ip, hash_senha, hash_token, verificar_senha
+from app.proxy import requisicao_https
+from app.auth import exigir_permissao
+from app.database import get_session
+from app.models import (
+    ArquivoClientePortal, AssinaturaDocumentoLead, ClientePortal, DocumentoLead, GuiaInpi, Lead,
+    MensagemClientePortal, NotificacaoClientePortal, Processo, PropostaComercial,
+    SessaoClientePortal, EventoAuditoria,
+)
+
+router = APIRouter(tags=["portal-cliente"])
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+ClientManageDep = Annotated[object, Depends(exigir_permissao("leads.manage"))]
+SESSION_COOKIE = "zr_client_session"
+
+
+class ClienteLogin(BaseModel):
+    email: EmailStr
+    senha: str = Field(min_length=8, max_length=200)
+
+
+class MensagemInput(BaseModel):
+    mensagem: str = Field(min_length=1, max_length=4000)
+
+
+async def obter_cliente_portal(request: Request, session: SessionDep) -> ClientePortal:
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        raise HTTPException(status_code=401, detail="Login do cliente necessário")
+    sessao = (await session.execute(select(SessaoClientePortal).where(
+        SessaoClientePortal.token_hash == hash_token(token),
+        SessaoClientePortal.revogada_em.is_(None),
+        SessaoClientePortal.expira_em > datetime.now(UTC),
+    ))).scalar_one_or_none()
+    cliente = (await session.execute(select(ClientePortal).where(
+        ClientePortal.id == sessao.cliente_id if sessao else False,
+        ClientePortal.ativo.is_(True),
+        ClientePortal.bloqueado_em.is_(None),
+    ))).scalar_one_or_none() if sessao else None
+    if cliente is None:
+        raise HTTPException(status_code=401, detail="Sessão do cliente inválida")
+    return cliente
+
+
+ClientDep = Annotated[ClientePortal, Depends(obter_cliente_portal)]
+
+
+def _auditar_cliente(session: AsyncSession, cliente: ClientePortal, request: Request, acao: str, recurso: str) -> None:
+    session.add(EventoAuditoria(organizacao_id=cliente.organizacao_id, ator=cliente.email, acao=acao[:20], recurso=recurso[:180], sucesso=True, status_http=200, ip_hash=hash_ip(request.client.host if request.client else None), detalhes={"cliente_id": cliente.id}))
+
+
+def _cliente_dict(cliente: ClientePortal) -> dict:
+    return {"id": cliente.id, "lead_id": cliente.lead_id, "nome": cliente.nome, "email": cliente.email}
+
+
+@router.post("/v1/portal/login")
+async def login_cliente(dados: ClienteLogin, request: Request, response: Response, session: SessionDep) -> dict:
+    cliente = (await session.execute(select(ClientePortal).where(ClientePortal.email == str(dados.email).lower()))).scalar_one_or_none()
+    if cliente is None or not cliente.ativo or cliente.bloqueado_em or not verificar_senha(cliente.senha_hash, dados.senha):
+        raise HTTPException(status_code=401, detail="E-mail ou senha inválidos")
+    token = secrets.token_urlsafe(48)
+    session.add(SessaoClientePortal(cliente_id=cliente.id, token_hash=hash_token(token), expira_em=datetime.now(UTC) + timedelta(hours=12)))
+    cliente.ultimo_login_em = datetime.now(UTC)
+    _auditar_cliente(session, cliente, request, "login_cliente", "portal:login")
+    await session.commit()
+    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax", secure=requisicao_https(request), max_age=43200, path="/")
+    return {"cliente": _cliente_dict(cliente)}
+
+
+@router.post("/v1/portal/logout")
+async def logout_cliente(request: Request, response: Response, session: SessionDep) -> dict:
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        sessao = (await session.execute(select(SessaoClientePortal).where(SessaoClientePortal.token_hash == hash_token(token)))).scalar_one_or_none()
+        if sessao:
+            sessao.revogada_em = datetime.now(UTC)
+            await session.commit()
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"ok": True}
+
+
+@router.get("/v1/portal/me")
+async def portal_me(cliente: ClientDep) -> dict:
+    return {"cliente": _cliente_dict(cliente)}
+
+
+@router.post("/v1/admin/leads/{lead_id}/portal-acesso")
+async def criar_acesso_cliente(lead_id: int, request: Request, session: SessionDep, usuario: ClientManageDep) -> dict:
+    lead = (await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    if lead.responsavel_id != usuario.id and usuario.perfil != "administrador" and not usuario.superadmin:
+        raise HTTPException(status_code=403, detail="Somente o responsável pelo atendimento pode gerar este acesso")
+    senha_temporaria = secrets.token_urlsafe(10)
+    cliente = (await session.execute(select(ClientePortal).where(ClientePortal.lead_id == lead.id, ClientePortal.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
+    if cliente is None:
+        cliente = ClientePortal(organizacao_id=lead.organizacao_id, lead_id=lead.id, nome=lead.nome, email=lead.email.lower(), senha_hash=hash_senha(senha_temporaria), criado_por=usuario.id)
+        session.add(cliente)
+    else:
+        cliente.nome, cliente.email, cliente.senha_hash, cliente.ativo, cliente.bloqueado_em = lead.nome, lead.email.lower(), hash_senha(senha_temporaria), True, None
+    await session.commit()
+    return {"cliente": _cliente_dict(cliente), "senha_temporaria": senha_temporaria, "portal": "/portal"}
+
+
+@router.get("/v1/admin/leads/{lead_id}/portal-acesso")
+async def consultar_acesso_cliente(lead_id: int, session: SessionDep, usuario: ClientManageDep) -> dict:
+    cliente = (await session.execute(select(ClientePortal).where(
+        ClientePortal.lead_id == lead_id,
+        ClientePortal.organizacao_id == usuario.organizacao_id,
+    ))).scalar_one_or_none()
+    if cliente is None:
+        return {"existe": False, "ativo": False}
+    return {"existe": True, "ativo": cliente.ativo and cliente.bloqueado_em is None, "cliente": _cliente_dict(cliente), "portal": "/portal"}
+
+
+@router.patch("/v1/admin/portal-clientes/{cliente_id}/acesso")
+async def alterar_acesso_cliente(cliente_id: int, ativo: bool, session: SessionDep, usuario: ClientManageDep) -> dict:
+    cliente = (await session.execute(select(ClientePortal).where(ClientePortal.id == cliente_id, ClientePortal.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
+    if cliente is None:
+        raise HTTPException(status_code=404, detail="Cliente do portal não encontrado")
+    cliente.ativo = ativo
+    if not ativo:
+        for sessao in (await session.execute(select(SessaoClientePortal).where(SessaoClientePortal.cliente_id == cliente.id, SessaoClientePortal.revogada_em.is_(None)))).scalars():
+            sessao.revogada_em = datetime.now(UTC)
+    await session.commit()
+    return {"ok": True, "ativo": cliente.ativo}
+
+
+@router.get("/v1/portal/resumo")
+async def portal_resumo(cliente: ClientDep, session: SessionDep) -> dict:
+    lead = (await session.execute(select(Lead).where(Lead.id == cliente.lead_id))).scalar_one()
+    propostas = (await session.execute(select(PropostaComercial).where(PropostaComercial.lead_id == lead.id).order_by(PropostaComercial.criado_em.desc()))).scalars().all()
+    documentos = (await session.execute(select(DocumentoLead).where(DocumentoLead.lead_id == lead.id))).scalars().all()
+    guias = (await session.execute(select(GuiaInpi).where(GuiaInpi.lead_id == lead.id).order_by(GuiaInpi.criado_em.desc()))).scalars().all()
+    processos = []
+    if lead.processo_numero:
+        processo = (await session.execute(select(Processo).where(Processo.numero == lead.processo_numero))).scalar_one_or_none()
+        if processo:
+            processos.append({"numero": processo.numero, "titulo": processo.titulo, "situacao": processo.situacao})
+    return {"cliente": _cliente_dict(cliente), "lead": {"id": lead.id, "marca": lead.marca, "fase": lead.fase}, "processos": processos, "propostas": [{"id": p.id, "numero": p.numero, "status": p.status, "total": (p.honorarios or 0) + (p.taxa_gru or 0), "aceito_em": p.aceito_em, "sla_status": p.sla_status} for p in propostas], "documentos": [{"id": d.id, "tipo": d.tipo, "status": d.status, "numero": d.numero, "versao": d.versao, "hash": d.hash_documento, "validade_em": d.validade_em, "obrigatorio": d.obrigatorio, "assinado_em": d.assinado_em} for d in documentos], "guias": [{"id": g.id, "descricao": g.descricao, "status": g.status, "valor": g.valor, "vencimento": g.vencimento} for g in guias]}
+
+
+@router.post("/v1/portal/documentos/{documento_id}/assinar")
+async def assinar_documento_portal(documento_id: int, request: Request, cliente: ClientDep, session: SessionDep) -> dict:
+    documento = (await session.execute(select(DocumentoLead).where(
+        DocumentoLead.id == documento_id,
+        DocumentoLead.lead_id == cliente.lead_id,
+        DocumentoLead.organizacao_id == cliente.organizacao_id,
+    ))).scalar_one_or_none()
+    if documento is None:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    if documento.validade_em and documento.validade_em < datetime.now(UTC).date():
+        raise HTTPException(status_code=409, detail="Documento expirado; solicite uma nova versão")
+    conteudo = f"{documento.tipo}|{documento.numero or ''}|{documento.data or ''}|{documento.observacoes or ''}|v{documento.versao}".encode()
+    digest = hashlib.sha256(conteudo).hexdigest()
+    if documento.assinado_em and documento.hash_documento != digest:
+        documento.versao += 1
+        documento.assinado_em = None
+    documento.hash_documento = digest
+    documento.assinado_em = datetime.now(UTC)
+    documento.assinado_ip_hash = hash_ip(request.client.host if request.client else None)
+    documento.assinado_por_cliente_id = cliente.id
+    session.add(AssinaturaDocumentoLead(organizacao_id=cliente.organizacao_id, documento_id=documento.id, cliente_id=cliente.id, versao=documento.versao, hash_documento=digest, ip_hash=documento.assinado_ip_hash))
+    _auditar_cliente(session, cliente, request, "assinar_documento", f"documento:{documento.id}")
+    await session.commit()
+    return {"ok": True, "documento_id": documento.id, "versao": documento.versao, "hash": digest, "assinado_em": documento.assinado_em}
+
+
+@router.get("/v1/portal/mensagens")
+async def portal_mensagens(cliente: ClientDep, session: SessionDep) -> dict:
+    itens = (await session.execute(select(MensagemClientePortal).where(MensagemClientePortal.cliente_id == cliente.id).order_by(MensagemClientePortal.criado_em))).scalars().all()
+    return {"mensagens": [{"id": i.id, "autor_tipo": i.autor_tipo, "mensagem": i.mensagem, "criado_em": i.criado_em} for i in itens]}
+
+
+@router.post("/v1/portal/mensagens", status_code=status.HTTP_201_CREATED)
+async def enviar_mensagem_portal(dados: MensagemInput, request: Request, cliente: ClientDep, session: SessionDep) -> dict:
+    item = MensagemClientePortal(organizacao_id=cliente.organizacao_id, lead_id=cliente.lead_id, cliente_id=cliente.id, mensagem=dados.mensagem.strip())
+    session.add(item)
+    _auditar_cliente(session, cliente, request, "mensagem_cliente", f"lead:{cliente.lead_id}")
+    await session.commit()
+    return {"id": item.id}
+
+
+@router.post("/v1/portal/arquivos", status_code=status.HTTP_201_CREATED)
+async def enviar_arquivo_portal(request: Request, cliente: ClientDep, session: SessionDep, arquivo: UploadFile = File(...)) -> dict:
+    if arquivo.size and arquivo.size > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
+    base = Path("data") / "portal" / str(cliente.organizacao_id) / str(cliente.id)
+    base.mkdir(parents=True, exist_ok=True)
+    nome = f"{secrets.token_hex(12)}-{Path(arquivo.filename or 'arquivo').name}"
+    destino = base / nome
+    conteudo = await arquivo.read()
+    if len(conteudo) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
+    destino.write_bytes(conteudo)
+    item = ArquivoClientePortal(organizacao_id=cliente.organizacao_id, lead_id=cliente.lead_id, cliente_id=cliente.id, nome=arquivo.filename or nome, caminho=str(destino), content_type=arquivo.content_type, tamanho=len(conteudo))
+    session.add(item)
+    _auditar_cliente(session, cliente, request, "upload_cliente", f"arquivo:{item.nome}")
+    await session.commit()
+    return {"id": item.id, "nome": item.nome, "tamanho": item.tamanho}
+
+
+@router.get("/v1/portal/arquivos")
+async def listar_arquivos_portal(cliente: ClientDep, session: SessionDep) -> dict:
+    itens = (
+        await session.execute(
+            select(ArquivoClientePortal)
+            .where(
+                ArquivoClientePortal.cliente_id == cliente.id,
+                ArquivoClientePortal.lead_id == cliente.lead_id,
+                ArquivoClientePortal.organizacao_id == cliente.organizacao_id,
+            )
+            .order_by(ArquivoClientePortal.criado_em.desc())
+        )
+    ).scalars().all()
+    return {
+        "arquivos": [
+            {
+                "id": item.id,
+                "nome": item.nome,
+                "content_type": item.content_type,
+                "tamanho": item.tamanho,
+                "criado_em": item.criado_em,
+            }
+            for item in itens
+        ]
+    }
+
+
+@router.get("/v1/portal/notificacoes")
+async def listar_notificacoes_portal(cliente: ClientDep, session: SessionDep) -> dict:
+    itens = (
+        await session.execute(
+            select(NotificacaoClientePortal)
+            .where(NotificacaoClientePortal.cliente_id == cliente.id)
+            .order_by(NotificacaoClientePortal.criado_em.desc())
+        )
+    ).scalars().all()
+    return {
+        "notificacoes": [
+            {
+                "id": item.id,
+                "titulo": item.titulo,
+                "mensagem": item.mensagem,
+                "lida_em": item.lida_em,
+                "criado_em": item.criado_em,
+            }
+            for item in itens
+        ]
+    }
+
+
+@router.get("/v1/portal/eventos")
+async def listar_eventos_portal(cliente: ClientDep, session: SessionDep) -> dict:
+    itens = (
+        await session.execute(
+            select(EventoAuditoria)
+            .where(
+                EventoAuditoria.organizacao_id == cliente.organizacao_id,
+                EventoAuditoria.detalhes["cliente_id"].as_integer() == cliente.id,
+            )
+            .order_by(EventoAuditoria.criado_em.desc())
+            .limit(200)
+        )
+    ).scalars().all()
+    return {
+        "eventos": [
+            {
+                "id": item.id,
+                "acao": item.acao,
+                "recurso": item.recurso,
+                "sucesso": item.sucesso,
+                "criado_em": item.criado_em,
+            }
+            for item in itens
+        ]
+    }
+
+
+@router.get("/portal", include_in_schema=False)
+async def pagina_portal() -> FileResponse:
+    return FileResponse(Path(__file__).resolve().parent.parent / "web" / "portal-cliente.html")

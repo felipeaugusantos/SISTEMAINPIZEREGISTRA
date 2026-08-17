@@ -391,6 +391,17 @@ async function openLead(id) {
       <ol id="lead-contact-history" class="lead-contact-history"><li class="lead-contact-empty">Carregando contatos...</li></ol>
     </section>
     </aside>`;
+  if (state.canManage) {
+    const portalCard = document.createElement("section");
+    portalCard.className = "lead-portal-access";
+    portalCard.innerHTML = "<strong>Portal do cliente</strong><p>Verificando acesso…</p>";
+    dialogContent.prepend(portalCard);
+    fetch(`/v1/admin/leads/${lead.id}/portal-acesso`).then(r => r.json()).then(access => {
+      portalCard.innerHTML = access.existe
+        ? `<strong>Portal do cliente</strong><p>${access.ativo ? "Acesso ativo." : "Acesso bloqueado."}</p><a class="secondary-button" href="/portal" target="_blank" rel="noopener">Abrir portal do cliente</a>`
+        : "<strong>Portal do cliente</strong><p>Este cliente ainda não possui acesso.</p>";
+    }).catch(() => { portalCard.innerHTML = "<strong>Portal do cliente</strong><p>Não foi possível verificar o acesso.</p>"; });
+  }
   const crmFormCard = dialogContent.querySelector("#lead-crm-form");
   const contactSummaryCard = dialogContent.querySelector(".lead-contact-summary");
   if (crmFormCard && contactSummaryCard) contactSummaryCard.after(crmFormCard);

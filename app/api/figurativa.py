@@ -8,7 +8,7 @@ from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import get_session
 from app.models import EventoAuditoria
 from app.proxy import cliente_ip
-from app.trademarks.benchmark import avaliar_benchmark
+from app.trademarks.benchmark import avaliar_benchmark, avaliar_gate_regressao
 from app.trademarks.viena import buscar_anterioridades_viena
 
 router = APIRouter(prefix="/v1/admin/figurativa", tags=["busca figurativa"])
@@ -18,6 +18,8 @@ OperadorDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view
 
 class BenchmarkEntrada(BaseModel):
     casos: list[dict] = Field(min_length=1, max_length=500)
+    baseline: dict[str, float] | None = None
+    tolerancia: float = Field(default=0.0, ge=0, le=0.1)
 
 
 class ValidacaoHumanaEntrada(BaseModel):
@@ -34,9 +36,10 @@ async def benchmark_figurativo(
     operador: OperadorDep,
 ) -> dict:
     metricas = avaliar_benchmark(dados.casos)
+    gate = avaliar_gate_regressao(metricas, dados.baseline, dados.tolerancia)
     session.add(EventoAuditoria(organizacao_id=operador.organizacao_id, actor_id=operador.id, ator=operador.ator, acao="benchmark", recurso="busca_figurativa", sucesso=True, status_http=200, ip_hash=hash_ip(cliente_ip(request)), detalhes=metricas))
     await session.commit()
-    return metricas
+    return {**metricas, "gate_regressao": gate, "publicacao_permitida": not gate["bloqueado"]}
 
 
 @router.post("/validacoes-humanas")

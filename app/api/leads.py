@@ -37,6 +37,7 @@ from app.models import (
     DocumentoLead,
     EmpresaCRM,
     EventoAuditoria,
+    EventoDominio,
     FaseLead,
     GuiaInpi,
     HistoricoFaseLead,
@@ -1132,6 +1133,49 @@ class PropostaStatusInput(BaseModel):
     status: Literal["rascunho", "enviada", "visualizada", "aceita", "recusada", "expirada", "cancelada"]
 
 
+class PropostaPagamentoInput(BaseModel):
+    status: Literal["pendente", "confirmado", "parcial", "cancelado"]
+    confirmado_em: datetime | None = None
+
+
+class PropostaProtocoloInput(BaseModel):
+    responsavel_protocolo_id: int
+    protocolo_numero: str | None = Field(default=None, max_length=80)
+    comprovante_id: int | None = None
+    motivo_atraso: str | None = Field(default=None, max_length=2000)
+
+
+def _prazo_sla_24h(inicio: datetime) -> datetime:
+    """Prazo operacional explícito de 24 horas corridas após liberar o protocolo."""
+    return inicio + timedelta(hours=24)
+
+
+def _atualizar_sla_proposta(proposta: PropostaComercial, agora: datetime | None = None) -> str:
+    agora = agora or datetime.now(UTC)
+    if proposta.protocolo_em:
+        proposta.sla_status = "protocolado"
+    elif proposta.status != "aceita":
+        proposta.sla_status = "aguardando_aceite"
+    elif proposta.pagamento_status != "confirmado":
+        proposta.sla_status = "aguardando_pagamento"
+    elif not proposta.sla_inicio_em:
+        proposta.sla_status = "aguardando_documentos"
+    elif proposta.sla_prazo_em and agora > proposta.sla_prazo_em:
+        proposta.sla_status = "vencido"
+    else:
+        proposta.sla_status = "em_prazo"
+    return proposta.sla_status
+
+
+async def _documentacao_protocolavel(session: AsyncSession, proposta: PropostaComercial) -> bool:
+    procuracao = (await session.execute(select(DocumentoLead).where(
+        DocumentoLead.lead_id == proposta.lead_id,
+        DocumentoLead.organizacao_id == proposta.organizacao_id,
+        DocumentoLead.tipo == "procuracao",
+    ))).scalar_one_or_none()
+    return procuracao is not None and procuracao.status in ("validado", "recebido", "aprovado")
+
+
 async def _lead_da_org(session: AsyncSession, lead_id: int, organizacao_id: int) -> int:
     lead = (
         await session.execute(
@@ -1219,10 +1263,29 @@ async def salvar_documentos_lead(
                 )
             )
         else:
+            mudou_conteudo = atual.numero != numero or atual.data != item.data or atual.observacoes != obs
+            if mudou_conteudo:
+                atual.versao += 1
+                atual.hash_documento = None
+                atual.assinado_em = None
+                atual.assinado_ip_hash = None
+                atual.assinado_por_cliente_id = None
             atual.numero = numero
             atual.data = item.data
             atual.status = status
             atual.observacoes = obs
+    propostas_aguardando = (await session.execute(select(PropostaComercial).where(
+        PropostaComercial.lead_id == lead_id,
+        PropostaComercial.organizacao_id == usuario.organizacao_id,
+        PropostaComercial.status == "aceita",
+        PropostaComercial.pagamento_status == "confirmado",
+        PropostaComercial.sla_inicio_em.is_(None),
+    ))).scalars().all()
+    for proposta in propostas_aguardando:
+        if await _documentacao_protocolavel(session, proposta):
+            proposta.sla_inicio_em = datetime.now(UTC)
+            proposta.sla_prazo_em = _prazo_sla_24h(proposta.sla_inicio_em)
+            proposta.sla_status = "em_prazo"
     _auditar(session, usuario, request, "documentos_lead", f"lead:{lead_id}", {})
     await session.commit()
     return {"ok": True}
@@ -1418,6 +1481,16 @@ def _proposta_dict(proposta: PropostaComercial, org: Organizacao | None = None) 
         "observacoes": proposta.observacoes,
         "enviado_em": proposta.enviado_em,
         "aceito_em": proposta.aceito_em,
+        "pagamento_status": proposta.pagamento_status,
+        "pagamento_confirmado_em": proposta.pagamento_confirmado_em,
+        "sla_inicio_em": proposta.sla_inicio_em,
+        "sla_prazo_em": proposta.sla_prazo_em,
+        "sla_status": _atualizar_sla_proposta(proposta),
+        "responsavel_protocolo_id": proposta.responsavel_protocolo_id,
+        "protocolo_numero": proposta.protocolo_numero,
+        "protocolo_em": proposta.protocolo_em,
+        "protocolo_motivo_atraso": proposta.protocolo_motivo_atraso,
+        "protocolo_comprovante_id": proposta.protocolo_comprovante_id,
         "criado_em": proposta.criado_em,
         "empresa": {
             "nome": org.nome if org else None,
@@ -1488,6 +1561,7 @@ async def criar_proposta(
 async def atualizar_status_proposta(
     proposta_id: int,
     dados: PropostaStatusInput,
+    request: Request,
     session: SessionDep,
     usuario: LeadsManageDep,
 ) -> dict:
@@ -1517,6 +1591,7 @@ async def atualizar_status_proposta(
             await aplicar_regras_automacao(session, lead, "fase", "proposta_enviada", usuario.nome or "sistema")
     elif dados.status == "aceita":
         proposta.aceito_em = agora
+        proposta.sla_status = "aguardando_pagamento"
         lead = (
             await session.execute(
                 select(Lead).where(
@@ -1527,9 +1602,87 @@ async def atualizar_status_proposta(
         if lead and lead.fase:
             await avancar_fase_lead(session, lead, "proposta_aceita", usuario.nome or "sistema")
             await aplicar_regras_automacao(session, lead, "fase", "proposta_aceita", usuario.nome or "sistema")
+    _auditar(session, usuario, request, "status_proposta", f"proposta:{proposta.id}", {"status": dados.status})
     await session.commit()
     org = await session.get(Organizacao, usuario.organizacao_id)
     return _proposta_dict(proposta, org)
+
+
+async def _proposta_da_org(session: AsyncSession, proposta_id: int, organizacao_id: int) -> PropostaComercial:
+    proposta = (await session.execute(select(PropostaComercial).where(
+        PropostaComercial.id == proposta_id,
+        PropostaComercial.organizacao_id == organizacao_id,
+    ))).scalar_one_or_none()
+    if proposta is None:
+        raise HTTPException(status_code=404, detail="Proposta não encontrada")
+    return proposta
+
+
+@router.patch("/v1/admin/propostas/{proposta_id}/pagamento")
+async def atualizar_pagamento_proposta(
+    proposta_id: int, dados: PropostaPagamentoInput, request: Request,
+    session: SessionDep, usuario: LeadsManageDep,
+) -> dict:
+    proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
+    proposta.pagamento_status = dados.status
+    proposta.pagamento_confirmado_em = (dados.confirmado_em or datetime.now(UTC)) if dados.status == "confirmado" else None
+    documentos_ok = await _documentacao_protocolavel(session, proposta)
+    if proposta.pagamento_status == "confirmado" and proposta.status == "aceita" and not proposta.sla_inicio_em and documentos_ok:
+        proposta.sla_inicio_em = proposta.pagamento_confirmado_em
+        proposta.sla_prazo_em = _prazo_sla_24h(proposta.sla_inicio_em)
+    if proposta.pagamento_status == "confirmado" and proposta.status == "aceita" and not documentos_ok:
+        proposta.sla_status = "aguardando_documentos"
+    _atualizar_sla_proposta(proposta)
+    _auditar(session, usuario, request, "pagamento_proposta", f"proposta:{proposta.id}", {"status": dados.status})
+    await session.commit()
+    return _proposta_dict(proposta, await session.get(Organizacao, usuario.organizacao_id))
+
+
+@router.patch("/v1/admin/propostas/{proposta_id}/protocolo")
+async def registrar_protocolo_proposta(
+    proposta_id: int, dados: PropostaProtocoloInput, request: Request,
+    session: SessionDep, usuario: LeadsManageDep,
+) -> dict:
+    proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
+    responsavel = (await session.execute(select(UsuarioOperacoes).where(
+        UsuarioOperacoes.id == dados.responsavel_protocolo_id,
+        UsuarioOperacoes.organizacao_id == usuario.organizacao_id,
+    ))).scalar_one_or_none()
+    if responsavel is None:
+        raise HTTPException(status_code=422, detail="Responsável pelo protocolo inválido")
+    numero = (dados.protocolo_numero or "").strip() or None
+    motivo = (dados.motivo_atraso or "").strip() or None
+    if not numero and not motivo:
+        raise HTTPException(status_code=422, detail="Informe o número do protocolo ou o motivo do atraso")
+    if dados.comprovante_id is not None:
+        comprovante = (await session.execute(select(DocumentoLead).where(
+            DocumentoLead.id == dados.comprovante_id,
+            DocumentoLead.lead_id == proposta.lead_id,
+            DocumentoLead.organizacao_id == usuario.organizacao_id,
+        ))).scalar_one_or_none()
+        if comprovante is None:
+            raise HTTPException(status_code=422, detail="Comprovante não encontrado para este lead")
+    proposta.responsavel_protocolo_id = responsavel.id
+    proposta.protocolo_numero = numero
+    proposta.protocolo_motivo_atraso = motivo
+    proposta.protocolo_comprovante_id = dados.comprovante_id
+    proposta.protocolo_em = datetime.now(UTC) if numero else None
+    _atualizar_sla_proposta(proposta)
+    _auditar(session, usuario, request, "protocolo_proposta", f"proposta:{proposta.id}", {
+        "protocolo_numero": numero, "motivo_atraso": motivo, "responsavel_id": responsavel.id,
+    })
+    await session.commit()
+    return _proposta_dict(proposta, await session.get(Organizacao, usuario.organizacao_id))
+
+
+@router.get("/v1/admin/propostas/{proposta_id}/sla")
+async def obter_sla_proposta(proposta_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
+    proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
+    status_sla = _atualizar_sla_proposta(proposta)
+    return {"proposta_id": proposta.id, "status": status_sla, "inicio_em": proposta.sla_inicio_em,
+            "prazo_em": proposta.sla_prazo_em, "responsavel_id": proposta.responsavel_protocolo_id,
+            "protocolo_numero": proposta.protocolo_numero, "protocolo_em": proposta.protocolo_em,
+            "motivo_atraso": proposta.protocolo_motivo_atraso}
 
 
 @router.get("/v1/admin/propostas/{proposta_id}/documento")
@@ -1672,10 +1825,13 @@ async def aceitar_proposta_publica(token: str, session: SessionDep) -> HTMLRespo
     proposta = await _proposta_por_token(session, token)
     if proposta is None:
         return HTMLResponse("<h1>Link expirado</h1>", status_code=404)
+    if proposta.status not in ("enviada", "visualizada", "aceita"):
+        return HTMLResponse("<h1>Proposta indisponível</h1><p>Solicite uma nova versão ao atendimento.</p>", status_code=409)
     if proposta.public_aceito_em is None:
         proposta.public_aceito_em = datetime.now(UTC)
         proposta.aceito_em = proposta.public_aceito_em
         proposta.status = "aceita"
+        proposta.sla_status = "aguardando_pagamento"
         lead = (
             await session.execute(select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == proposta.organizacao_id))
         ).scalar_one_or_none()
@@ -1865,7 +2021,13 @@ async def aplicar_cadencia_lead(
     if cadencia is None:
         raise HTTPException(status_code=404, detail="Cadência não encontrada")
     agora = datetime.now(UTC)
+    chaves = [f"cadencia:{lead.id}:{cadencia.id}:{passo.id}" for passo in cadencia.passos]
+    existentes = set((await session.execute(select(LembreteCRM.idempotency_key).where(LembreteCRM.organizacao_id == usuario.organizacao_id, LembreteCRM.idempotency_key.in_(chaves)))).scalars().all())
+    criados = 0
     for passo in cadencia.passos:
+        chave_idempotencia = f"cadencia:{lead.id}:{cadencia.id}:{passo.id}"
+        if chave_idempotencia in existentes:
+            continue
         descricao = f"Cadência “{cadencia.nome}” · canal {passo.canal}"
         if passo.descricao:
             descricao += f" — {passo.descricao}"
@@ -1882,10 +2044,13 @@ async def aplicar_cadencia_lead(
                 status="pendente",
                 criado_por=f"Cadência ({usuario.nome})"[:254],
                 criado_por_id=usuario.id,
+                idempotency_key=chave_idempotencia,
             )
         )
+        criados += 1
+        registrar_evento_operacional(session, organizacao_id=usuario.organizacao_id, dominio="crm", tipo="cadencia.tarefa_criada", entidade_tipo="lead", entidade_id=lead.id, ator=usuario.nome or "sistema", ator_id=usuario.id, payload={"cadencia_id": cadencia.id, "passo_id": passo.id}, idempotency_key=chave_idempotencia)
     await session.commit()
-    return {"criados": len(cadencia.passos)}
+    return {"criados": criados, "ignorados_idempotentes": len(cadencia.passos) - criados}
 
 
 FASE_LABELS: dict[str, str] = {
@@ -1976,6 +2141,42 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
     for criado_em, marca in pesquisas:
         eventos.append(
             {"tipo": "pesquisa", "data": criado_em, "titulo": "Pesquisa gerada", "detalhe": marca}
+        )
+    propostas = (
+        await session.execute(
+            select(PropostaComercial).where(
+                PropostaComercial.lead_id == lead_id,
+                PropostaComercial.organizacao_id == org,
+            )
+        )
+    ).scalars().all()
+    for proposta in propostas:
+        eventos.append(
+            {
+                "tipo": "proposta",
+                "data": proposta.atualizado_em or proposta.criado_em,
+                "titulo": f"Proposta {proposta.numero}",
+                "detalhe": f"Status: {proposta.status}",
+            }
+        )
+    eventos_dominio = (
+        await session.execute(
+            select(EventoDominio).where(
+                EventoDominio.organizacao_id == org,
+                EventoDominio.entidade_tipo == "lead",
+                EventoDominio.entidade_id == str(lead_id),
+            )
+        )
+    ).scalars().all()
+    for evento in eventos_dominio:
+        eventos.append(
+            {
+                "tipo": evento.tipo,
+                "data": evento.ocorrido_em,
+                "titulo": evento.tipo.replace(".", " · "),
+                "detalhe": evento.payload.get("descricao") or evento.payload.get("regra"),
+                "autor": evento.ator,
+            }
         )
     documentos = (
         (

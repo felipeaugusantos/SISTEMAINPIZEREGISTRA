@@ -8,7 +8,7 @@ import asyncpg
 
 from app.models import TipoProcesso
 from app.rpi.bulk_importer import importar_rpi_em_lotes
-from app.rpi.integrity import avaliar_importacao, calcular_integridade_arquivo
+from app.rpi.integrity import avaliar_importacao, calcular_integridade_arquivo, validar_arquivo_rpi
 from app.rpi.locking import adquirir_lock_sincronizacao, liberar_lock_sincronizacao
 from app.rpi.parsers import ler_marcas, ler_patentes
 from app.rpi.sync import baixar_e_extrair_rpi
@@ -164,6 +164,7 @@ async def executar() -> None:
                 continue
 
             xml = baixar_e_extrair_rpi(numero, tipo, args.diretorio, print)
+            validar_arquivo_rpi(xml, tipo)
             arquivo_sha256, arquivo_tamanho_bytes = calcular_integridade_arquivo(xml)
             leitor = ler_marcas if tipo is TipoProcesso.MARCA else ler_patentes
             estatisticas = await importar_rpi_em_lotes(database_url, leitor(xml))

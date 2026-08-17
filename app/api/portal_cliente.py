@@ -15,6 +15,7 @@ from app.proxy import requisicao_https
 from app.auth import exigir_permissao
 from app.database import get_session
 from app.emailing import enviar_recuperacao_portal
+from app.tenancy import aplicar_contexto_tenant
 from app.models import (
     ArquivoClientePortal, AssinaturaDocumentoLead, AssinaturaPropostaComercial, ClientePortal, DocumentoLead, GuiaInpi, Lead,
     LancamentoFinanceiro, MensagemClientePortal, NotificacaoClientePortal, ParcelaFinanceira,
@@ -63,6 +64,9 @@ async def obter_cliente_portal(request: Request, session: SessionDep) -> Cliente
     ))).scalar_one_or_none() if sessao else None
     if cliente is None:
         raise HTTPException(status_code=401, detail="Sessão do cliente inválida")
+    # Cada requisição do portal cria uma nova sessão de banco. Reaplique o
+    # tenant resolvido pelo cookie antes de qualquer auditoria protegida por RLS.
+    await aplicar_contexto_tenant(session, cliente.organizacao_id)
     return cliente
 
 
@@ -86,6 +90,9 @@ async def login_cliente(dados: ClienteLogin, request: Request, response: Respons
     cliente = (await session.execute(select(ClientePortal).where(ClientePortal.email == str(dados.email).lower()))).scalar_one_or_none()
     if cliente is None or not cliente.ativo or cliente.bloqueado_em or not verificar_senha(cliente.senha_hash, dados.senha):
         raise HTTPException(status_code=401, detail="E-mail ou senha inválidos")
+    # O login do cliente ocorre sem a sessão do operador; estabeleça o tenant
+    # antes de gravar a auditoria protegida por RLS.
+    await aplicar_contexto_tenant(session, cliente.organizacao_id)
     token = secrets.token_urlsafe(48)
     session.add(SessaoClientePortal(cliente_id=cliente.id, token_hash=hash_token(token), expira_em=datetime.now(UTC) + timedelta(hours=12)))
     cliente.ultimo_login_em = datetime.now(UTC)
@@ -100,6 +107,7 @@ async def solicitar_recuperacao_portal(dados: RecuperacaoSolicitacao, request: R
     cliente = (await session.execute(select(ClientePortal).where(ClientePortal.email == str(dados.email).lower(), ClientePortal.ativo.is_(True)))).scalar_one_or_none()
     # Resposta indistinguível evita enumeração de clientes.
     if cliente is not None:
+        await aplicar_contexto_tenant(session, cliente.organizacao_id)
         token = secrets.token_urlsafe(48)
         session.add(RecuperacaoClientePortal(cliente_id=cliente.id, token_hash=hash_token(token), expira_em=datetime.now(UTC) + timedelta(minutes=30)))
         _auditar_cliente(session, cliente, request, "recuperacao_solicitada", "portal:recuperacao")
@@ -120,6 +128,7 @@ async def redefinir_acesso_portal(dados: RecuperacaoRedefinicao, request: Reques
     cliente = await session.get(ClientePortal, registro.cliente_id)
     if cliente is None or not cliente.ativo:
         raise HTTPException(status_code=400, detail="Conta indisponível")
+    await aplicar_contexto_tenant(session, cliente.organizacao_id)
     cliente.senha_hash = hash_senha(dados.nova_senha)
     registro.usado_em = datetime.now(UTC)
     for sessao in (await session.execute(select(SessaoClientePortal).where(SessaoClientePortal.cliente_id == cliente.id, SessaoClientePortal.revogada_em.is_(None)))).scalars():

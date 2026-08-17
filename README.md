@@ -15,6 +15,16 @@ O escopo comercial auditado, incluindo recursos parciais e ainda não implementa
 - **PENDENTE DE VALIDAÇÃO:** dataset candidato da busca e eficácia jurídica das métricas; o dataset continua `pendente_revisao_especialista`.
 - **PLANEJADO:** itens marcados como não implementados na matriz comercial, sem promessa de disponibilidade.
 
+### Atualizacoes recentes do painel
+
+- cadastro completo da empresa em **Empresas e planos**, com dados institucionais, endereco, site, atividade, fundacao e logo;
+- editor de cadastro em formulario padronizado, com persistencia no branding da organizacao;
+- sequencias de atendimento movidas do CRM para **Configuracao > Regras automaticas**;
+- historico de atendimento reorganizado em cliente, data/hora, observacao e proximo contato;
+- abertura de contato com secoes operacionais recolhiveis para reduzir a rolagem e melhorar a leitura;
+- acoes de pesquisas e propostas alinhadas horizontalmente e responsivas;
+- cadencias carregadas e gerenciadas pela API com passos, canais, edicao e exclusao.
+
 ## Funcionalidades
 
 ### Pesquisa de marcas
@@ -214,6 +224,7 @@ docker compose logs -f worker
 | Log financeiro | <http://localhost:8000/admin/producao/log-financeiro> |
 | Usuários e acessos | <http://localhost:8000/admin/usuarios> |
 | Empresas e planos | <http://localhost:8000/admin/saas> |
+| Regras automaticas e cadencias | <http://localhost:8000/admin/configuracao/regras-automaticas> |
 | Observabilidade técnica | <http://localhost:8000/admin/observabilidade> |
 | Mailpit | <http://localhost:8025> |
 | Swagger | <http://localhost:8000/docs> |

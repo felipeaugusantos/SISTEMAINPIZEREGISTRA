@@ -1,0 +1,13 @@
+.crm-history { display: grid; gap: 0; margin: 0; padding: 20px 0 0; list-style: none; }
+.crm-entry { display: grid; grid-template-columns: 1.1fr 1fr 2fr 1.2fr auto; gap: 16px; align-items: center; padding: 15px 16px; border-top: 1px solid #e4e8e4; }
+.crm-entry strong { display: block; }
+.crm-entry small { display: block; margin-top: 4px; color: var(--muted); font-size: .75rem; }
+.crm-entry time, .crm-history-observation, .crm-history-next { color: var(--muted); font-size: .8rem; }
+.crm-entry a { color: var(--green); font-size: .78rem; font-weight: 800; text-decoration: none; }
+.crm-entry a:hover { text-decoration: underline; }
+.crm-history-card { overflow: hidden; }
+@media (max-width: 700px) {
+  .crm-entry { grid-template-columns: 1fr; gap: 6px; }
+  .crm-entry time, .crm-history-observation, .crm-history-next { font-size: .78rem; }
+  .crm-entry a { justify-self: start; }
+}

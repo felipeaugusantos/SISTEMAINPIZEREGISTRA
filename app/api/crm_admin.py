@@ -69,6 +69,7 @@ def _serializar_historico(
     lead: Lead,
     marca: str | None,
     empresa: str | None,
+    proximo_contato: datetime | None,
     usuario: UsuarioAutenticado,
 ) -> dict:
     pode_ver_pii = usuario.pode("leads.pii.view")
@@ -87,6 +88,7 @@ def _serializar_historico(
         "canal": contato.canal,
         "resultado": contato.resultado,
         "observacao": contato.observacao,
+        "proximo_contato": proximo_contato,
         "operador_id": contato.operador_id,
         "operador": contato.operador_nome,
         "criado_em": contato.criado_em,
@@ -144,6 +146,16 @@ async def historico_crm(
     deslocamento: int = Query(default=0, ge=0),
 ) -> dict:
     filtros = _filtros(usuario, busca, canal, operador_id, status_cliente, inicio, fim)
+    proximo_contato = (
+        select(func.min(LembreteCRM.lembrar_em))
+        .where(
+            LembreteCRM.lead_id == Lead.id,
+            LembreteCRM.organizacao_id == usuario.organizacao_id,
+            LembreteCRM.status == "pendente",
+        )
+        .correlate(Lead)
+        .scalar_subquery()
+    )
     base = (
         select(ContatoLead)
         .join(Lead, Lead.id == ContatoLead.lead_id)
@@ -174,17 +186,20 @@ async def historico_crm(
     )
     linhas = (
         await session.execute(
-            base.with_only_columns(ContatoLead, Lead, PesquisaMarca.marca, EmpresaCRM.nome)
+            base.with_only_columns(
+                ContatoLead, Lead, PesquisaMarca.marca, EmpresaCRM.nome, proximo_contato
+            )
             .where(*filtros)
             .order_by(ContatoLead.criado_em.desc(), ContatoLead.id.desc())
             .offset(deslocamento)
             .limit(limite)
         )
     ).all()
-    itens = [
-        _serializar_historico(contato, lead, marca, empresa, usuario)
-        for contato, lead, marca, empresa in linhas
-    ]
+    itens = []
+    for linha in linhas:
+        contato, lead, marca, empresa = linha[:4]
+        proximo = linha[4] if len(linha) > 4 else None
+        itens.append(_serializar_historico(contato, lead, marca, empresa, proximo, usuario))
     return {
         "total": int(total or 0),
         "deslocamento": deslocamento,

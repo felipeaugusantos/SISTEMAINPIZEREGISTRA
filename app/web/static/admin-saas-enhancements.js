@@ -1,4 +1,7 @@
 const orgList = document.querySelector("#org-list");
+const editDialog = document.querySelector("#edit-org-dialog");
+const editForm = document.querySelector("#edit-org-form");
+const editMessage = document.querySelector("#edit-org-form-message");
 
 function addEditButtons() {
   document.querySelectorAll("#org-list article.user-row").forEach(card => {
@@ -21,26 +24,43 @@ orgList.addEventListener("click", async event => {
   const org = state.organizacoes.find(item => String(item.id) === button.dataset.editCadastro);
   if (!org) return;
   const branding = org.branding || {};
-  const endereco = prompt("Endereço completo:", branding.endereco || "");
-  if (endereco === null) return;
-  const telefone = prompt("Telefone:", branding.telefone || org.telefone_contato || "");
-  if (telefone === null) return;
-  const email = prompt("E-mail:", branding.email || org.email_contato || "");
-  if (email === null) return;
-  const site = prompt("Site:", branding.site || "");
-  if (site === null) return;
+  editForm.reset();
+  editForm.elements.id.value = org.id;
+  editForm.elements.nome.value = org.nome || "";
+  editForm.elements.documento.value = org.documento || branding.cnpj || "";
+  editForm.elements.email_contato.value = org.email_contato || branding.email || "";
+  editForm.elements.telefone_contato.value = org.telefone_contato || branding.telefone || "";
+  editForm.elements.endereco.value = branding.endereco || "";
+  editForm.elements.site.value = branding.site || "";
+  editForm.elements.atividade.value = branding.atividade || "";
+  editForm.elements.fundacao.value = branding.fundacao || "";
+  editForm.elements.logo_url.value = branding.logo_url || "";
+  editMessage.hidden = true;
+  editDialog.showModal();
+});
+
+document.querySelectorAll("[data-edit-close]").forEach(button => button.addEventListener("click", () => editDialog.close()));
+editForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(editForm));
+  const org = state.organizacoes.find(item => String(item.id) === data.id);
+  const branding = org?.branding || {};
   try {
-    await api(`/v1/admin/saas/organizacoes/${org.id}`, {
+    await api(`/v1/admin/saas/organizacoes/${data.id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        nome: org.nome,
-        documento: org.documento,
-        email_contato: email,
-        telefone_contato: telefone,
-        branding: { ...branding, nome_exibido: org.nome, cnpj: org.documento, endereco, telefone, email, site },
+        nome: data.nome.trim(),
+        documento: data.documento.trim() || null,
+        email_contato: data.email_contato.trim(),
+        telefone_contato: data.telefone_contato.trim() || null,
+        branding: { ...branding, nome_exibido: data.nome.trim(), cnpj: data.documento.trim() || null, endereco: data.endereco.trim() || null, telefone: data.telefone_contato.trim() || null, email: data.email_contato.trim(), site: data.site.trim() || null, atividade: data.atividade.trim() || null, fundacao: data.fundacao.trim() || null, logo_url: data.logo_url.trim() || null },
       }),
     });
+    editDialog.close();
     await load();
-    alert("Cadastro atualizado.");
-  } catch (error) { alert(error.message); }
+  } catch (error) {
+    editMessage.hidden = false;
+    editMessage.className = "status-message error";
+    editMessage.textContent = error.message;
+  }
 });

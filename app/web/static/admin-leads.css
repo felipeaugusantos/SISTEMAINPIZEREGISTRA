@@ -377,7 +377,7 @@
 .lead-contact-summary {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   margin: 0;
 }
@@ -437,6 +437,43 @@
   color: #17271f;
   font-size: 0.84rem;
   font-weight: 750;
+}
+
+.lead-collapsible {
+  min-width: 0;
+  border: 1px solid #d8dfd9;
+  border-radius: 16px;
+  background: #fffefb;
+  overflow: hidden;
+}
+
+.lead-collapsible > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 50px;
+  padding: 0 17px;
+  color: #17382b;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+
+.lead-collapsible > summary::-webkit-details-marker { display: none; }
+.lead-collapsible > summary::after { content: "+"; color: #087252; font-size: 1.15rem; }
+.lead-collapsible[open] > summary { border-bottom: 1px solid #d8dfd9; background: #f4f8f4; }
+.lead-collapsible[open] > summary::after { content: "−"; }
+.lead-collapsible > section { margin: 0; border: 0; border-radius: 0; box-shadow: none; }
+
+/* O resumo tem cinco campos; mantenha-o equilibrado no desktop e legível no tablet. */
+@media (max-width: 980px) {
+  .lead-contact-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .lead-contact-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lead-contact-summary > div { padding-left: 45px; }
 }
 
 .lead-crm-form,
@@ -658,6 +695,24 @@
   outline: 3px solid rgba(182, 63, 45, 0.28);
   outline-offset: 2px;
 }
+
+/* Na visÃ£o Por pesquisa, mantenha as aÃ§Ãµes do registro em uma Ãºnica linha. */
+.research-view-row td:last-child {
+  white-space: nowrap;
+}
+
+.research-view-row .lead-row-actions {
+  flex-wrap: nowrap;
+  min-width: max-content;
+}
+
+.research-view-row .lead-row-actions .secondary-button,
+.research-view-row .lead-row-actions .danger-button,
+.research-view-row .lead-row-actions .danger-link {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .full-report-status {
   display: inline-flex;
   width: fit-content;
@@ -841,25 +896,25 @@ table.lead-docs select {
 .lead-propostas table.lead-proposals-table td:nth-child(6) { width: 33%; }
 
 .lead-propostas .proposal-actions {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: stretch;
+  display: flex;
+  min-width: max-content;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 6px;
 }
 
 .lead-propostas .proposal-actions .secondary-button {
-  min-width: 0;
-  width: 100%;
-  padding: 8px 7px;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  flex: 0 0 auto;
+  width: auto;
+  padding: 8px 10px;
+  white-space: nowrap;
   line-height: 1.15;
 }
 
 @media (max-width: 560px) {
   .lead-propostas .proposal-actions {
-    grid-template-columns: minmax(0, 1fr);
+    overflow-x: auto;
+    padding-bottom: 3px;
   }
 }
 

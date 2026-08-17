@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>Regras automáticas — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=35"><link rel="stylesheet" href="/static/admin-financeiro.css?v=6">
-  <script src="/static/admin-shell.js?v=36" defer></script><script src="/static/admin-regras-automaticas.js?v=1" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=35"><link rel="stylesheet" href="/static/admin-financeiro.css?v=6"><link rel="stylesheet" href="/static/admin-crm.css?v=1"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=1">
+  <script src="/static/admin-shell.js?v=36" defer></script><script src="/static/admin-regras-automaticas.js?v=1" defer></script><script src="/static/admin-cadencias.js?v=3" defer></script>
 </head>
 <body class="admin-body" data-admin-section="config-regras">
   <main class="admin-main finance-main">
@@ -17,5 +17,22 @@
       <header class="finance-list-heading"><div><p class="eyebrow">GATILHOS</p><h2>Regras por evento</h2></div></header>
       <div id="regras-list" class="crm-automacoes"></div>
     </section>
+    <section class="finance-card crm-cadencias-card">
+      <header class="finance-list-heading"><div><p class="eyebrow">CADÊNCIAS</p><h2>Sequências de atendimento</h2><p>Configure os passos automáticos de follow-up do atendimento.</p></div><button id="new-cadencia" class="secondary-button" type="button">Nova sequência</button></header>
+      <div id="crm-cadencias" class="crm-cadencias"></div>
+    </section>
   </main>
+  <dialog id="cadencia-dialog" class="crm-reminder-dialog">
+    <form id="cadencia-form" method="dialog">
+      <header><div><p class="eyebrow">SEQUÊNCIA</p><h2 id="cadencia-title">Nova sequência</h2></div><button id="close-cadencia" class="dialog-close" type="button" aria-label="Fechar">×</button></header>
+      <input type="hidden" name="id">
+      <label class="wide"><span>Nome</span><input name="nome" minlength="1" maxlength="120" required placeholder="Ex.: Follow-up padrão"></label>
+      <label class="wide"><span>Descrição (opcional)</span><input name="descricao" maxlength="2000"></label>
+      <label class="crm-cad-ativo"><input type="checkbox" name="ativo" checked><span>Sequência ativa</span></label>
+      <div class="crm-cad-passos-head"><strong>Passos</strong><button id="add-passo" class="secondary-button" type="button">Adicionar passo</button></div>
+      <div id="cadencia-passos" class="crm-cad-passos"></div>
+      <div id="cadencia-message" class="status-message" hidden role="status"></div>
+      <footer><button id="cancel-cadencia" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Salvar sequência</button></footer>
+    </form>
+  </dialog>
 </body></html>

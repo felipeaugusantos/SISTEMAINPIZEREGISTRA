@@ -1,4 +1,6 @@
 const crmState = { offset: 0, limit: 50, total: 0, references: null, canManage: false };
+document.querySelector(".crm-cadencias-card")?.remove();
+document.querySelector("#cadencia-dialog")?.remove();
 const form = document.querySelector("#crm-filter");
 const reminderFilter = document.querySelector("#crm-reminder-filter");
 const reminderDialog = document.querySelector("#reminder-dialog");
@@ -37,7 +39,7 @@ function renderHistory(data) {
   crmState.total = data.total; renderMetrics(data);
   document.querySelector("#crm-total").textContent = `${data.total} registro${data.total === 1 ? "" : "s"}`;
   const target = document.querySelector("#crm-history");
-  target.innerHTML = data.itens.length ? data.itens.map(item => `<li class="crm-entry"><div class="crm-entry-marker ${esc(item.canal)}" aria-hidden="true"></div><article><header><div><span class="crm-channel ${esc(item.canal)}">${esc(channels[item.canal] || item.canal)}</span><span class="crm-client-status status-${esc(item.status_cliente)}">${esc(String(item.status_cliente).replaceAll("_", " "))}</span><h3>${esc(item.cliente)}</h3><p>${esc(item.empresa || "Empresa não informada")} · ${esc(item.marca || "Sem pesquisa vinculada")}</p></div><time datetime="${esc(item.criado_em)}">${dateTime.format(new Date(item.criado_em))}</time></header><div class="crm-entry-result"><strong>${esc(item.resultado || "Sem resultado informado")}</strong>${item.observacao ? `<p>${esc(item.observacao)}</p>` : ""}</div><footer><span>Registrado por ${esc(item.operador || "Operador não informado")}</span><span>${esc(item.email)} · ${esc(item.telefone)}${item.documento ? ` · ${esc(item.documento)}` : ""}</span><a href="/admin/pesquisas?lead_id=${item.lead_id}">Abrir contato</a></footer></article></li>`).join("") : `<li class="crm-empty"><strong>Nenhum atendimento foi encontrado.</strong><p>Revise nome, documento, telefone, status ou período informado.</p><a class="primary-button" href="/admin/pesquisas">Ir para Leads</a></li>`;
+  target.innerHTML = data.itens.length ? data.itens.map(item => `<li class="crm-entry"><span class="crm-history-client"><strong>${esc(item.cliente)}</strong><small>${esc(item.empresa || item.marca || "Cliente sem empresa")}</small></span><time datetime="${esc(item.criado_em)}">${dateTime.format(new Date(item.criado_em))}</time><span class="crm-history-observation">${esc(item.observacao || item.resultado || "Sem observação")}</span><span class="crm-history-next">${item.proximo_contato ? dateTime.format(new Date(item.proximo_contato)) : "Sem próximo contato"}</span><a href="/admin/pesquisas?lead_id=${item.lead_id}">Abrir</a></li>`).join("") : `<li class="crm-empty"><strong>Nenhum atendimento foi encontrado.</strong><p>Revise nome, documento, telefone, status ou período informado.</p><a class="primary-button" href="/admin/pesquisas">Ir para Leads</a></li>`;
   const page = Math.floor(crmState.offset / crmState.limit) + 1;
   document.querySelector("#crm-page").textContent = `Página ${page}`;
   document.querySelector("#crm-prev").disabled = crmState.offset === 0;
@@ -114,6 +116,7 @@ const cadenciaForm = document.querySelector("#cadencia-form");
 async function loadCadencias() { cadencias = (await api("/v1/admin/crm/cadencias")).itens || []; renderCadencias(); }
 function renderCadencias() {
   const box = document.querySelector("#crm-cadencias");
+  if (!box) return;
   const canManage = crmState.canManage;
   box.innerHTML = cadencias.length ? cadencias.map(c => `
     <div class="crm-cadencia" data-id="${c.id}">
@@ -141,17 +144,17 @@ function openCadencia(cad = null) {
   document.querySelector("#cadencia-message").hidden = true;
   cadenciaDialog.showModal();
 }
-document.querySelector("#new-cadencia").addEventListener("click", () => openCadencia());
-document.querySelector("#add-passo").addEventListener("click", () => document.querySelector("#cadencia-passos").appendChild(passoRow()));
-document.querySelector("#cadencia-passos").addEventListener("click", event => { const b = event.target.closest(".passo-del"); if (b) b.closest(".crm-cad-passo").remove(); });
-document.querySelector("#close-cadencia").addEventListener("click", () => cadenciaDialog.close());
-document.querySelector("#cancel-cadencia").addEventListener("click", () => cadenciaDialog.close());
-document.querySelector("#crm-cadencias").addEventListener("click", event => {
+document.querySelector("#new-cadencia")?.addEventListener("click", () => openCadencia());
+document.querySelector("#add-passo")?.addEventListener("click", () => document.querySelector("#cadencia-passos")?.appendChild(passoRow()));
+document.querySelector("#cadencia-passos")?.addEventListener("click", event => { const b = event.target.closest(".passo-del"); if (b) b.closest(".crm-cad-passo").remove(); });
+document.querySelector("#close-cadencia")?.addEventListener("click", () => cadenciaDialog?.close());
+document.querySelector("#cancel-cadencia")?.addEventListener("click", () => cadenciaDialog?.close());
+document.querySelector("#crm-cadencias")?.addEventListener("click", event => {
   const edit = event.target.closest(".cad-edit"), del = event.target.closest(".cad-del");
   if (edit) openCadencia(cadencias.find(c => String(c.id) === edit.dataset.id));
   if (del && confirm("Excluir esta cadência?")) api(`/v1/admin/crm/cadencias/${del.dataset.id}`, { method: "DELETE" }).then(loadCadencias).catch(error => show(error.message));
 });
-cadenciaForm.addEventListener("submit", async event => {
+cadenciaForm?.addEventListener("submit", async event => {
   event.preventDefault();
   const passos = [...document.querySelectorAll("#cadencia-passos .crm-cad-passo")].map(row => ({
     dia: Number(row.querySelector(".passo-dia").value) || 0,

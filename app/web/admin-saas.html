@@ -4,7 +4,8 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow"><title>Empresas e planos — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=23">
-  <script src="/static/admin-shell.js?v=36" defer></script><script src="/static/admin-saas.js?v=2" defer></script><script src="/static/admin-saas-enhancements.js?v=1" defer></script>
+  <link rel="stylesheet" href="/static/admin-saas-enhancements.css?v=1">
+  <script src="/static/admin-shell.js?v=36" defer></script><script src="/static/admin-saas.js?v=2" defer></script><script src="/static/admin-saas-enhancements.js?v=3" defer></script>
 </head>
 <body class="admin-body" data-admin-section="saas">
 <main class="admin-main admin-dashboard">
@@ -19,4 +20,11 @@
   <label>E-mail do administrador<input name="email_contato" type="email" required></label><label>Telefone<input name="telefone_contato"></label>
   <label>Nome do administrador<input name="administrador_nome" required></label><label>Usuário do administrador<input name="administrador_usuario" pattern="[a-zA-Z0-9._-]{2,80}" required></label>
   </div><div id="org-form-message" class="status-message"></div><footer><button type="button" class="secondary-button" data-close>Cancelar</button><button class="primary-button" type="submit">Criar empresa</button></footer></form></dialog>
+<dialog id="edit-org-dialog" class="user-dialog"><form id="edit-org-form"><header><div><p class="eyebrow">Cadastro da empresa</p><h2>Editar cadastro</h2></div><button type="button" class="dialog-close" data-edit-close aria-label="Fechar">&times;</button></header><input type="hidden" name="id"><div class="user-fields">
+  <label>Razão social / nome<input name="nome" required maxlength="180"></label><label>CNPJ/Documento<input name="documento" maxlength="30"></label>
+  <label>E-mail de contato<input name="email_contato" type="email" maxlength="254" required></label><label>Telefone<input name="telefone_contato" maxlength="30"></label>
+  <label class="full-field">Endereço completo<input name="endereco" maxlength="300"></label><label>Site<input name="site" maxlength="200" placeholder="www.exemplo.com.br"></label>
+  <label>Atividade principal<input name="atividade" maxlength="150"></label><label>Data de fundação<input name="fundacao" maxlength="20" placeholder="DD/MM/AAAA"></label>
+  <label class="full-field">URL da logo<input name="logo_url" maxlength="500" placeholder="https://... ou /static/..." type="url"></label>
+  </div><div id="edit-org-form-message" class="status-message"></div><footer><button type="button" class="secondary-button" data-edit-close>Cancelar</button><button class="primary-button" type="submit">Salvar cadastro</button></footer></form></dialog>
 </body></html>

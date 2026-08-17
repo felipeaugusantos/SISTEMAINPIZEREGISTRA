@@ -359,10 +359,10 @@ async function openLead(id) {
     <section class="lead-funil lg-full" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
     <section class="lead-cadencia lg-full" id="lead-cadencia" hidden></section>
     <section class="lead-history lg-full"><header><div><p class="eyebrow">Histórico</p><h3>${lead.pesquisas.length} pesquisa${lead.pesquisas.length === 1 ? "" : "s"}</h3></div></header>${lead.pesquisas.length ? lead.pesquisas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
-    <section class="lead-documentos lg-full" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section>
-    <section class="lead-guias lg-full" id="lead-guias"><p class="lead-funil-loading">Carregando guias do INPI…</p></section>
-    <section class="lead-propostas lg-full" id="lead-propostas"><p class="lead-funil-loading">Carregando propostas…</p></section>
-    <section class="lead-checklist" id="lead-checklist"><p class="lead-funil-loading">Carregando checklist…</p></section>
+    <details class="lead-collapsible lg-full"><summary>Documentos do atendimento</summary><section class="lead-documentos" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section></details>
+    <details class="lead-collapsible lg-full"><summary>Guias do INPI (GRU)</summary><section class="lead-guias" id="lead-guias"><p class="lead-funil-loading">Carregando guias do INPI…</p></section></details>
+    <details class="lead-collapsible lg-full"><summary>Propostas de registro</summary><section class="lead-propostas" id="lead-propostas"><p class="lead-funil-loading">Carregando propostas…</p></section></details>
+    <details class="lead-collapsible"><summary>Checklist da etapa</summary><section class="lead-checklist" id="lead-checklist"><p class="lead-funil-loading">Carregando checklist…</p></section></details>
     ${state.canManage ? `<form id="lead-crm-form" data-lead-id="${lead.id}" class="lead-crm-form">
       <label><span>Status</span><select name="status">${statusOptions(lead.status)}</select></label>
       <div class="lead-motivo-perda" id="lead-motivo-perda"${lead.status === "descartado" ? "" : " hidden"}>

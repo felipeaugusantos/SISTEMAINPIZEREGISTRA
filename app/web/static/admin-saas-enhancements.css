@@ -1,0 +1,14 @@
+.edit-org-dialog .full-field,
+#edit-org-form .full-field { grid-column: 1 / -1; }
+
+#edit-org-form .eyebrow { margin: 0 0 4px; color: #087252; }
+#edit-org-form h2 { margin: 0; }
+
+#edit-org-form footer { gap: 10px; }
+#edit-org-form footer button { min-height: 40px; padding: 10px 18px; font-size: .82rem; }
+#edit-org-form footer .secondary-button { border: 1px solid #cbd4cd; color: #315044; background: #f7faf7; }
+#edit-org-form footer .primary-button { border: 1px solid #086044; color: #fff; background: #086044; }
+
+@media (max-width: 760px) {
+  #edit-org-form .full-field { grid-column: auto; }
+}

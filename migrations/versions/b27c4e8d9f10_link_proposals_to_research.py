@@ -36,17 +36,22 @@ def upgrade() -> None:
     # Preserva propostas antigas e associa cada uma à pesquisa mais recente do lead.
     op.execute(
         """
-        UPDATE propostas_comerciais p
-        SET pesquisa_id = origem.id
-        FROM LATERAL (
+        UPDATE propostas_comerciais AS p
+        SET pesquisa_id = (
             SELECT pm.id
-            FROM pesquisas_marca pm
+            FROM pesquisas_marca AS pm
             WHERE pm.lead_id = p.lead_id
               AND pm.organizacao_id = p.organizacao_id
             ORDER BY pm.criado_em DESC, pm.id DESC
             LIMIT 1
-        ) AS origem
+        )
         WHERE p.pesquisa_id IS NULL
+          AND EXISTS (
+              SELECT 1
+              FROM pesquisas_marca AS pm2
+              WHERE pm2.lead_id = p.lead_id
+                AND pm2.organizacao_id = p.organizacao_id
+          )
         """
     )
 

@@ -2446,7 +2446,7 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
         eventos.append(
             {
                 "tipo": "proposta",
-                "data": proposta.atualizado_em or proposta.criado_em,
+                "data": proposta.enviado_em or proposta.criado_em,
                 "titulo": f"Proposta {proposta.numero}",
                 "detalhe": f"Status: {proposta.status}",
             }

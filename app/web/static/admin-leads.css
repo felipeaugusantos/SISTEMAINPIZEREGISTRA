@@ -1040,3 +1040,6 @@ table.lead-docs select {
 }
 .lead-portal-access { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:#f8faf7; }
 .lead-portal-access p { margin:0; color:var(--muted); }
+.lead-portal-access .portal-credentials { display:flex; gap:8px; flex:1 1 100%; flex-wrap:wrap; }
+.lead-portal-access .portal-credentials label { display:flex; flex-direction:column; gap:4px; min-width:180px; flex:1; font-size:.78rem; color:var(--muted); }
+.lead-portal-access .portal-credentials input { width:100%; min-height:36px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); }

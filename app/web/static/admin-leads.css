@@ -1106,8 +1106,10 @@ table.lead-docs select {
 .portal-reply-status { color:var(--muted); font-size:.82rem; }
 
 @media (min-width: 761px) {
+  .admin-body .leads-table-shell { overflow-x: visible; }
   .admin-body .leads-table {
-    min-width: 1500px;
+    width: 100%;
+    min-width: 0 !important;
     table-layout: fixed;
   }
 
@@ -1129,6 +1131,6 @@ table.lead-docs select {
   .admin-body .leads-table td:nth-child(1) span { overflow-wrap: anywhere; }
   .admin-body .leads-table td:nth-child(4) time { white-space: nowrap; }
   .admin-body .leads-table td:nth-child(5) .lead-status { width: 100%; min-width: 130px; box-sizing: border-box; }
-  .admin-body .leads-table td:nth-child(6) .lead-row-actions { min-width: 0; }
-  .admin-body .leads-table td:nth-child(6) .lead-row-actions > * { max-width: 100%; }
+  .admin-body .leads-table td:nth-child(6) .lead-row-actions { min-width: 0; width: 100%; flex-wrap: wrap; }
+  .admin-body .leads-table td:nth-child(6) .lead-row-actions > * { max-width: 100%; white-space: normal; }
 }

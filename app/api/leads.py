@@ -88,6 +88,18 @@ BuscaLead = Annotated[str | None, Query(max_length=100)]
 StatusLeadFiltro = Annotated[StatusLead | None, Query(alias="status")]
 LimiteLead = Annotated[int, Query(ge=1, le=200)]
 DeslocamentoLead = Annotated[int, Query(ge=0)]
+
+KANBAN_ETAPAS = {
+    "primeiro_contato": {"label": "Primeiro contato", "fase": "contato_inicial"},
+    "aguardando_contato_nosso": {"label": "Aguardando contato nosso", "fase": "contato_inicial"},
+    "aguardando_retorno_cliente": {"label": "Aguardando retorno do cliente", "fase": "relatorio_enviado"},
+    "proposta_enviada": {"label": "Proposta enviada", "fase": "proposta_enviada"},
+    "proposta_aceita": {"label": "Proposta aceita / contrato enviado", "fase": "proposta_aceita"},
+    "pagamento_realizado": {"label": "Pagamento realizado", "fase": "pagamento_realizado"},
+    "protocolo_inpi": {"label": "Protocolo no INPI gerado", "fase": "protocolo_inpi"},
+    "processo_inpi": {"label": "Processo no INPI", "fase": "processo_inpi"},
+}
+KANBAN_ORDEM = tuple(KANBAN_ETAPAS)
 DataLead = Annotated[datetime | None, Query()]
 OrigemLead = Annotated[str | None, Query(max_length=30)]
 ResponsavelLead = Annotated[int | None, Query(ge=1)]
@@ -627,6 +639,78 @@ async def resumo_crm_leads(session: SessionDep, usuario: LeadsViewDep) -> dict:
         "sem_proxima_acao": int(linha[2] or 0),
         "atualizado_em": agora,
     }
+
+
+def _kanban_etapa(lead: Lead) -> str:
+    if lead.fase == "contato_inicial":
+        return "aguardando_contato_nosso" if lead.status == StatusLead.EM_CONTATO else "primeiro_contato"
+    if lead.fase == "relatorio_enviado" and lead.status == StatusLead.SEM_RETORNO:
+        return "aguardando_retorno_cliente"
+    return lead.fase if lead.fase in KANBAN_ETAPAS else "primeiro_contato"
+
+
+@router.get("/v1/admin/leads-kanban")
+async def listar_leads_kanban(session: SessionDep, usuario: LeadsViewDep) -> dict:
+    leads = (
+        await session.execute(
+            select(Lead)
+            .options(selectinload(Lead.responsavel))
+            .where(Lead.organizacao_id == usuario.organizacao_id, Lead.arquivado_em.is_(None))
+            .order_by(Lead.criado_em.desc(), Lead.id.desc())
+            .limit(500)
+        )
+    ).scalars().all()
+    cards = [
+        {
+            "id": lead.id,
+            "nome": lead.nome,
+            "empresa": lead.empresa,
+            "marca": lead.marca,
+            "etapa": _kanban_etapa(lead),
+            "responsavel": getattr(lead.responsavel, "nome", None),
+            "proxima_acao_em": lead.proxima_acao_em,
+            "status": lead.status.value,
+        }
+        for lead in leads
+    ]
+    return {"etapas": [{"id": etapa, **dados} for etapa, dados in KANBAN_ETAPAS.items()], "cards": cards, "acoes": {"gerenciar": usuario.pode("leads.manage")}}
+
+
+class KanbanEtapaInput(BaseModel):
+    etapa: str = Field(min_length=3, max_length=40)
+
+
+@router.post("/v1/admin/leads/{lead_id}/kanban")
+async def mover_lead_kanban(
+    lead_id: int,
+    dados: KanbanEtapaInput,
+    request: Request,
+    session: SessionDep,
+    usuario: LeadsManageDep,
+) -> dict:
+    etapa = KANBAN_ETAPAS.get(dados.etapa)
+    if etapa is None:
+        raise HTTPException(status_code=422, detail="Etapa do Kanban inválida")
+    lead = (await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    if etapa["fase"] in {"protocolo_inpi", "processo_inpi"}:
+        documentos = (await session.execute(select(DocumentoLead).where(DocumentoLead.lead_id == lead.id, DocumentoLead.organizacao_id == lead.organizacao_id))).scalars().all()
+        por_tipo = {documento.tipo: documento for documento in documentos}
+        obrigatorios = {documento.tipo for documento in documentos if documento.obrigatorio} | {"procuracao"}
+        pendencias = [tipo for tipo in obrigatorios if tipo not in por_tipo or por_tipo[tipo].status not in DOCUMENTOS_VALIDOS]
+        if pendencias:
+            raise HTTPException(status_code=422, detail=f"Etapa bloqueada. Documentos obrigatórios pendentes: {', '.join(sorted(pendencias))}.")
+    await avancar_fase_lead(session, lead, etapa["fase"], por=usuario.nome or "operador", forcar=True)
+    if dados.etapa == "primeiro_contato":
+        lead.status = StatusLead.NOVO
+    elif dados.etapa == "aguardando_contato_nosso":
+        lead.status = StatusLead.EM_CONTATO
+    elif dados.etapa == "aguardando_retorno_cliente":
+        lead.status = StatusLead.SEM_RETORNO
+    _auditar(session, usuario, request, "mover_kanban", f"lead:{lead.id}", {"etapa": dados.etapa, "fase": lead.fase})
+    await session.commit()
+    return {"id": lead.id, "etapa": _kanban_etapa(lead), "fase": lead.fase}
 
 
 @router.get("/v1/admin/leads-dashboard")

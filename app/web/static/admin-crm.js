@@ -1,4 +1,5 @@
 const crmState = { offset: 0, limit: 50, total: 0, references: null, canManage: false };
+const kanbanState = { etapas: [], cards: [] };
 document.querySelector(".crm-cadencias-card")?.remove();
 document.querySelector("#cadencia-dialog")?.remove();
 const form = document.querySelector("#crm-filter");
@@ -35,6 +36,31 @@ function renderMetrics(data) {
   const rows = [["Total filtrado", data.total], ["Ligações", data.por_canal.telefone || 0], ["WhatsApp", data.por_canal.whatsapp || 0], ["E-mails", data.por_canal.email || 0], ["Reuniões", data.por_canal.reuniao || 0], ["Atendimentos", data.por_canal.outro || 0]];
   document.querySelector("#crm-metrics").innerHTML = rows.map(([label, value]) => `<article><span>${label}</span><strong>${value}</strong></article>`).join("");
 }
+function renderKanban(data) {
+  kanbanState.etapas = data.etapas || [];
+  kanbanState.cards = data.cards || [];
+  crmState.canManage = data.acoes?.gerenciar ?? crmState.canManage;
+  const target = document.querySelector("#crm-kanban");
+  if (!target) return;
+  target.innerHTML = kanbanState.etapas.map(etapa => {
+    const cards = kanbanState.cards.filter(card => card.etapa === etapa.id);
+    return `<section class="crm-kanban-column" data-etapa="${esc(etapa.id)}"><header><h3>${esc(etapa.label)}</h3><strong>${cards.length}</strong></header><div class="crm-kanban-dropzone" data-etapa="${esc(etapa.id)}">${cards.length ? cards.map(card => `<article class="crm-kanban-card-item" draggable="${crmState.canManage}" data-lead-id="${card.id}"><div><strong>${esc(card.nome)}</strong>${card.empresa ? `<small>${esc(card.empresa)}</small>` : ""}</div><span>${esc(card.marca || "Interesse geral")}</span><small>${esc(card.responsavel || "Não atribuído")}</small>${card.proxima_acao_em ? `<time>Próxima ação: ${dateTime.format(new Date(card.proxima_acao_em))}</time>` : `<time class="kanban-no-action">Sem próxima ação</time>`}<a href="/admin/pesquisas?lead_id=${card.id}">Abrir contato</a></article>`).join("") : `<p class="crm-kanban-empty">Nenhuma oportunidade</p>`}</div></section>`;
+  }).join("");
+  target.querySelectorAll(".crm-kanban-card-item[draggable='true']").forEach(card => card.addEventListener("dragstart", event => { event.dataTransfer.setData("text/plain", card.dataset.leadId); card.classList.add("dragging"); }));
+  target.querySelectorAll(".crm-kanban-card-item").forEach(card => card.addEventListener("dragend", () => card.classList.remove("dragging")));
+  target.querySelectorAll(".crm-kanban-dropzone").forEach(zone => {
+    zone.addEventListener("dragover", event => { event.preventDefault(); zone.classList.add("drag-over"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
+    zone.addEventListener("drop", async event => {
+      event.preventDefault(); zone.classList.remove("drag-over");
+      const leadId = event.dataTransfer.getData("text/plain");
+      if (!leadId || !crmState.canManage) return;
+      try { await api(`/v1/admin/leads/${leadId}/kanban`, { method: "POST", body: JSON.stringify({ etapa: zone.dataset.etapa }) }); await loadKanban(); await loadHistory(); }
+      catch (error) { show(error.message); }
+    });
+  });
+}
+async function loadKanban() { renderKanban(await api("/v1/admin/leads-kanban")); }
 function renderHistory(data) {
   crmState.total = data.total; renderMetrics(data);
   document.querySelector("#crm-total").textContent = `${data.total} registro${data.total === 1 ? "" : "s"}`;
@@ -92,6 +118,7 @@ document.querySelector("#crm-clear").addEventListener("click", () => { form.rese
 document.querySelector("#crm-prev").addEventListener("click", () => { crmState.offset = Math.max(0, crmState.offset - crmState.limit); loadHistory().catch(error => show(error.message)); });
 document.querySelector("#crm-next").addEventListener("click", () => { if (crmState.offset + crmState.limit < crmState.total) { crmState.offset += crmState.limit; loadHistory().catch(error => show(error.message)); } });
 document.querySelector("#new-reminder").addEventListener("click", () => openReminder());
+document.querySelector("#crm-kanban-refresh")?.addEventListener("click", () => loadKanban().catch(error => show(error.message)));
 document.querySelector("#close-reminder").addEventListener("click", () => reminderDialog.close());
 document.querySelector("#cancel-reminder").addEventListener("click", () => reminderDialog.close());
 document.querySelector("#crm-customer-alerts").addEventListener("click", event => { const button = event.target.closest(".create-update-reminder"); if (button) openReminder(button.dataset.leadId, "atualizar_cadastro"); });
@@ -168,6 +195,6 @@ cadenciaForm?.addEventListener("submit", async event => {
   catch (error) { msg.className = "status-message error"; msg.textContent = error.message; }
 });
 
-references().then(() => Promise.all([loadHistory(), loadReminders(), loadCadencias()])).then(() => {
+references().then(() => Promise.all([loadHistory(), loadReminders(), loadCadencias(), loadKanban()])).then(() => {
   const leadId = new URLSearchParams(location.search).get("lead_id"); if (/^\d+$/.test(leadId || "") && crmState.canManage) openReminder(leadId);
 }).catch(error => show(error.message));

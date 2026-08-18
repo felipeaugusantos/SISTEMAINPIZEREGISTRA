@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>CRM — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=36"><link rel="stylesheet" href="/static/admin-crm.css?v=1"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=1"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=1">
-  <script src="/static/admin-shell.js?v=36" defer></script><script src="/static/admin-crm.js?v=7" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=36"><link rel="stylesheet" href="/static/admin-crm.css?v=1"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=2"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=1">
+  <script src="/static/admin-shell.js?v=36" defer></script><script src="/static/admin-crm.js?v=8" defer></script>
 </head>
 <body class="admin-body" data-admin-section="crm">
   <main class="admin-main crm-main">
@@ -14,6 +14,10 @@
     </section>
     <div id="crm-message" class="status-message" hidden role="status" aria-live="polite"></div>
     <section id="crm-metrics" class="crm-metrics" aria-label="Indicadores do histórico"></section>
+    <section class="crm-card crm-kanban-card">
+      <header class="crm-kanban-header"><div><p class="eyebrow">PIPELINE COMERCIAL</p><h2>Oportunidades</h2><p>Arraste os cartões para acompanhar cada etapa do atendimento.</p></div><button id="crm-kanban-refresh" class="secondary-button" type="button">Atualizar</button></header>
+      <div id="crm-kanban" class="crm-kanban" aria-live="polite"><p class="crm-empty">Carregando oportunidades...</p></div>
+    </section>
     <section class="crm-card crm-reminder-card">
       <header><div><p class="eyebrow">ALERTAS E LEMBRETES</p><h2>Pendências da equipe</h2><p>Organize retornos, propostas, documentos, processos e atualizações cadastrais.</p></div><div id="crm-reminder-metrics" class="crm-reminder-metrics"></div></header>
       <form id="crm-reminder-filter" class="crm-reminder-filter">

@@ -17,6 +17,21 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 TechDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("production.view"))]
 
 
+@router.get("/configuracao/clicksign")
+async def configuracao_clicksign(usuario: TechDep) -> dict:
+    """Exibe somente o estado seguro da integração; o token nunca é retornado."""
+    _exigir_acesso_tech(usuario)
+    settings = get_settings()
+    return {
+        "habilitado": bool(settings.clicksign_enabled),
+        "ambiente": "sandbox" if "sandbox" in settings.clicksign_base_url else "producao",
+        "base_url": settings.clicksign_base_url,
+        "webhook_url": settings.clicksign_webhook_url or None,
+        "token_configurado": bool(settings.clicksign_api_token),
+        "webhook_segredo_configurado": bool(settings.clicksign_webhook_secret),
+    }
+
+
 def _exigir_acesso_tech(usuario: UsuarioAutenticado) -> UsuarioAutenticado:
     if not (usuario.superadmin or usuario.perfil in {"administrador", "tech"}):
         raise HTTPException(status_code=403, detail="Acesso restrito ao departamento de Tech")

@@ -18,6 +18,7 @@ const adminSections = [
   { id: "configuracao", label: "Configuração", href: "/admin/configuracao/regras-automaticas", symbol: "CG", permission: "leads.view" },
   { id: "config-regras", label: "Regras automáticas", href: "/admin/configuracao/regras-automaticas", symbol: "RA", permission: "leads.view", parent: "configuracao" },
   { id: "config-rpi", label: "Consulta RPI", href: "/admin/configuracao/consulta-rpi?v=7", symbol: "RPI", permission: "rpi.view", parent: "configuracao" },
+  { id: "config-clicksign", label: "Clicksign", href: "/admin/configuracao/clicksign", symbol: "CS", permission: "production.view", parent: "configuracao" },
   { id: "users", label: "Usuários e acessos", href: "/admin/usuarios", symbol: "UA", permission: "users.view" },
   { id: "saas", label: "Empresas e planos", href: "/admin/saas", symbol: "SA", superadmin: true },
 ];

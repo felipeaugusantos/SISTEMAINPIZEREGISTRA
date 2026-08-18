@@ -161,6 +161,11 @@ async def painel_administrativo() -> FileResponse:
     return FileResponse(web_dir / "admin.html")
 
 
+@app.get("/admin/configuracao/clicksign", include_in_schema=False, dependencies=[Depends(exigir_permissao("production.view"))])
+async def painel_configuracao_clicksign() -> FileResponse:
+    return FileResponse(web_dir / "admin-clicksign.html")
+
+
 @app.get(
     "/admin/consulta",
     include_in_schema=False,

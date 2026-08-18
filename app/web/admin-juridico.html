@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Operação jurídica — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=36">
-  <link rel="stylesheet" href="/static/admin-juridico.css?v=13">
+  <link rel="stylesheet" href="/static/admin-juridico.css?v=14">
   <script src="/static/admin-shell.js?v=36" defer></script>
-  <script src="/static/admin-juridico.js?v=10" defer></script>
+  <script src="/static/admin-juridico.js?v=11" defer></script>
 </head>
 <body class="admin-body" data-admin-section="legal">
   <main class="admin-main legal-main">
@@ -41,12 +41,15 @@
         <div class="legal-view-toggle" role="group" aria-label="Modo de visualização">
           <button id="view-list" class="view-tab active" type="button" aria-pressed="true">Lista</button>
           <button id="view-kanban" class="view-tab" type="button" aria-pressed="false">Kanban</button>
+          <button id="view-calendar" class="view-tab" type="button" aria-pressed="false">Calendário</button>
         </div>
       </header>
       <form id="legal-filter" class="legal-filter">
         <label class="wide"><span>Buscar</span><input name="busca" placeholder="Processo, marca, empresa ou tarefa"></label>
         <label><span>Status</span><select name="status_prazo"><option value="">Todos</option><option value="aguardando_confirmacao">Aguardando confirmação</option><option value="pendente">Pendente</option><option value="em_andamento">Em andamento</option><option value="historico">Histórico</option><option value="concluido">Concluído</option><option value="cancelado">Cancelado</option></select></label>
         <label><span>Responsável</span><select name="responsavel_id"><option value="">Todos</option></select></label>
+        <label><span>Prioridade</span><select name="prioridade"><option value="">Todas</option><option value="baixa">Baixa</option><option value="media">Média</option><option value="alta">Alta</option><option value="critica">Crítica</option></select></label>
+        <label><span>Evento</span><select name="tipo"><option value="">Todos</option></select></label>
         <label><span>De</span><input type="date" name="inicio"></label>
         <label><span>Até</span><input type="date" name="fim"></label>
         <button class="primary-button" type="submit">Filtrar</button>
@@ -54,6 +57,7 @@
       </form>
       <div id="legal-deadlines" class="legal-deadlines"></div>
       <div id="legal-kanban" class="legal-kanban" hidden></div>
+      <div id="legal-calendar" class="legal-calendar" hidden></div>
       <nav id="legal-pagination" class="legal-pagination" aria-label="Páginas dos clientes" hidden>
         <button id="legal-prev" class="secondary-button" type="button">Anterior</button>
         <span id="legal-page-summary"></span>

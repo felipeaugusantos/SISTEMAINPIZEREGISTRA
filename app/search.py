@@ -1,13 +1,14 @@
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import date
 from difflib import SequenceMatcher
 
 from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import ClassificacaoMarca, Processo, TipoProcesso
+from app.models import ClassificacaoMarca, Processo, TipoProcesso, Titular
 from app.search_model import resultado_busca_exige_revisao_humana
 from app.search_ranking import ScoreBusca, calcular_score_nominativo, configuracao_ranking
 
@@ -30,6 +31,18 @@ MAX_VARIACOES_POR_PALAVRA = 8
 MAX_VARIACOES_TOTAL = 24
 VERSAO_BUSCA = "busca-marcas-4.0"
 LIMIAR_TRIGRAMA = 0.30
+
+
+def chave_fonetica(valor: str) -> str:
+    """Chave fonética determinística, explicável e independente de extensões SQL."""
+    texto = normalizar_texto(valor).replace(" ", "")
+    if not texto:
+        return ""
+    texto = texto.translate(str.maketrans({"K": "C", "Q": "C", "Y": "I", "W": "V", "Z": "S", "X": "S"}))
+    texto = texto.replace("PH", "F").replace("CH", "X").replace("LH", "L").replace("NH", "N")
+    texto = re.sub(r"[AEIOU]+", "A", texto)
+    texto = re.sub(r"(.)\1+", r"\1", texto)
+    return texto[:16]
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +167,13 @@ async def buscar_marcas(
     tipo_pesquisa: str,
     classe_nice: str | None,
     limite: int = 200,
+    estrategia: str = "completa",
+    titular: str | None = None,
+    situacao: str | None = None,
+    data_inicio: date | None = None,
+    data_fim: date | None = None,
+    apresentacao: str | None = None,
+    codigos_viena: list[str] | None = None,
 ) -> tuple[int, list[OcorrenciaBusca], dict]:
     # A expressão deve ser idêntica ao índice GIN trigram para evitar varredura
     # completa dos milhões de processos.
@@ -176,10 +196,19 @@ async def buscar_marcas(
         for termo in termos_ampliados
     ]
 
-    if tipo_pesquisa == "exata" or not filtros_ampliados:
+    estrategia = estrategia.lower().strip()
+    if estrategia not in {"exata", "radical", "prefixo", "sufixo", "fonetica", "similaridade", "completa"}:
+        raise ValueError("Estratégia de busca inválida")
+    if estrategia == "exata" or tipo_pesquisa == "exata" or not filtros_ampliados:
         filtro_texto = filtro_frase
     elif tipo_pesquisa == "radical":
         filtro_texto = or_(*filtros_ampliados)
+    elif estrategia == "prefixo":
+        filtro_texto = titulo_normalizado.ilike(func.immutable_unaccent(f"{marca_limpa}%"))
+    elif estrategia == "sufixo":
+        filtro_texto = titulo_normalizado.ilike(func.immutable_unaccent(f"%{marca_limpa}"))
+    elif estrategia in {"fonetica", "similaridade"}:
+        filtro_texto = or_(filtro_frase, filtro_trigrama, *filtros_ampliados)
     else:
         filtro_texto = or_(filtro_frase, filtro_trigrama, *filtros_ampliados)
 
@@ -191,6 +220,34 @@ async def buscar_marcas(
                     ClassificacaoMarca.processo_id == Processo.id,
                     ClassificacaoMarca.sistema == "nice",
                     ClassificacaoMarca.codigo == classe_nice,
+                )
+            )
+        )
+    if titular and titular.strip():
+        filtros_base.append(
+            Processo.titulares.any(Titular.nome.ilike(f"%{titular.strip()}%"))
+        )
+    if situacao:
+        situacao_limpa = situacao.strip().lower()
+        filtros_base.append(
+            or_(
+                Processo.situacao_normalizada == situacao_limpa,
+                Processo.situacao.ilike(f"%{situacao.strip()}%"),
+            )
+        )
+    if data_inicio:
+        filtros_base.append(Processo.data_deposito >= data_inicio)
+    if data_fim:
+        filtros_base.append(Processo.data_deposito <= data_fim)
+    if apresentacao:
+        filtros_base.append(Processo.apresentacao == apresentacao)
+    if codigos_viena:
+        filtros_base.append(
+            exists(
+                select(ClassificacaoMarca.id).where(
+                    ClassificacaoMarca.processo_id == Processo.id,
+                    ClassificacaoMarca.sistema.in_(["vienna", "viena"]),
+                    ClassificacaoMarca.codigo.in_(codigos_viena),
                 )
             )
         )
@@ -239,6 +296,16 @@ async def buscar_marcas(
     ocorrencias: list[OcorrenciaBusca] = []
     for processo, similaridade in candidatos:
         criterios = identificar_criterios(processo.titulo, marca_limpa)
+        titulo_chave = chave_fonetica(processo.titulo or "")
+        marca_chave = chave_fonetica(marca_limpa)
+        if estrategia == "fonetica" and marca_chave and marca_chave in titulo_chave:
+            criterios = ["Correspondência fonética", *criterios]
+        if estrategia == "prefixo" and normalizar_texto(processo.titulo or "").startswith(normalizar_texto(marca_limpa)):
+            criterios = ["Prefixo correspondente", *criterios]
+        if estrategia == "sufixo" and normalizar_texto(processo.titulo or "").endswith(normalizar_texto(marca_limpa)):
+            criterios = ["Sufixo correspondente", *criterios]
+        if apresentacao in {"mista", "figurativa"}:
+            criterios = [f"Marca {apresentacao}", *criterios]
         classes_nice = {
             classificacao.codigo
             for classificacao in processo.classificacoes
@@ -273,6 +340,16 @@ async def buscar_marcas(
             "alto renome",
         ],
         "versao_algoritmo": VERSAO_BUSCA,
+        "estrategia": estrategia,
+        "filtros": {
+            "titular": titular,
+            "situacao": situacao,
+            "data_inicio": data_inicio.isoformat() if data_inicio else None,
+            "data_fim": data_fim.isoformat() if data_fim else None,
+            "apresentacao": apresentacao,
+            "nice": classe_nice,
+            "viena": codigos_viena or [],
+        },
         "estrategias_executadas": [
             "exata",
             "radical",

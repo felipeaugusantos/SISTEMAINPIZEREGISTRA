@@ -1,5 +1,30 @@
 # Changelog
 
+## Portfólio completo de propriedade intelectual — 2026-08-18
+
+- Ativos para marcas, patentes, modelos de utilidade, desenhos industriais, contratos,
+  cessões, licenças e franquias.
+- Vínculos de titulares, inventores, procuradores, processos e clientes do portal.
+- Documentos versionados com hash SHA-256 e auditoria de cada versão.
+- Isolamento por organização e endpoint do portal limitado ao cliente autenticado.
+
+## Agenda juridica centralizada — 2026-08-18
+
+- Lista, kanban e calendario de prazos de propriedade intelectual.
+- Eventos para RPI, oposicao, exigencia, manifestacao, recurso, pagamento, deferimento,
+  concessao, renovacao, decenio e vencimentos internos.
+- Filtros por responsavel, cliente/processo, prioridade, evento e periodo.
+- Alertas de atraso e proximidade, com escalonamento mantido pelo motor juridico.
+- Nenhuma exclusao fisica de prazo: alteracoes e encerramentos permanecem auditados na timeline.
+
+## Busca avancada de anterioridade — 2026-08-18
+
+- Consulta por estrategias exata, radical, prefixo, sufixo, fonetica e similaridade textual.
+- Filtros por Nice, titular, situacao, periodo, apresentacao e Classificacao de Viena.
+- Projetos de busca salvos, isolados por tenant, com reprocessamento e evidencias por resultado.
+- Pesos configuraveis no score combinado, mantendo revisao humana obrigatoria.
+- Dataset e gate de benchmark preservam Recall/Precision@5/@10/@20, MRR, p50/p95/p99 e falsos negativos criticos.
+
 ## RC2 — Fase 13 — 2026-08-17
 
 - Documentação consolidada de instalação, ambiente, migrations, deploy, rollback, operação, suporte, permissões e indicadores.

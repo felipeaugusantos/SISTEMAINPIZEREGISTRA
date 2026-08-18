@@ -30,6 +30,7 @@ PESOS_CONTEXTO = {
     "SITUACAO_ATIVA": 5.0,
     "ALTO_RENOME": 10.0,
 }
+PESOS_COMBINADOS = {"nominativo": 0.45, "visual": 0.25, "ocr": 0.10, "nice": 0.10, "viena": 0.10}
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +175,7 @@ def configuracao_ranking() -> dict[str, object]:
         "pesos_nominativos": PESOS_NOMINATIVOS,
         "peso_maximo_similaridade": PESO_MAXIMO_SIMILARIDADE,
         "pesos_contexto": PESOS_CONTEXTO,
+        "pesos_combinados": PESOS_COMBINADOS,
         "score_maximo": SCORE_MAXIMO,
         "modalidades": ["nominativa", "mista", "figurativa", "nice", "viena", "ocr", "similaridade_visual"],
         "revisao_humana_obrigatoria": True,
@@ -183,17 +185,27 @@ def configuracao_ranking() -> dict[str, object]:
 def calcular_score_combinado(
     *, nominativo: float, visual: float = 0.0, ocr: float = 0.0,
     nice: float = 0.0, viena: float = 0.0, processo: str = "",
+    pesos: dict[str, float] | None = None,
 ) -> ScoreBusca:
     """Combina sinais técnicos sem convertê-los em decisão jurídica."""
-    pesos = {"nominativo": 0.45, "visual": 0.25, "ocr": 0.10, "nice": 0.10, "viena": 0.10}
+    pesos_efetivos = dict(PESOS_COMBINADOS)
+    if pesos is not None:
+        desconhecidos = set(pesos) - set(pesos_efetivos)
+        if desconhecidos or any(float(valor) < 0 for valor in pesos.values()):
+            raise ValueError("Pesos devem conter apenas sinais conhecidos e valores não negativos")
+        pesos_efetivos.update({chave: float(valor) for chave, valor in pesos.items()})
+        soma = sum(pesos_efetivos.values())
+        if soma <= 0:
+            raise ValueError("A soma dos pesos deve ser positiva")
+        pesos_efetivos = {chave: valor / soma for chave, valor in pesos_efetivos.items()}
     sinais = {"nominativo": nominativo, "visual": visual, "ocr": ocr, "nice": nice, "viena": viena}
     fatores = tuple(
         FatorScoreBusca(
             regra=f"SINAL_{nome.upper()}",
-            peso=round(max(0.0, min(1.0, float(valor))) * 100 * pesos[nome], 2),
+            peso=round(max(0.0, min(1.0, float(valor))) * 100 * pesos_efetivos[nome], 2),
             evidencia={"sinal": nome, "valor": round(float(valor), 4), "processo": processo},
         )
         for nome, valor in sinais.items()
         if float(valor) > 0
     )
-    return ScoreBusca(total=round(min(SCORE_MAXIMO, sum(item.peso for item in fatores)), 2), fatores=fatores, versao="ranking-combinado-1.0")
+    return ScoreBusca(total=round(min(SCORE_MAXIMO, sum(item.peso for item in fatores)), 2), fatores=fatores, versao="ranking-combinado-1.1")

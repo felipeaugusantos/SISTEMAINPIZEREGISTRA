@@ -118,6 +118,7 @@ async function loadDashboard() {
   renderNotifications(data.notificacoes);
   renderDeadlines(data.prazos);
   renderKanban(data.prazos);
+  renderCalendar(data.prazos);
   renderPagination(data.paginacao);
   renderHistory(data.historico);
 }
@@ -126,6 +127,7 @@ async function loadReferences() {
   legalState.references = data;
   const users = optionList(data.usuarios);
   document.querySelector("#legal-filter").elements.responsavel_id.innerHTML = '<option value="">Todos</option>' + users;
+  document.querySelector("#legal-filter").elements.tipo.innerHTML = '<option value="">Todos</option>' + optionList(data.tipos);
   deadlineForm.elements.processo_monitorado_id.innerHTML = '<option value="">Selecione</option>' + optionList(data.processos);
   deadlineForm.elements.tipo.innerHTML = optionList(data.tipos);
   deadlineForm.elements.responsavel_id.innerHTML = '<option value="">Não atribuído</option>' + users;
@@ -251,6 +253,20 @@ function renderKanban(items) {
   }).join("");
 }
 
+function renderCalendar(items) {
+  const grupos = new Map();
+  for (const item of items) {
+    const chave = new Date(item.vencimento_em).toISOString().slice(0, 10);
+    if (!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave).push(item);
+  }
+  document.querySelector("#legal-calendar").innerHTML = [...grupos.entries()].map(([dia, prazos]) => `
+    <article class="legal-calendar-day">
+      <header><strong>${dateOnly.format(new Date(`${dia}T12:00:00`))}</strong><span>${prazos.length} prazo(s)</span></header>
+      ${prazos.map((item) => `<div class="legal-calendar-item ${deadlineClass(item)}"><span class="legal-badge">${escapeHtml(item.tipo_nome)}</span><strong>${escapeHtml(item.titulo)}</strong><small>${escapeHtml(item.numero)} · ${escapeHtml(item.responsavel || "Não atribuído")} · ${escapeHtml(item.prioridade)}</small></div>`).join("")}
+    </article>`).join("") || '<div class="legal-empty">Nenhum prazo no período selecionado.</div>';
+}
+
 function transicaoKanban(from, to) {
   if (from === "aguardando_confirmacao") {
     if (to === "pendente") return { confirmar: true };
@@ -263,15 +279,20 @@ function transicaoKanban(from, to) {
 
 function setLegalView(view) {
   const list = view === "list";
+  const calendar = view === "calendar";
   document.querySelector("#legal-deadlines").hidden = !list;
-  document.querySelector("#legal-kanban").hidden = list;
+  document.querySelector("#legal-kanban").hidden = list || calendar;
+  document.querySelector("#legal-calendar").hidden = !calendar;
   document.querySelector("#view-list").classList.toggle("active", list);
-  document.querySelector("#view-kanban").classList.toggle("active", !list);
+  document.querySelector("#view-kanban").classList.toggle("active", view === "kanban");
+  document.querySelector("#view-calendar").classList.toggle("active", calendar);
   document.querySelector("#view-list").setAttribute("aria-pressed", String(list));
-  document.querySelector("#view-kanban").setAttribute("aria-pressed", String(!list));
+  document.querySelector("#view-kanban").setAttribute("aria-pressed", String(view === "kanban"));
+  document.querySelector("#view-calendar").setAttribute("aria-pressed", String(calendar));
 }
 document.querySelector("#view-list").addEventListener("click", () => setLegalView("list"));
 document.querySelector("#view-kanban").addEventListener("click", () => setLegalView("kanban"));
+document.querySelector("#view-calendar").addEventListener("click", () => setLegalView("calendar"));
 
 const kanbanBoard = document.querySelector("#legal-kanban");
 kanbanBoard.addEventListener("dragstart", (event) => {

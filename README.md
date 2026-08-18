@@ -35,6 +35,29 @@ restauracao/rollback em banco descartavel e revisao do dataset juridico continua
 como gates de liberacao para producao. Consulte [docs/rc1-checklist.md](docs/rc1-checklist.md)
 e [docs/fase11-release-candidate.md](docs/fase11-release-candidate.md).
 
+### Busca avancada de anterioridade
+
+Disponivel para operadores autorizados em `/v1/admin/busca/consultar`, com busca exata,
+radical, prefixo, sufixo, fonetica e similaridade textual, alem de filtros por Nice,
+titular, situacao no INPI, periodo, apresentacao e Viena. Cada resultado retorna
+evidencias, criterios e fatores explicaveis do score. Projetos podem ser salvos em
+`/v1/admin/busca/projetos` e reprocessados sem perder o historico da consulta.
+
+O score combinado aceita pesos versionaveis para sinais nominativos, visuais, OCR, Nice
+e Viena. Ele e somente ordenacao tecnica: toda conclusao continua sujeita a revisao
+humana e nao constitui parecer juridico definitivo. O benchmark versionado calcula
+Recall/Precision@5/@10/@20, MRR, p50/p95/p99 e falsos negativos criticos; o gate bloqueia
+publicacao quando houver regressao de recall.
+
+### Agenda juridica centralizada
+
+A operação jurídica possui lista, kanban e calendário de prazos para marcas, patentes e
+desenhos industriais. Os eventos incluem RPI, oposição, exigência, manifestação, recurso,
+pagamento, deferimento, concessão, renovação, decênio e vencimentos internos. A agenda
+permite filtrar por responsável, cliente/processo, tipo, prioridade e período, exibindo
+alertas de proximidade e atraso. Encerramentos e alterações permanecem na timeline; não
+existe exclusão física de prazo sem registro auditável.
+
 ### Atualizacoes recentes do painel
 
 - cadastro completo da empresa em **Empresas e planos**, com dados institucionais, endereco, site, atividade, fundacao e logo;
@@ -579,6 +602,14 @@ Comandos essenciais:
 \.venv\Scripts\alembic.exe upgrade head
 \.venv\Scripts\uvicorn.exe app.main:app --host 0.0.0.0 --port 8000
 ```
+
+### Portfólio completo de propriedade intelectual
+
+O módulo de portfólio organiza marcas, patentes, modelos de utilidade, desenhos industriais,
+contratos, cessões, licenças e franquias. Cada ativo possui organização, código, titular,
+vigência, processos relacionados, inventores, procuradores e documentos versionados com hash.
+As rotas administrativas exigem permissão jurídica; informações financeiras permanecem
+separadas. O portal retorna somente ativos explicitamente vinculados ao cliente autenticado.
 
 ## Estado do projeto
 

@@ -33,6 +33,8 @@ from app.api.observabilidade import router as observabilidade_router
 from app.api.painel import router as painel_router
 from app.api.pesquisas import router as pesquisas_router
 from app.api.portal_cliente import router as portal_cliente_router
+from app.api.portfolio_pi import portal_router as portfolio_pi_portal_router
+from app.api.portfolio_pi import router as portfolio_pi_router
 from app.api.processos import router as processos_router
 from app.api.producao import router as producao_router
 from app.api.rpi_admin import router as rpi_admin_router
@@ -85,6 +87,8 @@ app.include_router(fase3_router)
 app.include_router(admin_router)
 app.include_router(painel_router)
 app.include_router(portal_cliente_router)
+app.include_router(portfolio_pi_router)
+app.include_router(portfolio_pi_portal_router)
 app.include_router(observabilidade_router)
 app.include_router(analises_router)
 app.include_router(producao_router)

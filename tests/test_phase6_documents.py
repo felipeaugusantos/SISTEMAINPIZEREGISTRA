@@ -2,7 +2,7 @@ import hashlib
 
 
 def test_hash_documento_reproduzivel() -> None:
-    conteudo = "procuracao|123||v1".encode()
+    conteudo = b"procuracao|123||v1"
     assert hashlib.sha256(conteudo).hexdigest() == hashlib.sha256(conteudo).hexdigest()
 
 

@@ -224,6 +224,12 @@ function renderRows() {
     leadsList.innerHTML = state.items.flatMap(lead =>
       (lead.pesquisas || []).map(item => researchRow(lead, item))
     ).join("");
+    leadsList.querySelectorAll(".research-view-row").forEach(row => {
+      const actions = row.querySelector(".lead-row-actions");
+      if (actions && !actions.querySelector(".register-attendance")) {
+        actions.insertAdjacentHTML("beforeend", `<button class="register-attendance secondary-button" type="button" data-research-id="${escapeHtml(row.dataset.researchId)}">Registrar atendimento</button>`);
+      }
+    });
     return;
   }
   leadsList.innerHTML = state.items.map(leadRow).join("");
@@ -378,6 +384,16 @@ async function renderPortalMessages(lead) {
   await carregar();
 }
 
+async function abrirRegistroAtendimento(leadId, pesquisaId) {
+  const response = await fetch(`/v1/admin/leads/${leadId}`);
+  const lead = await response.json().catch(() => ({}));
+  if (!response.ok) { alert(lead.detail || "Não foi possível carregar o atendimento."); return; }
+  const options = (lead.pesquisas || []).map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(pesquisaId) ? "selected" : ""}>${escapeHtml(item.marca)} · ${formatDate(item.criado_em, false)}</option>`).join("");
+  document.querySelector("#lead-dialog-title").textContent = `Registrar atendimento · ${lead.nome}`;
+  dialogContent.innerHTML = `<section class="lead-contact-log lead-attendance-standalone"><header><div><p class="eyebrow">Atendimento comercial</p><h3>Novo registro</h3></div></header><form id="lead-contact-form" data-lead-id="${lead.id}" class="lead-contact-form"><label><span>Pesquisa relacionada</span><select name="pesquisa_id" id="lead-contact-filter" required>${options}</select></label><label><span>Canal</span><select name="canal"><option value="telefone">Telefone</option><option value="whatsapp">WhatsApp</option><option value="email">E-mail</option><option value="reuniao">Reunião</option><option value="outro">Outro</option></select></label><label><span>Resultado</span><input name="resultado" maxlength="150" placeholder="Ex.: proposta enviada" /></label><label class="lead-contact-observation-field"><span>Observação</span><textarea name="observacao" maxlength="2000" rows="5" placeholder="Registre o que foi conversado e a próxima orientação."></textarea></label><div><button class="primary-button" type="submit">Salvar atendimento</button><span id="contact-save-message" role="status"></span></div></form></section>`;
+  if (!dialog.open) dialog.showModal();
+}
+
 async function openLead(id, selectedResearchId = null) {
   state.openLeadId = id;
   dialogContent.innerHTML = "<p>Carregando histórico…</p>";
@@ -431,6 +447,7 @@ async function openLead(id, selectedResearchId = null) {
       <ol id="lead-contact-history" class="lead-contact-history"><li class="lead-contact-empty">Carregando contatos...</li></ol>
     </section>
     </aside>`;
+  dialogContent.querySelector(".lead-dialog-aside > .lead-contact-log")?.remove();
   if (state.canManage) {
     const portalCard = document.createElement("section");
     portalCard.className = "lead-portal-access";
@@ -1045,6 +1062,12 @@ leadsList.addEventListener("click", event => {
       proposalButton.disabled = true;
       criarProposta(lead, null).finally(() => { proposalButton.disabled = false; });
     }
+    return;
+  }
+  const attendanceButton = event.target.closest(".register-attendance");
+  if (attendanceButton) {
+    const attendanceRow = attendanceButton.closest("tr");
+    if (attendanceRow) abrirRegistroAtendimento(attendanceRow.dataset.leadId, attendanceButton.dataset.researchId);
     return;
   }
   const row = event.target.closest("tr");

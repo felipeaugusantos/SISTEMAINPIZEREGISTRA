@@ -808,6 +808,39 @@ async def atualizar_status_lead(
             dados.proxima_acao_em.isoformat() if dados.proxima_acao_em else None
         )
         lead.proxima_acao_em = dados.proxima_acao_em
+        lembrete_manual = (
+            await session.execute(
+                select(LembreteCRM).where(
+                    LembreteCRM.organizacao_id == usuario.organizacao_id,
+                    LembreteCRM.lead_id == lead.id,
+                    LembreteCRM.idempotency_key == f"manual:lead:{lead.id}",
+                )
+            )
+        ).scalar_one_or_none()
+        if dados.proxima_acao_em:
+            if lembrete_manual is None:
+                session.add(
+                    LembreteCRM(
+                        organizacao_id=usuario.organizacao_id,
+                        lead_id=lead.id,
+                        responsavel_id=lead.responsavel_id,
+                        tipo="retorno",
+                        prioridade="media",
+                        titulo="Próxima ação do atendimento",
+                        descricao="Ação definida no atendimento comercial.",
+                        lembrar_em=dados.proxima_acao_em,
+                        status="pendente",
+                        criado_por=usuario.nome or "Operador",
+                        criado_por_id=usuario.id,
+                        idempotency_key=f"manual:lead:{lead.id}",
+                    )
+                )
+            else:
+                lembrete_manual.lembrar_em = dados.proxima_acao_em
+                lembrete_manual.responsavel_id = lead.responsavel_id
+                lembrete_manual.status = "pendente"
+        elif lembrete_manual is not None:
+            lembrete_manual.status = "cancelado"
     if dados.tags is not None:
         alteracoes["tags"] = dados.tags
         lead.tags = dados.tags

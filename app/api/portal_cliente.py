@@ -35,12 +35,12 @@ SESSION_COOKIE = "zr_client_session"
 
 
 @router.post("/v1/webhooks/clicksign")
-async def webhook_clicksign(request: Request, session: SessionDep, x_clicksign_webhook_secret: str | None = Header(default=None)) -> dict:
+async def webhook_clicksign(request: Request, session: SessionDep, x_clicksign_signature: str | None = Header(default=None)) -> dict:
     body = await request.body()
     config = configuracao_clicksign()
-    if config["secret"] and not x_clicksign_webhook_secret:
+    if config["secret"] and not x_clicksign_signature:
         raise HTTPException(status_code=401, detail="Webhook não autenticado")
-    if config["secret"] and not hmac.compare_digest(x_clicksign_webhook_secret or "", config["secret"]):
+    if config["secret"] and not hmac.compare_digest((x_clicksign_signature or "").removeprefix("sha256="), hmac.new(config["secret"].encode("utf-8"), body, hashlib.sha256).hexdigest()):
         raise HTTPException(status_code=401, detail="Webhook inválido")
     try:
         payload = json.loads(body or b"{}")

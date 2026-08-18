@@ -535,7 +535,9 @@ async def listar_leads(
             )
             .group_by(MensagemClientePortal.lead_id)
         )
-        mensagens_pendentes_por_lead = {lead_id: total for lead_id, total in contagens_mensagens}
+        mensagens_pendentes_por_lead = {
+            lead_id: total for lead_id, total in contagens_mensagens.all()
+        }
         relatorio_existe = exists(
             select(VersaoRelatorioMarca.id).where(
                 VersaoRelatorioMarca.pesquisa_id == PesquisaMarca.id

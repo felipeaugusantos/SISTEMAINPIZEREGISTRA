@@ -1178,6 +1178,11 @@ async function renderPropostas(lead) {
       const response = button.classList.contains("proposal-send")
         ? await fetch(`/v1/admin/propostas/${button.dataset.id}/enviar`, { method: "POST" })
         : await fetch(`/v1/admin/propostas/${button.dataset.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "aceita" }) });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        alert(data.detail || "Não foi possível atualizar a proposta.");
+        return;
+      }
       if (response.ok) await renderPropostas(lead);
       else alert("Não foi possível atualizar a proposta.");
     }));

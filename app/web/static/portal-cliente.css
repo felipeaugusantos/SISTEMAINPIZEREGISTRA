@@ -52,6 +52,8 @@
 .portal-summary-card #summary h3 { margin:24px 0 9px; padding-bottom:8px; border-bottom:1px solid #e3ebe4; font-size:1rem; color:#29523d; }
 .portal-summary-card #summary h3:first-of-type { margin-top:0; }
 .portal-summary-card .portal-row { align-items:center; justify-content:space-between; min-height:42px; box-sizing:border-box; }
+.portal-pending-status { color:var(--portal-muted); font-size:.82rem; }
+.portal-action-error { display:block; flex-basis:100%; color:#a33128; font-size:.8rem; }
 .portal-communication-grid { display:grid; grid-template-columns:1.35fr 1fr; gap:18px; }
 .portal-messages { display:grid; gap:9px; max-height:270px; overflow:auto; margin-bottom:15px; }
 .portal-messages p { margin:0; padding:11px 13px; border-radius:10px; background:#f3f6f2; line-height:1.5; }

@@ -2,12 +2,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import engine, get_session
-from app.models import EventoOperacional, RpiImportacao, RpiSyncEstado, RpiSyncExecucao
+from app.models import EventoOperacional, Organizacao, RpiImportacao, RpiSyncEstado, RpiSyncExecucao
+from app.security_ext import proteger_segredo
 from app.queueing import status_fila
 from app.rpi.health import avaliar_saude_rpi
 from app.settings import get_settings
@@ -17,19 +19,49 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 TechDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("production.view"))]
 
 
+class ClicksignConfigInput(BaseModel):
+    habilitado: bool = False
+    ambiente: str = Field(default="sandbox", pattern="^(sandbox|producao)$")
+    webhook_url: str = Field(default="", max_length=500)
+    api_token: str | None = Field(default=None, max_length=500)
+    webhook_secret: str | None = Field(default=None, max_length=500)
+
+
 @router.get("/configuracao/clicksign")
-async def configuracao_clicksign(usuario: TechDep) -> dict:
+async def configuracao_clicksign(session: SessionDep, usuario: TechDep) -> dict:
     """Exibe somente o estado seguro da integração; o token nunca é retornado."""
     _exigir_acesso_tech(usuario)
     settings = get_settings()
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    saved = ((org.branding or {}).get("clicksign") if org else None) or {}
+    base_url = saved.get("base_url") or settings.clicksign_base_url
+    webhook_url = saved.get("webhook_url") or settings.clicksign_webhook_url
+    token_configurado = bool(saved.get("api_token_enc") or settings.clicksign_api_token)
+    secret_configurado = bool(saved.get("webhook_secret_enc") or settings.clicksign_webhook_secret)
     return {
-        "habilitado": bool(settings.clicksign_enabled),
-        "ambiente": "sandbox" if "sandbox" in settings.clicksign_base_url else "producao",
-        "base_url": settings.clicksign_base_url,
-        "webhook_url": settings.clicksign_webhook_url or None,
-        "token_configurado": bool(settings.clicksign_api_token),
-        "webhook_segredo_configurado": bool(settings.clicksign_webhook_secret),
+        "habilitado": saved.get("habilitado", settings.clicksign_enabled),
+        "ambiente": "sandbox" if "sandbox" in base_url else "producao",
+        "base_url": base_url, "webhook_url": webhook_url or None,
+        "token_configurado": token_configurado, "webhook_segredo_configurado": secret_configurado,
     }
+
+
+@router.put("/configuracao/clicksign")
+async def salvar_configuracao_clicksign(dados: ClicksignConfigInput, session: SessionDep, usuario: TechDep) -> dict:
+    _exigir_acesso_tech(usuario)
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organização não encontrada")
+    branding = dict(org.branding or {})
+    anterior = dict(branding.get("clicksign") or {})
+    base_url = "https://sandbox.clicksign.com/api/v3" if dados.ambiente == "sandbox" else "https://app.clicksign.com/api/v3"
+    config = {"habilitado": dados.habilitado, "base_url": base_url, "webhook_url": dados.webhook_url.strip()}
+    config["api_token_enc"] = proteger_segredo(dados.api_token.strip()) if dados.api_token and dados.api_token.strip() else anterior.get("api_token_enc")
+    config["webhook_secret_enc"] = proteger_segredo(dados.webhook_secret.strip()) if dados.webhook_secret and dados.webhook_secret.strip() else anterior.get("webhook_secret_enc")
+    branding["clicksign"] = config
+    org.branding = branding
+    await session.commit()
+    return {"ok": True, "mensagem": "Configuração Clicksign salva com segurança."}
 
 
 def _exigir_acesso_tech(usuario: UsuarioAutenticado) -> UsuarioAutenticado:

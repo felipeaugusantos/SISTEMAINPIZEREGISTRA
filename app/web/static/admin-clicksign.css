@@ -6,3 +6,10 @@
 .clicksign-status-item .muted { color:var(--muted); }
 .clicksign-help p { max-width:820px; color:var(--muted); line-height:1.6; }
 .clicksign-help pre { max-width:820px; overflow:auto; padding:16px; border-radius:10px; background:#17231c; color:#e6f5ed; line-height:1.6; }
+.clicksign-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; max-width:820px; }
+.clicksign-form label { display:grid; gap:6px; font-weight:700; }
+.clicksign-form label small { color:var(--muted); font-weight:400; }
+.clicksign-form input,.clicksign-form select { width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px; background:#fff; font:inherit; }
+.clicksign-form .clicksign-check { display:flex; align-items:center; gap:8px; }
+.clicksign-form .clicksign-check input { width:18px; }
+@media(max-width:700px) { .clicksign-form { grid-template-columns:1fr; } }

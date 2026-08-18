@@ -1111,6 +1111,13 @@ table.lead-docs select {
     table-layout: fixed;
   }
 
+  .admin-body .leads-table .leads-col-contact { width: 16%; }
+  .admin-body .leads-table .leads-col-research { width: 24%; }
+  .admin-body .leads-table .leads-col-owner { width: 14%; }
+  .admin-body .leads-table .leads-col-date { width: 10%; }
+  .admin-body .leads-table .leads-col-status { width: 12%; }
+  .admin-body .leads-table .leads-col-actions { width: 24%; }
+
   .admin-body .leads-table th:nth-child(1), .admin-body .leads-table td:nth-child(1) { width: 15%; }
   .admin-body .leads-table th:nth-child(2), .admin-body .leads-table td:nth-child(2) { width: 24%; }
   .admin-body .leads-table th:nth-child(3), .admin-body .leads-table td:nth-child(3) { width: 13%; }
@@ -1123,4 +1130,5 @@ table.lead-docs select {
   .admin-body .leads-table td:nth-child(4) time { white-space: nowrap; }
   .admin-body .leads-table td:nth-child(5) .lead-status { width: 100%; min-width: 130px; box-sizing: border-box; }
   .admin-body .leads-table td:nth-child(6) .lead-row-actions { min-width: 0; }
+  .admin-body .leads-table td:nth-child(6) .lead-row-actions > * { max-width: 100%; }
 }

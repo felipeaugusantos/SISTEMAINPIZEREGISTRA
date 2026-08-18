@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
 
+from app.search import chave_fonetica
 from app.search_ranking import (
     VERSAO_RANKING,
     adicionar_contexto_score,
+    calcular_score_combinado,
     calcular_score_nominativo,
     configuracao_ranking,
 )
@@ -60,6 +62,22 @@ def test_configuracao_declara_que_score_nao_e_probabilidade() -> None:
     configuracao = configuracao_ranking()
 
     assert "nao representa risco ou probabilidade" in configuracao["escopo"]
+
+
+def test_score_combinado_normaliza_pesos_configuraveis() -> None:
+    score = calcular_score_combinado(
+        nominativo=1.0,
+        visual=0.5,
+        pesos={"nominativo": 2.0, "visual": 1.0, "ocr": 0.0, "nice": 0.0, "viena": 0.0},
+    )
+    assert score.versao == "ranking-combinado-1.1"
+    assert score.total == 83.34
+    assert {f.evidencia["sinal"] for f in score.fatores} == {"nominativo", "visual"}
+
+
+def test_chave_fonetica_e_explicavel_para_variacoes_comuns() -> None:
+    assert chave_fonetica("Kasa") == chave_fonetica("Casa")
+    assert chave_fonetica("PHARMA") == chave_fonetica("Farma")
 
 
 def test_contrato_versionado_bloqueia_mudanca_acidental_dos_pesos() -> None:

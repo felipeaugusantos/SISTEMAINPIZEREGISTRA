@@ -35,6 +35,20 @@ restauracao/rollback em banco descartavel e revisao do dataset juridico continua
 como gates de liberacao para producao. Consulte [docs/rc1-checklist.md](docs/rc1-checklist.md)
 e [docs/fase11-release-candidate.md](docs/fase11-release-candidate.md).
 
+### Busca avancada de anterioridade
+
+Disponivel para operadores autorizados em `/v1/admin/busca/consultar`, com busca exata,
+radical, prefixo, sufixo, fonetica e similaridade textual, alem de filtros por Nice,
+titular, situacao no INPI, periodo, apresentacao e Viena. Cada resultado retorna
+evidencias, criterios e fatores explicaveis do score. Projetos podem ser salvos em
+`/v1/admin/busca/projetos` e reprocessados sem perder o historico da consulta.
+
+O score combinado aceita pesos versionaveis para sinais nominativos, visuais, OCR, Nice
+e Viena. Ele e somente ordenacao tecnica: toda conclusao continua sujeita a revisao
+humana e nao constitui parecer juridico definitivo. O benchmark versionado calcula
+Recall/Precision@5/@10/@20, MRR, p50/p95/p99 e falsos negativos criticos; o gate bloqueia
+publicacao quando houver regressao de recall.
+
 ### Atualizacoes recentes do painel
 
 - cadastro completo da empresa em **Empresas e planos**, com dados institucionais, endereco, site, atividade, fundacao e logo;

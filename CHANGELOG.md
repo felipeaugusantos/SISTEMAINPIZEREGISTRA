@@ -1,5 +1,13 @@
 # Changelog
 
+## Busca avancada de anterioridade — 2026-08-18
+
+- Consulta por estrategias exata, radical, prefixo, sufixo, fonetica e similaridade textual.
+- Filtros por Nice, titular, situacao, periodo, apresentacao e Classificacao de Viena.
+- Projetos de busca salvos, isolados por tenant, com reprocessamento e evidencias por resultado.
+- Pesos configuraveis no score combinado, mantendo revisao humana obrigatoria.
+- Dataset e gate de benchmark preservam Recall/Precision@5/@10/@20, MRR, p50/p95/p99 e falsos negativos criticos.
+
 ## RC2 — Fase 13 — 2026-08-17
 
 - Documentação consolidada de instalação, ambiente, migrations, deploy, rollback, operação, suporte, permissões e indicadores.

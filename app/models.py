@@ -2028,6 +2028,32 @@ class ModeloRankingBusca(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class ProjetoBuscaMarca(Base):
+    """Projeto versionado de anterioridade, isolado por organização."""
+
+    __tablename__ = "projetos_busca_marca"
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "slug", name="uq_projeto_busca_org_slug"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    nome: Mapped[str] = mapped_column(String(160))
+    slug: Mapped[str] = mapped_column(String(180), index=True)
+    consulta: Mapped[dict] = mapped_column(JSON, default=dict)
+    versao_busca: Mapped[str] = mapped_column(String(60), default="busca-marcas-4.0")
+    status: Mapped[str] = mapped_column(String(20), default="ativo", index=True)
+    ultima_execucao: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    executado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    criado_por: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class PrevisaoRegistrabilidade(Base):
     __tablename__ = "previsoes_registrabilidade"
     __table_args__ = (

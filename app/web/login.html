@@ -6,29 +6,37 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Entrar — Centro de operações</title>
   <link rel="stylesheet" href="/static/styles.css?v=20">
+  <link rel="stylesheet" href="/static/portal-cliente.css?v=2">
   <link rel="stylesheet" href="/static/ze-brand.css?v=1">
   <script src="/static/auth-pages.js?v=3" defer></script>
 </head>
-<body class="auth-body ze-brand-theme">
-  <main class="auth-card">
-    <a href="/" class="auth-brand"><img src="/static/assets/personagem.png" alt=""><strong>Zé Registra®</strong></a>
-    <p class="eyebrow">Centro de operações</p>
-    <h1>Entrar</h1>
-    <p>Acesso individual, protegido e auditado.</p>
-    <div id="social-login" class="social-login" hidden>
-      <div id="social-buttons" class="social-buttons"></div>
-      <div class="auth-divider"><span>ou use sua senha</span></div>
-    </div>
-    <form id="login-form">
-      <div id="password-login-fields" class="password-login-fields">
-        <label>Usuário ou e-mail<input name="identificador" autocomplete="username" required></label>
-        <label>Senha<input name="senha" type="password" autocomplete="current-password" required></label>
+<body class="portal-body ze-brand-theme">
+  <main class="portal-main">
+    <section class="portal-login-shell ops-login-shell">
+      <div class="portal-brand-panel">
+        <img src="/static/assets/logo-zeregistra.png" alt="Zé Registra">
+        <p class="eyebrow">CENTRO DE OPERAÇÕES</p>
+        <h1>Gestão inteligente da sua operação.</h1>
+        <p>Acompanhe leads, CRM, processos, propostas e protocolos em um só lugar, com segurança e rastreabilidade.</p>
+        <div class="portal-benefits"><span>✓ Leads e oportunidades</span><span>✓ Processos e prazos</span><span>✓ Auditoria e segurança</span></div>
       </div>
-      <label>Código de segurança <small>(se MFA estiver ativo)</small><input name="codigo_mfa" inputmode="numeric" autocomplete="one-time-code" maxlength="20"></label>
-      <button id="login-submit" type="submit">Entrar</button>
-      <a id="forgot-password-link" class="secondary-button auth-secondary-link" href="/esqueci-senha">Esqueci minha senha</a>
-      <div id="auth-message" class="status-message" role="alert" aria-live="polite"></div>
-    </form>
+      <div class="portal-login-card">
+        <div class="portal-card-heading"><p class="eyebrow">ACESSO SEGURO</p><h2>Bem-vindo de volta</h2><p>Entre com suas credenciais para acessar o Centro de Operações.</p></div>
+        <a href="/" class="auth-brand ops-login-brand"><img src="/static/assets/personagem.png" alt=""><strong>Zé Registra®</strong></a>
+        <div id="social-login" class="social-login" hidden><div id="social-buttons" class="social-buttons"></div><div class="auth-divider"><span>ou use sua senha</span></div></div>
+        <form id="login-form">
+          <div id="password-login-fields" class="password-login-fields">
+            <label>Usuário ou e-mail<input name="identificador" autocomplete="username" required></label>
+            <label>Senha<input name="senha" type="password" autocomplete="current-password" required></label>
+          </div>
+          <label>Código de segurança <small>(se MFA estiver ativo)</small><input name="codigo_mfa" inputmode="numeric" autocomplete="one-time-code" maxlength="20"></label>
+          <button id="login-submit" class="primary-button portal-submit" type="submit">Entrar <span aria-hidden="true">→</span></button>
+          <a id="forgot-password-link" class="secondary-button auth-secondary-link" href="/esqueci-senha">Esqueci minha senha</a>
+          <div id="auth-message" class="status-message" role="alert" aria-live="polite"></div>
+        </form>
+        <p class="portal-security">Acesso individual, protegido e auditado.</p>
+      </div>
+    </section>
   </main>
 </body>
 </html>

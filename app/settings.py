@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     apple_key_id: str = ""
     apple_private_key: str = ""
     gateway_webhook_secret: str = ""
+    clicksign_enabled: bool = False
+    clicksign_base_url: str = "https://sandbox.clicksign.com/api/v3"
+    clicksign_api_token: str = ""
+    clicksign_webhook_secret: str = ""
+    clicksign_webhook_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

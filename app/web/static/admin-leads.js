@@ -23,7 +23,7 @@ const state = {
   offset: 0, total: 0, owners: [], archiveId: null, loading: false,
   canManage: false, canArchive: false, canExport: false, canDeleteResearch: false, canPii: false,
   openLeadId: null, deleteResearchId: null, deleteRequestId: null, deleteMode: null,
-  viewMode: "contacts", items: [], priority: "",
+  viewMode: "researches", items: [], priority: "",
 };
 const statusLabels = {
   novo: "Novo", em_contato: "Em contato", qualificado: "Qualificado",

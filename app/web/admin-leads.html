@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/styles.css?v=36" />
     <link rel="stylesheet" href="/static/admin-leads.css?v=12" />
     <script src="/static/admin-shell.js?v=36" defer></script>
-    <script src="/static/admin-leads.js?v=50" defer></script>
+    <script src="/static/admin-leads.js?v=51" defer></script>
   </head>
   <body class="admin-body" data-admin-section="leads">
     <header class="topbar">
@@ -101,20 +101,19 @@
       </section>
       <section class="lead-view-toolbar" aria-label="Visualização dos resultados">
         <div class="lead-view-switch" role="group" aria-label="Agrupar resultados">
-          <button class="lead-view-button active" type="button" data-view="contacts" aria-pressed="true">Por contato</button>
-          <button class="lead-view-button" type="button" data-view="researches" aria-pressed="false">Por pesquisa</button>
+          <button class="lead-view-button active" type="button" data-view="researches" aria-pressed="true">Por pesquisa</button>
           <button class="lead-view-button archived-view-button" type="button" data-view="archived" aria-pressed="false">Clientes arquivados</button>
         </div>
-        <p id="lead-view-description">Cada linha representa um contato ativo e resume todo o seu histórico.</p>
+        <p id="lead-view-description">Cada linha representa uma pesquisa vinculada aos contatos ativos.</p>
       </section>
       <div class="leads-table-shell">
         <table class="leads-table">
           <thead>
             <tr>
               <th>Contato</th>
-              <th id="research-column-title">Histórico de pesquisas</th>
+              <th id="research-column-title">Pesquisa</th>
               <th>Atendimento</th>
-              <th id="activity-column-title">Última pesquisa</th>
+              <th id="activity-column-title">Data da pesquisa</th>
               <th>Status</th>
               <th><span class="visually-hidden">Ações</span></th>
             </tr>

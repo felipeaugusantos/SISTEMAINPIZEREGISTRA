@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import engine, get_session
 from app.models import EventoOperacional, Organizacao, RpiImportacao, RpiSyncEstado, RpiSyncExecucao
-from app.security_ext import proteger_segredo
 from app.queueing import status_fila
 from app.rpi.health import avaliar_saude_rpi
+from app.security_ext import proteger_segredo
 from app.settings import get_settings
 
 router = APIRouter(prefix="/v1/admin", tags=["observabilidade"])

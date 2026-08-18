@@ -1,7 +1,7 @@
 """Add document versions, hashes and signatures."""
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "acc66u1n9x63"
 down_revision = "abb55t0m8w52"

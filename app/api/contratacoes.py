@@ -7,21 +7,21 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
 from app.models import (
     ContratacaoServico,
     EventoCobrancaSandbox,
+    GuiaInpi,
     LancamentoFinanceiro,
     ParcelaFinanceira,
-    ServicoFinanceiro,
     PropostaComercial,
-    GuiaInpi,
     ReciboFinanceiro,
     RenovacaoFinanceira,
+    ServicoFinanceiro,
 )
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant

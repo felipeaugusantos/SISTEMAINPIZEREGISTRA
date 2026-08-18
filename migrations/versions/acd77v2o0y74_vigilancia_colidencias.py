@@ -1,7 +1,7 @@
 """Add preventive RPI surveillance and collision review."""
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "acd77v2o0y74"
 down_revision = "acc66u1n9x63"

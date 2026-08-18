@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
+from app.clicksign import configuracao as configuracao_clicksign
+from app.clicksign import criar_envelope
 from app.crm import (
     aplicar_politica_oportunidade,
     aplicar_regras_automacao,
@@ -22,7 +24,6 @@ from app.crm import (
     registrar_evento_operacional,
     sincronizar_fase_por_status,
 )
-from app.clicksign import criar_envelope, configuracao as configuracao_clicksign
 from app.database import get_session
 from app.emailing import enviar_proposta_email
 from app.models import (

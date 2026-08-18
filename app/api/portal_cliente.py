@@ -6,26 +6,48 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import hash_ip, hash_senha, hash_token, verificar_senha
-from app.proxy import requisicao_https
-from app.auth import exigir_permissao
+from app.auth import exigir_permissao, hash_ip, hash_senha, hash_token, verificar_senha
+from app.clicksign import configuracao as configuracao_clicksign
 from app.database import get_session
 from app.emailing import enviar_recuperacao_portal
-from app.tenancy import aplicar_contexto_tenant
-from app.clicksign import configuracao as configuracao_clicksign
-from app.settings import get_settings
 from app.models import (
-    ArquivoClientePortal, AssinaturaDocumentoLead, AssinaturaPropostaComercial, ClientePortal, DocumentoLead, GuiaInpi, Lead,
-    LancamentoFinanceiro, MensagemClientePortal, NotificacaoClientePortal, ParcelaFinanceira,
-    Processo, PropostaComercial, RecuperacaoClientePortal, SessaoClientePortal, EventoAuditoria,
+    ArquivoClientePortal,
+    AssinaturaDocumentoLead,
+    AssinaturaPropostaComercial,
+    ClientePortal,
+    DocumentoLead,
+    EventoAuditoria,
+    GuiaInpi,
+    LancamentoFinanceiro,
+    Lead,
+    MensagemClientePortal,
+    NotificacaoClientePortal,
+    ParcelaFinanceira,
+    Processo,
+    PropostaComercial,
+    RecuperacaoClientePortal,
+    SessaoClientePortal,
     VersaoDocumentoLead,
 )
+from app.proxy import requisicao_https
+from app.settings import get_settings
+from app.tenancy import aplicar_contexto_tenant
 
 router = APIRouter(tags=["portal-cliente"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]

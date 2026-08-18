@@ -13,13 +13,13 @@ from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from app.api.admin import router as admin_router
 from app.api.analises import router as analises_router
 from app.api.aprendizado import router as aprendizado_router
-from app.api.busca_admin import router as busca_admin_router
 from app.api.auth_routes import router as auth_router
+from app.api.busca_admin import router as busca_admin_router
 from app.api.carteira import router as carteira_router
 from app.api.confiabilidade import public_router as tenant_router
 from app.api.confiabilidade import router as confiabilidade_router
-from app.api.contratacoes import router as contratacoes_router
 from app.api.consulta import router as consulta_router
+from app.api.contratacoes import router as contratacoes_router
 from app.api.crm_admin import router as crm_router
 from app.api.exclusoes import router as exclusoes_router
 from app.api.fase2 import router as fase2_router
@@ -31,8 +31,8 @@ from app.api.juridico import router as juridico_router
 from app.api.leads import router as leads_router
 from app.api.observabilidade import router as observabilidade_router
 from app.api.painel import router as painel_router
-from app.api.portal_cliente import router as portal_cliente_router
 from app.api.pesquisas import router as pesquisas_router
+from app.api.portal_cliente import router as portal_cliente_router
 from app.api.processos import router as processos_router
 from app.api.producao import router as producao_router
 from app.api.rpi_admin import router as rpi_admin_router
@@ -41,8 +41,8 @@ from app.api.saas import exigir_superadmin
 from app.api.saas import router as saas_router
 from app.api.social_auth import router as social_auth_router
 from app.api.usuarios import router as usuarios_router
-from app.api.visual import router as visual_router
 from app.api.vigilancia import router as vigilancia_router
+from app.api.visual import router as visual_router
 from app.auth import exigir_permissao
 from app.database import get_session
 from app.models import EventoOperacional, RpiImportacao, RpiSyncEstado, RpiSyncExecucao

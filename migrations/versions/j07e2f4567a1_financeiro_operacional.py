@@ -1,5 +1,6 @@
 """financeiro operacional: propostas, GRUs, recibos e renovacoes"""
 from collections.abc import Sequence
+
 import sqlalchemy as sa
 from alembic import op
 
@@ -49,12 +50,19 @@ def upgrade() -> None:
     op.create_index("ix_renovacoes_financeiras_vencimento", "renovacoes_financeiras", ["vencimento"])
 
 def downgrade() -> None:
-    op.drop_index("ix_renovacoes_financeiras_vencimento", table_name="renovacoes_financeiras"); op.drop_table("renovacoes_financeiras")
-    op.drop_index("ix_recibos_financeiros_numero", table_name="recibos_financeiros"); op.drop_index("ix_recibos_financeiros_parcela_id", table_name="recibos_financeiros"); op.drop_table("recibos_financeiros")
+    op.drop_index("ix_renovacoes_financeiras_vencimento", table_name="renovacoes_financeiras")
+    op.drop_table("renovacoes_financeiras")
+    op.drop_index("ix_recibos_financeiros_numero", table_name="recibos_financeiros")
+    op.drop_index("ix_recibos_financeiros_parcela_id", table_name="recibos_financeiros")
+    op.drop_table("recibos_financeiros")
     for name, table in (("fk_guia_lancamento", "guias_inpi"), ("fk_guia_proposta", "guias_inpi"), ("fk_guia_processo", "guias_inpi"), ("fk_contratacao_proposta", "contratacoes_servicos"), ("fk_lancamento_proposta", "lancamentos_financeiros")):
         op.drop_constraint(name, table, type_="foreignkey")
     for col in ("lancamento_id", "proposta_id", "processo_id"):
         op.drop_index(f"ix_guias_inpi_{col}", table_name="guias_inpi")
-    op.drop_column("guias_inpi", "lancamento_id"); op.drop_column("guias_inpi", "proposta_id"); op.drop_column("guias_inpi", "processo_id")
-    op.drop_index("ix_contratacoes_servicos_proposta_id", table_name="contratacoes_servicos"); op.drop_column("contratacoes_servicos", "proposta_id")
-    op.drop_index("ix_lancamentos_financeiros_proposta_id", table_name="lancamentos_financeiros"); op.drop_column("lancamentos_financeiros", "proposta_id")
+    op.drop_column("guias_inpi", "lancamento_id")
+    op.drop_column("guias_inpi", "proposta_id")
+    op.drop_column("guias_inpi", "processo_id")
+    op.drop_index("ix_contratacoes_servicos_proposta_id", table_name="contratacoes_servicos")
+    op.drop_column("contratacoes_servicos", "proposta_id")
+    op.drop_index("ix_lancamentos_financeiros_proposta_id", table_name="lancamentos_financeiros")
+    op.drop_column("lancamentos_financeiros", "proposta_id")

@@ -1,5 +1,6 @@
 """monitoramento preventivo, execucoes e historico de alertas"""
 from collections.abc import Sequence
+
 import sqlalchemy as sa
 from alembic import op
 

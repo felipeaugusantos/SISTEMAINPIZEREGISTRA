@@ -1,7 +1,7 @@
 """Add isolated client portal identities and content."""
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "abb55t0m8w52"
 down_revision = "aab44s9l7v41"

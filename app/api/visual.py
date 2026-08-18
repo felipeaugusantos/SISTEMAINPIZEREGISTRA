@@ -37,8 +37,9 @@ async def validar_imagem(
         raise HTTPException(status_code=422, detail="O arquivo enviado não é uma imagem válida.") from exc
     ocr: dict[str, object] = {"status": "indisponivel", "texto": "", "motivo": "OCR opcional não instalado no ambiente."}
     try:
-        import pytesseract
         from io import BytesIO
+
+        import pytesseract
         from PIL import Image
         texto = pytesseract.image_to_string(Image.open(BytesIO(conteudo))).strip()
         ocr = {"status": "concluido", "texto": texto, "confianca": None}
@@ -51,7 +52,6 @@ async def validar_imagem(
         "pixels": 256,
         "assinatura_visual": "".join(map(str, assinatura)),
         "ocr": {"status": "pendente", "motivo": "OCR será executado na etapa de processamento textual."},
-        "ocr": ocr,
         "score_combinado": score.as_dict(),
         "score_status": "experimental",
         "aviso": "A similaridade visual é um indicador técnico e requer validação humana.",

@@ -1,5 +1,5 @@
-from collections.abc import Iterable
 import math
+from collections.abc import Iterable
 
 
 def avaliar_gate_regressao(metricas: dict, baseline: dict | None, tolerancia: float = 0.0) -> dict:

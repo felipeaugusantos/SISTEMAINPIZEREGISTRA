@@ -13,10 +13,10 @@ from app.database import get_session
 from app.models import (
     ClientePortal,
     ColidenciaVigilancia,
+    HistoricoAlertaVigilancia,
     Lead,
     PreferenciaVigilancia,
     Processo,
-    HistoricoAlertaVigilancia,
     VigilanciaExecucao,
 )
 from app.vigilancia import enfileirar_alerta

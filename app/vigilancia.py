@@ -1,8 +1,8 @@
 """Regras puras e execução idempotente da vigilância preventiva."""
 from __future__ import annotations
 
-from difflib import SequenceMatcher
 from datetime import UTC, datetime
+from difflib import SequenceMatcher
 from typing import Any
 
 from sqlalchemy import select
@@ -10,8 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import (
-    ClientePortal, ColidenciaVigilancia, HistoricoAlertaVigilancia,
-    Lead, PreferenciaVigilancia, Processo, VigilanciaExecucao,
+    ClientePortal,
+    ColidenciaVigilancia,
+    HistoricoAlertaVigilancia,
+    Lead,
+    PreferenciaVigilancia,
+    Processo,
+    VigilanciaExecucao,
 )
 
 

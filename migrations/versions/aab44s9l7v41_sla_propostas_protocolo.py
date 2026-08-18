@@ -4,8 +4,8 @@ Revision ID: aab44s9l7v41
 Revises: aaa33r8k6u30
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "aab44s9l7v41"
 down_revision = "aaa33r8k6u30"

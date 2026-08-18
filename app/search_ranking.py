@@ -190,7 +190,7 @@ def calcular_score_combinado(
     fatores = tuple(
         FatorScoreBusca(
             regra=f"SINAL_{nome.upper()}",
-            peso=round(max(0.0, min(1.0, float(valor))) * 100 * peso, 2),
+            peso=round(max(0.0, min(1.0, float(valor))) * 100 * pesos[nome], 2),
             evidencia={"sinal": nome, "valor": round(float(valor), 4), "processo": processo},
         )
         for nome, valor in sinais.items()

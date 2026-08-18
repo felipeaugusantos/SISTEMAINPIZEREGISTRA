@@ -1,7 +1,7 @@
 """Add service catalog, contracts and financial linkage."""
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "ace88w3p1z85"
 down_revision = "acd77v2o0y74"

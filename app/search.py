@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import ClassificacaoMarca, Processo, TipoProcesso
-from app.search_ranking import ScoreBusca, calcular_score_nominativo, configuracao_ranking
 from app.search_model import resultado_busca_exige_revisao_humana
+from app.search_ranking import ScoreBusca, calcular_score_nominativo, configuracao_ranking
 
 PALAVRAS_IGNORADAS = {
     "A",

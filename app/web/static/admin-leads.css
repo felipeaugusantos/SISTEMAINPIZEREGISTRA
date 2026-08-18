@@ -1106,21 +1106,21 @@ table.lead-docs select {
 .portal-reply-status { color:var(--muted); font-size:.82rem; }
 
 @media (min-width: 761px) {
-  .leads-table {
+  .admin-body .leads-table {
     min-width: 1500px;
     table-layout: fixed;
   }
 
-  .leads-table th:nth-child(1), .leads-table td:nth-child(1) { width: 15%; }
-  .leads-table th:nth-child(2), .leads-table td:nth-child(2) { width: 24%; }
-  .leads-table th:nth-child(3), .leads-table td:nth-child(3) { width: 13%; }
-  .leads-table th:nth-child(4), .leads-table td:nth-child(4) { width: 10%; }
-  .leads-table th:nth-child(5), .leads-table td:nth-child(5) { width: 10%; }
-  .leads-table th:nth-child(6), .leads-table td:nth-child(6) { width: 28%; }
-  .leads-table td:nth-child(1) strong,
-  .leads-table td:nth-child(1) small,
-  .leads-table td:nth-child(1) span { overflow-wrap: anywhere; }
-  .leads-table td:nth-child(4) time { white-space: nowrap; }
-  .leads-table td:nth-child(5) .lead-status { width: 100%; min-width: 130px; box-sizing: border-box; }
-  .leads-table td:nth-child(6) .lead-row-actions { min-width: 0; }
+  .admin-body .leads-table th:nth-child(1), .admin-body .leads-table td:nth-child(1) { width: 15%; }
+  .admin-body .leads-table th:nth-child(2), .admin-body .leads-table td:nth-child(2) { width: 24%; }
+  .admin-body .leads-table th:nth-child(3), .admin-body .leads-table td:nth-child(3) { width: 13%; }
+  .admin-body .leads-table th:nth-child(4), .admin-body .leads-table td:nth-child(4) { width: 10%; }
+  .admin-body .leads-table th:nth-child(5), .admin-body .leads-table td:nth-child(5) { width: 10%; }
+  .admin-body .leads-table th:nth-child(6), .admin-body .leads-table td:nth-child(6) { width: 28%; }
+  .admin-body .leads-table td:nth-child(1) strong,
+  .admin-body .leads-table td:nth-child(1) small,
+  .admin-body .leads-table td:nth-child(1) span { overflow-wrap: anywhere; }
+  .admin-body .leads-table td:nth-child(4) time { white-space: nowrap; }
+  .admin-body .leads-table td:nth-child(5) .lead-status { width: 100%; min-width: 130px; box-sizing: border-box; }
+  .admin-body .leads-table td:nth-child(6) .lead-row-actions { min-width: 0; }
 }

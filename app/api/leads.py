@@ -44,6 +44,7 @@ from app.models import (
     HistoricoFaseLead,
     Lead,
     LembreteCRM,
+    MensagemClientePortal,
     Organizacao,
     PesquisaMarca,
     PropostaComercial,
@@ -2449,6 +2450,23 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
                 "data": proposta.enviado_em or proposta.criado_em,
                 "titulo": f"Proposta {proposta.numero}",
                 "detalhe": f"Status: {proposta.status}",
+            }
+        )
+    mensagens_portal = (
+        await session.execute(
+            select(MensagemClientePortal).where(
+                MensagemClientePortal.lead_id == lead_id,
+                MensagemClientePortal.organizacao_id == org,
+            )
+        )
+    ).scalars().all()
+    for mensagem in mensagens_portal:
+        eventos.append(
+            {
+                "tipo": "mensagem_portal",
+                "data": mensagem.criado_em,
+                "titulo": "Mensagem do cliente" if mensagem.autor_tipo == "cliente" else "Resposta do atendimento",
+                "detalhe": mensagem.mensagem,
             }
         )
     eventos_dominio = (

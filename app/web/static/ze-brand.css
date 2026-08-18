@@ -1,0 +1,73 @@
+/* Identidade visual Zé Registra compartilhada entre o Centro de Operações, CRM e Leads. */
+.ze-brand-theme {
+  --ze-green: #008037;
+  --ze-green-deep: #005927;
+  --ze-forest: #003d1a;
+  --ze-mint: #e6f5ed;
+  --ze-smoke: #f0f4f2;
+  --ze-line: #d1ded8;
+  --ze-ink: #1a1a1a;
+  --ze-radius: 16px;
+  --ze-shadow: 0 8px 24px -6px rgb(0 61 26 / 16%), 0 4px 10px -2px rgb(0 61 26 / 8%);
+}
+
+.ze-brand-theme .primary-button,
+.ze-brand-theme .auth-card button:not(.secondary-button) {
+  background: var(--ze-green);
+  border-radius: 12px;
+  box-shadow: 0 5px 14px rgb(0 61 26 / 14%);
+}
+
+.ze-brand-theme .primary-button:hover,
+.ze-brand-theme .auth-card button:not(.secondary-button):hover { background: var(--ze-green-deep); }
+
+.ze-brand-theme .secondary-button,
+.ze-brand-theme .danger-button,
+.ze-brand-theme input,
+.ze-brand-theme select,
+.ze-brand-theme textarea { border-radius: 12px; }
+
+.ze-brand-theme .crm-hero,
+.ze-brand-theme .crm-card,
+.ze-brand-theme .lead-card,
+.ze-brand-theme .leads-table-shell,
+.ze-brand-theme .admin-filters,
+.ze-brand-theme .auth-card {
+  border-color: var(--ze-line);
+  box-shadow: var(--ze-shadow);
+}
+
+.ze-brand-theme .crm-hero {
+  background: linear-gradient(135deg, #fff 0%, var(--ze-mint) 100%);
+}
+
+.ze-brand-theme .crm-hero h1,
+.ze-brand-theme .auth-card h1 { color: var(--ze-forest); }
+
+.ze-brand-theme .crm-metrics article,
+.ze-brand-theme .lead-metrics article { border-radius: var(--ze-radius); background: #fff; }
+
+.ze-brand-theme .leads-table th,
+.ze-brand-theme .crm-kanban-column > header { background: var(--ze-smoke); }
+
+.ze-brand-theme .lead-view-button.active,
+.ze-brand-theme .crm-stage.active { background: var(--ze-green); }
+
+.ze-brand-theme .auth-body {
+  background: radial-gradient(circle at 15% 10%, #e6f5ed 0, transparent 34%), var(--ze-smoke);
+}
+
+.ze-brand-theme .auth-card {
+  border-radius: 24px;
+  background: rgb(255 255 255 / 96%);
+}
+
+.ze-brand-theme .auth-brand strong { color: var(--ze-forest); letter-spacing: -.02em; }
+.ze-brand-theme .auth-card input:focus,
+.ze-brand-theme .auth-card select:focus { border-color: var(--ze-green); box-shadow: 0 0 0 4px rgb(0 128 55 / 13%); }
+
+@media (max-width: 760px) {
+  .ze-brand-theme .crm-hero,
+  .ze-brand-theme .crm-card,
+  .ze-brand-theme .admin-filters { border-radius: 14px; }
+}

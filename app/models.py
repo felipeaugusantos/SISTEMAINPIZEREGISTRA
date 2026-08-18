@@ -429,6 +429,82 @@ class Titular(Base):
     )
 
 
+class TipoAtivoPI(StrEnum):
+    MARCA = "marca"
+    PATENTE = "patente"
+    MODELO_UTILIDADE = "modelo_utilidade"
+    DESENHO_INDUSTRIAL = "desenho_industrial"
+    CONTRATO = "contrato"
+    CESSAO = "cessao"
+    LICENCA = "licenca"
+    FRANQUIA = "franquia"
+
+
+class AtivoPI(Base):
+    """Ativo de propriedade intelectual pertencente a uma organização."""
+
+    __tablename__ = "ativos_pi"
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "codigo", name="uq_ativo_pi_org_codigo"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    cliente_portal_id: Mapped[int | None] = mapped_column(ForeignKey("clientes_portal.id", ondelete="SET NULL"), nullable=True, index=True)
+    titular_id: Mapped[int] = mapped_column(ForeignKey("titulares.id", ondelete="RESTRICT"), index=True)
+    codigo: Mapped[str] = mapped_column(String(80), index=True)
+    tipo: Mapped[str] = mapped_column(String(30), index=True)
+    nome: Mapped[str] = mapped_column(String(240), index=True)
+    status: Mapped[str] = mapped_column(String(30), default="ativo", index=True)
+    vigencia_inicio: Mapped[date | None] = mapped_column(Date, nullable=True)
+    vigencia_fim: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    dados: Mapped[dict] = mapped_column(JSON, default=dict)
+    criado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AtivoProcessoPI(Base):
+    __tablename__ = "ativos_processos_pi"
+    __table_args__ = (UniqueConstraint("ativo_id", "processo_id", name="uq_ativo_pi_processo"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    ativo_id: Mapped[int] = mapped_column(ForeignKey("ativos_pi.id", ondelete="CASCADE"), index=True)
+    processo_id: Mapped[int] = mapped_column(ForeignKey("processos.id", ondelete="CASCADE"), index=True)
+    papel: Mapped[str] = mapped_column(String(30), default="principal")
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AtivoPartePI(Base):
+    __tablename__ = "ativos_partes_pi"
+    __table_args__ = (UniqueConstraint("ativo_id", "papel", "nome", name="uq_ativo_pi_parte"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    ativo_id: Mapped[int] = mapped_column(ForeignKey("ativos_pi.id", ondelete="CASCADE"), index=True)
+    papel: Mapped[str] = mapped_column(String(20), index=True)
+    nome: Mapped[str] = mapped_column(String(240))
+    documento: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DocumentoAtivoPI(Base):
+    __tablename__ = "documentos_ativos_pi"
+    __table_args__ = (UniqueConstraint("ativo_id", "versao", name="uq_documento_ativo_pi_versao"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    ativo_id: Mapped[int] = mapped_column(ForeignKey("ativos_pi.id", ondelete="CASCADE"), index=True)
+    nome: Mapped[str] = mapped_column(String(255))
+    versao: Mapped[int] = mapped_column(Integer)
+    hash_documento: Mapped[str] = mapped_column(String(64), index=True)
+    caminho: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    criado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class Movimentacao(Base):
     __tablename__ = "movimentacoes"
     __table_args__ = (UniqueConstraint("chave_origem", name="uq_movimentacoes_chave_origem"),)

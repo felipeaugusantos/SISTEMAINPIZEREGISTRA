@@ -603,6 +603,14 @@ Comandos essenciais:
 \.venv\Scripts\uvicorn.exe app.main:app --host 0.0.0.0 --port 8000
 ```
 
+### Portfólio completo de propriedade intelectual
+
+O módulo de portfólio organiza marcas, patentes, modelos de utilidade, desenhos industriais,
+contratos, cessões, licenças e franquias. Cada ativo possui organização, código, titular,
+vigência, processos relacionados, inventores, procuradores e documentos versionados com hash.
+As rotas administrativas exigem permissão jurídica; informações financeiras permanecem
+separadas. O portal retorna somente ativos explicitamente vinculados ao cliente autenticado.
+
 ## Estado do projeto
 
 O projeto está em fase de testes e validação operacional. Antes de disponibilizá-lo para novos clientes, revise as configurações de segurança, domínio, SMTP, backup, monitoramento, credenciais e políticas de privacidade do ambiente de destino.

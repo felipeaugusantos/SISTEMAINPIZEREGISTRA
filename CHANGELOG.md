@@ -1,5 +1,13 @@
 # Changelog
 
+## Portfólio completo de propriedade intelectual — 2026-08-18
+
+- Ativos para marcas, patentes, modelos de utilidade, desenhos industriais, contratos,
+  cessões, licenças e franquias.
+- Vínculos de titulares, inventores, procuradores, processos e clientes do portal.
+- Documentos versionados com hash SHA-256 e auditoria de cada versão.
+- Isolamento por organização e endpoint do portal limitado ao cliente autenticado.
+
 ## Agenda juridica centralizada — 2026-08-18
 
 - Lista, kanban e calendario de prazos de propriedade intelectual.

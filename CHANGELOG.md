@@ -1,5 +1,14 @@
 # Changelog
 
+## Agenda juridica centralizada — 2026-08-18
+
+- Lista, kanban e calendario de prazos de propriedade intelectual.
+- Eventos para RPI, oposicao, exigencia, manifestacao, recurso, pagamento, deferimento,
+  concessao, renovacao, decenio e vencimentos internos.
+- Filtros por responsavel, cliente/processo, prioridade, evento e periodo.
+- Alertas de atraso e proximidade, com escalonamento mantido pelo motor juridico.
+- Nenhuma exclusao fisica de prazo: alteracoes e encerramentos permanecem auditados na timeline.
+
 ## Busca avancada de anterioridade — 2026-08-18
 
 - Consulta por estrategias exata, radical, prefixo, sufixo, fonetica e similaridade textual.

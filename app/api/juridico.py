@@ -33,12 +33,17 @@ ViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("legal.view"))]
 ManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("legal.manage"))]
 
 TIPOS_PRAZO = {
+    "publicacao_rpi": "Publicação RPI",
     "manifestacao": "Manifestação",
     "exigencia": "Cumprimento de exigência",
     "oposicao": "Oposição",
     "recurso": "Recurso",
     "pagamento": "Pagamento ou retribuição",
+    "deferimento": "Deferimento",
+    "concessao": "Concessão",
     "renovacao": "Renovação",
+    "decenio": "Decênio",
+    "vencimento_interno": "Vencimento interno",
     "outro": "Outro",
 }
 STATUS_ATIVOS = {"aguardando_confirmacao", "pendente", "em_andamento"}
@@ -404,6 +409,15 @@ def _serializar_prazo(row) -> dict:
             and prazo.status in STATUS_ATIVOS
             and prazo.confirmado
         ),
+        "alerta": (
+            "atrasado"
+            if restantes < 0 and prazo.status in STATUS_ATIVOS
+            else "vence_hoje"
+            if restantes == 0 and prazo.status in STATUS_ATIVOS
+            else "proximo"
+                if restantes <= (prazo.antecedencia_dias or 7) and prazo.status in STATUS_ATIVOS
+            else None
+        ),
         "historico": historico,
         "status": prazo.status,
         "prioridade": prazo.prioridade,
@@ -455,6 +469,83 @@ async def referencias(session: SessionDep, usuario: ViewDep) -> dict:
     }
 
 
+@router.get("/agenda")
+async def agenda_centralizada(
+    session: SessionDep,
+    usuario: ViewDep,
+    visualizacao: Literal["lista", "calendario"] = "lista",
+    responsavel_id: int | None = Query(default=None, ge=1),
+    cliente_id: int | None = Query(default=None, ge=1),
+    processo_monitorado_id: int | None = Query(default=None, ge=1),
+    prioridade: Literal["baixa", "media", "alta", "critica"] | None = None,
+    tipo: str | None = Query(default=None, max_length=40),
+    inicio: date | None = None,
+    fim: date | None = None,
+    pagina: int = Query(default=1, ge=1),
+    por_pagina: int = Query(default=50, ge=1, le=200),
+) -> dict:
+    """Agenda única de prazos, com visão de lista ou calendário.
+
+    O endpoint não expõe exclusão: encerramentos são mudanças de status auditadas.
+    """
+    filtros = [
+        PrazoJuridico.organizacao_id == usuario.organizacao_id,
+        PrazoJuridico.status != "duplicado",
+    ]
+    if responsavel_id:
+        filtros.append(PrazoJuridico.responsavel_id == responsavel_id)
+    if cliente_id:
+        filtros.append(ProcessoMonitorado.empresa_id == cliente_id)
+    if processo_monitorado_id:
+        filtros.append(PrazoJuridico.processo_monitorado_id == processo_monitorado_id)
+    if prioridade:
+        filtros.append(PrazoJuridico.prioridade == prioridade)
+    if tipo:
+        filtros.append(PrazoJuridico.tipo == tipo)
+    if inicio:
+        filtros.append(PrazoJuridico.vencimento_em >= datetime.combine(inicio, time.min, UTC))
+    if fim:
+        filtros.append(PrazoJuridico.vencimento_em <= datetime.combine(fim, time.max, UTC))
+
+    responsavel = UsuarioOperacoes.__table__.alias("agenda_responsavel")
+    escalacao = UsuarioOperacoes.__table__.alias("agenda_escalacao")
+    base = (
+        select(
+            PrazoJuridico,
+            Processo.numero,
+            Processo.titulo,
+            EmpresaCRM.nome,
+            responsavel.c.nome,
+            escalacao.c.nome,
+        )
+        .join(ProcessoMonitorado, ProcessoMonitorado.id == PrazoJuridico.processo_monitorado_id)
+        .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+        .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
+        .outerjoin(responsavel, responsavel.c.id == PrazoJuridico.responsavel_id)
+        .outerjoin(escalacao, escalacao.c.id == PrazoJuridico.escalonar_para_id)
+        .where(*filtros)
+        .order_by(PrazoJuridico.vencimento_em, PrazoJuridico.id)
+    )
+    total = int((await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one() or 0)
+    linhas = (
+        await session.execute(base.limit(por_pagina).offset((pagina - 1) * por_pagina))
+    ).all()
+    itens = [_serializar_prazo(linha) for linha in linhas]
+    calendario: dict[str, list[dict]] = {}
+    for item in itens:
+        chave = item["vencimento_em"].date().isoformat()
+        calendario.setdefault(chave, []).append(
+            {"id": item["id"], "titulo": item["titulo"], "tipo": item["tipo"], "prioridade": item["prioridade"], "alerta": item["alerta"]}
+        )
+    return {
+        "visualizacao": visualizacao,
+        "itens": itens,
+        "calendario": calendario if visualizacao == "calendario" else {},
+        "paginacao": {"pagina": pagina, "por_pagina": por_pagina, "total": total, "total_paginas": max(1, (total + por_pagina - 1) // por_pagina)},
+        "regras": {"exclusao_permitida": False, "encerramento_exige_auditoria": True},
+    }
+
+
 @router.get("/painel")
 async def painel(
     session: SessionDep,
@@ -466,6 +557,10 @@ async def painel(
     fim: date | None = None,
     limite: int = Query(default=10, ge=1, le=10),
     deslocamento: int = Query(default=0, ge=0),
+    prioridade: str | None = Query(default=None, max_length=10),
+    cliente_id: int | None = Query(default=None, ge=1),
+    processo_monitorado_id: int | None = Query(default=None, ge=1),
+    tipo: str | None = Query(default=None, max_length=40),
 ) -> dict:
     filtros = [PrazoJuridico.organizacao_id == usuario.organizacao_id]
     if status_prazo:
@@ -476,6 +571,14 @@ async def painel(
         filtros.append(PrazoJuridico.status != "duplicado")
     if responsavel_id:
         filtros.append(PrazoJuridico.responsavel_id == responsavel_id)
+    if prioridade:
+        filtros.append(PrazoJuridico.prioridade == prioridade)
+    if cliente_id:
+        filtros.append(ProcessoMonitorado.empresa_id == cliente_id)
+    if processo_monitorado_id:
+        filtros.append(PrazoJuridico.processo_monitorado_id == processo_monitorado_id)
+    if tipo:
+        filtros.append(PrazoJuridico.tipo == tipo)
     if inicio:
         filtros.append(PrazoJuridico.vencimento_em >= datetime.combine(inicio, time.min, UTC))
     if fim:

@@ -34,6 +34,7 @@
 .view-tab{border:0;background:var(--surface,#fff);color:var(--muted);padding:8px 16px;font:inherit;font-weight:700;cursor:pointer}
 .view-tab.active{background:var(--forest);color:#fff}
 .legal-kanban{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(230px,1fr);gap:14px;overflow-x:auto;padding-bottom:8px}
+.legal-calendar{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}.legal-calendar-day{border:1px solid #dce2dc;border-radius:14px;padding:14px;background:#fff}.legal-calendar-day>header{display:flex;justify-content:space-between;gap:10px;padding-bottom:10px;border-bottom:1px solid #e3e7e3}.legal-calendar-day>header span{color:var(--muted);font-size:.75rem}.legal-calendar-item{display:grid;gap:5px;margin-top:10px;padding:10px;border-left:4px solid #7c9487;border-radius:8px;background:#f7faf8}.legal-calendar-item.overdue{border-left-color:#b63b2a;background:#fff9f7}.legal-calendar-item.due-soon{border-left-color:#df9d37}.legal-calendar-item small{color:var(--muted);font-size:.72rem}
 .kanban-column{background:var(--paper,#eef2ed);border:1px solid var(--line);border-radius:14px;display:flex;flex-direction:column;min-height:120px}
 .kanban-column.drag-over{outline:2px dashed var(--forest);outline-offset:-2px}
 .kanban-column>header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#5c6b62}

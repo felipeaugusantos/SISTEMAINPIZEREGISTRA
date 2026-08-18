@@ -49,6 +49,15 @@ humana e nao constitui parecer juridico definitivo. O benchmark versionado calcu
 Recall/Precision@5/@10/@20, MRR, p50/p95/p99 e falsos negativos criticos; o gate bloqueia
 publicacao quando houver regressao de recall.
 
+### Agenda juridica centralizada
+
+A operação jurídica possui lista, kanban e calendário de prazos para marcas, patentes e
+desenhos industriais. Os eventos incluem RPI, oposição, exigência, manifestação, recurso,
+pagamento, deferimento, concessão, renovação, decênio e vencimentos internos. A agenda
+permite filtrar por responsável, cliente/processo, tipo, prioridade e período, exibindo
+alertas de proximidade e atraso. Encerramentos e alterações permanecem na timeline; não
+existe exclusão física de prazo sem registro auditável.
+
 ### Atualizacoes recentes do painel
 
 - cadastro completo da empresa em **Empresas e planos**, com dados institucionais, endereco, site, atividade, fundacao e logo;

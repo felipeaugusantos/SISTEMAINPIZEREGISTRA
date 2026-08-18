@@ -9,6 +9,7 @@ from app.api.juridico import (
     CHECKLIST_GENERICO,
     CHECKLIST_PADRAO,
     PADRAO_PRAZO,
+    TIPOS_PRAZO,
     ChecklistItemUpdate,
     PrazoInput,
     _classificar_despacho,
@@ -42,6 +43,10 @@ def _request() -> Request:
 def test_calcula_prazo_em_dias_corridos() -> None:
     vencimento = calcular_vencimento(date(2026, 8, 11), 10, "corridos")
     assert vencimento.date() == date(2026, 8, 21)
+
+
+def test_agenda_centralizada_cobre_eventos_de_propriedade_intelectual() -> None:
+    assert {"publicacao_rpi", "deferimento", "concessao", "decenio", "vencimento_interno"}.issubset(TIPOS_PRAZO)
 
 
 def test_calcula_prazo_em_dias_uteis_sem_contar_fim_de_semana() -> None:
@@ -291,8 +296,9 @@ def test_tela_juridica_expoe_fluxos_principais() -> None:
     assert "Executar motor de prazos" in html
     assert "CENTRAL DE NOTIFICAÇÕES" in html
     assert "Registrar entrega" in html
-    assert "admin-juridico.css?v=13" in html
-    assert "admin-juridico.js?v=10" in html
+    assert "admin-juridico.css?v=14" in html
+    assert "admin-juridico.js?v=11" in html
+    assert 'id="view-calendar"' in html
     assert 'option value="historico"' in html
     assert "Referência histórica" in javascript
     assert 'id="legal-pagination"' in html

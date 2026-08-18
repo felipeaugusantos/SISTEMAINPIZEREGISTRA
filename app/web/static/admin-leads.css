@@ -556,6 +556,44 @@
   gap: 10px;
 }
 
+.lead-attendance-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.lead-attendance-summary > div {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #dfe2da;
+  border-radius: 11px;
+  background: #f8fbf7;
+}
+
+.lead-attendance-summary span {
+  display: block;
+  margin-bottom: 4px;
+  color: #65766d;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.lead-attendance-summary a,
+.lead-attendance-summary strong {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #183a2d;
+  font-size: 0.78rem;
+}
+
+.lead-attendance-standalone .lead-contact-form select,
+.lead-attendance-standalone .lead-contact-form input {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .lead-contact-form label { display: grid; min-width: 0; gap: 5px; color: #263d32; font-size: 0.7rem; font-weight: 800; }
 .lead-contact-form .lead-contact-observation-field,
 .lead-contact-form > div { grid-column: 1 / -1; }

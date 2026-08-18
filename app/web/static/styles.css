@@ -927,6 +927,14 @@ footer p {
 .admin-body .lead-quick-actions { margin-top: 8px; }
 .admin-body .lead-quick-actions a { display: inline-flex; color: var(--forest); font-weight: 750; }
 .admin-body .leads-table { min-width: 1080px; }
+.admin-body .leads-table th:nth-child(1),
+.admin-body .leads-table td:nth-child(1) { min-width: 190px; width: 20%; }
+.admin-body .leads-table th:nth-child(5),
+.admin-body .leads-table td:nth-child(5) { min-width: 150px; width: 13%; }
+.admin-body .leads-table td:nth-child(1) strong,
+.admin-body .leads-table td:nth-child(1) span,
+.admin-body .leads-table td:nth-child(5) select { max-width: 100%; overflow-wrap: anywhere; }
+.admin-body .leads-table td:nth-child(5) select { width: 100%; box-sizing: border-box; }
 .admin-body .leads-table tr.archived { opacity: .65; background: #f3f3ef; }
 .admin-body .leads-table td > span { display: block; color: var(--muted); font-size: .75rem; }
 .risk-pill { display: inline-flex !important; width: fit-content; margin-top: 7px; padding: 4px 8px; border-radius: 999px; background: #eef2ed; color: #335444 !important; font-size: .68rem !important; font-weight: 800; }
@@ -1173,7 +1181,7 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
   .lead-contact-summary { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 520px) {
-  .admin-body .lead-metrics, .admin-body .admin-filters, .lead-contact-summary, .lead-crm-form { grid-template-columns: 1fr; }
+  .admin-body .lead-metrics, .admin-body .admin-filters, .lead-contact-summary, .lead-crm-form, .lead-attendance-summary { grid-template-columns: 1fr; }
   .lead-pagination { justify-content: center; flex-wrap: wrap; }
   .lead-dialog-content, .lead-dialog-frame > header { padding-left: 18px; padding-right: 18px; }
 }

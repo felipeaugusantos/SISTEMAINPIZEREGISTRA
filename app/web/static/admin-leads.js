@@ -385,12 +385,18 @@ async function renderPortalMessages(lead) {
 }
 
 async function abrirRegistroAtendimento(leadId, pesquisaId) {
+  let proximaAcao = "";
   const response = await fetch(`/v1/admin/leads/${leadId}`);
   const lead = await response.json().catch(() => ({}));
+  proximaAcao = lead.proxima_acao_em ? new Date(lead.proxima_acao_em).toISOString().slice(0, 16) : "";
   if (!response.ok) { alert(lead.detail || "Não foi possível carregar o atendimento."); return; }
   const options = (lead.pesquisas || []).map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(pesquisaId) ? "selected" : ""}>${escapeHtml(item.marca)} · ${formatDate(item.criado_em, false)}</option>`).join("");
   document.querySelector("#lead-dialog-title").textContent = `Registrar atendimento · ${lead.nome}`;
   dialogContent.innerHTML = `<section class="lead-contact-log lead-attendance-standalone"><header><div><p class="eyebrow">Atendimento comercial</p><h3>Novo registro</h3></div></header><form id="lead-contact-form" data-lead-id="${lead.id}" class="lead-contact-form"><label><span>Pesquisa relacionada</span><select name="pesquisa_id" id="lead-contact-filter" required>${options}</select></label><label><span>Canal</span><select name="canal"><option value="telefone">Telefone</option><option value="whatsapp">WhatsApp</option><option value="email">E-mail</option><option value="reuniao">Reunião</option><option value="outro">Outro</option></select></label><label><span>Resultado</span><input name="resultado" maxlength="150" placeholder="Ex.: proposta enviada" /></label><label class="lead-contact-observation-field"><span>Observação</span><textarea name="observacao" maxlength="2000" rows="5" placeholder="Registre o que foi conversado e a próxima orientação."></textarea></label><div><button class="primary-button" type="submit">Salvar atendimento</button><span id="contact-save-message" role="status"></span></div></form></section>`;
+  const attendanceSection = dialogContent.querySelector(".lead-attendance-standalone");
+  const attendanceForm = attendanceSection?.querySelector("#lead-contact-form");
+  attendanceSection?.querySelector("header")?.insertAdjacentHTML("afterend", `<div class="lead-attendance-summary"><div><span>Telefone de contato</span><a href="tel:${escapeHtml(lead.telefone || "")}">${escapeHtml(lead.telefone || "Não informado")}</a></div><div><span>Próximo contato</span><strong>${proximaAcao ? formatDate(lead.proxima_acao_em) : "Não definido"}</strong></div></div>`);
+  attendanceForm?.querySelector("label:nth-child(2)")?.insertAdjacentHTML("afterend", `<label><span>Próximo contato</span><input name="proxima_acao_em" type="datetime-local" value="${proximaAcao}" /></label>`);
   if (!dialog.open) dialog.showModal();
 }
 
@@ -1117,6 +1123,11 @@ dialogContent.addEventListener("submit", async event => {
       const detail = await response.json().catch(() => ({}));
       saveMessage.textContent = detail.detail || "Nao foi possivel registrar.";
       return;
+    }
+    const proximaAcao = data.get("proxima_acao_em");
+    if (proximaAcao) {
+      const leadUpdate = await fetch(`/v1/admin/leads/${form.dataset.leadId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proxima_acao_em: new Date(proximaAcao).toISOString() }) });
+      if (!leadUpdate.ok) { saveMessage.textContent = "Contato registrado, mas não foi possível salvar o próximo contato."; return; }
     }
     form.reset();
     saveMessage.textContent = "Contato registrado.";

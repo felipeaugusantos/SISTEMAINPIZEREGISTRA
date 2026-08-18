@@ -8,6 +8,21 @@
   box-shadow: 0 14px 34px rgba(24, 55, 42, 0.05);
 }
 
+.portal-pending-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 8px;
+  border-radius: 999px;
+  background: #b9382f;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  vertical-align: middle;
+}
+
 .crm-overview > header {
   display: flex;
   align-items: end;

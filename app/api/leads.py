@@ -364,6 +364,7 @@ def _lead_response(
     lead: Lead,
     usuario: UsuarioAutenticado,
     pesquisas: list[PesquisaLeadResumo] | None = None,
+    mensagens_portal_pendentes: int = 0,
 ) -> LeadResponse:
     pesquisas = pesquisas or []
     dados = LeadResponse.model_validate(lead)
@@ -376,6 +377,7 @@ def _lead_response(
     dados.ultima_pesquisa = pesquisas[0] if pesquisas else None
     dados.ultima_pesquisa_em = pesquisas[0].criado_em if pesquisas else lead.criado_em
     dados.relatorios_completos_gerados = sum(item.relatorio_completo_gerado for item in pesquisas)
+    dados.mensagens_portal_pendentes = mensagens_portal_pendentes
     dados.pesquisas = pesquisas
     pesquisas_com_risco = [item for item in pesquisas if item.risco_nivel]
     if pesquisas_com_risco:
@@ -521,7 +523,19 @@ async def listar_leads(
     ).scalar_one()
     pesquisas_por_lead: dict[int, list[PesquisaLeadResumo]] = {}
     ids = [item.id for item in itens]
+    mensagens_pendentes_por_lead: dict[int, int] = {}
     if ids:
+        contagens_mensagens = await session.execute(
+            select(MensagemClientePortal.lead_id, func.count())
+            .where(
+                MensagemClientePortal.organizacao_id == usuario.organizacao_id,
+                MensagemClientePortal.lead_id.in_(ids),
+                MensagemClientePortal.autor_tipo == "cliente",
+                MensagemClientePortal.lida_em.is_(None),
+            )
+            .group_by(MensagemClientePortal.lead_id)
+        )
+        mensagens_pendentes_por_lead = {lead_id: total for lead_id, total in contagens_mensagens}
         relatorio_existe = exists(
             select(VersaoRelatorioMarca.id).where(
                 VersaoRelatorioMarca.pesquisa_id == PesquisaMarca.id
@@ -566,7 +580,13 @@ async def listar_leads(
         limite=limite,
         tem_mais=deslocamento + len(itens) < total,
         itens=[
-            _lead_response(item, usuario, pesquisas_por_lead.get(item.id, [])) for item in itens
+            _lead_response(
+                item,
+                usuario,
+                pesquisas_por_lead.get(item.id, []),
+                mensagens_pendentes_por_lead.get(item.id, 0),
+            )
+            for item in itens
         ],
         por_status=por_status,
         acoes={

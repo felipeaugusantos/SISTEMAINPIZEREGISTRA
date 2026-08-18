@@ -187,11 +187,14 @@ function quickResearchHistory(lead) {
 function leadRow(lead) {
   const pesquisa = lead.ultima_pesquisa;
   const digits = phoneDigits(lead.telefone);
-  const contactLinks = lead.email.includes("***") ? "" : `
+  const pendingBadge = lead.mensagens_portal_pendentes
+    ? `<span class="portal-pending-badge" title="Mensagem pendente do portal" aria-label="Mensagem pendente do portal">!</span>`
+    : "";
+  const contactLinks = lead.email.includes("***") ? pendingBadge : `
     <span class="lead-quick-actions">
       <a href="mailto:${escapeHtml(lead.email)}" aria-label="Enviar e-mail">E-mail</a>
       ${digits ? `<a href="https://wa.me/${digits}" target="_blank" rel="noopener" aria-label="Abrir WhatsApp">WhatsApp</a>` : ""}
-    </span>`;
+    ${pendingBadge}</span>`;
   const highestRisk = lead.risco_mais_alto;
   return `
     <tr data-lead-id="${lead.id}" class="${lead.arquivado_em ? "archived" : ""}">

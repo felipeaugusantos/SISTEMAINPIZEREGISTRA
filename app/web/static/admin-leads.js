@@ -209,7 +209,7 @@ function leadRow(lead) {
 
 function researchRow(lead, item) {
   const digits = phoneDigits(lead.telefone);
-  return `<tr data-lead-id="${lead.id}" class="research-view-row ${lead.arquivado_em ? "archived" : ""}">
+  return `<tr data-lead-id="${lead.id}" data-research-id="${item.id}" class="research-view-row ${lead.arquivado_em ? "archived" : ""}">
     <td data-label="Contato"><strong>${escapeHtml(lead.nome)}</strong><small>${escapeHtml(lead.empresa || "Empresa não informada")}</small><span>${escapeHtml(lead.email)}</span>${digits ? `<a href="https://wa.me/${digits}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</td>
     <td data-label="Pesquisa"><strong>${escapeHtml(item.marca)}</strong>${duplicateStatus(item)}<small>${escapeHtml(item.atividade || "Atividade não informada")}</small>${item.risco_nivel ? `<span class="risk-pill risk-${escapeHtml(item.risco_nivel)}">Risco ${escapeHtml(riskLabels[item.risco_nivel] || item.risco_nivel)}${item.risco_pontuacao !== null ? ` · ${item.risco_pontuacao} pontos` : ""}</span>` : `<span class="risk-pill">Risco não calculado</span>`}${fullReportStatus(item, true)}</td>
     <td data-label="Atendimento"><strong>${escapeHtml(lead.responsavel_nome || "Não atribuído")}</strong><small>${escapeHtml(originLabel(lead.origem))}</small>${faseMini(lead.fase)}</td>
@@ -378,13 +378,16 @@ async function renderPortalMessages(lead) {
   await carregar();
 }
 
-async function openLead(id) {
+async function openLead(id, selectedResearchId = null) {
   state.openLeadId = id;
   dialogContent.innerHTML = "<p>Carregando histórico…</p>";
   if (!dialog.open) dialog.showModal();
   const response = await fetch(`/v1/admin/leads/${id}`);
   if (!response.ok) { dialogContent.innerHTML = "<p class=\"status-message error\">Não foi possível abrir o contato.</p>"; return; }
   const lead = await response.json();
+  const pesquisasExibidas = selectedResearchId
+    ? lead.pesquisas.filter(item => String(item.id) === String(selectedResearchId))
+    : lead.pesquisas;
   const researchOptions = lead.pesquisas.map(item =>
     `<option value="${escapeHtml(item.id)}">${escapeHtml(item.marca)} · ${formatDate(item.criado_em, false)}</option>`
   ).join("");
@@ -395,7 +398,7 @@ async function openLead(id) {
     <div class="lead-dialog-grid">
     <section class="lead-funil lg-full" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
     <section class="lead-cadencia lg-full" id="lead-cadencia" hidden></section>
-    <section class="lead-history lg-full"><header><div><p class="eyebrow">Histórico</p><h3>${lead.pesquisas.length} pesquisa${lead.pesquisas.length === 1 ? "" : "s"}</h3></div></header>${lead.pesquisas.length ? lead.pesquisas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
+    <section class="lead-history lg-full"><header><div><p class="eyebrow">${selectedResearchId ? "Pesquisa selecionada" : "Histórico"}</p><h3>${pesquisasExibidas.length} pesquisa${pesquisasExibidas.length === 1 ? "" : "s"}</h3></div></header>${pesquisasExibidas.length ? pesquisasExibidas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
     <details class="lead-collapsible lg-full"><summary>Documentos do atendimento</summary><section class="lead-documentos lg-full" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section></details>
     <details class="lead-collapsible lg-full"><summary>Guias do INPI (GRU)</summary><section class="lead-guias" id="lead-guias"><p class="lead-funil-loading">Carregando guias do INPI…</p></section></details>
     <details class="lead-collapsible lg-full"><summary>Propostas de registro</summary><section class="lead-propostas" id="lead-propostas"><p class="lead-funil-loading">Carregando propostas…</p></section></details>
@@ -1057,7 +1060,7 @@ leadsList.addEventListener("click", event => {
     historyRow.hidden = expanded;
     return;
   }
-  if (event.target.closest(".view-lead")) openLead(row.dataset.leadId);
+  if (event.target.closest(".view-lead")) openLead(row.dataset.leadId, row.dataset.researchId || null);
   if (event.target.closest(".archive-lead")) { state.archiveId = row.dataset.leadId; archiveDialog.showModal(); }
   if (event.target.closest(".restore-lead")) fetch(`/v1/admin/leads/${row.dataset.leadId}/restaurar`, { method: "POST" }).then(response => { if (response.ok) loadLeads(); else showMessage("Não foi possível restaurar o contato.", "error"); });
 });

@@ -22,6 +22,7 @@ from app.crm import (
     registrar_evento_operacional,
     sincronizar_fase_por_status,
 )
+from app.clicksign import criar_envelope, configuracao as configuracao_clicksign
 from app.database import get_session
 from app.emailing import enviar_proposta_email
 from app.models import (
@@ -2041,8 +2042,16 @@ async def enviar_link_proposta(proposta_id: int, session: SessionDep, usuario: L
     org = await session.get(Organizacao, usuario.organizacao_id)
     link = f"{get_settings().app_public_url.rstrip('/')}/propostas/{token}"
     pdf = gerar_pdf_proposta(_proposta_dict(proposta, org))
+    clicksign = configuracao_clicksign(org)
+    if clicksign["enabled"]:
+        try:
+            ids = await criar_envelope(pdf, f"Proposta {proposta.numero}", lead.email, lead.nome, org)
+            proposta.dados = {**(proposta.dados or {}), "clicksign": ids}
+            await session.commit()
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Não foi possível enviar à Clicksign: {type(exc).__name__}") from exc
     await enviar_proposta_email(lead.email, lead.nome, link, pdf, proposta.numero)
-    return {"link": link, "destinatario": lead.email, "expira_em": proposta.public_token_expira_em}
+    return {"link": link, "destinatario": lead.email, "expira_em": proposta.public_token_expira_em, "clicksign": proposta.dados.get("clicksign") if proposta.dados else None}
 
 
 @router.get("/propostas/{token}", response_class=HTMLResponse, include_in_schema=False)

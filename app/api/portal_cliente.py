@@ -1,10 +1,12 @@
 import hashlib
+import hmac
+import json
 import secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
@@ -16,6 +18,8 @@ from app.auth import exigir_permissao
 from app.database import get_session
 from app.emailing import enviar_recuperacao_portal
 from app.tenancy import aplicar_contexto_tenant
+from app.clicksign import configuracao as configuracao_clicksign
+from app.settings import get_settings
 from app.models import (
     ArquivoClientePortal, AssinaturaDocumentoLead, AssinaturaPropostaComercial, ClientePortal, DocumentoLead, GuiaInpi, Lead,
     LancamentoFinanceiro, MensagemClientePortal, NotificacaoClientePortal, ParcelaFinanceira,
@@ -28,6 +32,40 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ClientManageDep = Annotated[object, Depends(exigir_permissao("leads.manage"))]
 ClientViewDep = Annotated[object, Depends(exigir_permissao("leads.view"))]
 SESSION_COOKIE = "zr_client_session"
+
+
+@router.post("/v1/webhooks/clicksign")
+async def webhook_clicksign(request: Request, session: SessionDep, x_clicksign_webhook_secret: str | None = Header(default=None)) -> dict:
+    body = await request.body()
+    config = configuracao_clicksign()
+    if config["secret"] and not x_clicksign_webhook_secret:
+        raise HTTPException(status_code=401, detail="Webhook não autenticado")
+    if config["secret"] and not hmac.compare_digest(x_clicksign_webhook_secret or "", config["secret"]):
+        raise HTTPException(status_code=401, detail="Webhook inválido")
+    try:
+        payload = json.loads(body or b"{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Payload inválido") from exc
+    texto = json.dumps(payload, ensure_ascii=False).lower()
+    envelope_id = next((str(payload.get(key)) for key in ("envelope_id", "envelopeId") if payload.get(key)), None)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if isinstance(data, dict):
+        envelope_id = envelope_id or str(data.get("id") or data.get("envelope_id") or "") or None
+    if not envelope_id:
+        raise HTTPException(status_code=422, detail="Envelope não informado")
+    await aplicar_contexto_tenant(session, get_settings().default_organization_id)
+    propostas = (await session.execute(select(PropostaComercial))).scalars().all()
+    proposta = next((p for p in propostas if str((p.dados or {}).get("clicksign", {}).get("envelope_id")) == envelope_id), None)
+    if proposta is None:
+        return {"ok": True, "ignorado": True}
+    if any(term in texto for term in ("document_closed", "envelope_closed", "signed", "assinado", "completed")):
+        proposta.status = "aceita"
+        proposta.aceito_em = proposta.aceito_em or datetime.now(UTC)
+        proposta.public_aceito_em = proposta.public_aceito_em or proposta.aceito_em
+        proposta.sla_status = "aguardando_pagamento"
+    proposta.dados = {**(proposta.dados or {}), "clicksign": {**((proposta.dados or {}).get("clicksign") or {}), "ultimo_evento": payload}}
+    await session.commit()
+    return {"ok": True, "proposta_id": proposta.id}
 
 
 class ClienteLogin(BaseModel):

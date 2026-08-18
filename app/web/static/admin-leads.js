@@ -341,6 +341,40 @@ function researchCard(item) {
   </article>`;
 }
 
+async function renderPortalMessages(lead) {
+  if (!state.canManage) return;
+  const card = document.createElement("section");
+  card.className = "lead-portal-messages lead-contact-log";
+  card.innerHTML = `<header><div><p class="eyebrow">PORTAL DO CLIENTE</p><h3>Mensagens do cliente</h3></div><span data-portal-message-count>0 mensagens</span></header><ol class="lead-contact-history" data-portal-message-list><li class="lead-contact-empty">Carregando mensagens…</li></ol><form class="lead-portal-reply-form"><textarea name="mensagem" rows="3" maxlength="4000" placeholder="Responda ao cliente pelo portal…" required></textarea><div><button class="primary-button" type="submit">Enviar resposta</button><span class="portal-reply-status" role="status"></span></div></form>`;
+  const portalCard = dialogContent.querySelector(".lead-portal-access");
+  if (portalCard) portalCard.after(card); else dialogContent.prepend(card);
+  const list = card.querySelector("[data-portal-message-list]");
+  const count = card.querySelector("[data-portal-message-count]");
+  const carregar = async () => {
+    try {
+      const response = await fetch(`/v1/admin/leads/${lead.id}/portal-mensagens`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Não foi possível carregar as mensagens.");
+      const mensagens = data.mensagens || [];
+      count.textContent = `${mensagens.length} mensagem${mensagens.length === 1 ? "" : "s"}`;
+      list.innerHTML = mensagens.length ? mensagens.map(item => `<li class="lead-contact-entry ${item.autor_tipo === "cliente" ? "portal-message-client" : "portal-message-operator"}"><div><strong>${item.autor_tipo === "cliente" ? "Cliente" : "Atendimento"}</strong><time>${formatDate(item.criado_em)}</time></div><p>${escapeHtml(item.mensagem)}</p></li>`).join("") : "<li class=\"lead-contact-empty\">Nenhuma mensagem enviada pelo portal.</li>";
+      if (mensagens.some(item => item.autor_tipo === "cliente" && !item.lida_em)) fetch(`/v1/admin/leads/${lead.id}/portal-mensagens/ler`, { method: "POST" }).catch(() => {});
+    } catch (error) { list.innerHTML = `<li class="lead-contact-empty error">${escapeHtml(error.message)}</li>`; }
+  };
+  card.querySelector(".lead-portal-reply-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = event.currentTarget; const button = form.querySelector("button"); const status = form.querySelector(".portal-reply-status");
+    button.disabled = true; status.textContent = "Enviando…";
+    try {
+      const response = await fetch(`/v1/admin/leads/${lead.id}/portal-mensagens`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mensagem: form.elements.mensagem.value }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Não foi possível enviar a resposta.");
+      form.reset(); status.textContent = "Resposta enviada."; await carregar();
+    } catch (error) { status.textContent = error.message; } finally { button.disabled = false; }
+  });
+  await carregar();
+}
+
 async function openLead(id) {
   state.openLeadId = id;
   dialogContent.innerHTML = "<p>Carregando histórico…</p>";
@@ -421,6 +455,7 @@ async function openLead(id) {
         }
       });
     }).catch(error => { const mensagem = error.status === 403 ? "Sem permissão ou este lead não está sob sua responsabilidade." : error.status === 401 ? "Sua sessão expirou. Atualize a página e entre novamente." : (error.message || "Não foi possível verificar o acesso."); portalCard.innerHTML = `<strong>Portal do cliente</strong><p>${mensagem}</p>`; });
+    renderPortalMessages(lead);
   }
   const crmFormCard = dialogContent.querySelector("#lead-crm-form");
   const contactSummaryCard = dialogContent.querySelector(".lead-contact-summary");

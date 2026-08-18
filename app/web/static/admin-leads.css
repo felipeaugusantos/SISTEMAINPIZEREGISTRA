@@ -1043,3 +1043,11 @@ table.lead-docs select {
 .lead-portal-access .portal-credentials { display:flex; gap:8px; flex:1 1 100%; flex-wrap:wrap; }
 .lead-portal-access .portal-credentials label { display:flex; flex-direction:column; gap:4px; min-width:180px; flex:1; font-size:.78rem; color:var(--muted); }
 .lead-portal-access .portal-credentials input { width:100%; min-height:36px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); }
+.lead-portal-messages { margin-top:12px; }
+.lead-portal-messages .lead-contact-history { max-height:260px; overflow:auto; }
+.lead-portal-messages .portal-message-client { border-left:3px solid var(--forest); background:#f1f7f2; }
+.lead-portal-messages .portal-message-operator { border-left:3px solid var(--amber); background:#fffaf0; }
+.lead-portal-reply-form { display:grid; gap:8px; margin-top:12px; }
+.lead-portal-reply-form textarea { width:100%; box-sizing:border-box; min-height:72px; padding:10px 12px; border:1px solid var(--line); border-radius:9px; resize:vertical; font:inherit; }
+.lead-portal-reply-form > div { display:flex; align-items:center; gap:10px; }
+.portal-reply-status { color:var(--muted); font-size:.82rem; }

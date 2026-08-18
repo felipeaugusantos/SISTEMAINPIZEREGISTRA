@@ -39,6 +39,10 @@ class MensagemInput(BaseModel):
     mensagem: str = Field(min_length=1, max_length=4000)
 
 
+class MensagemOperadorInput(BaseModel):
+    mensagem: str = Field(min_length=1, max_length=4000)
+
+
 class RecuperacaoSolicitacao(BaseModel):
     email: EmailStr
 
@@ -214,6 +218,66 @@ async def alterar_acesso_cliente(cliente_id: int, ativo: bool, request: Request,
     _auditar_operador(session, usuario, request, "alterar_acesso_portal", f"cliente:{cliente.id}", {"ativo": ativo})
     await session.commit()
     return {"ok": True, "ativo": cliente.ativo}
+
+
+@router.get("/v1/admin/leads/{lead_id}/portal-mensagens")
+async def listar_mensagens_portal_admin(lead_id: int, session: SessionDep, usuario: ClientViewDep) -> dict:
+    lead = (await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    if lead.responsavel_id != usuario.id and usuario.perfil != "administrador" and not usuario.superadmin:
+        raise HTTPException(status_code=403, detail="Somente o responsável pelo atendimento pode consultar estas mensagens")
+    itens = (await session.execute(select(MensagemClientePortal).where(
+        MensagemClientePortal.lead_id == lead_id,
+        MensagemClientePortal.organizacao_id == usuario.organizacao_id,
+    ).order_by(MensagemClientePortal.criado_em))).scalars().all()
+    return {"mensagens": [{"id": item.id, "autor_tipo": item.autor_tipo, "mensagem": item.mensagem, "lida_em": item.lida_em, "criado_em": item.criado_em} for item in itens]}
+
+
+@router.post("/v1/admin/leads/{lead_id}/portal-mensagens", status_code=status.HTTP_201_CREATED)
+async def responder_mensagem_portal(lead_id: int, dados: MensagemOperadorInput, request: Request, session: SessionDep, usuario: ClientManageDep) -> dict:
+    lead = (await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    if lead.responsavel_id != usuario.id and usuario.perfil != "administrador" and not usuario.superadmin:
+        raise HTTPException(status_code=403, detail="Somente o responsável pelo atendimento pode responder")
+    cliente = (await session.execute(select(ClientePortal).where(
+        ClientePortal.lead_id == lead_id, ClientePortal.organizacao_id == usuario.organizacao_id,
+    ))).scalar_one_or_none()
+    if cliente is None:
+        raise HTTPException(status_code=404, detail="Este cliente ainda não possui acesso ao portal")
+    item = MensagemClientePortal(
+        organizacao_id=usuario.organizacao_id, lead_id=lead_id, cliente_id=cliente.id,
+        autor_tipo="operador", autor_id=usuario.id, mensagem=dados.mensagem.strip(),
+    )
+    session.add(item)
+    _auditar_operador(session, usuario, request, "responder_portal", f"lead:{lead_id}")
+    await session.commit()
+    return {"id": item.id}
+
+
+@router.post("/v1/admin/leads/{lead_id}/portal-mensagens/ler")
+async def marcar_mensagens_portal_lidas(lead_id: int, session: SessionDep, usuario: ClientManageDep) -> dict:
+    lead = (await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    if lead.responsavel_id != usuario.id and usuario.perfil != "administrador" and not usuario.superadmin:
+        raise HTTPException(status_code=403, detail="Somente o responsável pelo atendimento pode marcar mensagens")
+    cliente = (await session.execute(select(ClientePortal).where(
+        ClientePortal.lead_id == lead_id, ClientePortal.organizacao_id == usuario.organizacao_id,
+    ))).scalar_one_or_none()
+    if cliente is None:
+        return {"atualizadas": 0}
+    agora = datetime.now(UTC)
+    itens = (await session.execute(select(MensagemClientePortal).where(
+        MensagemClientePortal.cliente_id == cliente.id,
+        MensagemClientePortal.autor_tipo == "cliente",
+        MensagemClientePortal.lida_em.is_(None),
+    ))).scalars().all()
+    for item in itens:
+        item.lida_em = agora
+    await session.commit()
+    return {"atualizadas": len(itens)}
 
 
 @router.get("/v1/portal/resumo")

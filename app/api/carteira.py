@@ -980,10 +980,14 @@ async def cadastrar_manual(
     return {**resultado, "numero": processo.numero}
 
 
-COLUNAS_NUMERO = {"numero", "processo", "numeroprocesso", "nprocesso", "registro"}
-COLUNAS_EMPRESA = {"empresa", "cliente", "titular", "razaosocial"}
-COLUNAS_PROCURADOR = {"procurador", "agente", "escritorio"}
-COLUNAS_OBS = {"observacoes", "observacao", "obs", "notas"}
+# Fragmentos procurados dentro do nome normalizado da coluna (casamento por conteúdo,
+# não exato), para tolerar cabeçalhos como "Número do Processo", "Razão Social", etc.
+COLUNAS_NUMERO = ("processo", "numero", "registro")
+COLUNAS_EMPRESA = ("empresa", "cliente", "titular", "razaosocial")
+COLUNAS_PROCURADOR = ("procurador", "agente", "escritorio")
+COLUNAS_OBS = ("observ", "obs", "notas")
+# Cabeçalhos curtos exatos que também identificam o número (ex.: "Nº" -> "no").
+NUMERO_CURTO = {"no", "num", "n", "nprocesso"}
 TAMANHO_MAXIMO_IMPORTACAO = 5_000_000
 
 
@@ -998,6 +1002,10 @@ def _ler_planilha(conteudo: bytes, filename: str) -> list[dict[str, str]]:
     """Lê CSV ou XLSX e devolve uma lista de registros com chaves normalizadas."""
     nome = (filename or "").lower()
     linhas: list[list[str]] = []
+    if nome.endswith(".xls"):
+        raise HTTPException(
+            400, "Formato .xls (Excel antigo) não é suportado. Salve como .xlsx ou .csv."
+        )
     if nome.endswith((".xlsx", ".xlsm")):
         try:
             wb = load_workbook(io.BytesIO(conteudo), read_only=True, data_only=True)
@@ -1017,7 +1025,11 @@ def _ler_planilha(conteudo: bytes, filename: str) -> list[dict[str, str]]:
                 continue
         if texto is None:
             raise HTTPException(400, "Não foi possível ler o arquivo (codificação não suportada).")
-        delimitador = ";" if texto.count(";") > texto.count(",") else ","
+        primeira_linha = texto.splitlines()[0] if texto.splitlines() else ""
+        contagens = {sep: primeira_linha.count(sep) for sep in (";", "\t", ",")}
+        delimitador = (
+            max(contagens, key=lambda sep: contagens[sep]) if any(contagens.values()) else ","
+        )
         for linha in csv.reader(io.StringIO(texto), delimiter=delimitador):
             linhas.append([campo.strip() for campo in linha])
 
@@ -1031,9 +1043,19 @@ def _ler_planilha(conteudo: bytes, filename: str) -> list[dict[str, str]]:
     ]
 
 
-def _valor(registro: dict[str, str], chaves: set[str]) -> str | None:
+def _valor(registro: dict[str, str], fragmentos: tuple[str, ...]) -> str | None:
     for chave, valor in registro.items():
-        if chave in chaves and valor.strip():
+        if valor.strip() and any(fragmento in chave for fragmento in fragmentos):
+            return valor.strip()
+    return None
+
+
+def _numero_processo(registro: dict[str, str]) -> str | None:
+    numero = _valor(registro, COLUNAS_NUMERO)
+    if numero:
+        return numero
+    for chave, valor in registro.items():
+        if chave in NUMERO_CURTO and valor.strip():
             return valor.strip()
     return None
 
@@ -1068,13 +1090,19 @@ async def importar_carteira(
     linhas_validas: list[tuple[str, str, dict[str, str]]] = []
     sem_numero = 0
     for registro in registros:
-        numero = _valor(registro, COLUNAS_NUMERO)
+        numero = _numero_processo(registro)
         if not numero:
             sem_numero += 1
             continue
         linhas_validas.append((numero, normalizar_numero_processo(numero), registro))
     if not linhas_validas:
-        raise HTTPException(400, "Nenhuma linha com número de processo foi encontrada.")
+        colunas = ", ".join(chave for chave in registros[0] if chave) or "nenhuma"
+        raise HTTPException(
+            400,
+            "Nenhuma coluna com número de processo foi reconhecida. "
+            f"Colunas detectadas no arquivo: {colunas}. "
+            "Renomeie a coluna do número para 'numero' ou 'processo'.",
+        )
 
     normalizados = {norm for _, norm, _ in linhas_validas}
     processos = {

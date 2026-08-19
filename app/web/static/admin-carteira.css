@@ -54,3 +54,14 @@
 .portfolio-metric:hover{transform:translateY(-2px);border-color:#76a891;box-shadow:0 8px 20px #193b2917}
 .portfolio-metric:focus-visible{outline:3px solid #7bc4a5;outline-offset:2px}
 .portfolio-metric.is-active{border-color:#087252;background:#eef7f1;box-shadow:inset 0 0 0 1px #087252}
+
+/* Orientação de preenchimento da planilha de importação. */
+.import-guide{display:grid;gap:8px}
+.import-example-wrap{overflow-x:auto;border:1px solid #dce2dc;border-radius:10px}
+.import-example{width:100%;border-collapse:collapse;font-size:.78rem}
+.import-example th,.import-example td{padding:7px 10px;text-align:left;border-bottom:1px solid #e6ebe4;white-space:nowrap}
+.import-example thead th{background:#eef4ef;color:#2d5244;font-weight:800}
+.import-example th em{color:#8a6414;font-style:normal;font-weight:700;font-size:.72rem}
+.import-example tbody tr:last-child td{border-bottom:0}
+.import-example td:empty::after{content:"—";color:#b6bfb6}
+.import-guide>small{color:#66776e;font-size:.74rem;line-height:1.5}

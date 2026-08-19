@@ -177,7 +177,7 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
 
     assert "Pesquisar por procurador" in html
     assert "Cadastrar processo" in html
-    assert "admin-carteira.css?v=8" in html
+    assert "admin-carteira.css?v=9" in html
     assert "admin-carteira.js?v=13" in html
     assert "Incluir variações do nome" in html
     assert "titular" in javascript

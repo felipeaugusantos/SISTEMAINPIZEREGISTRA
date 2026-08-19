@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Processos monitorados — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=36">
-  <link rel="stylesheet" href="/static/admin-carteira.css?v=8">
+  <link rel="stylesheet" href="/static/admin-carteira.css?v=9">
   <script src="/static/admin-shell.js?v=36" defer></script>
   <script src="/static/admin-carteira.js?v=13" defer></script>
 </head>
@@ -71,7 +71,19 @@
   <dialog id="import-dialog" class="portfolio-dialog">
     <form id="import-form" method="dialog">
       <header><div><p class="eyebrow">IMPORTAÇÃO EM LOTE</p><h2>Importar carteira (CSV ou Excel)</h2></div><button id="close-import" type="button" aria-label="Fechar">×</button></header>
-      <p class="import-hint">O arquivo precisa de uma coluna <strong>numero</strong> (obrigatória). Colunas opcionais reconhecidas: <strong>empresa</strong>, <strong>procurador</strong> e <strong>observacoes</strong>. Números não encontrados na base RPI são reportados; duplicados já monitorados são ignorados.</p>
+      <div class="import-guide">
+        <p class="import-hint">Monte a planilha com estas colunas na <strong>primeira linha</strong> (uma linha por processo). Só <strong>numero</strong> é obrigatória:</p>
+        <div class="import-example-wrap">
+          <table class="import-example">
+            <thead><tr><th>numero <em>(obrigatória)</em></th><th>empresa</th><th>procurador</th><th>observacoes</th></tr></thead>
+            <tbody>
+              <tr><td>900123456</td><td>Padaria do Zé</td><td>Dr. Silva</td><td>marca principal</td></tr>
+              <tr><td>909876543</td><td>Loja Y Ltda</td><td></td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <small>Os nomes das colunas aceitam variações ("Nº", "Número do Processo", "Cliente", "Titular"…). Formatos: <strong>.csv</strong> ou <strong>.xlsx</strong>. Números não encontrados na base RPI são reportados; duplicados já monitorados são ignorados.</small>
+      </div>
       <label><span>Arquivo (.csv, .xlsx)</span><input id="import-file" name="arquivo" type="file" accept=".csv,.xlsx,.xlsm,text/csv" required></label>
       <label><span>Responsável (aplicado a todos)</span><select name="responsavel_id" id="import-owner"><option value="">Não atribuído</option></select></label>
       <div id="import-result" class="import-result" hidden></div>

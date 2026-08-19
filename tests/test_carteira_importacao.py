@@ -8,8 +8,24 @@ from app.api.carteira import (
     COLUNAS_OBS,
     _chave_coluna,
     _ler_planilha,
+    _numero_processo,
     _valor,
 )
+
+
+def test_numero_processo_tolera_cabecalhos_variados() -> None:
+    def primeira(conteudo: str) -> dict:
+        return _ler_planilha(conteudo.encode("utf-8"), "c.csv")[0]
+
+    assert _numero_processo(primeira("Número do Processo;Empresa\n900123456;X\n")) == "900123456"
+    assert _numero_processo(primeira("Nº;Cliente\n909111222;Y\n")) == "909111222"
+    assert _numero_processo(primeira("Nº do Processo,Empresa\n900333444,Z\n")) == "900333444"
+    assert _numero_processo(primeira("PROCESSO\tTITULAR\n900555666\tW\n")) == "900555666"
+
+
+def test_numero_processo_ausente_retorna_none() -> None:
+    registro = _ler_planilha(b"Marca;Titular\nCAFE;Fulano\n", "c.csv")[0]
+    assert _numero_processo(registro) is None
 
 
 def test_chave_coluna_remove_acento_e_maiuscula() -> None:

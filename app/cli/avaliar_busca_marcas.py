@@ -151,10 +151,8 @@ async def avaliar(
     latencias = [item["latencia_ms"] for item in resultados]
     agregado_por_k = {
         str(k): {
-            "recall": sum(item["metricas"][str(k)]["recall"] for item in resultados)
-            / len(resultados),
-            "precision": sum(item["metricas"][str(k)]["precision"] for item in resultados)
-            / len(resultados),
+            "recall": sum(item["metricas"][str(k)]["recall"] for item in resultados) / len(resultados),
+            "precision": sum(item["metricas"][str(k)]["precision"] for item in resultados) / len(resultados),
         }
         for k in KS_PADRAO
     }
@@ -170,16 +168,12 @@ async def avaliar(
             "p95": percentil(latencias, 0.95),
             "p99": percentil(latencias, 0.99),
         },
-        "falsos_negativos_criticos": sum(
-            len(item["falsos_negativos_criticos"]) for item in resultados
-        ),
+        "falsos_negativos_criticos": sum(len(item["falsos_negativos_criticos"]) for item in resultados),
         "limite_resultados": limite,
     }
 
 
-def avaliar_regressao(
-    atual: dict[str, Any], baseline: dict[str, Any], limites: dict[str, Any]
-) -> list[str]:
+def avaliar_regressao(atual: dict[str, Any], baseline: dict[str, Any], limites: dict[str, Any]) -> list[str]:
     falhas: list[str] = []
     tolerancias = limites["regressao_maxima"]
     criticos_atuais = int(atual.get("falsos_negativos_criticos", 0))
@@ -187,9 +181,7 @@ def avaliar_regressao(
     if criticos_atuais > int(limites.get("falsos_negativos_criticos_maximos", 0)):
         falhas.append(f"falsos negativos críticos: {criticos_atuais}")
     if criticos_atuais > criticos_baseline:
-        falhas.append(
-            f"novos falsos negativos críticos: baseline={criticos_baseline}, atual={criticos_atuais}"
-        )
+        falhas.append(f"novos falsos negativos críticos: baseline={criticos_baseline}, atual={criticos_atuais}")
     for k in KS_PADRAO:
         chave = str(k)
         for metrica in ("recall", "precision"):
@@ -199,9 +191,7 @@ def avaliar_regressao(
             # pode ser aplicada à precisão.
             tolerancia = 0.0 if metrica == "recall" else float(tolerancias[f"{metrica}_at_{k}"])
             if corrente < anterior - tolerancia:
-                falhas.append(
-                    f"{metrica}@{k} regrediu: baseline={anterior:.4f}, atual={corrente:.4f}"
-                )
+                falhas.append(f"{metrica}@{k} regrediu: baseline={anterior:.4f}, atual={corrente:.4f}")
     mrr_anterior = float(baseline["mrr"])
     mrr_atual = float(atual["mrr"])
     if mrr_atual < mrr_anterior - float(tolerancias["mrr"]):
@@ -223,9 +213,7 @@ def main() -> None:
     parser.add_argument("--gate", action="store_true")
     parser.add_argument("--permitir-pendente", action="store_true")
     args = parser.parse_args()
-    resultado = asyncio.run(
-        avaliar(args.arquivo, args.limite, permitir_pendente=args.permitir_pendente)
-    )
+    resultado = asyncio.run(avaliar(args.arquivo, args.limite, permitir_pendente=args.permitir_pendente))
     texto = json.dumps(resultado, ensure_ascii=False, indent=2)
     if args.saida:
         args.saida.write_text(texto + "\n", encoding="utf-8")

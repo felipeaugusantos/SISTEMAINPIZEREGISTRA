@@ -83,9 +83,7 @@ def analisar_registrabilidade(
     if previsao is None:
         motivos.append("modelo estatístico indisponível")
     elif cobertura < COBERTURA_MINIMA:
-        motivos.append(
-            f"cobertura conjunta de {round(cobertura * 100)}% abaixo do mínimo de 60%"
-        )
+        motivos.append(f"cobertura conjunta de {round(cobertura * 100)}% abaixo do mínimo de 60%")
 
     abstencao = previsao is None or cobertura < COBERTURA_MINIMA
     if abstencao:
@@ -276,11 +274,7 @@ async def reprocessar_agentes_pendentes(
 ) -> dict[str, int | str]:
     """Preenche pesquisas que têm relatório, mas ainda não possuem execução do agente."""
     consulta = select(PesquisaMarca).where(
-        exists(
-            select(VersaoRelatorioMarca.id).where(
-                VersaoRelatorioMarca.pesquisa_id == PesquisaMarca.id
-            )
-        ),
+        exists(select(VersaoRelatorioMarca.id).where(VersaoRelatorioMarca.pesquisa_id == PesquisaMarca.id)),
         ~exists(
             select(ExecucaoAgenteRegistrabilidade.id).where(
                 ExecucaoAgenteRegistrabilidade.pesquisa_id == PesquisaMarca.id
@@ -289,9 +283,7 @@ async def reprocessar_agentes_pendentes(
     )
     if organizacao_id is not None:
         consulta = consulta.where(PesquisaMarca.organizacao_id == organizacao_id)
-    pesquisas = list(
-        (await session.execute(consulta.order_by(PesquisaMarca.criado_em))).scalars().all()
-    )
+    pesquisas = list((await session.execute(consulta.order_by(PesquisaMarca.criado_em))).scalars().all())
 
     processadas = 0
     for pesquisa in pesquisas:
@@ -336,17 +328,13 @@ def execucao_para_dict(execucao: ExecucaoAgenteRegistrabilidade) -> dict[str, An
     }
 
 
-async def reconciliar_resultados_reais(
-    session: AsyncSession, *, organizacao_id: int | None = None
-) -> dict[str, int]:
+async def reconciliar_resultados_reais(session: AsyncSession, *, organizacao_id: int | None = None) -> dict[str, int]:
     consulta = select(ExecucaoAgenteRegistrabilidade).where(
         ExecucaoAgenteRegistrabilidade.numero_pedido.is_not(None),
         ExecucaoAgenteRegistrabilidade.resultado_real.is_(None),
     )
     if organizacao_id is not None:
-        consulta = consulta.where(
-            ExecucaoAgenteRegistrabilidade.organizacao_id == organizacao_id
-        )
+        consulta = consulta.where(ExecucaoAgenteRegistrabilidade.organizacao_id == organizacao_id)
     execucoes = list((await session.execute(consulta)).scalars())
     encontrados = 0
     concluidos = 0
@@ -355,9 +343,7 @@ async def reconciliar_resultados_reais(
         if not numero:
             continue
         processo = (
-            await session.execute(
-                select(Processo).where(Processo.numero_normalizado == numero).limit(1)
-            )
+            await session.execute(select(Processo).where(Processo.numero_normalizado == numero).limit(1))
         ).scalar_one_or_none()
         if processo is None:
             continue

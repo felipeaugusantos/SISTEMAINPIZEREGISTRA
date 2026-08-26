@@ -91,7 +91,6 @@ def construir_conclusao(itens: list[object], total: int) -> tuple[str, str, str,
     return (
         "nenhuma_ocorrencia",
         "Nenhuma ocorrência foi localizada pelos critérios aplicados",
-        "Isso não significa disponibilidade ou garantia de registro; "
-        "outras análises podem ser necessárias.",
+        "Isso não significa disponibilidade ou garantia de registro; outras análises podem ser necessárias.",
         False,
     )

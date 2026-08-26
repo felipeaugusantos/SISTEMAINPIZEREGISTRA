@@ -33,9 +33,7 @@ def avaliar_saude_rpi(
     if ultima_rpi_oficial is not None and ultima_rpi_importada < ultima_rpi_oficial:
         motivos.append("A edição oficial mais recente ainda não foi importada.")
     if idade_horas is not None and idade_horas > limite_atraso_horas:
-        motivos.append(
-            f"A última importação tem {idade_horas:.1f} horas; limite de {limite_atraso_horas:.1f}."
-        )
+        motivos.append(f"A última importação tem {idade_horas:.1f} horas; limite de {limite_atraso_horas:.1f}.")
     if motivos:
         return "atrasado", idade_horas, motivos
     return "ok", idade_horas, motivos

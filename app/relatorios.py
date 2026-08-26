@@ -36,9 +36,7 @@ _COR_CABECALHO_ESCURO = colors.HexColor("#1F6C34")
 _COR_MENTA = colors.HexColor("#E8F5E9")
 _COR_LINHA = colors.HexColor("#E4E8E5")
 _COR_ALTERNADA = colors.HexColor("#F5F7F5")
-_CAMINHO_PERSONAGEM = (
-    Path(__file__).resolve().parent / "web" / "static" / "assets" / "personagem.png"
-)
+_CAMINHO_PERSONAGEM = Path(__file__).resolve().parent / "web" / "static" / "assets" / "personagem.png"
 _FUSO_BRASILIA = ZoneInfo("America/Sao_Paulo")
 
 _DISCLAIMER = (
@@ -52,14 +50,34 @@ _DISCLAIMER = (
 def gerar_pdf_proposta(proposta: dict) -> bytes:
     """Gera a proposta com o modelo institucional dinâmico da Zé Registra."""
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15 * mm, leftMargin=15 * mm,
-                            topMargin=12 * mm, bottomMargin=14 * mm,
-                            title=f"Proposta {proposta.get('numero', '')}", author="Zé Registra")
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=15 * mm,
+        leftMargin=15 * mm,
+        topMargin=12 * mm,
+        bottomMargin=14 * mm,
+        title=f"Proposta {proposta.get('numero', '')}",
+        author="Zé Registra",
+    )
     estilos = _estilos()
     corpo = ParagraphStyle("proposta_modelo_corpo", parent=estilos["sub"], fontSize=9, leading=12, textColor=_COR_TINTA)
-    secao = ParagraphStyle("proposta_modelo_secao", parent=estilos["secao"], fontSize=10, leading=12, spaceBefore=6, spaceAfter=5)
+    secao = ParagraphStyle(
+        "proposta_modelo_secao",
+        parent=estilos["secao"],
+        fontSize=10,
+        leading=12,
+        spaceBefore=6,
+        spaceAfter=5,
+    )
     valor = ParagraphStyle("proposta_modelo_valor", parent=estilos["marca"], fontSize=15, leading=17)
-    rodape = ParagraphStyle("proposta_modelo_rodape", parent=estilos["sub"], fontSize=7.5, leading=9, alignment=TA_CENTER)
+    rodape = ParagraphStyle(
+        "proposta_modelo_rodape",
+        parent=estilos["sub"],
+        fontSize=7.5,
+        leading=9,
+        alignment=TA_CENTER,
+    )
     branco = ParagraphStyle("proposta_modelo_branco", parent=corpo, textColor=colors.white)
     branco_valor = ParagraphStyle("proposta_modelo_branco_valor", parent=valor, textColor=colors.white)
     configuracao = proposta.get("configuracao", {}) or {}
@@ -72,51 +90,303 @@ def gerar_pdf_proposta(proposta: dict) -> bytes:
         return f"R$ {float(valor_numerico or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     marcas = proposta.get("pesquisas") or [{"marca": proposta.get("marca"), "classes": proposta.get("classes")}]
-    marca_rows = [[p(f"MARCA {i:02d}", estilos["rotulo"]), p(item.get("marca") or "A definir", valor)] for i, item in enumerate(marcas, 1)]
-    marca_rows.append([p("CLASSES NICE", estilos["rotulo"]), p("; ".join(str(item.get("classes") or "A definir") for item in marcas))])
+    marca_rows = [
+        [p(f"MARCA {i:02d}", estilos["rotulo"]), p(item.get("marca") or "A definir", valor)]
+        for i, item in enumerate(marcas, 1)
+    ]
+    marca_rows.append(
+        [
+            p("CLASSES NICE", estilos["rotulo"]),
+            p("; ".join(str(item.get("classes") or "A definir") for item in marcas)),
+        ]
+    )
     marcas_box = Table(marca_rows, colWidths=[27 * mm, 45 * mm])
-    marcas_box.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), .7, _COR_CABECALHO), ("INNERGRID", (0, 0), (-1, -1), .35, _COR_LINHA), ("LEFTPADDING", (0, 0), (-1, -1), 7), ("RIGHTPADDING", (0, 0), (-1, -1), 7), ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
-    investimento = Table([[p("Honorários Zé Registra"), p(moeda(proposta.get("honorarios")))], [p("Taxas oficiais do INPI (GRU)"), p(moeda(proposta.get("taxa_gru")))], [p("TOTAL À VISTA", estilos["marca"]), p(moeda(proposta.get("total")), valor)]], colWidths=[103 * mm, 45 * mm])
-    investimento.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), _COR_MENTA), ("BOX", (0, 0), (-1, -1), .7, _COR_CABECALHO), ("LINEBELOW", (0, 1), (-1, 1), .35, _COR_CABECALHO), ("ALIGN", (1, 0), (1, -1), "RIGHT"), ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
-    investimento_resumo = Table([[p("Honorários"), p(moeda(proposta.get("honorarios")))], [p("Taxas INPI"), p(moeda(proposta.get("taxa_gru")))], [p("Total", estilos["marca"]), p(moeda(proposta.get("total")), estilos["marca"])]], colWidths=[28 * mm, 18 * mm])
-    investimento_resumo.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), _COR_MENTA), ("BOX", (0, 0), (-1, -1), .7, _COR_CABECALHO), ("ALIGN", (1, 0), (1, -1), "RIGHT"), ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4), ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
-    prazo = configuracao.get("prazo_texto") or "Após o aceite, confirmação do pagamento e recebimento integral dos documentos, protocolamos em até 24 horas úteis, salvo pendências ou indisponibilidade dos sistemas oficiais do INPI."
-    condicoes = configuracao.get("condicoes_texto") or "O protocolo não representa garantia de concessão. A decisão final pertence ao INPI e a análise é indicativa."
-    cabecalho = Table([[p("Zé Registra", branco_valor), p(f"PROPOSTA COMERCIAL\nNº {proposta.get('numero', '')}\nVersão {proposta.get('versao', 1)}", branco)]], colWidths=[100 * mm, 48 * mm])
-    cabecalho.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), _COR_CABECALHO_ESCURO), ("TEXTCOLOR", (0, 0), (-1, -1), colors.white), ("ALIGN", (1, 0), (1, 0), "RIGHT"), ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10), ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
+    marcas_box.setStyle(
+        TableStyle(
+            [
+                ("BOX", (0, 0), (-1, -1), 0.7, _COR_CABECALHO),
+                ("INNERGRID", (0, 0), (-1, -1), 0.35, _COR_LINHA),
+                ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    investimento = Table(
+        [
+            [p("Honorários Zé Registra"), p(moeda(proposta.get("honorarios")))],
+            [p("Taxas oficiais do INPI (GRU)"), p(moeda(proposta.get("taxa_gru")))],
+            [p("TOTAL À VISTA", estilos["marca"]), p(moeda(proposta.get("total")), valor)],
+        ],
+        colWidths=[103 * mm, 45 * mm],
+    )
+    investimento.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), _COR_MENTA),
+                ("BOX", (0, 0), (-1, -1), 0.7, _COR_CABECALHO),
+                ("LINEBELOW", (0, 1), (-1, 1), 0.35, _COR_CABECALHO),
+                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    investimento_resumo = Table(
+        [
+            [p("Honorários"), p(moeda(proposta.get("honorarios")))],
+            [p("Taxas INPI"), p(moeda(proposta.get("taxa_gru")))],
+            [p("Total", estilos["marca"]), p(moeda(proposta.get("total")), estilos["marca"])],
+        ],
+        colWidths=[28 * mm, 18 * mm],
+    )
+    investimento_resumo.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), _COR_MENTA),
+                ("BOX", (0, 0), (-1, -1), 0.7, _COR_CABECALHO),
+                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    prazo = (
+        configuracao.get("prazo_texto")
+        or "Após o aceite, confirmação do pagamento e recebimento integral dos documentos, protocolamos em até 24 horas úteis, salvo pendências ou indisponibilidade dos sistemas oficiais do INPI."
+    )
+    condicoes = (
+        configuracao.get("condicoes_texto")
+        or "O protocolo não representa garantia de concessão. A decisão final pertence ao INPI e a análise é indicativa."
+    )
+    cabecalho = Table(
+        [
+            [
+                p("Zé Registra", branco_valor),
+                p(
+                    f"PROPOSTA COMERCIAL\nNº {proposta.get('numero', '')}\nVersão {proposta.get('versao', 1)}",
+                    branco,
+                ),
+            ]
+        ],
+        colWidths=[100 * mm, 48 * mm],
+    )
+    cabecalho.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), _COR_CABECALHO_ESCURO),
+                ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
+                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
     prazo_box = Table([[p("Em até 24 horas úteis", branco_valor)], [p(prazo, branco)]], colWidths=[48 * mm])
-    prazo_box.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), _COR_CABECALHO_ESCURO), ("TEXTCOLOR", (0, 0), (-1, -1), colors.white), ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
-    destaque = Table([[p("Zé Registra", branco_valor)], [p("Vamos proteger suas marcas com transparência e agilidade.", branco)]], colWidths=[151 * mm])
-    destaque.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), _COR_CABECALHO_ESCURO), ("TEXTCOLOR", (0, 0), (-1, -1), colors.white), ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10), ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7)]))
-    estrategia = Table([[p("O cenário ideal é registrar o nome com o logotipo. O escopo desta proposta contempla as marcas e classes indicadas acima."),], [p("✓  Registro e acompanhamento do pedido no INPI")], [p("✓  Orientação documental e protocolo após aceite e pagamento")]], colWidths=[103 * mm])
-    estrategia.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F0F8F1")), ("BOX", (0, 0), (-1, -1), .7, colors.HexColor("#B8DEBD")), ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7)]))
-    pagamento = Table([[p("PARCELADO", estilos["rotulo"]), p("À VISTA", branco)], [p(moeda(proposta.get("total")), valor), p(moeda(proposta.get("total")), branco_valor)], [p("Em até 10x no cartão"), p("Via Pix", branco)]], colWidths=[24 * mm, 24 * mm])
-    pagamento.setStyle(TableStyle([("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F5F5F5")), ("BACKGROUND", (1, 0), (1, -1), _COR_CABECALHO_ESCURO), ("TEXTCOLOR", (1, 0), (1, -1), colors.white), ("BOX", (0, 0), (-1, -1), .7, _COR_LINHA), ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7)]))
+    prazo_box.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), _COR_CABECALHO_ESCURO),
+                ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
+    destaque = Table(
+        [
+            [p("Zé Registra", branco_valor)],
+            [p("Vamos proteger suas marcas com transparência e agilidade.", branco)],
+        ],
+        colWidths=[151 * mm],
+    )
+    destaque.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), _COR_CABECALHO_ESCURO),
+                ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    estrategia = Table(
+        [
+            [
+                p(
+                    "O cenário ideal é registrar o nome com o logotipo. O escopo desta proposta contempla as marcas e classes indicadas acima."
+                ),
+            ],
+            [p("✓  Registro e acompanhamento do pedido no INPI")],
+            [p("✓  Orientação documental e protocolo após aceite e pagamento")],
+        ],
+        colWidths=[103 * mm],
+    )
+    estrategia.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F0F8F1")),
+                ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#B8DEBD")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    pagamento = Table(
+        [
+            [p("PARCELADO", estilos["rotulo"]), p("À VISTA", branco)],
+            [p(moeda(proposta.get("total")), valor), p(moeda(proposta.get("total")), branco_valor)],
+            [p("Em até 10x no cartão"), p("Via Pix", branco)],
+        ],
+        colWidths=[24 * mm, 24 * mm],
+    )
+    pagamento.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F5F5F5")),
+                ("BACKGROUND", (1, 0), (1, -1), _COR_CABECALHO_ESCURO),
+                ("TEXTCOLOR", (1, 0), (1, -1), colors.white),
+                ("BOX", (0, 0), (-1, -1), 0.7, _COR_LINHA),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
     # Ajuste de proporções para a composição em duas colunas do modelo de referência.
     prazo_box = Table([[p("Prazo de protocolo", branco_valor)], [p(prazo, branco)]], colWidths=[72 * mm])
-    prazo_box.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), _COR_CABECALHO_ESCURO), ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
-    estrategia = Table([[p("O escopo desta proposta contempla as marcas e classes indicadas acima.")], [p("Registro e acompanhamento do pedido no INPI")], [p("Orientação documental e protocolo após aceite e pagamento")]], colWidths=[72 * mm])
-    estrategia.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F0F8F1")), ("BOX", (0, 0), (-1, -1), .7, colors.HexColor("#B8DEBD")), ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7)]))
-    pagamento = Table([[p("PARCELADO", estilos["rotulo"]), p("À VISTA", branco)], [p(moeda(proposta.get("total")), valor), p(moeda(proposta.get("total")), branco_valor)], [p("Em até 10x no cartão"), p("Via Pix", branco)]], colWidths=[36 * mm, 36 * mm])
-    pagamento.setStyle(TableStyle([("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F5F5F5")), ("BACKGROUND", (1, 0), (1, -1), _COR_CABECALHO_ESCURO), ("BOX", (0, 0), (-1, -1), .7, _COR_LINHA), ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7)]))
-    investimento_resumo = Table([[p("Honorários"), p(moeda(proposta.get("honorarios")))], [p("Taxas INPI"), p(moeda(proposta.get("taxa_gru")))], [p("Total", estilos["marca"]), p(moeda(proposta.get("total")), estilos["marca"])]], colWidths=[45 * mm, 27 * mm])
-    investimento_resumo.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), _COR_MENTA), ("BOX", (0, 0), (-1, -1), .7, _COR_CABECALHO), ("ALIGN", (1, 0), (1, -1), "RIGHT"), ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4), ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
+    prazo_box.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), _COR_CABECALHO_ESCURO),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
+    estrategia = Table(
+        [
+            [p("O escopo desta proposta contempla as marcas e classes indicadas acima.")],
+            [p("Registro e acompanhamento do pedido no INPI")],
+            [p("Orientação documental e protocolo após aceite e pagamento")],
+        ],
+        colWidths=[72 * mm],
+    )
+    estrategia.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F0F8F1")),
+                ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#B8DEBD")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    pagamento = Table(
+        [
+            [p("PARCELADO", estilos["rotulo"]), p("À VISTA", branco)],
+            [p(moeda(proposta.get("total")), valor), p(moeda(proposta.get("total")), branco_valor)],
+            [p("Em até 10x no cartão"), p("Via Pix", branco)],
+        ],
+        colWidths=[36 * mm, 36 * mm],
+    )
+    pagamento.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F5F5F5")),
+                ("BACKGROUND", (1, 0), (1, -1), _COR_CABECALHO_ESCURO),
+                ("BOX", (0, 0), (-1, -1), 0.7, _COR_LINHA),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    investimento_resumo = Table(
+        [
+            [p("Honorários"), p(moeda(proposta.get("honorarios")))],
+            [p("Taxas INPI"), p(moeda(proposta.get("taxa_gru")))],
+            [p("Total", estilos["marca"]), p(moeda(proposta.get("total")), estilos["marca"])],
+        ],
+        colWidths=[45 * mm, 27 * mm],
+    )
+    investimento_resumo.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), _COR_MENTA),
+                ("BOX", (0, 0), (-1, -1), 0.7, _COR_CABECALHO),
+                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
     story = [
         cabecalho,
         Spacer(1, 5 * mm),
-        p(f"Olá, {cliente.get('nome') or 'cliente'} — preparamos tudo para proteger suas marcas!", estilos["marca"]),
+        p(
+            f"Olá, {cliente.get('nome') or 'cliente'} — preparamos tudo para proteger suas marcas!",
+            estilos["marca"],
+        ),
         Spacer(1, 2 * mm),
-        p(f"Prezado(a) {cliente.get('nome') or 'cliente'}, apresentamos a proposta da Zé Registra para garantir a exclusividade e a segurança jurídica das suas marcas junto ao INPI."),
+        p(
+            f"Prezado(a) {cliente.get('nome') or 'cliente'}, apresentamos a proposta da Zé Registra para garantir a exclusividade e a segurança jurídica das suas marcas junto ao INPI."
+        ),
         Spacer(1, 4 * mm),
-        Table([[p("1  ESCOPO DO PROJETO", secao), p("3  PRAZO DE PROTOCOLO", secao)], [marcas_box, prazo_box], [p("2  ESCOPO E ESTRATÉGIA", secao), p("4  INVESTIMENTO E PAGAMENTO", secao)], [estrategia, Table([[pagamento], [investimento_resumo]], colWidths=[72 * mm])]], colWidths=[74 * mm, 77 * mm], style=TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 5)])),
+        Table(
+            [
+                [p("1  ESCOPO DO PROJETO", secao), p("3  PRAZO DE PROTOCOLO", secao)],
+                [marcas_box, prazo_box],
+                [p("2  ESCOPO E ESTRATÉGIA", secao), p("4  INVESTIMENTO E PAGAMENTO", secao)],
+                [estrategia, Table([[pagamento], [investimento_resumo]], colWidths=[72 * mm])],
+            ],
+            colWidths=[74 * mm, 77 * mm],
+            style=TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ]
+            ),
+        ),
         Spacer(1, 3 * mm),
-        p(proposta.get("condicoes_pagamento") or "Pagamento à vista via Pix ou parcelado no cartão, conforme condições comerciais."),
+        p(
+            proposta.get("condicoes_pagamento")
+            or "Pagamento à vista via Pix ou parcelado no cartão, conforme condições comerciais."
+        ),
         p("Após o envio da documentação e confirmação do pagamento, iniciamos o protocolo junto ao INPI."),
         Spacer(1, 4 * mm),
         destaque,
         Spacer(1, 3 * mm),
         p(condicoes, rodape),
-        p(configuracao.get("rodape") or "Esta proposta foi gerada pelo Zé Registra e possui versão auditável no sistema.", rodape),
+        p(
+            configuracao.get("rodape")
+            or "Esta proposta foi gerada pelo Zé Registra e possui versão auditável no sistema.",
+            rodape,
+        ),
     ]
     doc.build(story)
     return buffer.getvalue()
@@ -150,16 +420,25 @@ def _gerar_pdf_proposta_legado(proposta: dict) -> bytes:
     )
     empresa = proposta.get("empresa", {})
     configuracao = proposta.get("configuracao", {}) or {}
+
     def p(texto: object, estilo: str = "proposta_corpo") -> Paragraph:
         return Paragraph(escape(str(texto or "")).replace("\n", "<br/>"), estilos[estilo])
 
     story = [
-        ReportImage(str(_CAMINHO_PERSONAGEM.parent / "logo-zeregistra.png"), width=58 * mm, height=15 * mm, kind="proportional"),
+        ReportImage(
+            str(_CAMINHO_PERSONAGEM.parent / "logo-zeregistra.png"),
+            width=58 * mm,
+            height=15 * mm,
+            kind="proportional",
+        ),
         Spacer(1, 4 * mm),
         p(configuracao.get("titulo") or "PROPOSTA DE REGISTRO DE MARCA", "proposta_titulo"),
         p(empresa.get("nome", "Zé Registra"), "marca"),
         p(" · ".join(filter(None, [empresa.get("cnpj"), empresa.get("endereco")])), "sub"),
-        p(" · ".join(filter(None, [empresa.get("telefone"), empresa.get("email"), empresa.get("site")])), "sub"),
+        p(
+            " · ".join(filter(None, [empresa.get("telefone"), empresa.get("email"), empresa.get("site")])),
+            "sub",
+        ),
         Spacer(1, 10 * mm),
         p(f"Proposta {proposta.get('numero', '')} · Versão {proposta.get('versao', 1)}", "sub"),
         p("1. Objeto", "proposta_secao"),
@@ -172,24 +451,60 @@ def _gerar_pdf_proposta_legado(proposta: dict) -> bytes:
     if len(itens_portfolio) > 1:
         story.extend([p("3. Marcas incluídas", "proposta_secao")])
         for indice, item in enumerate(itens_portfolio, 1):
-            story.append(p(f"{indice}. {item.get('marca') or 'Marca a definir'} — Classes Nice: {item.get('classes') or 'A definir'}"))
+            story.append(
+                p(
+                    f"{indice}. {item.get('marca') or 'Marca a definir'} — Classes Nice: {item.get('classes') or 'A definir'}"
+                )
+            )
     valores = [
         [p("Item", "sub"), p("Valor", "sub")],
-        [p("Honorários profissionais"), p(f"R$ {proposta.get('honorarios') or 0:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))],
-        [p("Taxa oficial GRU estimada"), p(f"R$ {proposta.get('taxa_gru') or 0:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))],
-        [p("Total estimado"), p(f"R$ {proposta.get('total') or 0:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))],
+        [
+            p("Honorários profissionais"),
+            p(f"R$ {proposta.get('honorarios') or 0:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")),
+        ],
+        [
+            p("Taxa oficial GRU estimada"),
+            p(f"R$ {proposta.get('taxa_gru') or 0:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")),
+        ],
+        [
+            p("Total estimado"),
+            p(f"R$ {proposta.get('total') or 0:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")),
+        ],
     ]
     tabela = Table(valores, colWidths=[125 * mm, 40 * mm])
-    tabela.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), _COR_MENTA),
-        ("GRID", (0, 0), (-1, -1), 0.5, _COR_LINHA),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-    ]))
-    story.extend([tabela, p("4. Condições de pagamento", "proposta_secao"), p(proposta.get("condicoes_pagamento") or "A combinar"), p("5. Prazo operacional", "proposta_secao"), p("Após o aceite, confirmação do pagamento e recebimento integral dos documentos, o protocolo será realizado em até 24 horas úteis, salvo pendências ou indisponibilidade dos sistemas oficiais do INPI."), p("6. Condições importantes", "proposta_secao"), p("O protocolo não representa garantia de concessão. A decisão final pertence ao INPI. A pesquisa e a análise são indicativas e não substituem exame oficial ou análise jurídica especializada."), Spacer(1, 8 * mm), p("Esta proposta foi gerada pelo Zé Registra e possui versão auditável no sistema.", "proposta_rodape")])
+    tabela.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), _COR_MENTA),
+                ("GRID", (0, 0), (-1, -1), 0.5, _COR_LINHA),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    story.extend(
+        [
+            tabela,
+            p("4. Condições de pagamento", "proposta_secao"),
+            p(proposta.get("condicoes_pagamento") or "A combinar"),
+            p("5. Prazo operacional", "proposta_secao"),
+            p(
+                "Após o aceite, confirmação do pagamento e recebimento integral dos documentos, o protocolo será realizado em até 24 horas úteis, salvo pendências ou indisponibilidade dos sistemas oficiais do INPI."
+            ),
+            p("6. Condições importantes", "proposta_secao"),
+            p(
+                "O protocolo não representa garantia de concessão. A decisão final pertence ao INPI. A pesquisa e a análise são indicativas e não substituem exame oficial ou análise jurídica especializada."
+            ),
+            Spacer(1, 8 * mm),
+            p(
+                "Esta proposta foi gerada pelo Zé Registra e possui versão auditável no sistema.",
+                "proposta_rodape",
+            ),
+        ]
+    )
     if configuracao:
         story[-5] = p(configuracao.get("prazo_texto"), "proposta_corpo")
         story[-3] = p(configuracao.get("condicoes_texto"), "proposta_corpo")
@@ -359,15 +674,10 @@ def _celula_marca(item: MarcaRelatorioItem, estilos: dict[str, ParagraphStyle]) 
     if marcadores:
         conteudo.append(Paragraph(_texto(" · ".join(marcadores)), estilos["celula_menor"]))
     if item.fatores_score_busca:
-        fatores = " · ".join(
-            f"{fator.regra}: +{fator.peso:g}" for fator in item.fatores_score_busca[:3]
-        )
+        fatores = " · ".join(f"{fator.regra}: +{fator.peso:g}" for fator in item.fatores_score_busca[:3])
         conteudo.append(
             Paragraph(
-                _texto(
-                    f"Score de busca {item.score_busca:g}/100 ({item.score_busca_versao}) · "
-                    f"{fatores}"
-                ),
+                _texto(f"Score de busca {item.score_busca:g}/100 ({item.score_busca_versao}) · {fatores}"),
                 estilos["celula_menor"],
             )
         )
@@ -402,9 +712,7 @@ def _celula_processo(item: MarcaRelatorioItem, estilos: dict[str, ParagraphStyle
     return conteudo
 
 
-def gerar_pdf_relatorio(
-    relatorio: RelatorioMarcaResponse, *, incluir_ocorrencias: bool = True
-) -> bytes:
+def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencias: bool = True) -> bytes:
     """Monta o PDF do relatório de marcas e devolve os bytes.
 
     O resumo entregue ao cliente usa ``incluir_ocorrencias=False`` e termina
@@ -591,8 +899,7 @@ def gerar_pdf_relatorio(
         }
         story.append(Paragraph("Triagem determinística de registrabilidade", estilos["secao"]))
         motivos = "".join(
-            f"• <b>{_texto(item.criterio)}:</b> {_texto(item.conclusao)} "
-            f"({_texto(item.referencia)})<br/>"
+            f"• <b>{_texto(item.criterio)}:</b> {_texto(item.conclusao)} ({_texto(item.referencia)})<br/>"
             for item in prognostico.motivos
         )
         pendencias = " · ".join(_texto(item) for item in prognostico.pendencias)
@@ -604,8 +911,7 @@ def gerar_pdf_relatorio(
         }
         cor = cores_veredito.get(prognostico.veredito, "#10251d")
         partes = [
-            f'<b><font color="{cor}">Leitura técnica: {tendencia}</font></b> — '
-            f"{_texto(prognostico.titulo)}<br/>",
+            f'<b><font color="{cor}">Leitura técnica: {tendencia}</font></b> — {_texto(prognostico.titulo)}<br/>',
             f"{_texto(prognostico.resumo)}<br/>",
         ]
         if motivos:
@@ -620,8 +926,7 @@ def gerar_pdf_relatorio(
         status_qualidade = _rotulo_enum(qualidade.status).title()
         story.append(Paragraph("Qualidade e cobertura da base", estilos["secao"]))
         cobertura = (
-            f"{_formatar_data(qualidade.deposito_mais_antigo)} a "
-            f"{_formatar_data(qualidade.deposito_mais_recente)}"
+            f"{_formatar_data(qualidade.deposito_mais_antigo)} a {_formatar_data(qualidade.deposito_mais_recente)}"
         )
         story.append(
             Paragraph(
@@ -658,8 +963,7 @@ def gerar_pdf_relatorio(
             termos = ", ".join(classe.termos_encontrados) or "—"
             story.append(
                 Paragraph(
-                    f"<b>Classe {_texto(classe.codigo)}</b> — "
-                    f"{_texto(classe.titulo)} ({_texto(classe.tipo)})",
+                    f"<b>Classe {_texto(classe.codigo)}</b> — {_texto(classe.titulo)} ({_texto(classe.tipo)})",
                     estilos["celula"],
                 )
             )

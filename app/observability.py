@@ -95,9 +95,7 @@ async def _registrar(
     recurso = _recurso(request)
     componente = _componente(request.url.path)
     leitura_monitoramento = request.method == "GET" and request.url.path == "/v1/admin/rpi"
-    administrativo = (
-        request.url.path.startswith(("/admin", "/v1/admin")) and not leitura_monitoramento
-    )
+    administrativo = request.url.path.startswith(("/admin", "/v1/admin")) and not leitura_monitoramento
     if componente is None and not administrativo:
         return
     try:
@@ -210,9 +208,7 @@ async def observar_requisicao(request: Request, call_next: CallNext) -> Response
                 {
                     "event": "HTTP_REQUEST_COMPLETED",
                     "request_id": request_id_valor,
-                    "organization_id": getattr(
-                        getattr(request.state, "auth_user", None), "organizacao_id", None
-                    ),
+                    "organization_id": getattr(getattr(request.state, "auth_user", None), "organizacao_id", None),
                     "user_id": getattr(getattr(request.state, "auth_user", None), "id", None),
                     "method": request.method,
                     "path": _recurso(request),

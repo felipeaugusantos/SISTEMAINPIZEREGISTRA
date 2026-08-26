@@ -41,14 +41,10 @@ async def obter_fase2(session: SessionDep, _: AdminDep) -> Fase2AdminResponse:
 
     alto_renome_vigentes = (
         await session.execute(
-            select(func.count())
-            .select_from(MarcaAltoRenome)
-            .where(MarcaAltoRenome.vigente.is_(True))
+            select(func.count()).select_from(MarcaAltoRenome).where(MarcaAltoRenome.vigente.is_(True))
         )
     ).scalar_one()
-    alto_renome_atualizado_em = (
-        await session.execute(select(func.max(MarcaAltoRenome.sincronizado_em)))
-    ).scalar_one()
+    alto_renome_atualizado_em = (await session.execute(select(func.max(MarcaAltoRenome.sincronizado_em)))).scalar_one()
     return Fase2AdminResponse(
         alto_renome_vigentes=alto_renome_vigentes,
         alto_renome_atualizado_em=alto_renome_atualizado_em,

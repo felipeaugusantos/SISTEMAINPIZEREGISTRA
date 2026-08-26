@@ -23,9 +23,7 @@ from app.security import exigir_token_integracao
 from tests.conftest import FakeResult, sessao_override
 
 
-def _relatorio_exemplo(
-    *, com_itens: bool = True, com_prognostico: bool = False
-) -> RelatorioMarcaResponse:
+def _relatorio_exemplo(*, com_itens: bool = True, com_prognostico: bool = False) -> RelatorioMarcaResponse:
     itens = []
     if com_itens:
         itens.append(

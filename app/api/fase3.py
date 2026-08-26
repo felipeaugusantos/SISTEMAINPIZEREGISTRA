@@ -27,9 +27,7 @@ def _item(
     pesquisa: PesquisaMarca,
     lead: Lead,
 ) -> AvaliacaoRiscoAdminItem:
-    concordancia = (
-        avaliacao.nivel == avaliacao.nivel_humano if avaliacao.nivel_humano is not None else None
-    )
+    concordancia = avaliacao.nivel == avaliacao.nivel_humano if avaliacao.nivel_humano is not None else None
     return AvaliacaoRiscoAdminItem(
         id=avaliacao.id,
         pesquisa_id=pesquisa.id,
@@ -70,14 +68,22 @@ async def listar_avaliacoes(
     ).all()
     itens = [_item(avaliacao, pesquisa, lead) for avaliacao, pesquisa, lead in linhas]
     total = (
-        await session.execute(select(func.count()).select_from(AvaliacaoRiscoMarca).join(PesquisaMarca, PesquisaMarca.id == AvaliacaoRiscoMarca.pesquisa_id).where(PesquisaMarca.organizacao_id == usuario.organizacao_id))
+        await session.execute(
+            select(func.count())
+            .select_from(AvaliacaoRiscoMarca)
+            .join(PesquisaMarca, PesquisaMarca.id == AvaliacaoRiscoMarca.pesquisa_id)
+            .where(PesquisaMarca.organizacao_id == usuario.organizacao_id)
+        )
     ).scalar_one()
     total_avaliadas = (
         await session.execute(
             select(func.count())
             .select_from(AvaliacaoRiscoMarca)
             .join(PesquisaMarca, PesquisaMarca.id == AvaliacaoRiscoMarca.pesquisa_id)
-            .where(AvaliacaoRiscoMarca.nivel_humano.is_not(None), PesquisaMarca.organizacao_id == usuario.organizacao_id)
+            .where(
+                AvaliacaoRiscoMarca.nivel_humano.is_not(None),
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+            )
         )
     ).scalar_one()
     total_concordantes = (
@@ -115,12 +121,17 @@ async def registrar_avaliacao_humana(
     usuario: WriteDep,
     _limite: AcaoAdminDep,
 ) -> AvaliacaoRiscoAdminItem:
-    linha = (await session.execute(
-        select(AvaliacaoRiscoMarca, PesquisaMarca, Lead)
-        .join(PesquisaMarca, PesquisaMarca.id == AvaliacaoRiscoMarca.pesquisa_id)
-        .join(Lead, Lead.id == PesquisaMarca.lead_id)
-        .where(AvaliacaoRiscoMarca.id == avaliacao_id, PesquisaMarca.organizacao_id == usuario.organizacao_id)
-    )).first()
+    linha = (
+        await session.execute(
+            select(AvaliacaoRiscoMarca, PesquisaMarca, Lead)
+            .join(PesquisaMarca, PesquisaMarca.id == AvaliacaoRiscoMarca.pesquisa_id)
+            .join(Lead, Lead.id == PesquisaMarca.lead_id)
+            .where(
+                AvaliacaoRiscoMarca.id == avaliacao_id,
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).first()
     if linha is None:
         raise HTTPException(status_code=404, detail="Avaliação de risco não encontrada")
     avaliacao, pesquisa, lead = linha

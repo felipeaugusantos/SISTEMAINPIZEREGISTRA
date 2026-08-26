@@ -51,20 +51,11 @@ async def executar(minimo: int, maximo_tokens: int) -> None:
                         contador[token] += 1
             ultimo_id = linhas[-1][0]
 
-    frequencias = {
-        token: contagem
-        for token, contagem in contador.most_common(maximo_tokens)
-        if contagem >= minimo
-    }
+    frequencias = {token: contagem for token, contagem in contador.most_common(maximo_tokens) if contagem >= minimo}
     caminho = Path(_CAMINHO_LEXICO)
     caminho.parent.mkdir(parents=True, exist_ok=True)
-    caminho.write_text(
-        json.dumps(frequencias, ensure_ascii=False, sort_keys=True), encoding="utf-8"
-    )
-    print(
-        f"Lexico gerado: {len(frequencias)} tokens (>= {minimo} marcas) "
-        f"de {total_marcas:,} marcas -> {caminho}"
-    )
+    caminho.write_text(json.dumps(frequencias, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    print(f"Lexico gerado: {len(frequencias)} tokens (>= {minimo} marcas) de {total_marcas:,} marcas -> {caminho}")
 
 
 def main() -> None:

@@ -36,10 +36,7 @@ def mascarar_dados_auditoria(valor: Any, *, chave: str = "") -> Any:
     if chave and _chave_sensivel(chave):
         return "[REDACTED]"
     if isinstance(valor, dict):
-        return {
-            str(item): mascarar_dados_auditoria(conteudo, chave=str(item))
-            for item, conteudo in valor.items()
-        }
+        return {str(item): mascarar_dados_auditoria(conteudo, chave=str(item)) for item, conteudo in valor.items()}
     if isinstance(valor, (list, tuple)):
         return [mascarar_dados_auditoria(item) for item in valor]
     return valor

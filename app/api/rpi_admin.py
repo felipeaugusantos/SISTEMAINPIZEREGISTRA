@@ -36,9 +36,7 @@ def _execucao_response(item: RpiSyncExecucao) -> RpiSyncExecucaoResponse:
     )
     fim = item.finalizado_em or (datetime.now(UTC) if item.iniciado_em else None)
     duracao = (
-        max(0.0, (fim - item.iniciado_em).total_seconds())
-        if fim is not None and item.iniciado_em is not None
-        else None
+        max(0.0, (fim - item.iniciado_em).total_seconds()) if fim is not None and item.iniciado_em is not None else None
     )
     return RpiSyncExecucaoResponse(
         id=item.id,
@@ -104,28 +102,18 @@ async def obter_monitoramento_rpi(
 ) -> RpiSyncAdminResponse:
     settings = get_settings()
     estado = await session.get(RpiSyncEstado, 1)
-    ultima_local = await session.scalar(
-        select(func.max(RpiImportacao.numero_rpi)).where(RpiImportacao.tipo == "marca")
-    )
+    ultima_local = await session.scalar(select(func.max(RpiImportacao.numero_rpi)).where(RpiImportacao.tipo == "marca"))
     historico = (
-        (
-            await session.execute(
-                select(RpiSyncExecucao).order_by(RpiSyncExecucao.solicitado_em.desc()).limit(30)
-            )
-        )
+        (await session.execute(select(RpiSyncExecucao).order_by(RpiSyncExecucao.solicitado_em.desc()).limit(30)))
         .scalars()
         .all()
     )
     heartbeat = estado.heartbeat_em if estado else None
-    limite_heartbeat = datetime.now(UTC) - timedelta(
-        seconds=max(60, settings.rpi_sync_poll_seconds * 3)
-    )
+    limite_heartbeat = datetime.now(UTC) - timedelta(seconds=max(60, settings.rpi_sync_poll_seconds * 3))
     sincronizador_online = bool(heartbeat and heartbeat >= limite_heartbeat)
     ultima_oficial = estado.ultima_rpi_oficial if estado else None
     edicoes_atraso = (
-        max(0, ultima_oficial - ultima_local)
-        if ultima_oficial is not None and ultima_local is not None
-        else 0
+        max(0, ultima_oficial - ultima_local) if ultima_oficial is not None and ultima_local is not None else 0
     )
     status_atual = estado.status if estado else "nao_iniciado"
     rotulo, cor = _aparencia_status(status_atual, edicoes_atraso, sincronizador_online)
@@ -145,11 +133,7 @@ async def obter_monitoramento_rpi(
         intervalo_segundos=settings.rpi_sync_interval_seconds,
         saude=RpiSyncSaudeResponse(api=True, banco=True, sincronizador=sincronizador_online),
         execucao_atual=_execucao_response(atual) if atual else None,
-        historico=(
-            [_execucao_response(item) for item in historico]
-            if pode_ver_execucoes_recentes(usuario)
-            else []
-        ),
+        historico=([_execucao_response(item) for item in historico] if pode_ver_execucoes_recentes(usuario) else []),
     )
 
 

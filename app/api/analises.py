@@ -46,10 +46,7 @@ AnalysisWriteDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("valid
 def _modulo_liberado(usuario: UsuarioAutenticado, modulo: str, permissao: str) -> bool:
     return bool(
         usuario.superadmin
-        or (
-            modulo in usuario.modulos_plano
-            and (usuario.perfil == "administrador" or usuario.pode(permissao))
-        )
+        or (modulo in usuario.modulos_plano and (usuario.perfil == "administrador" or usuario.pode(permissao)))
     )
 
 
@@ -230,12 +227,8 @@ async def obter_central_analise(
         "aprendizado_visualizar": _modulo_liberado(usuario, "aprendizado", "learning.view"),
         "aprendizado_revisar": _modulo_liberado(usuario, "aprendizado", "learning.manage"),
         "relatorio_gerar": usuario.pode("leads.manage"),
-        "workflow_revisar": _modulo_liberado(
-            usuario, "validacao", "validation.review"
-        ),
-        "workflow_validar": _modulo_liberado(
-            usuario, "validacao", "validation.review"
-        )
+        "workflow_revisar": _modulo_liberado(usuario, "validacao", "validation.review"),
+        "workflow_validar": _modulo_liberado(usuario, "validacao", "validation.review")
         and _modulo_liberado(usuario, "risco", "risk.review"),
     }
     validacao_visivel = permissoes["validacao_visualizar"]
@@ -366,9 +359,7 @@ async def obter_central_analise(
             else None
         ),
         "agente_registrabilidade": (
-            execucao_para_dict(execucao_agente)
-            if execucao_agente is not None and validacao_visivel
-            else None
+            execucao_para_dict(execucao_agente) if execucao_agente is not None and validacao_visivel else None
         ),
         "relatorio_completo": {
             "base_disponivel": versao is not None,
@@ -399,10 +390,12 @@ async def atualizar_workflow_analise(
 ) -> dict:
     pesquisa = (
         await session.execute(
-            select(PesquisaMarca).where(
+            select(PesquisaMarca)
+            .where(
                 PesquisaMarca.id == pesquisa_id,
                 PesquisaMarca.organizacao_id == usuario.organizacao_id,
-            ).with_for_update()
+            )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if pesquisa is None:
@@ -418,11 +411,7 @@ async def atualizar_workflow_analise(
         )
     ).scalar_one_or_none()
     avaliacao = (
-        await session.execute(
-            select(AvaliacaoRiscoMarca).where(
-                AvaliacaoRiscoMarca.pesquisa_id == pesquisa.id
-            )
-        )
+        await session.execute(select(AvaliacaoRiscoMarca).where(AvaliacaoRiscoMarca.pesquisa_id == pesquisa.id))
     ).scalar_one_or_none()
     estado_anterior = pesquisa.analysis_state
 
@@ -430,20 +419,20 @@ async def atualizar_workflow_analise(
         destino = proximo_estado_analise(estado_anterior, dados.action)
         if versao is None:
             raise ValueError("A análise ainda não possui uma versão de relatório")
-        if dados.action in {
-            AcaoWorkflowAnalise.REQUEST_CHANGES,
-            AcaoWorkflowAnalise.VALIDATE,
-            AcaoWorkflowAnalise.REOPEN,
-        } and not dados.notes:
+        if (
+            dados.action
+            in {
+                AcaoWorkflowAnalise.REQUEST_CHANGES,
+                AcaoWorkflowAnalise.VALIDATE,
+                AcaoWorkflowAnalise.REOPEN,
+            }
+            and not dados.notes
+        ):
             raise ValueError("Informe notas para esta transição")
         if dados.action is AcaoWorkflowAnalise.VALIDATE:
             if not _modulo_liberado(usuario, "risco", "risk.review"):
                 raise PermissionError("A validação final também exige a permissão risk.review")
-            if (
-                avaliacao is None
-                or avaliacao.avaliado_em is None
-                or not avaliacao.observacoes_humanas
-            ):
+            if avaliacao is None or avaliacao.avaliado_em is None or not avaliacao.observacoes_humanas:
                 raise ValueError("Registre o parecer humano de risco antes da validação final")
     except PermissionError as exc:
         status_erro = 403
@@ -573,9 +562,7 @@ async def reconciliar_resultado(
     ).scalar_one_or_none()
     if pesquisa is None:
         raise HTTPException(status_code=404, detail="Pesquisa não encontrada")
-    resultado = await reconciliar_resultados_reais(
-        session, organizacao_id=usuario.organizacao_id
-    )
+    resultado = await reconciliar_resultados_reais(session, organizacao_id=usuario.organizacao_id)
     session.add(
         EventoAuditoria(
             organizacao_id=usuario.organizacao_id,

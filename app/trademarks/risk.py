@@ -79,9 +79,7 @@ def pontuar_conflito(entrada: ConflitoEntrada) -> ConflitoPontuado:
     fatores: list[FatorRisco] = []
 
     correspondencias = [
-        (PESOS_NOME[criterio], criterio)
-        for criterio in entrada.criterios_encontro
-        if criterio in PESOS_NOME
+        (PESOS_NOME[criterio], criterio) for criterio in entrada.criterios_encontro if criterio in PESOS_NOME
     ]
     if correspondencias:
         pontos, criterio = max(correspondencias)
@@ -185,9 +183,7 @@ def regras_para_json() -> dict:
         ),
         "pesos_nome": PESOS_NOME,
         "pesos_situacao": PESOS_SITUACAO,
-        "pesos_afinidade": {
-            f"{nivel}:{revisao}": peso for (nivel, revisao), peso in PESOS_AFINIDADE.items()
-        },
+        "pesos_afinidade": {f"{nivel}:{revisao}": peso for (nivel, revisao), peso in PESOS_AFINIDADE.items()},
         "peso_alto_renome": PESO_ALTO_RENOME,
         "limites": {nivel: limite for limite, nivel in LIMITES},
         "agregacao": "maior pontuacao entre os conflitos encontrados",

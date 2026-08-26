@@ -120,9 +120,7 @@ async def criar_consulta(
 
 
 @router.get("/{pesquisa_id}/contexto")
-async def contexto_consulta(
-    pesquisa_id: str, session: SessionDep, operador: OperadorDep
-) -> dict:
+async def contexto_consulta(pesquisa_id: str, session: SessionDep, operador: OperadorDep) -> dict:
     pesquisa = (
         await session.execute(
             select(PesquisaMarca).where(

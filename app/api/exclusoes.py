@@ -25,9 +25,7 @@ from app.proxy import cliente_ip
 router = APIRouter(tags=["exclusao de pesquisas"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 PesquisaViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
-PesquisaDeleteDep = Annotated[
-    UsuarioAutenticado, Depends(exigir_permissao("leads.delete"))
-]
+PesquisaDeleteDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.delete"))]
 
 
 class SolicitarExclusaoInput(BaseModel):
@@ -85,9 +83,7 @@ def _auditar(
     )
 
 
-async def _pesquisa(
-    session: AsyncSession, usuario: UsuarioAutenticado, pesquisa_id: str
-) -> PesquisaMarca:
+async def _pesquisa(session: AsyncSession, usuario: UsuarioAutenticado, pesquisa_id: str) -> PesquisaMarca:
     pesquisa = (
         await session.execute(
             select(PesquisaMarca)
@@ -258,13 +254,17 @@ async def listar_solicitacoes(
     if status_solicitacao:
         filtros.append(SolicitacaoExclusaoPesquisa.status == status_solicitacao)
     itens = (
-        await session.execute(
-            select(SolicitacaoExclusaoPesquisa)
-            .where(*filtros)
-            .order_by(SolicitacaoExclusaoPesquisa.criado_em.desc())
-            .limit(100)
+        (
+            await session.execute(
+                select(SolicitacaoExclusaoPesquisa)
+                .where(*filtros)
+                .order_by(SolicitacaoExclusaoPesquisa.criado_em.desc())
+                .limit(100)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {"total": len(itens), "itens": [_solicitacao_response(item) for item in itens]}
 
 

@@ -71,9 +71,7 @@ EtapaKanban = Literal[
 
 def _normalizar_busca(valor: str) -> str:
     sem_acentos = "".join(
-        caractere
-        for caractere in unicodedata.normalize("NFKD", valor.strip())
-        if not unicodedata.combining(caractere)
+        caractere for caractere in unicodedata.normalize("NFKD", valor.strip()) if not unicodedata.combining(caractere)
     )
     return " ".join(sem_acentos.casefold().split())
 
@@ -216,9 +214,7 @@ async def _empresa(
     return await obter_ou_criar_empresa(session, usuario.organizacao_id, empresa_nome)
 
 
-async def _validar_responsavel(
-    session: AsyncSession, usuario: UsuarioAutenticado, responsavel_id: int | None
-) -> None:
+async def _validar_responsavel(session: AsyncSession, usuario: UsuarioAutenticado, responsavel_id: int | None) -> None:
     if responsavel_id is None:
         return
     existe = await session.scalar(
@@ -267,13 +263,9 @@ async def _vincular_ids(
 ) -> dict:
     ids = list(dict.fromkeys(processo_ids))
     processos_existentes = set(
-        (
-            await session.execute(
-                select(Processo.id).where(
-                    Processo.id.in_(ids), Processo.tipo == TipoProcesso.MARCA
-                )
-            )
-        ).scalars().all()
+        (await session.execute(select(Processo.id).where(Processo.id.in_(ids), Processo.tipo == TipoProcesso.MARCA)))
+        .scalars()
+        .all()
     )
     ja_vinculados = set(
         (
@@ -283,11 +275,11 @@ async def _vincular_ids(
                     ProcessoMonitorado.processo_id.in_(processos_existentes),
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
-    empresa = await _empresa(
-        session, usuario, dados.empresa_id, dados.empresa_nome
-    )
+    empresa = await _empresa(session, usuario, dados.empresa_id, dados.empresa_nome)
     await _validar_responsavel(session, usuario, dados.responsavel_id)
     novos = processos_existentes - ja_vinculados
     for processo_id in novos:
@@ -353,9 +345,7 @@ async def listar_carteira(
             .group_by(grupo_resumo)
         )
     ).all()
-    resumo_situacoes = {
-        chave: int(total_situacao) for chave, total_situacao in resumo_situacoes_linhas
-    }
+    resumo_situacoes = {chave: int(total_situacao) for chave, total_situacao in resumo_situacoes_linhas}
     filtros = [ProcessoMonitorado.organizacao_id == usuario.organizacao_id]
     if status:
         filtros.append(ProcessoMonitorado.status == status)
@@ -387,9 +377,7 @@ async def listar_carteira(
         (_expressao_grupo_situacao_inpi() == "encerrado", 5),
         else_=6,
     )
-    total = int(
-        (await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
-    )
+    total = int((await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one())
     ultima_rpi = (
         select(Movimentacao.numero_rpi)
         .where(Movimentacao.processo_id == Processo.id)
@@ -424,9 +412,7 @@ async def listar_carteira(
             )
             .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
             .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
-            .outerjoin(
-                UsuarioOperacoes, UsuarioOperacoes.id == ProcessoMonitorado.responsavel_id
-            )
+            .outerjoin(UsuarioOperacoes, UsuarioOperacoes.id == ProcessoMonitorado.responsavel_id)
             .where(*filtros)
             .order_by(
                 case(
@@ -463,9 +449,7 @@ async def listar_carteira(
                 "titulo_exibicao": _titulo_exibicao(processo),
                 "situacao": processo.situacao,
                 "situacao_normalizada": processo.situacao_normalizada,
-                "grupo_situacao_inpi": _grupo_situacao_valor(
-                    processo.situacao_normalizada
-                ),
+                "grupo_situacao_inpi": _grupo_situacao_valor(processo.situacao_normalizada),
                 "grupo_situacao_inpi_nome": _nome_grupo_situacao_inpi(
                     _grupo_situacao_valor(processo.situacao_normalizada)
                 ),
@@ -528,9 +512,7 @@ async def listar_kanban(
         termo = f"%{_normalizar_busca(busca)}%"
         filtros.append(
             or_(
-                Processo.numero_normalizado.ilike(
-                    f"%{normalizar_numero_processo(busca)}%"
-                ),
+                Processo.numero_normalizado.ilike(f"%{normalizar_numero_processo(busca)}%"),
                 func.immutable_unaccent(func.lower(Processo.titulo)).ilike(termo),
                 _expressao_procurador().ilike(termo),
                 func.immutable_unaccent(func.lower(EmpresaCRM.nome)).ilike(termo),
@@ -548,7 +530,6 @@ async def listar_kanban(
             )
         ).all()
     )
-
 
     ultima_rpi = (
         select(Movimentacao.numero_rpi)
@@ -666,9 +647,7 @@ async def listar_kanban_inpi(
         termo = f"%{_normalizar_busca(busca)}%"
         filtros.append(
             or_(
-                Processo.numero_normalizado.ilike(
-                    f"%{normalizar_numero_processo(busca)}%"
-                ),
+                Processo.numero_normalizado.ilike(f"%{normalizar_numero_processo(busca)}%"),
                 func.immutable_unaccent(func.lower(Processo.titulo)).ilike(termo),
                 _expressao_procurador().ilike(termo),
                 func.immutable_unaccent(func.lower(EmpresaCRM.nome)).ilike(termo),
@@ -793,35 +772,31 @@ async def listar_empresas(
     usuario: ViewDep,
     busca: Annotated[str | None, Query(max_length=100)] = None,
 ) -> list[dict]:
-    consulta = select(EmpresaCRM).where(
-        EmpresaCRM.organizacao_id == usuario.organizacao_id
-    )
+    consulta = select(EmpresaCRM).where(EmpresaCRM.organizacao_id == usuario.organizacao_id)
     if busca:
         consulta = consulta.where(
-            func.immutable_unaccent(func.lower(EmpresaCRM.nome)).ilike(
-                f"%{_normalizar_busca(busca)}%"
-            )
+            func.immutable_unaccent(func.lower(EmpresaCRM.nome)).ilike(f"%{_normalizar_busca(busca)}%")
         )
-    empresas = (
-        await session.execute(consulta.order_by(EmpresaCRM.nome).limit(100))
-    ).scalars().all()
+    empresas = (await session.execute(consulta.order_by(EmpresaCRM.nome).limit(100))).scalars().all()
     return [{"id": empresa.id, "nome": empresa.nome} for empresa in empresas]
 
 
 @router.get("/responsaveis")
-async def listar_responsaveis(
-    session: SessionDep, usuario: ViewDep
-) -> list[dict]:
+async def listar_responsaveis(session: SessionDep, usuario: ViewDep) -> list[dict]:
     pessoas = (
-        await session.execute(
-            select(UsuarioOperacoes)
-            .where(
-                UsuarioOperacoes.organizacao_id == usuario.organizacao_id,
-                UsuarioOperacoes.ativo.is_(True),
+        (
+            await session.execute(
+                select(UsuarioOperacoes)
+                .where(
+                    UsuarioOperacoes.organizacao_id == usuario.organizacao_id,
+                    UsuarioOperacoes.ativo.is_(True),
+                )
+                .order_by(UsuarioOperacoes.nome)
             )
-            .order_by(UsuarioOperacoes.nome)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [{"id": pessoa.id, "nome": pessoa.nome} for pessoa in pessoas]
 
 
@@ -833,18 +808,22 @@ async def sugerir_procuradores(
 ) -> list[str]:
     termo = f"%{_normalizar_busca(busca)}%"
     nomes = (
-        await session.execute(
-            select(Processo.procurador)
-            .where(
-                Processo.tipo == TipoProcesso.MARCA,
-                Processo.procurador.is_not(None),
-                _expressao_procurador().ilike(termo),
+        (
+            await session.execute(
+                select(Processo.procurador)
+                .where(
+                    Processo.tipo == TipoProcesso.MARCA,
+                    Processo.procurador.is_not(None),
+                    _expressao_procurador().ilike(termo),
+                )
+                .distinct()
+                .order_by(Processo.procurador)
+                .limit(20)
             )
-            .distinct()
-            .order_by(Processo.procurador)
-            .limit(20)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return list(nomes)
 
 
@@ -974,9 +953,7 @@ async def cadastrar_manual(
             404,
             "Processo não localizado na base RPI. Sincronize as revistas antes de cadastrar.",
         )
-    resultado = await _vincular_ids(
-        session, request, usuario, [processo.id], dados, origem="manual"
-    )
+    resultado = await _vincular_ids(session, request, usuario, [processo.id], dados, origem="manual")
     return {**resultado, "numero": processo.numero}
 
 
@@ -992,9 +969,7 @@ TAMANHO_MAXIMO_IMPORTACAO = 5_000_000
 
 
 def _chave_coluna(texto: str) -> str:
-    sem_acentos = "".join(
-        c for c in unicodedata.normalize("NFKD", texto or "") if not unicodedata.combining(c)
-    )
+    sem_acentos = "".join(c for c in unicodedata.normalize("NFKD", texto or "") if not unicodedata.combining(c))
     return "".join(ch for ch in sem_acentos.lower() if ch.isalnum())
 
 
@@ -1003,9 +978,7 @@ def _ler_planilha(conteudo: bytes, filename: str) -> list[dict[str, str]]:
     nome = (filename or "").lower()
     linhas: list[list[str]] = []
     if nome.endswith(".xls"):
-        raise HTTPException(
-            400, "Formato .xls (Excel antigo) não é suportado. Salve como .xlsx ou .csv."
-        )
+        raise HTTPException(400, "Formato .xls (Excel antigo) não é suportado. Salve como .xlsx ou .csv.")
     if nome.endswith((".xlsx", ".xlsm")):
         try:
             wb = load_workbook(io.BytesIO(conteudo), read_only=True, data_only=True)
@@ -1027,9 +1000,7 @@ def _ler_planilha(conteudo: bytes, filename: str) -> list[dict[str, str]]:
             raise HTTPException(400, "Não foi possível ler o arquivo (codificação não suportada).")
         primeira_linha = texto.splitlines()[0] if texto.splitlines() else ""
         contagens = {sep: primeira_linha.count(sep) for sep in (";", "\t", ",")}
-        delimitador = (
-            max(contagens, key=lambda sep: contagens[sep]) if any(contagens.values()) else ","
-        )
+        delimitador = max(contagens, key=lambda sep: contagens[sep]) if any(contagens.values()) else ","
         for linha in csv.reader(io.StringIO(texto), delimiter=delimitador):
             linhas.append([campo.strip() for campo in linha])
 
@@ -1037,10 +1008,7 @@ def _ler_planilha(conteudo: bytes, filename: str) -> list[dict[str, str]]:
     if len(linhas) < 2:
         return []
     cabecalho = [_chave_coluna(coluna) for coluna in linhas[0]]
-    return [
-        {cabecalho[i]: (linha[i] if i < len(linha) else "") for i in range(len(cabecalho))}
-        for linha in linhas[1:]
-    ]
+    return [{cabecalho[i]: (linha[i] if i < len(linha) else "") for i in range(len(cabecalho))} for linha in linhas[1:]]
 
 
 def _valor(registro: dict[str, str], fragmentos: tuple[str, ...]) -> str | None:
@@ -1121,12 +1089,12 @@ async def importar_carteira(
             await session.execute(
                 select(ProcessoMonitorado.processo_id).where(
                     ProcessoMonitorado.organizacao_id == usuario.organizacao_id,
-                    ProcessoMonitorado.processo_id.in_(
-                        processo.id for processo in processos.values()
-                    ),
+                    ProcessoMonitorado.processo_id.in_(processo.id for processo in processos.values()),
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
     empresas_cache: dict[str, int | None] = {}
@@ -1190,9 +1158,7 @@ async def vincular_lote(
     session: SessionDep,
     usuario: ManageDep,
 ) -> dict:
-    return await _vincular_ids(
-        session, request, usuario, dados.processo_ids, dados, origem="selecao_procurador"
-    )
+    return await _vincular_ids(session, request, usuario, dados.processo_ids, dados, origem="selecao_procurador")
 
 
 @router.post("/vincular-procurador", status_code=201)
@@ -1213,7 +1179,9 @@ async def vincular_todos_do_procurador(
                 .order_by(Processo.id)
                 .limit(dados.maximo)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     if not ids:
         raise HTTPException(404, "Nenhum processo encontrado para o procurador informado")
@@ -1243,16 +1211,20 @@ async def historico_kanban(
     if existe is None:
         raise HTTPException(404, "Processo monitorado não encontrado")
     eventos = (
-        await session.execute(
-            select(HistoricoEtapaCarteira)
-            .where(
-                HistoricoEtapaCarteira.organizacao_id == usuario.organizacao_id,
-                HistoricoEtapaCarteira.processo_monitorado_id == monitorado_id,
+        (
+            await session.execute(
+                select(HistoricoEtapaCarteira)
+                .where(
+                    HistoricoEtapaCarteira.organizacao_id == usuario.organizacao_id,
+                    HistoricoEtapaCarteira.processo_monitorado_id == monitorado_id,
+                )
+                .order_by(HistoricoEtapaCarteira.criado_em.desc())
+                .limit(50)
             )
-            .order_by(HistoricoEtapaCarteira.criado_em.desc())
-            .limit(50)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         {
             "id": evento.id,
@@ -1295,9 +1267,7 @@ async def atualizar_monitoramento(
     if dados.prioridade is not None:
         monitorado.prioridade = dados.prioridade
     if dados.empresa_id is not None or dados.empresa_nome:
-        empresa = await _empresa(
-            session, usuario, dados.empresa_id, dados.empresa_nome
-        )
+        empresa = await _empresa(session, usuario, dados.empresa_id, dados.empresa_nome)
         monitorado.empresa_id = empresa.id if empresa else None
     if dados.remover_responsavel:
         monitorado.responsavel_id = None

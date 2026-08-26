@@ -9,9 +9,7 @@ from app.trademarks.model_status import StatusModelo
 
 
 class DadosComplementaresRegistrabilidadeUpdate(BaseModel):
-    forma_apresentacao: (
-        Literal["nominativa", "mista", "figurativa", "tridimensional", "posicao"] | None
-    ) = None
+    forma_apresentacao: Literal["nominativa", "mista", "figurativa", "tridimensional", "posicao"] | None = None
     descricao_visual: str | None = Field(default=None, max_length=2000)
     significado: str | None = Field(default=None, max_length=2000)
     produtos_servicos: str | None = Field(default=None, max_length=4000)
@@ -446,9 +444,7 @@ class RelatorioMarcaResponse(BaseModel):
     conclusao: ConclusaoIndicativaResponse | None = None
     risco_pontuacao: int | None = Field(default=None, ge=0, le=100)
     risco_nivel: str | None = None
-    estimativa_status: Literal["disponivel", "validacao_interna", "indisponivel"] = (
-        "validacao_interna"
-    )
+    estimativa_status: Literal["disponivel", "validacao_interna", "indisponivel"] = "validacao_interna"
     estimativa_mensagem: str = (
         "O modelo estatístico permanece em validação interna. Nenhum indicador histórico é "
         "exibido até que os critérios mínimos de dados, calibração e revisão humana sejam "

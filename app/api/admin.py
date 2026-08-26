@@ -28,10 +28,7 @@ async def obter_resumo(session: SessionDep, usuario: AdminDep) -> AdminResumoRes
     metricas = (
         await session.execute(
             select(
-                select(func.count())
-                .select_from(Lead)
-                .where(Lead.organizacao_id == organizacao_id)
-                .scalar_subquery(),
+                select(func.count()).select_from(Lead).where(Lead.organizacao_id == organizacao_id).scalar_subquery(),
                 (
                     select(func.count())
                     .select_from(Lead)

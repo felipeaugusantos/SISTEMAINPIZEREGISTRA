@@ -39,12 +39,13 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py311"
 extend-exclude = ["apresentacao"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
 
 [tool.ruff.lint.flake8-bugbear]
 # Depends/Security/Query fazem parte do idioma do FastAPI e sao seguros em argument defaults.

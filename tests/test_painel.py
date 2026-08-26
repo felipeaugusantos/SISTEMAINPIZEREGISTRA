@@ -107,7 +107,10 @@ async def test_marcar_sem_permissao_retorna_404() -> None:
 @pytest.mark.asyncio
 async def test_notificacoes_incluem_id_e_fonte() -> None:
     juridica = SimpleNamespace(
-        id=42, tipo="vencido", titulo="Prazo", mensagem="x",
+        id=42,
+        tipo="vencido",
+        titulo="Prazo",
+        mensagem="x",
         criado_em=datetime(2026, 8, 10, tzinfo=UTC),
     )
     session = FakeSession([FakeResult(itens=[juridica]), FakeResult(itens=[])])

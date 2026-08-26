@@ -37,10 +37,7 @@ def _baixar_zip_atomico(url: str, arquivo_zip: Path) -> None:
             except (urllib.error.URLError, TimeoutError, zipfile.BadZipFile) as exc:
                 # 4xx (ex.: 404 = edição não publicada) falha na hora; 5xx, rede e
                 # conteúdo inválido (BadZipFile) são transitórios e tentam de novo.
-                transitorio = (
-                    not isinstance(exc, urllib.error.HTTPError)
-                    or exc.code in _HTTP_TRANSITORIOS
-                )
+                transitorio = not isinstance(exc, urllib.error.HTTPError) or exc.code in _HTTP_TRANSITORIOS
                 if transitorio and tentativa < _TENTATIVAS_DOWNLOAD - 1:
                     time.sleep(3 * (tentativa + 1))  # backoff: 3, 6, 9, 12s
                     continue
@@ -67,19 +64,11 @@ def baixar_e_extrair_rpi(
     with zipfile.ZipFile(arquivo_zip) as pacote:
         arquivos_xml = [nome for nome in pacote.namelist() if nome.lower().endswith(".xml")]
         if tipo is TipoProcesso.MARCA:
-            candidatos = [
-                nome for nome in arquivos_xml if Path(nome).name.upper().startswith("RM")
-            ]
+            candidatos = [nome for nome in arquivos_xml if Path(nome).name.upper().startswith("RM")]
             if not candidatos:
-                candidatos = [
-                    nome
-                    for nome in arquivos_xml
-                    if not Path(nome).name.upper().startswith("PATENTE_")
-                ]
+                candidatos = [nome for nome in arquivos_xml if not Path(nome).name.upper().startswith("PATENTE_")]
         else:
-            candidatos = [
-                nome for nome in arquivos_xml if Path(nome).name.upper().startswith("PATENTE_")
-            ]
+            candidatos = [nome for nome in arquivos_xml if Path(nome).name.upper().startswith("PATENTE_")]
         if not candidatos:
             raise ValueError(f"XML de {tipo.value} não encontrado em {arquivo_zip.name}")
 

@@ -99,7 +99,9 @@ def test_unified_admin_dashboard_requires_authentication() -> None:
     assert 'id="rpi-recent-executions" hidden' in response.text
     assert 'id="overview-priorities"' in response.text
     assert 'class="overview-section overview-module-section"' in response.text
-    assert response.text.index('class="overview-section overview-module-section"') < response.text.index('id="overview-message"')
+    assert response.text.index('class="overview-section overview-module-section"') < response.text.index(
+        'id="overview-message"'
+    )
 
     script = client.get("/static/admin-dashboard.js")
     assert script.status_code == 200
@@ -184,9 +186,7 @@ def test_leads_exibe_status_e_acao_do_relatorio_completo() -> None:
     assert ".lead-dialog-grid" in styles
     assert ".lead-dialog-grid > *" in styles
     assert '<section class="lead-history lg-full">' in script
-    assert script.index('class="lead-history lg-full"') < script.index(
-        'class="lead-documentos lg-full"'
-    )
+    assert script.index('class="lead-history lg-full"') < script.index('class="lead-documentos lg-full"')
     assert "grid-row: auto" in styles
     assert "table.lead-docs td::before" in styles
     assert ".chk-actions > .chk-padrao" in styles
@@ -226,9 +226,7 @@ def test_dossie_exibe_matriz_oficial_de_registrabilidade() -> None:
     assert "Matriz de Registrabilidade INPI" in script
     assert "Não analisado" in script
     assert "Consultar Manual de Marcas do INPI" in script
-    assert (
-        "officialMatrix(item.matriz_registrabilidade, data.permissoes.validacao_revisar)" in script
-    )
+    assert "officialMatrix(item.matriz_registrabilidade, data.permissoes.validacao_revisar)" in script
     assert ".official-rule.possivel_impedimento" in styles
     assert "Completar análise oficial" in script
     assert 'id="registrability-form"' in page

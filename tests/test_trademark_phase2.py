@@ -23,9 +23,10 @@ def test_nao_confunde_decisao_de_peticao_com_decisao_do_pedido() -> None:
 def test_classifica_resultados_terminais_e_parciais_do_inpi() -> None:
     assert normalizar_despacho(None, "Concessão de registro").codigo == "registrada"
     assert normalizar_despacho(None, "Deferimento parcial do pedido").codigo == "deferida_parcial"
-    assert normalizar_despacho(
-        None, "Decisão de considerar pedido inexistente por falta de pagamento"
-    ).codigo == "inexistente"
+    assert (
+        normalizar_despacho(None, "Decisão de considerar pedido inexistente por falta de pagamento").codigo
+        == "inexistente"
+    )
 
 
 def test_mapeia_atividade_leiga_para_classes_candidatas() -> None:

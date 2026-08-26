@@ -23,7 +23,12 @@ def _chave_origem(numero: str, numero_rpi: int, codigo: str) -> str:
     # movimentação. A descrição fica fora da chave para não reabrir a duplicata
     # via fallback de códigos legados ("Despacho 150" vs "Despacho DESP150").
     conteudo = "|".join(
-        ("marca", str(numero_rpi), normalizar_numero_processo(numero), codigo_numerico(codigo) or codigo)
+        (
+            "marca",
+            str(numero_rpi),
+            normalizar_numero_processo(numero),
+            codigo_numerico(codigo) or codigo,
+        )
     )
     return sha256(conteudo.encode()).hexdigest()
 

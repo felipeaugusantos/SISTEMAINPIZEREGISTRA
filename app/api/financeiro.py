@@ -42,9 +42,7 @@ PERFIS_LOG_FINANCEIRO = frozenset({"administrador", "tech", "ceo", "financeiro"}
 
 async def exigir_acesso_log_financeiro(usuario: ViewDep) -> UsuarioAutenticado:
     if usuario.perfil not in PERFIS_LOG_FINANCEIRO:
-        raise HTTPException(
-            403, "Log financeiro disponível somente para Administrador, Tech, CEO e Financeiro"
-        )
+        raise HTTPException(403, "Log financeiro disponível somente para Administrador, Tech, CEO e Financeiro")
     return usuario
 
 
@@ -58,9 +56,7 @@ class CategoriaCreate(BaseModel):
 
 class FormaPagamentoCreate(BaseModel):
     nome: str = Field(min_length=2, max_length=120)
-    tipo: Literal[
-        "pix", "boleto", "transferencia", "cartao_credito", "cartao_debito", "dinheiro", "outro"
-    ] = "outro"
+    tipo: Literal["pix", "boleto", "transferencia", "cartao_credito", "cartao_debito", "dinheiro", "outro"] = "outro"
     permite_parcelamento: bool = False
     maximo_parcelas: int = Field(default=1, ge=1, le=120)
     ativo: bool = True
@@ -184,9 +180,7 @@ async def _forma_pagamento(
     ]
     if exigir_ativa:
         filtros.append(FormaPagamentoFinanceira.ativo.is_(True))
-    forma = (
-        await session.execute(select(FormaPagamentoFinanceira).where(*filtros))
-    ).scalar_one_or_none()
+    forma = (await session.execute(select(FormaPagamentoFinanceira).where(*filtros))).scalar_one_or_none()
     if not forma:
         raise HTTPException(404, "Forma de pagamento não encontrada ou inativa")
     return forma
@@ -245,13 +239,10 @@ async def _validar_referencias(
         ]
         if tipo == "receber":
             filtros_empresa.append(_empresa_cliente(usuario))
-        cliente_elegivel = (
-            await session.execute(select(EmpresaCRM.id).where(*filtros_empresa))
-        ).scalar_one_or_none()
+        cliente_elegivel = (await session.execute(select(EmpresaCRM.id).where(*filtros_empresa))).scalar_one_or_none()
         if not cliente_elegivel:
             detalhe = (
-                "Empresa ainda não é cliente: requer proposta enviada, "
-                "conversão ou processo monitorado"
+                "Empresa ainda não é cliente: requer proposta enviada, conversão ou processo monitorado"
                 if tipo == "receber"
                 else "Empresa ou fornecedor não encontrado"
             )
@@ -381,9 +372,7 @@ async def listar(
         resumo_filtros.append(LancamentoFinanceiro.tipo == tipo)
     todas = (
         await session.execute(
-            select(ParcelaFinanceira, LancamentoFinanceiro.tipo)
-            .join(LancamentoFinanceiro)
-            .where(*resumo_filtros)
+            select(ParcelaFinanceira, LancamentoFinanceiro.tipo).join(LancamentoFinanceiro).where(*resumo_filtros)
         )
     ).all()
     resumo = {
@@ -414,14 +403,8 @@ async def listar(
             elif parcela.vencimento <= hoje + timedelta(days=7):
                 resumo["vence_7_dias"] += restante
                 resumo["parcelas_7_dias"] += 1
-        elif (
-            parcela.pago_em
-            and parcela.pago_em.year == hoje.year
-            and parcela.pago_em.month == hoje.month
-        ):
-            resumo["recebido_mes" if natureza == "receber" else "pago_mes"] += Decimal(
-                parcela.valor_pago
-            )
+        elif parcela.pago_em and parcela.pago_em.year == hoje.year and parcela.pago_em.month == hoje.month:
+            resumo["recebido_mes" if natureza == "receber" else "pago_mes"] += Decimal(parcela.valor_pago)
     return {
         "resumo": {k: int(v) if k.startswith("parcelas_") else float(v) for k, v in resumo.items()},
         "itens": [_serializar(x) for x in itens],
@@ -441,11 +424,7 @@ async def referencias(
     empresas = (
         (
             await session.execute(
-                select(EmpresaCRM)
-                .where(*filtros_empresas)
-                .distinct()
-                .order_by(EmpresaCRM.nome)
-                .limit(300)
+                select(EmpresaCRM).where(*filtros_empresas).distinct().order_by(EmpresaCRM.nome).limit(300)
             )
         )
         .scalars()
@@ -524,9 +503,7 @@ async def listar_empresas_financeiras(session: SessionDep, usuario: ViewDep) -> 
 
 
 @router.post("/empresas", status_code=201)
-async def criar_empresa_financeira(
-    dados: EmpresaFinanceiraCreate, session: SessionDep, usuario: ManageDep
-) -> dict:
+async def criar_empresa_financeira(dados: EmpresaFinanceiraCreate, session: SessionDep, usuario: ManageDep) -> dict:
     nome = dados.nome.strip()
     normalizado = normalizar_empresa(nome)
     existente = (
@@ -682,11 +659,7 @@ def _retribuicao_dict(x: RetribuicaoInpi) -> dict:
 @router.get("/retribuicoes")
 async def listar_retribuicoes(session: SessionDep, usuario: ViewDep) -> dict:
     itens = (
-        (
-            await session.execute(
-                select(RetribuicaoInpi).order_by(RetribuicaoInpi.ordem, RetribuicaoInpi.descricao)
-            )
-        )
+        (await session.execute(select(RetribuicaoInpi).order_by(RetribuicaoInpi.ordem, RetribuicaoInpi.descricao)))
         .scalars()
         .all()
     )
@@ -702,15 +675,11 @@ async def criar_retribuicao(
 ) -> dict:
     servico = dados.servico.strip()
     duplicada = (
-        await session.execute(
-            select(RetribuicaoInpi.id).where(func.lower(RetribuicaoInpi.servico) == servico.lower())
-        )
+        await session.execute(select(RetribuicaoInpi.id).where(func.lower(RetribuicaoInpi.servico) == servico.lower()))
     ).scalar_one_or_none()
     if duplicada:
         raise HTTPException(409, "Serviço já cadastrado")
-    ordem = (
-        await session.execute(select(func.coalesce(func.max(RetribuicaoInpi.ordem), 0)))
-    ).scalar_one() + 1
+    ordem = (await session.execute(select(func.coalesce(func.max(RetribuicaoInpi.ordem), 0)))).scalar_one() + 1
     item = RetribuicaoInpi(
         servico=servico,
         descricao=dados.descricao.strip(),
@@ -741,9 +710,7 @@ async def criar_retribuicao(
 async def editar_retribuicao(
     item_id: int, dados: RetribuicaoInput, request: Request, session: SessionDep, usuario: ManageDep
 ) -> dict:
-    item = (
-        await session.execute(select(RetribuicaoInpi).where(RetribuicaoInpi.id == item_id))
-    ).scalar_one_or_none()
+    item = (await session.execute(select(RetribuicaoInpi).where(RetribuicaoInpi.id == item_id))).scalar_one_or_none()
     if item is None:
         raise HTTPException(404, "Retribuição não encontrada")
     item.descricao = dados.descricao.strip()
@@ -767,9 +734,7 @@ async def editar_retribuicao(
 
 
 @router.post("/categorias", status_code=201)
-async def criar_categoria(
-    dados: CategoriaCreate, request: Request, session: SessionDep, usuario: ManageDep
-) -> dict:
+async def criar_categoria(dados: CategoriaCreate, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
     existente = (
         await session.execute(
             select(CategoriaFinanceira.id).where(
@@ -781,9 +746,7 @@ async def criar_categoria(
     ).scalar_one_or_none()
     if existente:
         raise HTTPException(409, "Categoria já cadastrada")
-    categoria = CategoriaFinanceira(
-        organizacao_id=usuario.organizacao_id, nome=dados.nome.strip(), tipo=dados.tipo
-    )
+    categoria = CategoriaFinanceira(organizacao_id=usuario.organizacao_id, nome=dados.nome.strip(), tipo=dados.tipo)
     session.add(categoria)
     await session.flush()
     _auditar(
@@ -799,9 +762,7 @@ async def criar_categoria(
 
 
 @router.post("/lancamentos", status_code=201)
-async def criar_lancamento(
-    dados: LancamentoCreate, request: Request, session: SessionDep, usuario: ManageDep
-) -> dict:
+async def criar_lancamento(dados: LancamentoCreate, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
     await _validar_referencias(session, usuario, dados.tipo, dados.empresa_id, dados.categoria_id)
     forma = await _forma_pagamento(session, usuario, dados.forma_pagamento_id)
     _validar_parcelamento(forma, dados.quantidade_parcelas)
@@ -884,9 +845,7 @@ async def editar_lancamento(
     if lancamento.status == "cancelado":
         raise HTTPException(409, "Lançamento cancelado não pode ser alterado")
 
-    await _validar_referencias(
-        session, usuario, lancamento.tipo, dados.empresa_id, dados.categoria_id
-    )
+    await _validar_referencias(session, usuario, lancamento.tipo, dados.empresa_id, dados.categoria_id)
     forma = await _forma_pagamento(session, usuario, dados.forma_pagamento_id)
     _validar_parcelamento(forma, dados.quantidade_parcelas)
     parcelas_pagas = any(parcela.status == "paga" for parcela in lancamento.parcelas)
@@ -977,9 +936,7 @@ async def editar_lancamento(
     return {"id": lancamento.id, "status": "atualizado"}
 
 
-async def _parcela(
-    session: AsyncSession, usuario: UsuarioAutenticado, parcela_id: int
-) -> ParcelaFinanceira:
+async def _parcela(session: AsyncSession, usuario: UsuarioAutenticado, parcela_id: int) -> ParcelaFinanceira:
     parcela = (
         await session.execute(
             select(ParcelaFinanceira)
@@ -987,11 +944,7 @@ async def _parcela(
                 LancamentoFinanceiro,
                 LancamentoFinanceiro.id == ParcelaFinanceira.lancamento_id,
             )
-            .options(
-                selectinload(ParcelaFinanceira.lancamento).selectinload(
-                    LancamentoFinanceiro.parcelas
-                )
-            )
+            .options(selectinload(ParcelaFinanceira.lancamento).selectinload(LancamentoFinanceiro.parcelas))
             .where(
                 ParcelaFinanceira.id == parcela_id,
                 ParcelaFinanceira.organizacao_id == usuario.organizacao_id,

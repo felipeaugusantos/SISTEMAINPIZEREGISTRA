@@ -107,9 +107,7 @@ def test_log_financeiro_e_exclusivo_dos_perfis_autorizados() -> None:
         usuario_teste(perfil="operador", permissoes={"finance.view"})
     )
     try:
-        response = TestClient(app).get(
-            "/admin/producao/log-financeiro", follow_redirects=False
-        )
+        response = TestClient(app).get("/admin/producao/log-financeiro", follow_redirects=False)
         assert response.status_code == 403
     finally:
         app.dependency_overrides.clear()
@@ -200,9 +198,7 @@ def test_interface_financeira_padroniza_tipografia_e_estados() -> None:
     assert "Agenda de vencimentos" in script
     assert 'method:editing?"PUT":"POST"' in script
     assert 'data-edit="${item.id}"' in script
-    assert 'data-finance-tab="pagar"' in Path("app/web/admin-financeiro.html").read_text(
-        encoding="utf-8"
-    )
+    assert 'data-finance-tab="pagar"' in Path("app/web/admin-financeiro.html").read_text(encoding="utf-8")
     pagina = Path("app/web/admin-financeiro.html").read_text(encoding="utf-8")
     assert 'id="finance-executive"' in pagina
     assert 'id="finance-clear"' in pagina
@@ -231,8 +227,8 @@ def test_interface_financeira_padroniza_tipografia_e_estados() -> None:
     assert 'label: "Contas a receber"' in shell
     assert 'class="${section.parent ? "admin-nav-subitem ' in shell
     assert 'data-submenu-toggle="${section.id}"' in shell
-    assert 'localStorage.setItem(`zr_admin_submenu_${parent}`' in shell
-    assert 'financeHasActiveChild' in shell
+    assert "localStorage.setItem(`zr_admin_submenu_${parent}`" in shell
+    assert "financeHasActiveChild" in shell
 
 
 def _lancamento_teste(status_parcela: str = "aberta") -> LancamentoFinanceiro:

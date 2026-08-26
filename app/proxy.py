@@ -55,6 +55,5 @@ def requisicao_https(request: Request | None = None) -> bool:
     if request.url.scheme.lower() == "https":
         return True
     return _peer_confiavel(request) and (
-        request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower()
-        == "https"
+        request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower() == "https"
     )

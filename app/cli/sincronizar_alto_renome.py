@@ -53,21 +53,14 @@ def extrair_lista_texto(texto: str) -> ListaAltoRenome:
         texto,
         re.I,
     )
-    atualizada_em = (
-        datetime.strptime(correspondencia.group(1), "%d/%m/%Y") if correspondencia else None
-    )
+    atualizada_em = datetime.strptime(correspondencia.group(1), "%d/%m/%Y") if correspondencia else None
     marcas: dict[str, str] = {}
     pendentes: list[str] = []
     for linha_original in texto.splitlines():
         linha = re.sub(r"\s+", " ", linha_original).strip()
         numero = re.search(r"(?<!\d)(\d{9})(?!\d)", linha)
         if not numero:
-            if (
-                linha
-                and not linha.isdigit()
-                and "Marca Apresentação" not in linha
-                and len(linha) <= 80
-            ):
+            if linha and not linha.isdigit() and "Marca Apresentação" not in linha and len(linha) <= 80:
                 pendentes.append(linha)
                 pendentes = pendentes[-2:]
             continue
@@ -109,9 +102,7 @@ async def sincronizar(pagina_url: str) -> tuple[int, str]:
                     marca=marcas.get(numero),
                     vigente=True,
                     fonte_url=pdf_url,
-                    fonte_atualizada_em=(
-                        lista.atualizada_em.date() if lista.atualizada_em else None
-                    ),
+                    fonte_atualizada_em=(lista.atualizada_em.date() if lista.atualizada_em else None),
                 )
                 .on_conflict_do_update(
                     index_elements=[MarcaAltoRenome.numero_processo_normalizado],
@@ -119,9 +110,7 @@ async def sincronizar(pagina_url: str) -> tuple[int, str]:
                         "vigente": True,
                         "marca": marcas.get(numero),
                         "fonte_url": pdf_url,
-                        "fonte_atualizada_em": (
-                            lista.atualizada_em.date() if lista.atualizada_em else None
-                        ),
+                        "fonte_atualizada_em": (lista.atualizada_em.date() if lista.atualizada_em else None),
                         "sincronizado_em": datetime.now().astimezone(),
                     },
                 )
@@ -132,9 +121,7 @@ async def sincronizar(pagina_url: str) -> tuple[int, str]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Sincroniza as marcas de alto renome da página oficial do INPI."
-    )
+    parser = argparse.ArgumentParser(description="Sincroniza as marcas de alto renome da página oficial do INPI.")
     parser.add_argument("--pagina-url", default=get_settings().alto_renome_page_url)
     argumentos = parser.parse_args()
     quantidade, fonte = asyncio.run(sincronizar(argumentos.pagina_url))

@@ -114,6 +114,4 @@ async def test_reprocessa_pesquisa_com_relatorio_e_sem_execucao() -> None:
         "pendentes_encontradas": 1,
         "processadas": 1,
     }
-    assert any(
-        isinstance(item, ExecucaoAgenteRegistrabilidade) for item in sessao.adicionados
-    )
+    assert any(isinstance(item, ExecucaoAgenteRegistrabilidade) for item in sessao.adicionados)

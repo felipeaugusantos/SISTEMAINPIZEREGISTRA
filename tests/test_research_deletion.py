@@ -102,9 +102,7 @@ async def test_operador_solicita_exclusao_sem_apagar_pesquisa() -> None:
 @pytest.mark.asyncio
 async def test_administrador_precisa_confirmar_senha_correta() -> None:
     item = pesquisa()
-    session = SessaoExclusao(
-        [FakeResult(scalar=item), FakeResult(scalar=None)], usuario_banco()
-    )
+    session = SessaoExclusao([FakeResult(scalar=item), FakeResult(scalar=None)], usuario_banco())
 
     with pytest.raises(HTTPException) as erro:
         await excluir_pesquisa(
@@ -118,23 +116,17 @@ async def test_administrador_precisa_confirmar_senha_correta() -> None:
 
     assert erro.value.status_code == 403
     assert session.excluidos == []
-    assert any(
-        isinstance(obj, EventoAuditoria) and not obj.sucesso for obj in session.adicionados
-    )
+    assert any(isinstance(obj, EventoAuditoria) and not obj.sucesso for obj in session.adicionados)
 
 
 @pytest.mark.asyncio
 async def test_administrador_exclui_com_senha_e_preserva_auditoria() -> None:
     item = pesquisa()
-    session = SessaoExclusao(
-        [FakeResult(scalar=item), FakeResult(scalar=None)], usuario_banco()
-    )
+    session = SessaoExclusao([FakeResult(scalar=item), FakeResult(scalar=None)], usuario_banco())
 
     resposta = await excluir_pesquisa(
         item.id,
-        ConfirmarExclusaoInput(
-            senha="Senha-segura-123", motivo="Duplicidade confirmada"
-        ),
+        ConfirmarExclusaoInput(senha="Senha-segura-123", motivo="Duplicidade confirmada"),
         requisicao(),
         session,
         usuario_teste(),
@@ -143,9 +135,7 @@ async def test_administrador_exclui_com_senha_e_preserva_auditoria() -> None:
 
     assert resposta.status_code == 204
     assert session.excluidos == [item]
-    registro = next(
-        obj for obj in session.adicionados if isinstance(obj, SolicitacaoExclusaoPesquisa)
-    )
+    registro = next(obj for obj in session.adicionados if isinstance(obj, SolicitacaoExclusaoPesquisa))
     assert registro.status == "executada"
 
 
@@ -164,9 +154,7 @@ async def test_exclusao_direta_conclui_solicitacao_ja_pendente() -> None:
         motivo="Pesquisa duplicada",
         status="pendente",
     )
-    session = SessaoExclusao(
-        [FakeResult(scalar=item), FakeResult(scalar=pendente)], usuario_banco()
-    )
+    session = SessaoExclusao([FakeResult(scalar=item), FakeResult(scalar=pendente)], usuario_banco())
 
     await excluir_pesquisa(
         item.id,
@@ -179,9 +167,7 @@ async def test_exclusao_direta_conclui_solicitacao_ja_pendente() -> None:
 
     assert pendente.status == "executada"
     assert pendente.decidido_por == "admin@teste.local"
-    assert not any(
-        isinstance(obj, SolicitacaoExclusaoPesquisa) for obj in session.adicionados
-    )
+    assert not any(isinstance(obj, SolicitacaoExclusaoPesquisa) for obj in session.adicionados)
 
 
 @pytest.mark.asyncio
@@ -200,9 +186,7 @@ async def test_administrador_aprova_solicitacao_com_senha() -> None:
         status="pendente",
     )
     solicitacao.criado_em = datetime.now(UTC)
-    session = SessaoExclusao(
-        [FakeResult(scalar=solicitacao), FakeResult(scalar=item)], usuario_banco()
-    )
+    session = SessaoExclusao([FakeResult(scalar=solicitacao), FakeResult(scalar=item)], usuario_banco())
 
     resposta = await decidir_solicitacao(
         solicitacao.id,

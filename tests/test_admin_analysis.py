@@ -193,9 +193,7 @@ def test_central_executa_e_persiste_agente_com_snapshot_atual() -> None:
     assert resposta.status_code == 200, resposta.text
     assert resposta.json()["decisao"] == "dados_insuficientes"
     assert resposta.json()["motivos"][-1] == "modelo estatístico indisponível"
-    assert any(
-        isinstance(item, ExecucaoAgenteRegistrabilidade) for item in sessao.adicionados
-    )
+    assert any(isinstance(item, ExecucaoAgenteRegistrabilidade) for item in sessao.adicionados)
     assert sessao.commits == 1
 
 
@@ -320,9 +318,9 @@ def test_dados_complementares_sao_persistidos_para_recalcular_matriz() -> None:
     assert pesquisa.dados_complementares_registrabilidade["preenchido_por"] == usuario.email
 
 
-def _objetos_workflow(estado: EstadoAnalise) -> tuple[
-    PesquisaMarca, VersaoRelatorioMarca, AvaliacaoRiscoMarca
-]:
+def _objetos_workflow(
+    estado: EstadoAnalise,
+) -> tuple[PesquisaMarca, VersaoRelatorioMarca, AvaliacaoRiscoMarca]:
     agora = datetime.now(UTC)
     pesquisa = PesquisaMarca(
         id="pesquisa-workflow",
@@ -356,9 +354,7 @@ def _objetos_workflow(estado: EstadoAnalise) -> tuple[
 
 def test_endpoint_registra_tentativa_de_pular_etapa_no_historico() -> None:
     pesquisa, versao, avaliacao = _objetos_workflow(EstadoAnalise.PENDING_REVIEW)
-    sessao = FakeSession(
-        [FakeResult(scalar=pesquisa), FakeResult(scalar=versao), FakeResult(scalar=avaliacao)]
-    )
+    sessao = FakeSession([FakeResult(scalar=pesquisa), FakeResult(scalar=versao), FakeResult(scalar=avaliacao)])
 
     async def override_session():
         yield sessao
@@ -384,9 +380,7 @@ def test_endpoint_registra_tentativa_de_pular_etapa_no_historico() -> None:
 
 def test_validacao_final_exige_permissao_de_risco() -> None:
     pesquisa, versao, avaliacao = _objetos_workflow(EstadoAnalise.IN_REVIEW)
-    sessao = FakeSession(
-        [FakeResult(scalar=pesquisa), FakeResult(scalar=versao), FakeResult(scalar=avaliacao)]
-    )
+    sessao = FakeSession([FakeResult(scalar=pesquisa), FakeResult(scalar=versao), FakeResult(scalar=avaliacao)])
 
     async def override_session():
         yield sessao
@@ -424,9 +418,7 @@ def test_alteracao_do_workflow_exige_permissao_de_revisao_tecnica() -> None:
 
 def test_validacao_vincula_responsavel_data_notas_e_versao() -> None:
     pesquisa, versao, avaliacao = _objetos_workflow(EstadoAnalise.IN_REVIEW)
-    sessao = FakeSession(
-        [FakeResult(scalar=pesquisa), FakeResult(scalar=versao), FakeResult(scalar=avaliacao)]
-    )
+    sessao = FakeSession([FakeResult(scalar=pesquisa), FakeResult(scalar=versao), FakeResult(scalar=avaliacao)])
 
     async def override_session():
         yield sessao

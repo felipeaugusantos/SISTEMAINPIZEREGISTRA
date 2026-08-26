@@ -1,8 +1,7 @@
-from typing import Annotated
-
 import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -56,9 +55,7 @@ async def salvar_configuracao(dados: PropostaConfigInput, session: SessionDep, u
 
 
 @router.post("/template-pdf")
-async def importar_template_pdf(
-    session: SessionDep, usuario: ManageDep, arquivo: UploadFile = File(...)
-) -> dict:
+async def importar_template_pdf(session: SessionDep, usuario: ManageDep, arquivo: UploadFile = File(...)) -> dict:
     if arquivo.content_type != "application/pdf":
         raise HTTPException(422, "Envie um arquivo PDF")
     conteudo = await arquivo.read()
@@ -71,7 +68,13 @@ async def importar_template_pdf(
     caminho.write_bytes(conteudo)
     org = await session.get(Organizacao, usuario.organizacao_id)
     branding = dict(org.branding or {})
-    branding["proposta_template"] = {"arquivo": caminho.name, "sha256": digest, "tamanho": len(conteudo), "importado_em": datetime.now(UTC).isoformat(), "importado_por": usuario.email}
+    branding["proposta_template"] = {
+        "arquivo": caminho.name,
+        "sha256": digest,
+        "tamanho": len(conteudo),
+        "importado_em": datetime.now(UTC).isoformat(),
+        "importado_por": usuario.email,
+    }
     org.branding = branding
     await session.commit()
     return {"status": "ok", "arquivo": caminho.name, "sha256": digest, "tamanho": len(conteudo)}

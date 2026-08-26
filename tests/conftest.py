@@ -5,9 +5,7 @@ from typing import Any
 from app.auth import UsuarioAutenticado
 
 
-def usuario_teste(
-    perfil: str = "administrador", permissoes: set[str] | None = None
-) -> UsuarioAutenticado:
+def usuario_teste(perfil: str = "administrador", permissoes: set[str] | None = None) -> UsuarioAutenticado:
     return UsuarioAutenticado(
         id=1,
         nome="Admin Teste",

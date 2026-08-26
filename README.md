@@ -662,3 +662,8 @@ tentativas e reprocessamento autenticado.
 2. Defina `HEALTH_API_KEY`, `SECURITY_MASTER_KEY`, `AUDIT_IP_SALT` e credenciais reais fora do repositório.
 3. Configure cada domínio de cliente em `dominios_organizacao`; hosts não cadastrados retornam 404.
 4. Execute backup e restauração de validação antes de aplicar migrations.
+### Qualidade e validação
+
+- `uv run ruff check app tests` deve retornar `All checks passed!`.
+- `uv run ruff format --check app tests` valida a formatação.
+- `uv run pytest -q` executa a suíte completa de testes.

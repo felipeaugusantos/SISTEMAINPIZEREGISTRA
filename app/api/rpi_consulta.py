@@ -34,19 +34,23 @@ async def listar_revistas_rpi(
     deslocamento: Annotated[int, Query(ge=0)] = 0,
 ) -> dict:
     total = int(
-        (await session.execute(
-            select(func.count()).select_from(RpiImportacao).where(RpiImportacao.tipo == "marca")
-        )).scalar_one()
+        (
+            await session.execute(select(func.count()).select_from(RpiImportacao).where(RpiImportacao.tipo == "marca"))
+        ).scalar_one()
     )
     itens = (
-        await session.execute(
-            select(RpiImportacao)
-            .where(RpiImportacao.tipo == "marca")
-            .order_by(RpiImportacao.numero_rpi.desc())
-            .limit(limite)
-            .offset(deslocamento)
+        (
+            await session.execute(
+                select(RpiImportacao)
+                .where(RpiImportacao.tipo == "marca")
+                .order_by(RpiImportacao.numero_rpi.desc())
+                .limit(limite)
+                .offset(deslocamento)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {
         "total": total,
         "limite": limite,

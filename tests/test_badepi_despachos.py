@@ -16,9 +16,7 @@ def test_codigo_numerico_normaliza_prefixos() -> None:
 
 
 def test_descricao_despacho_mapeia_por_numero() -> None:
-    assert descricao_despacho("DESP009") == (
-        "Publicação de pedido de registro para oposição (exame formal concluído)"
-    )
+    assert descricao_despacho("DESP009") == ("Publicação de pedido de registro para oposição (exame formal concluído)")
     assert descricao_despacho("IPAS024") == "Indeferimento do pedido"
     assert descricao_despacho("DESP158") == "Concessão de registro"
     # código legado fora da tabela atual não inventa descrição

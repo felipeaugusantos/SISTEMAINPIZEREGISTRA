@@ -28,7 +28,9 @@ def test_sla_aguarda_pagamento_apos_aceite() -> None:
 def test_sla_em_prazo_apos_pagamento() -> None:
     inicio = datetime(2026, 8, 17, 10, 0, tzinfo=UTC)
     proposta = _proposta(
-        status="aceita", pagamento_status="confirmado", sla_inicio_em=inicio,
+        status="aceita",
+        pagamento_status="confirmado",
+        sla_inicio_em=inicio,
         sla_prazo_em=_prazo_sla_24h(inicio),
     )
     assert _atualizar_sla_proposta(proposta, inicio + timedelta(hours=1)) == "em_prazo"
@@ -37,7 +39,9 @@ def test_sla_em_prazo_apos_pagamento() -> None:
 def test_sla_vencido_sem_protocolo() -> None:
     inicio = datetime(2026, 8, 17, 10, 0, tzinfo=UTC)
     proposta = _proposta(
-        status="aceita", pagamento_status="confirmado", sla_inicio_em=inicio,
+        status="aceita",
+        pagamento_status="confirmado",
+        sla_inicio_em=inicio,
         sla_prazo_em=_prazo_sla_24h(inicio),
     )
     assert _atualizar_sla_proposta(proposta, inicio + timedelta(hours=25)) == "vencido"

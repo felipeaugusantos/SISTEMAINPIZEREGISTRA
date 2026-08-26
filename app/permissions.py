@@ -10,13 +10,9 @@ class PermissaoDef:
 
 
 PERMISSOES = (
-    PermissaoDef(
-        "dashboard.view", "Visao geral", "Visualizar painel", "Acessar os indicadores gerais."
-    ),
+    PermissaoDef("dashboard.view", "Visao geral", "Visualizar painel", "Acessar os indicadores gerais."),
     PermissaoDef("leads.view", "Leads", "Visualizar leads", "Consultar leads e pesquisas."),
-    PermissaoDef(
-        "leads.pii.view", "Leads", "Visualizar contatos", "Visualizar e-mail e telefone completos."
-    ),
+    PermissaoDef("leads.pii.view", "Leads", "Visualizar contatos", "Visualizar e-mail e telefone completos."),
     PermissaoDef("leads.manage", "Leads", "Alterar leads", "Atualizar o andamento comercial."),
     PermissaoDef("leads.export", "Leads", "Exportar leads", "Exportar dados comerciais."),
     PermissaoDef(
@@ -31,9 +27,7 @@ PERMISSOES = (
         "Visualizar CRM",
         "Consultar empresas, contatos, oportunidades e timeline.",
     ),
-    PermissaoDef(
-        "crm.manage", "CRM", "Gerenciar CRM", "Alterar empresas, contatos, oportunidades e tarefas."
-    ),
+    PermissaoDef("crm.manage", "CRM", "Gerenciar CRM", "Alterar empresas, contatos, oportunidades e tarefas."),
     PermissaoDef(
         "portfolio.view",
         "Processos monitorados",
@@ -58,41 +52,27 @@ PERMISSOES = (
         "Gerenciar operacao juridica",
         "Criar, confirmar, atribuir e concluir prazos juridicos.",
     ),
-    PermissaoDef(
-        "finance.view", "Financeiro", "Visualizar financeiro", "Consultar contas e indicadores."
-    ),
-    PermissaoDef(
-        "finance.manage", "Financeiro", "Gerenciar lançamentos", "Criar contas e registrar baixas."
-    ),
+    PermissaoDef("finance.view", "Financeiro", "Visualizar financeiro", "Consultar contas e indicadores."),
+    PermissaoDef("finance.manage", "Financeiro", "Gerenciar lançamentos", "Criar contas e registrar baixas."),
     PermissaoDef(
         "finance.approve",
         "Financeiro",
         "Aprovar ajustes",
         "Cancelar lançamentos e estornar baixas com justificativa.",
     ),
-    PermissaoDef(
-        "finance.export", "Financeiro", "Exportar financeiro", "Exportar lançamentos em CSV."
-    ),
-    PermissaoDef(
-        "validation.view", "Validacao", "Visualizar validacao", "Consultar classes e situacoes."
-    ),
-    PermissaoDef(
-        "validation.review", "Validacao", "Revisar validacao", "Registrar revisoes tecnicas."
-    ),
+    PermissaoDef("finance.export", "Financeiro", "Exportar financeiro", "Exportar lançamentos em CSV."),
+    PermissaoDef("validation.view", "Validacao", "Visualizar validacao", "Consultar classes e situacoes."),
+    PermissaoDef("validation.review", "Validacao", "Revisar validacao", "Registrar revisoes tecnicas."),
     PermissaoDef("risk.view", "Risco", "Visualizar risco", "Consultar o motor deterministico."),
     PermissaoDef("risk.review", "Risco", "Revisar risco", "Registrar avaliacao humana de risco."),
-    PermissaoDef(
-        "learning.view", "Aprendizado", "Visualizar aprendizado", "Consultar modelos e metricas."
-    ),
+    PermissaoDef("learning.view", "Aprendizado", "Visualizar aprendizado", "Consultar modelos e metricas."),
     PermissaoDef(
         "learning.manage",
         "Aprendizado",
         "Gerenciar aprendizado",
         "Preparar dados, treinar, ativar e revisar modelos.",
     ),
-    PermissaoDef(
-        "rpi.view", "RPI", "Visualizar sincronizacao", "Consultar a cobertura das revistas."
-    ),
+    PermissaoDef("rpi.view", "RPI", "Visualizar sincronizacao", "Consultar a cobertura das revistas."),
     PermissaoDef("rpi.sync", "RPI", "Sincronizar RPI", "Iniciar e controlar importacoes."),
     PermissaoDef(
         "production.view",
@@ -106,31 +86,22 @@ PERMISSOES = (
         "Configurar producao",
         "Alterar rollout e controles de producao.",
     ),
-    PermissaoDef(
-        "audit.view", "Auditoria", "Visualizar auditoria", "Consultar eventos administrativos."
-    ),
+    PermissaoDef("audit.view", "Auditoria", "Visualizar auditoria", "Consultar eventos administrativos."),
     PermissaoDef("users.view", "Usuarios", "Visualizar usuarios", "Consultar usuarios e acessos."),
-    PermissaoDef(
-        "users.manage", "Usuarios", "Gerenciar usuarios", "Criar, alterar e bloquear usuarios."
-    ),
+    PermissaoDef("users.manage", "Usuarios", "Gerenciar usuarios", "Criar, alterar e bloquear usuarios."),
     PermissaoDef("users.reset_password", "Usuarios", "Redefinir senha", "Emitir senha temporaria."),
-    PermissaoDef(
-        "users.revoke_sessions", "Usuarios", "Revogar sessoes", "Encerrar acessos ativos."
-    ),
+    PermissaoDef("users.revoke_sessions", "Usuarios", "Revogar sessoes", "Encerrar acessos ativos."),
 )
 
 CHAVES_PERMISSAO = frozenset(p.chave for p in PERMISSOES)
 
-PERMISSOES_FINANCEIRO = frozenset(
-    {"finance.view", "finance.manage", "finance.approve", "finance.export"}
-)
+PERMISSOES_FINANCEIRO = frozenset({"finance.view", "finance.manage", "finance.approve", "finance.export"})
 
 PERFIS = {
     "administrador": CHAVES_PERMISSAO,
     "ceo": CHAVES_PERMISSAO,
     "tech": CHAVES_PERMISSAO,
-    "supervisor": CHAVES_PERMISSAO
-    - {"users.manage", "users.reset_password", "users.revoke_sessions", "leads.delete"},
+    "supervisor": CHAVES_PERMISSAO - {"users.manage", "users.reset_password", "users.revoke_sessions", "leads.delete"},
     "tecnico": frozenset(
         {
             "dashboard.view",

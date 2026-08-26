@@ -66,9 +66,7 @@ def test_dataset_pendente_nao_pode_ser_baseline_aprovada(tmp_path) -> None:
 
 def _relatorio(*, recall: float = 1.0, precision: float = 0.2, mrr: float = 1.0) -> dict:
     return {
-        "metricas": {
-            str(k): {"recall": recall, "precision": precision} for k in (5, 10, 20)
-        },
+        "metricas": {str(k): {"recall": recall, "precision": precision} for k in (5, 10, 20)},
         "mrr": mrr,
         "latencia_ms": {"p95": 100.0},
         "falsos_negativos_criticos": 0,

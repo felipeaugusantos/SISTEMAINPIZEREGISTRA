@@ -206,15 +206,9 @@ async def _iniciar(
         parametros["code_challenge_method"] = "S256"
     else:
         parametros["response_mode"] = "form_post"
-    resposta = RedirectResponse(
-        f"{metadata['authorization_endpoint']}?{urlencode(parametros)}", 302
-    )
+    resposta = RedirectResponse(f"{metadata['authorization_endpoint']}?{urlencode(parametros)}", 302)
     settings = get_settings()
-    secure = (
-        provedor == "apple"
-        or settings.app_env.lower() == "production"
-        or settings.admin_force_https
-    )
+    secure = provedor == "apple" or settings.app_env.lower() == "production" or settings.admin_force_https
     resposta.set_cookie(
         OAUTH_BROWSER_COOKIE,
         browser_token,
@@ -245,9 +239,7 @@ async def iniciar_login(
     session: AsyncSession = Depends(get_session),
 ) -> RedirectResponse:
     limitar_oauth.aplicar(cliente_ip(request))
-    return await _iniciar(
-        provedor, session, modo="login", usuario_id=None, destino=_destino_seguro(next)
-    )
+    return await _iniciar(provedor, session, modo="login", usuario_id=None, destino=_destino_seguro(next))
 
 
 @router.get("/{provedor}/link")
@@ -365,11 +357,7 @@ async def _resolver_usuario(
         await aplicar_contexto_tenant(session, identidade.organizacao_id)
         return await _usuario_completo(session, identidade.usuario_id), identidade
     email = str(claims.get("email") or "").strip().lower()
-    if not (
-        get_settings().oauth_auto_link_verified_email
-        and email
-        and _verdadeiro(claims.get("email_verified"))
-    ):
+    if not (get_settings().oauth_auto_link_verified_email and email and _verdadeiro(claims.get("email_verified"))):
         return None, None
     await aplicar_contexto_autenticacao(session, "oauth_email", email)
     usuario = (
@@ -380,9 +368,7 @@ async def _resolver_usuario(
         )
     ).scalar_one_or_none()
     if usuario:
-        await aplicar_contexto_tenant(
-            session, usuario.organizacao_id, superadmin=usuario.superadmin
-        )
+        await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
     return usuario, None
 
 
@@ -438,9 +424,7 @@ async def callback(
     agora = datetime.now(UTC)
     browser_token = request.cookies.get(OAUTH_BROWSER_COOKIE, "")
     browser_valido = bool(
-        tentativa
-        and browser_token
-        and secrets.compare_digest(tentativa.browser_token_hash, hash_token(browser_token))
+        tentativa and browser_token and secrets.compare_digest(tentativa.browser_token_hash, hash_token(browser_token))
     )
     if not tentativa or not browser_valido or tentativa.usado_em or tentativa.expira_em <= agora:
         return _erro_callback("Tentativa de acesso expirada ou ja utilizada")
@@ -456,9 +440,7 @@ async def callback(
         usuario = await _usuario_completo(session, tentativa.usuario_id or 0)
         if not usuario:
             return _erro_callback("A sessao usada para vincular a conta nao existe")
-        await aplicar_contexto_tenant(
-            session, usuario.organizacao_id, superadmin=usuario.superadmin
-        )
+        await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
         conflito = (
             await session.execute(
                 select(IdentidadeExterna).where(
@@ -492,9 +474,7 @@ async def callback(
     usuario, identidade = await _resolver_usuario(session, provedor, claims)
     if not usuario:
         await session.commit()
-        return _erro_callback(
-            "Conta nao cadastrada. Solicite um convite ou vincule o provedor usando sua senha."
-        )
+        return _erro_callback("Conta nao cadastrada. Solicite um convite ou vincule o provedor usando sua senha.")
     if not usuario.ativo or (usuario.bloqueado_ate and usuario.bloqueado_ate > agora):
         await session.commit()
         return _erro_callback("Usuario bloqueado ou inativo")
@@ -566,9 +546,7 @@ async def concluir_mfa(
     valido = validar_totp(segredo_mfa, codigo)
     hash_codigo = hash_token(codigo)
     if not valido and hash_codigo in (usuario.codigos_recuperacao or []):
-        usuario.codigos_recuperacao = [
-            item for item in usuario.codigos_recuperacao if item != hash_codigo
-        ]
+        usuario.codigos_recuperacao = [item for item in usuario.codigos_recuperacao if item != hash_codigo]
         valido = True
     if not valido:
         raise HTTPException(status_code=401, detail="Codigo MFA invalido")
@@ -589,11 +567,7 @@ async def minhas_identidades(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     identidades = list(
-        (
-            await session.execute(
-                select(IdentidadeExterna).where(IdentidadeExterna.usuario_id == usuario.id)
-            )
-        ).scalars()
+        (await session.execute(select(IdentidadeExterna).where(IdentidadeExterna.usuario_id == usuario.id))).scalars()
     )
     return {
         "providers": [
@@ -602,9 +576,7 @@ async def minhas_identidades(
                 "nome": dados["nome"],
                 "enabled": _configuracao(chave)["enabled"],
                 "linked": any(item.provedor == chave for item in identidades),
-                "email": next(
-                    (item.email_recebido for item in identidades if item.provedor == chave), None
-                ),
+                "email": next((item.email_recebido for item in identidades if item.provedor == chave), None),
             }
             for chave, dados in PROVEDORES.items()
         ]

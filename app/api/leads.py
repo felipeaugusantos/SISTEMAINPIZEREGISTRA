@@ -269,9 +269,7 @@ def _resumo_pesquisa(
         validated_by=pesquisa.validated_by,
         validated_at=pesquisa.validated_at,
         relatorio_url=f"/relatorios/{pesquisa.id}",
-        pdf_url=(
-            f"/v1/pesquisas-marca/{pesquisa.id}/relatorio.pdf" if relatorio_disponivel else None
-        ),
+        pdf_url=(f"/v1/pesquisas-marca/{pesquisa.id}/relatorio.pdf" if relatorio_disponivel else None),
         exclusao_status=exclusao_status,
     )
 
@@ -368,10 +366,10 @@ async def gerar_relatorio_completo_admin(
         content=pdf,
         media_type="application/pdf",
         headers={
-            "X-Relatorio-Status": "validado" if pesquisa.analysis_state == EstadoAnalise.VALIDATED.value else "preliminar",
-            "Content-Disposition": (
-                f'attachment; filename="relatorio-completo-{nome_arquivo}.pdf"'
-            ),
+            "X-Relatorio-Status": "validado"
+            if pesquisa.analysis_state == EstadoAnalise.VALIDATED.value
+            else "preliminar",
+            "Content-Disposition": (f'attachment; filename="relatorio-completo-{nome_arquivo}.pdf"'),
             "X-Relatorio-Completo-Primeira-Geracao": str(primeira_geracao).lower(),
             "X-Analysis-State": pesquisa.analysis_state or "PENDING_REVIEW",
             "X-Validated-By": pesquisa.validated_by or "",
@@ -509,16 +507,12 @@ async def listar_leads(
         prioridade,
     )
 
-    total = (
-        await session.execute(select(func.count()).select_from(Lead).where(*filtros))
-    ).scalar_one()
+    total = (await session.execute(select(func.count()).select_from(Lead).where(*filtros))).scalar_one()
     filtros_globais = [
         Lead.organizacao_id == usuario.organizacao_id,
         Lead.arquivado_em.is_(None),
     ]
-    total_global = (
-        await session.execute(select(func.count()).select_from(Lead).where(*filtros_globais))
-    ).scalar_one()
+    total_global = (await session.execute(select(func.count()).select_from(Lead).where(*filtros_globais))).scalar_one()
     consulta = (
         select(Lead)
         .options(selectinload(Lead.responsavel))
@@ -529,9 +523,7 @@ async def listar_leads(
     )
     itens = (await session.execute(consulta)).scalars().all()
     contagens = (
-        await session.execute(
-            select(Lead.status, func.count()).where(*filtros_globais).group_by(Lead.status)
-        )
+        await session.execute(select(Lead.status, func.count()).where(*filtros_globais).group_by(Lead.status))
     ).all()
     pesquisas_total = (
         await session.execute(
@@ -554,13 +546,9 @@ async def listar_leads(
             )
             .group_by(MensagemClientePortal.lead_id)
         )
-        mensagens_pendentes_por_lead = {
-            lead_id: total for lead_id, total in contagens_mensagens.all()
-        }
+        mensagens_pendentes_por_lead = {lead_id: total for lead_id, total in contagens_mensagens.all()}
         relatorio_existe = exists(
-            select(VersaoRelatorioMarca.id).where(
-                VersaoRelatorioMarca.pesquisa_id == PesquisaMarca.id
-            )
+            select(VersaoRelatorioMarca.id).where(VersaoRelatorioMarca.pesquisa_id == PesquisaMarca.id)
         )
         exclusao_pendente = (
             select(SolicitacaoExclusaoPesquisa.status)
@@ -650,11 +638,7 @@ async def resumo_crm_leads(session: SessionDep, usuario: LeadsViewDep) -> dict:
 
 def _kanban_etapa(lead: Lead) -> str:
     if lead.fase == "contato_inicial":
-        return (
-            "aguardando_contato_nosso"
-            if lead.status == StatusLead.EM_CONTATO
-            else "primeiro_contato"
-        )
+        return "aguardando_contato_nosso" if lead.status == StatusLead.EM_CONTATO else "primeiro_contato"
     if lead.fase == "relatorio_enviado" and lead.status == StatusLead.SEM_RETORNO:
         return "aguardando_retorno_cliente"
     return lead.fase if lead.fase in KANBAN_ETAPAS else "primeiro_contato"
@@ -711,9 +695,7 @@ async def mover_lead_kanban(
     if etapa is None:
         raise HTTPException(status_code=422, detail="Etapa do Kanban inválida")
     lead = (
-        await session.execute(
-            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
-        )
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
@@ -731,22 +713,16 @@ async def mover_lead_kanban(
             .all()
         )
         por_tipo = {documento.tipo: documento for documento in documentos}
-        obrigatorios = {documento.tipo for documento in documentos if documento.obrigatorio} | {
-            "procuracao"
-        }
+        obrigatorios = {documento.tipo for documento in documentos if documento.obrigatorio} | {"procuracao"}
         pendencias = [
-            tipo
-            for tipo in obrigatorios
-            if tipo not in por_tipo or por_tipo[tipo].status not in DOCUMENTOS_VALIDOS
+            tipo for tipo in obrigatorios if tipo not in por_tipo or por_tipo[tipo].status not in DOCUMENTOS_VALIDOS
         ]
         if pendencias:
             raise HTTPException(
                 status_code=422,
                 detail=f"Etapa bloqueada. Documentos obrigatórios pendentes: {', '.join(sorted(pendencias))}.",
             )
-    await avancar_fase_lead(
-        session, lead, etapa["fase"], por=usuario.nome or "operador", forcar=True
-    )
+    await avancar_fase_lead(session, lead, etapa["fase"], por=usuario.nome or "operador", forcar=True)
     if dados.etapa == "primeiro_contato":
         lead.status = StatusLead.NOVO
     elif dados.etapa == "aguardando_contato_nosso":
@@ -772,22 +748,11 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
     agora = datetime.now(UTC)
     aberta = Lead.status.not_in((StatusLead.CONVERTIDO, StatusLead.DESCARTADO))
 
-    por_fase = dict(
-        (
-            await session.execute(select(Lead.fase, func.count()).where(*base).group_by(Lead.fase))
-        ).all()
-    )
-    funil = [
-        {"fase": f, "label": FASE_LABELS.get(f, f), "total": int(por_fase.get(f, 0))}
-        for f in ORDEM_FASE_LEAD
-    ]
+    por_fase = dict((await session.execute(select(Lead.fase, func.count()).where(*base).group_by(Lead.fase))).all())
+    funil = [{"fase": f, "label": FASE_LABELS.get(f, f), "total": int(por_fase.get(f, 0))} for f in ORDEM_FASE_LEAD]
 
     por_resultado = dict(
-        (
-            await session.execute(
-                select(Lead.resultado, func.count()).where(*base).group_by(Lead.resultado)
-            )
-        ).all()
+        (await session.execute(select(Lead.resultado, func.count()).where(*base).group_by(Lead.resultado))).all()
     )
     ganho = int(por_resultado.get("ganho", 0))
     perdido = int(por_resultado.get("perdido", 0))
@@ -815,9 +780,7 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
             select(
                 Lead.responsavel_id,
                 func.count().filter(aberta),
-                func.count().filter(
-                    Lead.proxima_acao_em.is_not(None), Lead.proxima_acao_em < agora, aberta
-                ),
+                func.count().filter(Lead.proxima_acao_em.is_not(None), Lead.proxima_acao_em < agora, aberta),
                 func.count().filter(Lead.resultado == "ganho"),
                 func.count().filter(Lead.resultado == "perdido"),
             )
@@ -830,9 +793,7 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         dict(
             (
                 await session.execute(
-                    select(UsuarioOperacoes.id, UsuarioOperacoes.nome).where(
-                        UsuarioOperacoes.id.in_(ids)
-                    )
+                    select(UsuarioOperacoes.id, UsuarioOperacoes.nome).where(UsuarioOperacoes.id.in_(ids))
                 )
             ).all()
         )
@@ -855,11 +816,7 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
     )
 
     por_origem = dict(
-        (
-            await session.execute(
-                select(Lead.origem, func.count()).where(*base).group_by(Lead.origem)
-            )
-        ).all()
+        (await session.execute(select(Lead.origem, func.count()).where(*base).group_by(Lead.origem))).all()
     )
     leads = list((await session.execute(select(Lead).where(*base))).scalars())
     atrasados = sum(
@@ -884,11 +841,7 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         and item.criado_em
     ]
     propostas = list(
-        (
-            await session.execute(
-                select(PropostaComercial).where(PropostaComercial.organizacao_id == org)
-            )
-        ).scalars()
+        (await session.execute(select(PropostaComercial).where(PropostaComercial.organizacao_id == org))).scalars()
     )
     aceites = [
         (item.aceito_em - item.enviado_em).total_seconds() / 86400
@@ -904,9 +857,7 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         "taxa_conversao": round(ganho / fechados, 4) if fechados else 0,
         "perdas_por_motivo": perdas_por_motivo,
         "produtividade": produtividade,
-        "leads_por_origem": {
-            origem or "nao_informado": int(total) for origem, total in por_origem.items()
-        },
+        "leads_por_origem": {origem or "nao_informado": int(total) for origem, total in por_origem.items()},
         "atrasos": atrasados,
         "tempo_medio_ate_proposta_dias": round(sum(tempo_ate_proposta) / len(tempo_ate_proposta), 2)
         if tempo_ate_proposta
@@ -987,18 +938,14 @@ async def atualizar_status_lead(
             if contato is None:
                 raise HTTPException(status_code=422, detail="Contato inválido")
             if lead.empresa_id is not None and contato.empresa_id != lead.empresa_id:
-                raise HTTPException(
-                    status_code=422, detail="O contato não pertence à empresa desta oportunidade"
-                )
+                raise HTTPException(status_code=422, detail="O contato não pertence à empresa desta oportunidade")
         alteracoes["contato_id"] = {"de": lead.contato_id, "para": dados.contato_id}
         lead.contato_id = dados.contato_id
     if "notas" in dados.model_fields_set:
         alteracoes["notas_atualizadas"] = True
         lead.notas = dados.notas
     if "proxima_acao_em" in dados.model_fields_set:
-        alteracoes["proxima_acao_em"] = (
-            dados.proxima_acao_em.isoformat() if dados.proxima_acao_em else None
-        )
+        alteracoes["proxima_acao_em"] = dados.proxima_acao_em.isoformat() if dados.proxima_acao_em else None
         lead.proxima_acao_em = dados.proxima_acao_em
         lembrete_manual = (
             await session.execute(
@@ -1058,9 +1005,7 @@ async def atualizar_status_lead(
         if await sincronizar_fase_por_status(session, lead, por=usuario.nome or "sistema"):
             alteracoes["fase"] = lead.fase
         # Automações disparadas por mudança de status (ex.: sem_retorno).
-        await aplicar_regras_automacao(
-            session, lead, "status", lead.status.value, por=usuario.nome or "sistema"
-        )
+        await aplicar_regras_automacao(session, lead, "status", lead.status.value, por=usuario.nome or "sistema")
         registrar_evento_operacional(
             session,
             organizacao_id=usuario.organizacao_id,
@@ -1147,9 +1092,7 @@ def _contato_response(
     }
 
 
-async def _lead_do_operador(
-    lead_id: int, session: AsyncSession, usuario: UsuarioAutenticado
-) -> Lead:
+async def _lead_do_operador(lead_id: int, session: AsyncSession, usuario: UsuarioAutenticado) -> Lead:
     lead = await session.get(Lead, lead_id)
     if lead is None or lead.organizacao_id != usuario.organizacao_id:
         raise HTTPException(status_code=404, detail="Lead nao encontrado")
@@ -1236,9 +1179,7 @@ async def registrar_contato_lead(
             "resultado": contato.resultado,
         },
     )
-    _auditar(
-        session, usuario, request, "registrar_contato", f"lead:{lead_id}", {"canal": dados.canal}
-    )
+    _auditar(session, usuario, request, "registrar_contato", f"lead:{lead_id}", {"canal": dados.canal})
     await session.commit()
     await session.refresh(contato)
     return _contato_response(contato, pesquisa.marca, lead.empresa)
@@ -1320,9 +1261,7 @@ async def detalhar_lead(
 @router.get("/v1/admin/leads/{lead_id}/funil")
 async def funil_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
     lead = (
-        await session.execute(
-            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
-        )
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
@@ -1353,9 +1292,7 @@ async def definir_fase_lead(
     usuario: LeadsManageDep,
 ) -> dict:
     lead = (
-        await session.execute(
-            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
-        )
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
@@ -1380,10 +1317,7 @@ async def definir_fase_lead(
             for tipo in obrigatorios
             if tipo not in por_tipo
             or por_tipo[tipo].status not in DOCUMENTOS_VALIDOS
-            or (
-                por_tipo[tipo].validade_em is not None
-                and por_tipo[tipo].validade_em < datetime.now(UTC).date()
-            )
+            or (por_tipo[tipo].validade_em is not None and por_tipo[tipo].validade_em < datetime.now(UTC).date())
         )
         if pendencias:
             raise HTTPException(
@@ -1445,9 +1379,7 @@ CONDICOES_PROPOSTA_PADRAO = "50% na contratação e 50% no protocolo"
 
 
 class PropostaStatusInput(BaseModel):
-    status: Literal[
-        "rascunho", "enviada", "visualizada", "aceita", "recusada", "expirada", "cancelada"
-    ]
+    status: Literal["rascunho", "enviada", "visualizada", "aceita", "recusada", "expirada", "cancelada"]
 
 
 class PropostaPagamentoInput(BaseModel):
@@ -1511,10 +1443,7 @@ async def _pendencias_documentos(session: AsyncSession, proposta: PropostaComerc
         if (
             tipo not in por_tipo
             or por_tipo[tipo].status not in DOCUMENTOS_VALIDOS
-            or (
-                por_tipo[tipo].validade_em is not None
-                and por_tipo[tipo].validade_em < datetime.now(UTC).date()
-            )
+            or (por_tipo[tipo].validade_em is not None and por_tipo[tipo].validade_em < datetime.now(UTC).date())
         )
     )
 
@@ -1525,9 +1454,7 @@ async def _documentacao_protocolavel(session: AsyncSession, proposta: PropostaCo
 
 async def _lead_da_org(session: AsyncSession, lead_id: int, organizacao_id: int) -> int:
     lead = (
-        await session.execute(
-            select(Lead.id).where(Lead.id == lead_id, Lead.organizacao_id == organizacao_id)
-        )
+        await session.execute(select(Lead.id).where(Lead.id == lead_id, Lead.organizacao_id == organizacao_id))
     ).scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
@@ -1598,13 +1525,7 @@ async def salvar_documentos_lead(
         numero = (item.numero or "").strip() or None
         obs = (item.observacoes or "").strip() or None
         status = (item.status or "pendente").strip() or "pendente"
-        vazio = (
-            not numero
-            and item.data is None
-            and not obs
-            and status == "pendente"
-            and not item.obrigatorio
-        )
+        vazio = not numero and item.data is None and not obs and status == "pendente" and not item.obrigatorio
         atual = existentes.get(item.tipo)
         if atual is None:
             if vazio:
@@ -1648,9 +1569,7 @@ async def salvar_documentos_lead(
                             "status": atual.status,
                             "observacoes": atual.observacoes,
                             "obrigatorio": atual.obrigatorio,
-                            "validade_em": atual.validade_em.isoformat()
-                            if atual.validade_em
-                            else None,
+                            "validade_em": atual.validade_em.isoformat() if atual.validade_em else None,
                         },
                     )
                 )
@@ -1788,9 +1707,7 @@ async def obter_checklist_fase(
     lead_id: int, session: SessionDep, usuario: LeadsViewDep, fase: str | None = None
 ) -> dict:
     lead = (
-        await session.execute(
-            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
-        )
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
@@ -1808,9 +1725,7 @@ async def aplicar_checklist_padrao(
     lead_id: int, session: SessionDep, usuario: LeadsManageDep, fase: str | None = None
 ) -> dict:
     lead = (
-        await session.execute(
-            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
-        )
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
@@ -1840,9 +1755,7 @@ async def adicionar_checklist_item(
     fase: str | None = None,
 ) -> dict:
     lead = (
-        await session.execute(
-            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
-        )
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
@@ -1888,9 +1801,7 @@ async def alternar_checklist_item(
 
 
 @router.delete("/v1/admin/checklist-fase/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remover_checklist_item(
-    item_id: int, session: SessionDep, usuario: LeadsManageDep
-) -> Response:
+async def remover_checklist_item(item_id: int, session: SessionDep, usuario: LeadsManageDep) -> Response:
     item = (
         await session.execute(
             select(ChecklistFaseLead).where(
@@ -1972,14 +1883,10 @@ async def listar_propostas(lead_id: int, session: SessionDep, usuario: LeadsView
 
 
 @router.post("/v1/admin/leads/{lead_id}/propostas", status_code=status.HTTP_201_CREATED)
-async def criar_proposta(
-    lead_id: int, dados: PropostaInput, session: SessionDep, usuario: LeadsManageDep
-) -> dict:
+async def criar_proposta(lead_id: int, dados: PropostaInput, session: SessionDep, usuario: LeadsManageDep) -> dict:
     lead = await _lead_da_org(session, lead_id, usuario.organizacao_id)
     lead_obj = (
-        await session.execute(
-            select(Lead).where(Lead.id == lead, Lead.organizacao_id == usuario.organizacao_id)
-        )
+        await session.execute(select(Lead).where(Lead.id == lead, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one()
     ids = list(dict.fromkeys([item for item in dados.pesquisa_ids if item]))
     if dados.pesquisa_id and dados.pesquisa_id not in ids:
@@ -2091,31 +1998,23 @@ async def atualizar_status_proposta(
         proposta.enviado_em = agora
         lead = (
             await session.execute(
-                select(Lead).where(
-                    Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id
-                )
+                select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id)
             )
         ).scalar_one_or_none()
         if lead and lead.fase:
             await avancar_fase_lead(session, lead, "proposta_enviada", usuario.nome or "sistema")
-            await aplicar_regras_automacao(
-                session, lead, "fase", "proposta_enviada", usuario.nome or "sistema"
-            )
+            await aplicar_regras_automacao(session, lead, "fase", "proposta_enviada", usuario.nome or "sistema")
     elif dados.status == "aceita":
         proposta.aceito_em = agora
         proposta.sla_status = "aguardando_pagamento"
         lead = (
             await session.execute(
-                select(Lead).where(
-                    Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id
-                )
+                select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id)
             )
         ).scalar_one_or_none()
         if lead and lead.fase:
             await avancar_fase_lead(session, lead, "proposta_aceita", usuario.nome or "sistema")
-            await aplicar_regras_automacao(
-                session, lead, "fase", "proposta_aceita", usuario.nome or "sistema"
-            )
+            await aplicar_regras_automacao(session, lead, "fase", "proposta_aceita", usuario.nome or "sistema")
     _auditar(
         session,
         usuario,
@@ -2129,9 +2028,7 @@ async def atualizar_status_proposta(
     return _proposta_dict(proposta, org)
 
 
-async def _proposta_da_org(
-    session: AsyncSession, proposta_id: int, organizacao_id: int
-) -> PropostaComercial:
+async def _proposta_da_org(session: AsyncSession, proposta_id: int, organizacao_id: int) -> PropostaComercial:
     proposta = (
         await session.execute(
             select(PropostaComercial).where(
@@ -2175,11 +2072,7 @@ async def atualizar_pagamento_proposta(
     ):
         proposta.sla_inicio_em = proposta.pagamento_confirmado_em
         proposta.sla_prazo_em = _prazo_sla_24h(proposta.sla_inicio_em)
-    if (
-        proposta.pagamento_status == "confirmado"
-        and proposta.status == "aceita"
-        and not documentos_ok
-    ):
+    if proposta.pagamento_status == "confirmado" and proposta.status == "aceita" and not documentos_ok:
         proposta.sla_status = "aguardando_documentos"
     _atualizar_sla_proposta(proposta)
     _auditar(
@@ -2217,9 +2110,7 @@ async def registrar_protocolo_proposta(
     motivo = (dados.motivo_atraso or "").strip() or None
     agora = datetime.now(UTC)
     if not numero and not motivo:
-        raise HTTPException(
-            status_code=422, detail="Informe o número do protocolo ou o motivo do atraso"
-        )
+        raise HTTPException(status_code=422, detail="Informe o número do protocolo ou o motivo do atraso")
     if numero:
         if proposta.status != "aceita" or proposta.pagamento_status != "confirmado":
             raise HTTPException(
@@ -2296,9 +2187,7 @@ async def obter_sla_proposta(proposta_id: int, session: SessionDep, usuario: Lea
 
 
 @router.get("/v1/admin/propostas/{proposta_id}/assinaturas")
-async def listar_assinaturas_proposta(
-    proposta_id: int, session: SessionDep, usuario: LeadsViewDep
-) -> dict:
+async def listar_assinaturas_proposta(proposta_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
     proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
     assinaturas = (
         (
@@ -2331,9 +2220,7 @@ async def listar_assinaturas_proposta(
 
 
 @router.get("/v1/admin/propostas/{proposta_id}/pendencias")
-async def obter_pendencias_proposta(
-    proposta_id: int, session: SessionDep, usuario: LeadsViewDep
-) -> dict:
+async def obter_pendencias_proposta(proposta_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
     proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
     pendencias = await _pendencias_documentos(session, proposta)
     return {
@@ -2341,9 +2228,7 @@ async def obter_pendencias_proposta(
         "status": proposta.status,
         "pagamento_status": proposta.pagamento_status,
         "documentos_pendentes": pendencias,
-        "sla_liberado": not pendencias
-        and proposta.status == "aceita"
-        and proposta.pagamento_status == "confirmado",
+        "sla_liberado": not pendencias and proposta.status == "aceita" and proposta.pagamento_status == "confirmado",
     }
 
 
@@ -2379,15 +2264,9 @@ async def documento_proposta(proposta_id: int, session: SessionDep, usuario: Lea
 async def _proposta_por_token(session: AsyncSession, token: str) -> PropostaComercial | None:
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
     proposta = (
-        await session.execute(
-            select(PropostaComercial).where(PropostaComercial.public_token_hash == digest)
-        )
+        await session.execute(select(PropostaComercial).where(PropostaComercial.public_token_hash == digest))
     ).scalar_one_or_none()
-    if (
-        proposta is None
-        or not proposta.public_token_expira_em
-        or proposta.public_token_expira_em < datetime.now(UTC)
-    ):
+    if proposta is None or not proposta.public_token_expira_em or proposta.public_token_expira_em < datetime.now(UTC):
         return None
     return proposta
 
@@ -2414,9 +2293,7 @@ async def pdf_proposta(proposta_id: int, session: SessionDep, usuario: LeadsView
 
 
 @router.post("/v1/admin/propostas/{proposta_id}/link")
-async def criar_link_proposta(
-    proposta_id: int, session: SessionDep, usuario: LeadsManageDep
-) -> dict:
+async def criar_link_proposta(proposta_id: int, session: SessionDep, usuario: LeadsManageDep) -> dict:
     proposta = (
         await session.execute(
             select(PropostaComercial).where(
@@ -2436,9 +2313,7 @@ async def criar_link_proposta(
 
 
 @router.post("/v1/admin/propostas/{proposta_id}/enviar")
-async def enviar_link_proposta(
-    proposta_id: int, session: SessionDep, usuario: LeadsManageDep
-) -> dict:
+async def enviar_link_proposta(proposta_id: int, session: SessionDep, usuario: LeadsManageDep) -> dict:
     proposta = (
         await session.execute(
             select(PropostaComercial).where(
@@ -2451,9 +2326,7 @@ async def enviar_link_proposta(
         raise HTTPException(status_code=404, detail="Proposta não encontrada")
     lead = (
         await session.execute(
-            select(Lead).where(
-                Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id
-            )
+            select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id)
         )
     ).scalar_one_or_none()
     if lead is None or not lead.email:
@@ -2470,9 +2343,7 @@ async def enviar_link_proposta(
     clicksign = configuracao_clicksign(org)
     if clicksign["enabled"]:
         try:
-            ids = await criar_envelope(
-                pdf, f"Proposta {proposta.numero}", lead.email, lead.nome, org
-            )
+            ids = await criar_envelope(pdf, f"Proposta {proposta.numero}", lead.email, lead.nome, org)
             proposta.dados = {**(proposta.dados or {}), "clicksign": ids}
             await session.commit()
         except Exception as exc:
@@ -2515,9 +2386,7 @@ async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLRe
 
 
 @router.post("/propostas/{token}/aceitar", response_class=HTMLResponse, include_in_schema=False)
-async def aceitar_proposta_publica(
-    token: str, request: Request, session: SessionDep
-) -> HTMLResponse:
+async def aceitar_proposta_publica(token: str, request: Request, session: SessionDep) -> HTMLResponse:
     proposta = await _proposta_por_token(session, token)
     if proposta is None:
         return HTMLResponse("<h1>Link expirado</h1>", status_code=404)
@@ -2583,9 +2452,7 @@ async def aceitar_proposta_publica(
         )
         lead = (
             await session.execute(
-                select(Lead).where(
-                    Lead.id == proposta.lead_id, Lead.organizacao_id == proposta.organizacao_id
-                )
+                select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == proposta.organizacao_id)
             )
         ).scalar_one_or_none()
         if lead is not None:
@@ -2635,9 +2502,7 @@ def _guia_dict(g: GuiaInpi) -> dict:
 @router.get("/v1/admin/leads/{lead_id}/guias")
 async def listar_guias_inpi(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
     lead = (
-        await session.execute(
-            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
-        )
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
@@ -2688,9 +2553,7 @@ async def listar_guias_inpi(lead_id: int, session: SessionDep, usuario: LeadsVie
 
 
 @router.post("/v1/admin/leads/{lead_id}/guias", status_code=status.HTTP_201_CREATED)
-async def criar_guia_inpi(
-    lead_id: int, dados: GuiaInpiInput, session: SessionDep, usuario: LeadsManageDep
-) -> dict:
+async def criar_guia_inpi(lead_id: int, dados: GuiaInpiInput, session: SessionDep, usuario: LeadsManageDep) -> dict:
     await _lead_da_org(session, lead_id, usuario.organizacao_id)
     guia = GuiaInpi(
         organizacao_id=usuario.organizacao_id,
@@ -2715,9 +2578,7 @@ async def atualizar_guia_inpi(
 ) -> dict:
     guia = (
         await session.execute(
-            select(GuiaInpi).where(
-                GuiaInpi.id == guia_id, GuiaInpi.organizacao_id == usuario.organizacao_id
-            )
+            select(GuiaInpi).where(GuiaInpi.id == guia_id, GuiaInpi.organizacao_id == usuario.organizacao_id)
         )
     ).scalar_one_or_none()
     if guia is None:
@@ -2732,9 +2593,7 @@ async def atualizar_guia_inpi(
 async def remover_guia_inpi(guia_id: int, session: SessionDep, usuario: LeadsManageDep) -> Response:
     guia = (
         await session.execute(
-            select(GuiaInpi).where(
-                GuiaInpi.id == guia_id, GuiaInpi.organizacao_id == usuario.organizacao_id
-            )
+            select(GuiaInpi).where(GuiaInpi.id == guia_id, GuiaInpi.organizacao_id == usuario.organizacao_id)
         )
     ).scalar_one_or_none()
     if guia is None:
@@ -2851,9 +2710,7 @@ def _para_dt(valor) -> datetime:
 @router.get("/v1/admin/leads/{lead_id}/timeline")
 async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
     lead = (
-        await session.execute(
-            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
-        )
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
@@ -2889,9 +2746,7 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
     contatos = (
         (
             await session.execute(
-                select(ContatoLead).where(
-                    ContatoLead.lead_id == lead_id, ContatoLead.organizacao_id == org
-                )
+                select(ContatoLead).where(ContatoLead.lead_id == lead_id, ContatoLead.organizacao_id == org)
             )
         )
         .scalars()
@@ -2916,9 +2771,7 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
         )
     ).all()
     for criado_em, marca in pesquisas:
-        eventos.append(
-            {"tipo": "pesquisa", "data": criado_em, "titulo": "Pesquisa gerada", "detalhe": marca}
-        )
+        eventos.append({"tipo": "pesquisa", "data": criado_em, "titulo": "Pesquisa gerada", "detalhe": marca})
     propostas = (
         (
             await session.execute(
@@ -2957,9 +2810,7 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
             {
                 "tipo": "mensagem_portal",
                 "data": mensagem.criado_em,
-                "titulo": "Mensagem do cliente"
-                if mensagem.autor_tipo == "cliente"
-                else "Resposta do atendimento",
+                "titulo": "Mensagem do cliente" if mensagem.autor_tipo == "cliente" else "Resposta do atendimento",
                 "detalhe": mensagem.mensagem,
             }
         )
@@ -2989,9 +2840,7 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
     documentos = (
         (
             await session.execute(
-                select(DocumentoLead).where(
-                    DocumentoLead.lead_id == lead_id, DocumentoLead.organizacao_id == org
-                )
+                select(DocumentoLead).where(DocumentoLead.lead_id == lead_id, DocumentoLead.organizacao_id == org)
             )
         )
         .scalars()
@@ -3009,11 +2858,7 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
             }
         )
     guias = (
-        (
-            await session.execute(
-                select(GuiaInpi).where(GuiaInpi.lead_id == lead_id, GuiaInpi.organizacao_id == org)
-            )
-        )
+        (await session.execute(select(GuiaInpi).where(GuiaInpi.lead_id == lead_id, GuiaInpi.organizacao_id == org)))
         .scalars()
         .all()
     )
@@ -3146,11 +2991,7 @@ async def exportar_leads(
         prioridade,
     )
     leads = (
-        (
-            await session.execute(
-                select(Lead).where(*filtros).order_by(Lead.criado_em.desc()).limit(5000)
-            )
-        )
+        (await session.execute(select(Lead).where(*filtros).order_by(Lead.criado_em.desc()).limit(5000)))
         .scalars()
         .all()
     )

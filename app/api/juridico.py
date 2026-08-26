@@ -61,20 +61,38 @@ PADRAO_PRAZO = re.compile(
 # (concessão, arquivamento, extinção, recurso julgado) não constam de propósito
 # e não geram prazo.
 DESPACHOS_PRAZO: tuple[tuple[re.Pattern[str], int, str, str], ...] = (
-    (re.compile(r"instaura[çc][ãa]o de processo de nulidade", re.IGNORECASE),
-     60, "manifestacao", "Manifestação em processo de nulidade"),
-    (re.compile(r"notifica[çc][ãa]o de oposi[çc][ãa]o", re.IGNORECASE),
-     60, "oposicao", "Manifestação sobre oposição"),
-    (re.compile(r"para oposi[çc][ãa]o", re.IGNORECASE),
-     60, "oposicao", "Janela de oposição"),
-    (re.compile(r"notifica[çc][ãa]o de recurso", re.IGNORECASE),
-     60, "recurso", "Contrarrazões de recurso"),
-    (re.compile(r"indeferimento do pedido", re.IGNORECASE),
-     60, "recurso", "Recurso contra indeferimento"),
-    (re.compile(r"exig[êe]ncia", re.IGNORECASE),
-     60, "exigencia", "Cumprimento de exigência"),
-    (re.compile(r"deferimento do pedido", re.IGNORECASE),
-     60, "pagamento", "Pagamento da taxa de concessão"),
+    (
+        re.compile(r"instaura[çc][ãa]o de processo de nulidade", re.IGNORECASE),
+        60,
+        "manifestacao",
+        "Manifestação em processo de nulidade",
+    ),
+    (
+        re.compile(r"notifica[çc][ãa]o de oposi[çc][ãa]o", re.IGNORECASE),
+        60,
+        "oposicao",
+        "Manifestação sobre oposição",
+    ),
+    (re.compile(r"para oposi[çc][ãa]o", re.IGNORECASE), 60, "oposicao", "Janela de oposição"),
+    (
+        re.compile(r"notifica[çc][ãa]o de recurso", re.IGNORECASE),
+        60,
+        "recurso",
+        "Contrarrazões de recurso",
+    ),
+    (
+        re.compile(r"indeferimento do pedido", re.IGNORECASE),
+        60,
+        "recurso",
+        "Recurso contra indeferimento",
+    ),
+    (re.compile(r"exig[êe]ncia", re.IGNORECASE), 60, "exigencia", "Cumprimento de exigência"),
+    (
+        re.compile(r"deferimento do pedido", re.IGNORECASE),
+        60,
+        "pagamento",
+        "Pagamento da taxa de concessão",
+    ),
 )
 
 # A partir de 20/09/2025 o INPI unificou as retribuições de marca: a taxa de
@@ -202,10 +220,7 @@ class PrazoInput(BaseModel):
 
 
 class PrazoUpdate(BaseModel):
-    status: (
-        Literal["aguardando_confirmacao", "pendente", "em_andamento", "concluido", "cancelado"]
-        | None
-    ) = None
+    status: Literal["aguardando_confirmacao", "pendente", "em_andamento", "concluido", "cancelado"] | None = None
     responsavel_id: int | None = Field(default=None, ge=1)
     escalonar_para_id: int | None = Field(default=None, ge=1)
     prioridade: Literal["baixa", "media", "alta", "critica"] | None = None
@@ -344,9 +359,7 @@ def _evento(
     )
 
 
-async def _usuario_valido(
-    session: AsyncSession, organizacao_id: int, usuario_id: int | None
-) -> bool:
+async def _usuario_valido(session: AsyncSession, organizacao_id: int, usuario_id: int | None) -> bool:
     if usuario_id is None:
         return True
     resultado = await session.execute(
@@ -359,9 +372,7 @@ async def _usuario_valido(
     return bool(resultado.scalar_one_or_none())
 
 
-async def _obter_prazo(
-    session: AsyncSession, usuario: UsuarioAutenticado, prazo_id: int
-) -> PrazoJuridico:
+async def _obter_prazo(session: AsyncSession, usuario: UsuarioAutenticado, prazo_id: int) -> PrazoJuridico:
     prazo = (
         await session.execute(
             select(PrazoJuridico).where(
@@ -404,18 +415,14 @@ def _serializar_prazo(row) -> dict:
         "dias_restantes": restantes,
         # Uma publicação antiga, descoberta pelo motor somente depois de o
         # prazo terminar, é referência histórica e não atraso operacional atual.
-        "vencido": (
-            restantes < 0
-            and prazo.status in STATUS_ATIVOS
-            and prazo.confirmado
-        ),
+        "vencido": (restantes < 0 and prazo.status in STATUS_ATIVOS and prazo.confirmado),
         "alerta": (
             "atrasado"
             if restantes < 0 and prazo.status in STATUS_ATIVOS
             else "vence_hoje"
             if restantes == 0 and prazo.status in STATUS_ATIVOS
             else "proximo"
-                if restantes <= (prazo.antecedencia_dias or 7) and prazo.status in STATUS_ATIVOS
+            if restantes <= (prazo.antecedencia_dias or 7) and prazo.status in STATUS_ATIVOS
             else None
         ),
         "historico": historico,
@@ -460,10 +467,7 @@ async def referencias(session: SessionDep, usuario: ViewDep) -> dict:
     ).all()
     return {
         "usuarios": [{"id": item.id, "nome": item.nome} for item in pessoas],
-        "processos": [
-            {"id": item.id, "nome": f"{item.numero} · {item.titulo or 'Sem título'}"}
-            for item in processos
-        ],
+        "processos": [{"id": item.id, "nome": f"{item.numero} · {item.titulo or 'Sem título'}"} for item in processos],
         "tipos": [{"id": key, "nome": value} for key, value in TIPOS_PRAZO.items()],
         "acoes": {"gerenciar": usuario.pode("legal.manage")},
     }
@@ -527,21 +531,30 @@ async def agenda_centralizada(
         .order_by(PrazoJuridico.vencimento_em, PrazoJuridico.id)
     )
     total = int((await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one() or 0)
-    linhas = (
-        await session.execute(base.limit(por_pagina).offset((pagina - 1) * por_pagina))
-    ).all()
+    linhas = (await session.execute(base.limit(por_pagina).offset((pagina - 1) * por_pagina))).all()
     itens = [_serializar_prazo(linha) for linha in linhas]
     calendario: dict[str, list[dict]] = {}
     for item in itens:
         chave = item["vencimento_em"].date().isoformat()
         calendario.setdefault(chave, []).append(
-            {"id": item["id"], "titulo": item["titulo"], "tipo": item["tipo"], "prioridade": item["prioridade"], "alerta": item["alerta"]}
+            {
+                "id": item["id"],
+                "titulo": item["titulo"],
+                "tipo": item["tipo"],
+                "prioridade": item["prioridade"],
+                "alerta": item["alerta"],
+            }
         )
     return {
         "visualizacao": visualizacao,
         "itens": itens,
         "calendario": calendario if visualizacao == "calendario" else {},
-        "paginacao": {"pagina": pagina, "por_pagina": por_pagina, "total": total, "total_paginas": max(1, (total + por_pagina - 1) // por_pagina)},
+        "paginacao": {
+            "pagina": pagina,
+            "por_pagina": por_pagina,
+            "total": total,
+            "total_paginas": max(1, (total + por_pagina - 1) // por_pagina),
+        },
         "regras": {"exclusao_permitida": False, "encerramento_exige_auditoria": True},
     }
 
@@ -597,9 +610,7 @@ async def painel(
     escalacao = UsuarioOperacoes.__table__.alias("escalacao")
     hoje_inicio = datetime.combine(datetime.now(UTC).date(), time.min, UTC)
     hoje_fim = datetime.combine(datetime.now(UTC).date(), time.max, UTC)
-    sete_dias_fim = datetime.combine(
-        datetime.now(UTC).date() + timedelta(days=7), time.max, UTC
-    )
+    sete_dias_fim = datetime.combine(datetime.now(UTC).date() + timedelta(days=7), time.max, UTC)
     metricas_row = (
         await session.execute(
             select(
@@ -656,7 +667,9 @@ async def painel(
                 .limit(limite)
                 .offset(deslocamento)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     query = (
         select(
@@ -704,9 +717,7 @@ async def painel(
     historico = (
         await session.execute(
             select(EventoJuridico, Processo.numero)
-            .join(
-                ProcessoMonitorado, ProcessoMonitorado.id == EventoJuridico.processo_monitorado_id
-            )
+            .join(ProcessoMonitorado, ProcessoMonitorado.id == EventoJuridico.processo_monitorado_id)
             .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
             .where(EventoJuridico.organizacao_id == usuario.organizacao_id)
             .order_by(EventoJuridico.criado_em.desc())
@@ -756,9 +767,7 @@ async def painel(
 
 
 @router.post("/prazos", status_code=status.HTTP_201_CREATED)
-async def criar_prazo(
-    dados: PrazoInput, request: Request, session: SessionDep, usuario: ManageDep
-) -> dict:
+async def criar_prazo(dados: PrazoInput, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
     monitorado = (
         await session.execute(
             select(ProcessoMonitorado).where(
@@ -872,9 +881,7 @@ async def atualizar_prazo(
             "confirmacao_origem": prazo.confirmacao_origem,
         },
     )
-    _auditar(
-        session, request, usuario, "atualizar_prazo", f"prazo:{prazo.id}", {"status": prazo.status}
-    )
+    _auditar(session, request, usuario, "atualizar_prazo", f"prazo:{prazo.id}", {"status": prazo.status})
     await session.commit()
     return {"id": prazo.id, "status": prazo.status, "confirmado": prazo.confirmado}
 
@@ -942,22 +949,22 @@ async def vincular_cliente(
         ).scalar_one_or_none()
     empresa = await obter_ou_criar_empresa(session, usuario.organizacao_id, nome)
     if empresa is None:
-        raise HTTPException(
-            400, "Informe o nome do cliente (o processo não tem titular cadastrado)."
-        )
+        raise HTTPException(400, "Informe o nome do cliente (o processo não tem titular cadastrado).")
     monitorado.empresa_id = empresa.id
     monitorado.atualizado_em = datetime.now(UTC)
     _auditar(
-        session, request, usuario, "vincular_cliente_crm", f"prazo:{prazo.id}",
+        session,
+        request,
+        usuario,
+        "vincular_cliente_crm",
+        f"prazo:{prazo.id}",
         {"empresa": empresa.nome},
     )
     await session.commit()
     return {"empresa": empresa.nome}
 
 
-async def _obter_item_checklist(
-    session: AsyncSession, usuario: UsuarioAutenticado, item_id: int
-) -> ItemChecklistPrazo:
+async def _obter_item_checklist(session: AsyncSession, usuario: UsuarioAutenticado, item_id: int) -> ItemChecklistPrazo:
     item = (
         await session.execute(
             select(ItemChecklistPrazo).where(
@@ -971,19 +978,21 @@ async def _obter_item_checklist(
     return item
 
 
-async def _listar_checklist(
-    session: AsyncSession, usuario: UsuarioAutenticado, prazo_id: int
-) -> dict:
+async def _listar_checklist(session: AsyncSession, usuario: UsuarioAutenticado, prazo_id: int) -> dict:
     itens = (
-        await session.execute(
-            select(ItemChecklistPrazo)
-            .where(
-                ItemChecklistPrazo.prazo_id == prazo_id,
-                ItemChecklistPrazo.organizacao_id == usuario.organizacao_id,
+        (
+            await session.execute(
+                select(ItemChecklistPrazo)
+                .where(
+                    ItemChecklistPrazo.prazo_id == prazo_id,
+                    ItemChecklistPrazo.organizacao_id == usuario.organizacao_id,
+                )
+                .order_by(ItemChecklistPrazo.ordem, ItemChecklistPrazo.id)
             )
-            .order_by(ItemChecklistPrazo.ordem, ItemChecklistPrazo.id)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {
         "itens": [_serializar_item_checklist(item) for item in itens],
         "total": len(itens),
@@ -1005,10 +1014,7 @@ async def resumo_checklists(session: SessionDep, usuario: ViewDep) -> dict:
             .group_by(ItemChecklistPrazo.prazo_id)
         )
     ).all()
-    return {
-        str(prazo_id): {"total": total, "concluidos": feitos}
-        for prazo_id, total, feitos in linhas
-    }
+    return {str(prazo_id): {"total": total, "concluidos": feitos} for prazo_id, total, feitos in linhas}
 
 
 @router.get("/prazos/{prazo_id}/checklist")
@@ -1024,9 +1030,7 @@ async def adicionar_item_checklist(
     await _obter_prazo(session, usuario, prazo_id)
     ordem = (
         await session.execute(
-            select(func.coalesce(func.max(ItemChecklistPrazo.ordem), 0)).where(
-                ItemChecklistPrazo.prazo_id == prazo_id
-            )
+            select(func.coalesce(func.max(ItemChecklistPrazo.ordem), 0)).where(ItemChecklistPrazo.prazo_id == prazo_id)
         )
     ).scalar_one()
     session.add(
@@ -1042,15 +1046,11 @@ async def adicionar_item_checklist(
 
 
 @router.post("/prazos/{prazo_id}/checklist/padrao", status_code=status.HTTP_201_CREATED)
-async def aplicar_checklist_padrao(
-    prazo_id: int, session: SessionDep, usuario: ManageDep
-) -> dict:
+async def aplicar_checklist_padrao(prazo_id: int, session: SessionDep, usuario: ManageDep) -> dict:
     prazo = await _obter_prazo(session, usuario, prazo_id)
     existentes = (
         await session.execute(
-            select(func.count())
-            .select_from(ItemChecklistPrazo)
-            .where(ItemChecklistPrazo.prazo_id == prazo_id)
+            select(func.count()).select_from(ItemChecklistPrazo).where(ItemChecklistPrazo.prazo_id == prazo_id)
         )
     ).scalar_one()
     if existentes:
@@ -1090,9 +1090,7 @@ async def atualizar_item_checklist(
 
 
 @router.delete("/checklist/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remover_item_checklist(
-    item_id: int, session: SessionDep, usuario: ManageDep
-) -> None:
+async def remover_item_checklist(item_id: int, session: SessionDep, usuario: ManageDep) -> None:
     item = await _obter_item_checklist(session, usuario, item_id)
     await session.delete(item)
     await session.commit()
@@ -1147,9 +1145,7 @@ async def _notificar(
 ) -> bool:
     chave = f"juridico:{prazo.organizacao_id}:{prazo.id}:{tipo}:{destinatario_id or 0}"
     existe = (
-        await session.execute(
-            select(NotificacaoJuridica.id).where(NotificacaoJuridica.chave == chave)
-        )
+        await session.execute(select(NotificacaoJuridica.id).where(NotificacaoJuridica.chave == chave))
     ).scalar_one_or_none()
     if existe:
         return False
@@ -1168,9 +1164,7 @@ async def _notificar(
     return True
 
 
-async def _terminais_dos_processos(
-    session: AsyncSession, processo_ids: set[int]
-) -> dict[int, Movimentacao]:
+async def _terminais_dos_processos(session: AsyncSession, processo_ids: set[int]) -> dict[int, Movimentacao]:
     if not processo_ids:
         return {}
     movimentacoes = (
@@ -1334,12 +1328,7 @@ async def _reconciliar_prazos_historicos(
         if vencimento.tzinfo is None:
             vencimento = vencimento.replace(tzinfo=UTC)
         descoberto_depois = criado_em is None or criado_em > vencimento
-        if (
-            prazo.status in STATUS_ATIVOS
-            and not prazo.confirmado
-            and vencimento < agora
-            and descoberto_depois
-        ):
+        if prazo.status in STATUS_ATIVOS and not prazo.confirmado and vencimento < agora and descoberto_depois:
             prazo.status = "historico"
             prazo.prioridade = "baixa"
             prazo.confirmado = True
@@ -1377,18 +1366,12 @@ async def _reconciliar_prazos_historicos(
     return len(historicos), len(duplicados)
 
 
-async def executar_motor_organizacao(
-    session: AsyncSession, organizacao_id: int, ator: str = "motor-juridico"
-) -> dict:
+async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int, ator: str = "motor-juridico") -> dict:
     """Materializa alertas e sugestões; usado pela API e pela rotina horária."""
     motor_usuario = SimpleNamespace(organizacao_id=organizacao_id, ator=ator)
     agora = datetime.now(UTC)
-    reconciliados, _terminais_reconciliados = await _reconciliar_prazos_terminais(
-        session, organizacao_id, ator
-    )
-    historicos, duplicados = await _reconciliar_prazos_historicos(
-        session, organizacao_id, ator
-    )
+    reconciliados, _terminais_reconciliados = await _reconciliar_prazos_terminais(session, organizacao_id, ator)
+    historicos, duplicados = await _reconciliar_prazos_historicos(session, organizacao_id, ator)
     prazos = (
         (
             await session.execute(
@@ -1425,11 +1408,7 @@ async def executar_motor_organizacao(
                 "Prazo jurídico próximo",
                 f"{prazo.titulo} vence em {dias} dia(s).",
             )
-        if (
-            dias <= prazo.escalonar_dias_antes
-            and prazo.escalonar_para_id
-            and prazo.escalonado_em is None
-        ):
+        if dias <= prazo.escalonar_dias_antes and prazo.escalonar_para_id and prazo.escalonado_em is None:
             prazo.escalonado_em = agora
             prazo.prioridade = "critica" if dias <= 0 else "alta"
             escalados += 1
@@ -1512,9 +1491,7 @@ async def executar_motor_organizacao(
         # de concessão: não gera prazo acionável. (b) Registra um aviso informativo
         # (prazo dispensado, sem ação) para o operador entender.
         dispensa_concessao = (
-            tipo == "pagamento"
-            and data_deposito is not None
-            and data_deposito >= MARCO_TAXA_UNICA_INPI
+            tipo == "pagamento" and data_deposito is not None and data_deposito >= MARCO_TAXA_UNICA_INPI
         )
         if dispensa_concessao:
             titulo = "Concessão sem taxa — já paga no depósito (regra INPI de 20/09/2025)"

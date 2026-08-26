@@ -69,12 +69,10 @@ def test_automacao_reprocessada_nao_duplica_lembrete() -> None:
     primeira = FakeSession([IterableFakeResult(itens=[]), FakeResult(scalar=None)])
     segunda = FakeSession([IterableFakeResult(itens=[]), FakeResult(scalar=123)])
 
-    assert asyncio.run(
-        aplicar_regras_automacao(primeira, lead, "status", "sem_retorno", "teste")
-    ) == ["reengajar_sem_retorno"]
-    assert (
-        asyncio.run(aplicar_regras_automacao(segunda, lead, "status", "sem_retorno", "teste")) == []
-    )
+    assert asyncio.run(aplicar_regras_automacao(primeira, lead, "status", "sem_retorno", "teste")) == [
+        "reengajar_sem_retorno"
+    ]
+    assert asyncio.run(aplicar_regras_automacao(segunda, lead, "status", "sem_retorno", "teste")) == []
     assert len([x for x in primeira.adicionados if isinstance(x, LembreteCRM)]) == 1
     assert len([x for x in primeira.adicionados if isinstance(x, EventoDominio)]) == 1
     assert not [x for x in segunda.adicionados if isinstance(x, LembreteCRM)]
@@ -99,9 +97,7 @@ def test_confirmacao_juridica_exige_responsavel_e_justificativa() -> None:
     )
     session = FakeSession([FakeResult(scalar=prazo)])
     with pytest.raises(HTTPException) as erro:
-        asyncio.run(
-            atualizar_prazo(1, PrazoUpdate(confirmar=True), _request(), session, usuario_teste())
-        )
+        asyncio.run(atualizar_prazo(1, PrazoUpdate(confirmar=True), _request(), session, usuario_teste()))
     assert erro.value.status_code == 422
 
 

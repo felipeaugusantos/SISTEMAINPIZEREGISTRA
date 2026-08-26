@@ -8,8 +8,7 @@ from app.badepi.marcas import ler_depositos_marcas
 def test_le_deposito_badepi_cp1252(tmp_path: Path) -> None:
     arquivo = tmp_path / "depositos.csv"
     arquivo.write_text(
-        '"NO_PEDIDO";"NM_TITULO_MARCA";"DT_DEPOSITO"\n'
-        '"933404204";"COCA-COLA";"02/02/2024 15:27:54"\n',
+        '"NO_PEDIDO";"NM_TITULO_MARCA";"DT_DEPOSITO"\n"933404204";"COCA-COLA";"02/02/2024 15:27:54"\n',
         encoding="cp1252",
     )
 
@@ -43,8 +42,7 @@ def test_le_apresentacao_e_natureza(tmp_path: Path) -> None:
 def test_apresentacao_ausente_quando_coluna_nao_existe(tmp_path: Path) -> None:
     arquivo = tmp_path / "depositos.csv"
     arquivo.write_text(
-        '"NO_PEDIDO";"NM_TITULO_MARCA";"DT_DEPOSITO"\n'
-        '"933404204";"COCA-COLA";"02/02/2024 15:27:54"\n',
+        '"NO_PEDIDO";"NM_TITULO_MARCA";"DT_DEPOSITO"\n"933404204";"COCA-COLA";"02/02/2024 15:27:54"\n',
         encoding="cp1252",
     )
 

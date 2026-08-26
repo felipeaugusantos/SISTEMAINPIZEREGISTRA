@@ -19,9 +19,7 @@ def validar_forca_senha(senha: str) -> str:
         re.search(r"[^A-Za-z0-9]", senha),
     )
     if not all(requisitos):
-        raise ValueError(
-            "A senha deve conter letra maiúscula, minúscula, número e caractere especial"
-        )
+        raise ValueError("A senha deve conter letra maiúscula, minúscula, número e caractere especial")
     return senha
 
 
@@ -38,9 +36,7 @@ def _chaves_disponiveis() -> dict[int, Fernet]:
     settings = get_settings()
     chaves = {settings.security_master_key_version: _fernet(settings.security_master_key)}
     if settings.security_master_key_previous and settings.security_master_key_previous_version > 0:
-        chaves[settings.security_master_key_previous_version] = _fernet(
-            settings.security_master_key_previous
-        )
+        chaves[settings.security_master_key_previous_version] = _fernet(settings.security_master_key_previous)
     return chaves
 
 
@@ -85,18 +81,13 @@ def codigo_totp(segredo: str, instante: int | None = None) -> str:
     chave = base64.b32decode(segredo + padding, casefold=True)
     resumo = hmac.new(chave, struct.pack(">Q", contador), hashlib.sha1).digest()
     deslocamento = resumo[-1] & 0x0F
-    numero = (
-        struct.unpack(">I", resumo[deslocamento : deslocamento + 4])[0] & 0x7FFFFFFF
-    ) % 1_000_000
+    numero = (struct.unpack(">I", resumo[deslocamento : deslocamento + 4])[0] & 0x7FFFFFFF) % 1_000_000
     return f"{numero:06d}"
 
 
 def validar_totp(segredo: str, codigo: str, instante: int | None = None) -> bool:
     agora = int(time.time()) if instante is None else instante
-    return any(
-        hmac.compare_digest(codigo_totp(segredo, agora + desvio), codigo.strip())
-        for desvio in (-30, 0, 30)
-    )
+    return any(hmac.compare_digest(codigo_totp(segredo, agora + desvio), codigo.strip()) for desvio in (-30, 0, 30))
 
 
 def uri_totp(segredo: str, email: str) -> str:

@@ -27,9 +27,7 @@ async def executar(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Constrói o dataset temporal e treina o modelo de registrabilidade."
-    )
+    parser = argparse.ArgumentParser(description="Constrói o dataset temporal e treina o modelo de registrabilidade.")
     parser.add_argument("--dataset", action="store_true")
     parser.add_argument("--treinar", action="store_true")
     parser.add_argument("--ativar", action="store_true")

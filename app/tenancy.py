@@ -51,12 +51,8 @@ async def aplicar_contexto_tenant(
     session.info["organizacao_id"] = organizacao_id
     session.info["superadmin"] = superadmin
     if session.in_transaction():
-        await session.execute(
-            select(func.set_config("app.organizacao_id", str(organizacao_id), True))
-        )
-        await session.execute(
-            select(func.set_config("app.superadmin", "true" if superadmin else "false", True))
-        )
+        await session.execute(select(func.set_config("app.organizacao_id", str(organizacao_id), True)))
+        await session.execute(select(func.set_config("app.superadmin", "true" if superadmin else "false", True)))
 
 
 def _token_requisicao(request: Request) -> str | None:
@@ -78,9 +74,7 @@ async def resolver_organizacao_publica(
     host = host_publico(request)
     token = _token_requisicao(request)
     if getattr(request.state, "global_integration_token", False) or (
-        token
-        and settings.integration_auth_enabled
-        and secrets.compare_digest(token, settings.inpi_integration_token)
+        token and settings.integration_auth_enabled and secrets.compare_digest(token, settings.inpi_integration_token)
     ):
         padrao = _organizacao_padrao()
         await aplicar_contexto_tenant(session, padrao.id)
@@ -99,9 +93,7 @@ async def resolver_organizacao_publica(
                 )
             )
         ).scalar_one_or_none()
-        if credencial and (
-            credencial.expira_em is None or credencial.expira_em > datetime.now(UTC)
-        ):
+        if credencial and (credencial.expira_em is None or credencial.expira_em > datetime.now(UTC)):
             credencial.ultimo_uso_em = datetime.now(UTC)
             organizacao = (
                 await session.execute(
@@ -157,9 +149,7 @@ async def resolver_organizacao_publica(
         slug=organizacao.slug,
         plano=organizacao.plano.codigo,
         modulos=_normalizar_modulos(
-            organizacao.modulos_liberados
-            if organizacao.modulos_liberados is not None
-            else organizacao.plano.modulos
+            organizacao.modulos_liberados if organizacao.modulos_liberados is not None else organizacao.plano.modulos
         ),
         limites=organizacao.plano.limites or {},
         branding=organizacao.branding or {},
@@ -223,9 +213,7 @@ async def validar_limite_pesquisas(session: AsyncSession, organizacao: Organizac
 async def validar_limite_usuarios(session: AsyncSession, organizacao_id: int) -> None:
     organizacao = (
         await session.execute(
-            select(Organizacao)
-            .options(selectinload(Organizacao.plano))
-            .where(Organizacao.id == organizacao_id)
+            select(Organizacao).options(selectinload(Organizacao.plano)).where(Organizacao.id == organizacao_id)
         )
     ).scalar_one_or_none()
     if organizacao is None:

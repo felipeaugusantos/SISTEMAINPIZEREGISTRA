@@ -66,9 +66,7 @@ async def painel(session: SessionDep, usuario: AdminDep) -> dict:
         (PesquisaMarca, "pesquisas"),
     ):
         contagens[chave] = (
-            await session.execute(
-                select(func.count()).select_from(modelo).where(modelo.organizacao_id == org_id)
-            )
+            await session.execute(select(func.count()).select_from(modelo).where(modelo.organizacao_id == org_id))
         ).scalar_one()
     ultima_rotina = (
         await session.execute(
@@ -120,9 +118,7 @@ async def painel(session: SessionDep, usuario: AdminDep) -> dict:
 
 
 @router.patch("/configuracao")
-async def configurar(
-    dados: ConfiguracaoTenantInput, request: Request, session: SessionDep, usuario: AdminDep
-) -> dict:
+async def configurar(dados: ConfiguracaoTenantInput, request: Request, session: SessionDep, usuario: AdminDep) -> dict:
     org = await session.get(Organizacao, usuario.organizacao_id)
     org.branding = dados.branding.model_dump(exclude_none=True)
     org.retencao_dados_dias = dados.retencao_dados_dias
@@ -156,13 +152,9 @@ async def criar_tarefa(tipo: str, request: Request, usuario: AdminDep) -> dict:
 
 
 @router.post("/privacidade/leads/{lead_id}/solicitar")
-async def solicitar_privacidade(
-    lead_id: int, request: Request, session: SessionDep, usuario: AdminDep
-) -> dict:
+async def solicitar_privacidade(lead_id: int, request: Request, session: SessionDep, usuario: AdminDep) -> dict:
     lead = (
-        await session.execute(
-            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
-        )
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one_or_none()
     if not lead:
         raise HTTPException(404, "Lead não encontrado")
@@ -180,9 +172,7 @@ async def solicitar_privacidade(
 @router.get("/privacidade/leads/{lead_id}/exportar")
 async def exportar_lead(lead_id: int, session: SessionDep, usuario: AdminDep) -> dict:
     lead = (
-        await session.execute(
-            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
-        )
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one_or_none()
     if not lead:
         raise HTTPException(404, "Lead não encontrado")
@@ -223,9 +213,7 @@ async def exportar_lead(lead_id: int, session: SessionDep, usuario: AdminDep) ->
 
 
 @router.post("/privacidade/solicitacoes/{solicitacao_id}/concluir")
-async def anonimizar(
-    solicitacao_id: int, request: Request, session: SessionDep, usuario: AdminDep
-) -> dict:
+async def anonimizar(solicitacao_id: int, request: Request, session: SessionDep, usuario: AdminDep) -> dict:
     item = (
         await session.execute(
             select(SolicitacaoPrivacidade).where(

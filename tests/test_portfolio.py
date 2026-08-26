@@ -44,9 +44,7 @@ def test_normaliza_nome_do_procurador() -> None:
 def test_modo_variacoes_busca_todos_os_termos_do_nome() -> None:
     expressao = _filtro_procurador("José Vicente", "variacoes")
     valores = {
-        valor
-        for valor in expressao.compile().params.values()
-        if isinstance(valor, str) and valor.startswith("%")
+        valor for valor in expressao.compile().params.values() if isinstance(valor, str) and valor.startswith("%")
     }
     assert valores == {"%jose%", "%vicente%"}
 
@@ -168,8 +166,8 @@ def test_cadastro_manual_informa_quando_processo_ja_esta_vinculado() -> None:
 
 
 def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
-    page = ("app/web/admin-carteira.html")
-    script = ("app/web/static/admin-carteira.js")
+    page = "app/web/admin-carteira.html"
+    script = "app/web/static/admin-carteira.js"
     with open(page, encoding="utf-8") as arquivo:
         html = arquivo.read()
     with open(script, encoding="utf-8") as arquivo:
@@ -191,7 +189,7 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
     assert 'name="situacao_inpi"' in html
     assert 'id="portfolio-pagination"' in html
     assert 'params.set("limite", state.pageSize)' in javascript
-    assert 'pageSize: 20' in javascript
+    assert "pageSize: 20" in javascript
     assert "/v1/admin/carteira/kanban" in javascript
     assert "/v1/admin/carteira/kanban-inpi" in javascript
     assert "function readableError" in javascript

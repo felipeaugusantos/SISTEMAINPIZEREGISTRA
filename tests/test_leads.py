@@ -402,6 +402,5 @@ def test_relatorio_preliminar_e_permitido_enquanto_revisao_esta_pendente() -> No
     assert pesquisa.relatorio_completo_gerado_em is not None
     assert pesquisa.relatorio_completo_gerado_por == "admin@teste.local"
     assert not any(
-        isinstance(item, EventoAuditoria) and item.acao == "bloquear_relatorio"
-        for item in sessao.adicionados
+        isinstance(item, EventoAuditoria) and item.acao == "bloquear_relatorio" for item in sessao.adicionados
     )

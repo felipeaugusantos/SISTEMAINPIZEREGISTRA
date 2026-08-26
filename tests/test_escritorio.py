@@ -10,9 +10,7 @@ from tests.conftest import FakeResult, auth_override, usuario_teste
 
 
 def test_api_escritorio_exige_permissao_financeira() -> None:
-    app.dependency_overrides[obter_usuario_atual] = auth_override(
-        usuario_teste(perfil="operador", permissoes=set())
-    )
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario_teste(perfil="operador", permissoes=set()))
     try:
         assert TestClient(app).get("/v1/admin/escritorio/departamentos").status_code == 403
     finally:
@@ -28,9 +26,7 @@ def test_custo_idempotente_por_tenant() -> None:
         valor=Decimal("100.00"),
         idempotency_key="gru-2026-001",
     )
-    session = __import__("tests.conftest", fromlist=["FakeSession"]).FakeSession(
-        [FakeResult(scalar=existente)]
-    )
+    session = __import__("tests.conftest", fromlist=["FakeSession"]).FakeSession([FakeResult(scalar=existente)])
     dados = CustoInput(
         categoria="custas_inpi",
         descricao="GRU repetida",
@@ -39,9 +35,7 @@ def test_custo_idempotente_por_tenant() -> None:
     )
     import asyncio
 
-    resposta = asyncio.run(
-        criar_custo(dados, session, usuario_teste("administrador", {"finance.manage"}))
-    )
+    resposta = asyncio.run(criar_custo(dados, session, usuario_teste("administrador", {"finance.manage"})))
     assert resposta["idempotente"] is True
     assert not session.adicionados
 

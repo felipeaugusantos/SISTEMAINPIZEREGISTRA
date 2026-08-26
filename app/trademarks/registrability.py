@@ -6,9 +6,7 @@ from typing import Literal
 VERSAO_MATRIZ = "manual-inpi-2026-06-23-v2"
 FONTE_MANUAL = "https://manualdemarcas.inpi.gov.br/projects/manual/wiki/05_Exame_substantivo"
 
-StatusRegra = Literal[
-    "atendido", "alerta", "possivel_impedimento", "nao_analisado", "nao_aplicavel"
-]
+StatusRegra = Literal["atendido", "alerta", "possivel_impedimento", "nao_analisado", "nao_aplicavel"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,8 +138,7 @@ def _regra_liceidade(dados: dict) -> RegraRegistrabilidade:
         "Liceidade",
         status,
         conclusao,
-        "Símbolo oficial: "
-        f"{_sim_nao(oficial)}. Conteúdo potencialmente ofensivo: {_sim_nao(ofensivo)}.",
+        f"Símbolo oficial: {_sim_nao(oficial)}. Conteúdo potencialmente ofensivo: {_sim_nao(ofensivo)}.",
         "Manual 5.8 e art. 124, I, III, XI e XIV, da LPI",
         automatizavel=True,
     )
@@ -192,8 +189,7 @@ def _regra_veracidade(dados: dict) -> RegraRegistrabilidade:
         "Veracidade",
         status,
         conclusao,
-        f"Alegação de origem ou qualidade: {_sim_nao(alegacao)}. "
-        f"Comprovação: {_sim_nao(comprovavel)}.",
+        f"Alegação de origem ou qualidade: {_sim_nao(alegacao)}. Comprovação: {_sim_nao(comprovavel)}.",
         "Manual 5.10 e art. 124, X, da LPI",
         automatizavel=True,
     )
@@ -339,9 +335,7 @@ def construir_matriz_registrabilidade(
             else "Classificação encontrada para a atividade informada"
         )
         evidencia_classe = (
-            f"Classe declarada: {classe_nice}."
-            if classe_nice
-            else f"{len(classes)} classe(s) sugerida(s)."
+            f"Classe declarada: {classe_nice}." if classe_nice else f"{len(classes)} classe(s) sugerida(s)."
         )
     else:
         status_classe = "alerta"
@@ -487,8 +481,7 @@ def construir_matriz_registrabilidade(
             "Oposições",
             status_oposicao,
             conclusao_oposicao,
-            f"Depósito: {_sim_nao(deposito)}. Pedido: "
-            f"{dados.get('numero_pedido') or 'não informado'}.",
+            f"Depósito: {_sim_nao(deposito)}. Pedido: {dados.get('numero_pedido') or 'não informado'}.",
             "Manual 5.12 e art. 158 da LPI",
             automatizavel=True,
         ),

@@ -74,11 +74,7 @@ def validar_arquivo_rpi(caminho: Path, tipo: TipoProcesso) -> int:
         contexto = iterparse(caminho, events=("start", "end"))
         _, raiz = next(contexto)
         atributo_data = "data" if tipo is TipoProcesso.MARCA else "dataPublicacao"
-        if (
-            raiz.tag != "revista"
-            or not raiz.attrib.get("numero")
-            or not raiz.attrib.get(atributo_data)
-        ):
+        if raiz.tag != "revista" or not raiz.attrib.get("numero") or not raiz.attrib.get(atributo_data):
             raise ValueError("Cabeçalho de RPI inválido")
         for evento, elemento in contexto:
             if evento == "end" and elemento.tag == tag:
@@ -129,10 +125,7 @@ def avaliar_importacao(
         )
     if anterior:
         referencia = int(anterior.get("registros_processados") or 0)
-        if (
-            referencia >= minimo_referencia_registros
-            and registros < referencia * razao_minima_registros
-        ):
+        if referencia >= minimo_referencia_registros and registros < referencia * razao_minima_registros:
             adicionar(
                 "QUEDA_ABRUPTA_REGISTROS",
                 "aviso",
@@ -160,9 +153,5 @@ def avaliar_importacao(
                 "O mesmo arquivo produziu estatísticas diferentes em novo processamento.",
             )
 
-    status = (
-        "erro"
-        if any(item.severidade == "critica" for item in anomalias)
-        else ("atencao" if anomalias else "ok")
-    )
+    status = "erro" if any(item.severidade == "critica" for item in anomalias) else ("atencao" if anomalias else "ok")
     return status, [asdict(item) for item in anomalias]

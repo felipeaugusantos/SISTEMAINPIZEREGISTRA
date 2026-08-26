@@ -81,10 +81,7 @@ def test_troca_valida_atualiza_hash_e_libera_primeiro_acesso() -> None:
     assert resposta == {"status": "ok", "destino": "/admin"}
     assert registro.alterar_senha is False
     assert verificar_senha(registro.senha_hash, "NovaSenha456!")
-    assert any(
-        isinstance(item, EventoAuditoria) and item.acao == "TROCA_SENHA"
-        for item in session.adicionados
-    )
+    assert any(isinstance(item, EventoAuditoria) and item.acao == "TROCA_SENHA" for item in session.adicionados)
 
 
 def test_tela_exibe_requisitos_e_trata_erros_estruturados() -> None:

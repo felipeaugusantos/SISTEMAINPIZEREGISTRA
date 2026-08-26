@@ -27,8 +27,7 @@ async def test_empresa_contato_oportunidade_rejeita_vinculo_entre_tenants() -> N
         for indice in (1, 2):
             orgs.append(
                 await conexao.fetchval(
-                    "INSERT INTO organizacoes (nome, slug, plano_id) "
-                    "VALUES ($1, $2, $3) RETURNING id",
+                    "INSERT INTO organizacoes (nome, slug, plano_id) VALUES ($1, $2, $3) RETURNING id",
                     f"Tenant Fase 7 {indice}",
                     f"fase7-{indice}-{sufixo}",
                     plano_id,
@@ -46,8 +45,7 @@ async def test_empresa_contato_oportunidade_rejeita_vinculo_entre_tenants() -> N
                 )
             )
         contato_b = await conexao.fetchval(
-            "INSERT INTO contatos (organizacao_id, empresa_id, nome) "
-            "VALUES ($1, $2, 'Contato B') RETURNING id",
+            "INSERT INTO contatos (organizacao_id, empresa_id, nome) VALUES ($1, $2, 'Contato B') RETURNING id",
             orgs[1],
             empresas[1],
         )
@@ -84,8 +82,7 @@ async def test_juridico_e_financeiro_rejeitam_vinculos_entre_tenants() -> None:
         for indice in (1, 2):
             orgs.append(
                 await conexao.fetchval(
-                    "INSERT INTO organizacoes (nome, slug, plano_id) "
-                    "VALUES ($1, $2, $3) RETURNING id",
+                    "INSERT INTO organizacoes (nome, slug, plano_id) VALUES ($1, $2, $3) RETURNING id",
                     f"Tenant Integridade {indice}",
                     f"integridade-{indice}-{sufixo}",
                     plano_id,

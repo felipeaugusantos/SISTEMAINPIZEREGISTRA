@@ -48,9 +48,7 @@ def ler_depositos_marcas(
                 dia, mes, ano = data_texto.split("/")
                 data_deposito = date(int(ano), int(mes), int(dia))
 
-            apresentacao = APRESENTACAO_BADEPI.get(
-                (linha.get("CD_APRESEN_MARCA") or "").strip().upper()
-            )
+            apresentacao = APRESENTACAO_BADEPI.get((linha.get("CD_APRESEN_MARCA") or "").strip().upper())
             natureza = (linha.get("DS_NATUREZ_MARCA") or "").strip() or None
 
             yield numero, titulo, data_deposito, apresentacao, natureza

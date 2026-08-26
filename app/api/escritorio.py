@@ -81,9 +81,7 @@ def _admin(usuario: UsuarioAutenticado) -> bool:
     return usuario.superadmin or usuario.perfil in {"administrador", "ceo", "tech"}
 
 
-async def _departamento_ok(
-    session, usuario: UsuarioAutenticado, departamento_id: int | None
-) -> None:
+async def _departamento_ok(session, usuario: UsuarioAutenticado, departamento_id: int | None) -> None:
     if departamento_id is None or _admin(usuario) or not getattr(usuario, "departamento", None):
         return
     item = (
@@ -113,24 +111,18 @@ async def listar_departamentos(session: SessionDep, usuario: ViewDep) -> dict:
     )
     if not _admin(usuario) and getattr(usuario, "departamento", None):
         itens = [item for item in itens if item.codigo == usuario.departamento]
-    return {
-        "itens": [{"id": i.id, "codigo": i.codigo, "nome": i.nome, "ativo": i.ativo} for i in itens]
-    }
+    return {"itens": [{"id": i.id, "codigo": i.codigo, "nome": i.nome, "ativo": i.ativo} for i in itens]}
 
 
 @router.post("/departamentos", status_code=status.HTTP_201_CREATED)
-async def criar_departamento(
-    dados: DepartamentoInput, session: SessionDep, usuario: ManageDep
-) -> dict:
+async def criar_departamento(dados: DepartamentoInput, session: SessionDep, usuario: ManageDep) -> dict:
     item = DepartamentoFinanceiro(organizacao_id=usuario.organizacao_id, **dados.model_dump())
     session.add(item)
     try:
         await session.commit()
     except IntegrityError:
         await session.rollback()
-        raise HTTPException(
-            status_code=409, detail="Codigo de departamento ja cadastrado"
-        ) from None
+        raise HTTPException(status_code=409, detail="Codigo de departamento ja cadastrado") from None
     return {"id": item.id, "codigo": item.codigo, "nome": item.nome}
 
 
@@ -170,9 +162,7 @@ async def criar_centro(dados: CentroCustoInput, session: SessionDep, usuario: Ma
         await session.commit()
     except IntegrityError:
         await session.rollback()
-        raise HTTPException(
-            status_code=409, detail="Codigo de centro de custo ja cadastrado"
-        ) from None
+        raise HTTPException(status_code=409, detail="Codigo de centro de custo ja cadastrado") from None
     return {"id": item.id, "codigo": item.codigo, "nome": item.nome}
 
 
@@ -270,9 +260,7 @@ async def criar_custo(dados: CustoInput, session: SessionDep, usuario: ManageDep
     ).scalar_one_or_none()
     if existente:
         return {"id": existente.id, "idempotente": True, "valor": str(existente.valor)}
-    item = CustoJuridico(
-        organizacao_id=usuario.organizacao_id, criado_por_id=usuario.id, **dados.model_dump()
-    )
+    item = CustoJuridico(organizacao_id=usuario.organizacao_id, criado_por_id=usuario.id, **dados.model_dump())
     session.add(item)
     try:
         await session.commit()
@@ -291,18 +279,12 @@ async def criar_custo(dados: CustoInput, session: SessionDep, usuario: ManageDep
 
 
 @router.get("/custos")
-async def listar_custos(
-    session: SessionDep, usuario: ViewDep, departamento_id: int | None = None
-) -> dict:
+async def listar_custos(session: SessionDep, usuario: ViewDep, departamento_id: int | None = None) -> dict:
     await _departamento_ok(session, usuario, departamento_id)
     stmt = select(CustoJuridico).where(CustoJuridico.organizacao_id == usuario.organizacao_id)
     if departamento_id is not None:
         stmt = stmt.where(CustoJuridico.departamento_id == departamento_id)
-    itens = (
-        (await session.execute(stmt.order_by(CustoJuridico.criado_em.desc()).limit(500)))
-        .scalars()
-        .all()
-    )
+    itens = (await session.execute(stmt.order_by(CustoJuridico.criado_em.desc()).limit(500))).scalars().all()
     return {
         "itens": [
             {
@@ -335,9 +317,7 @@ async def exportar_custos(session: SessionDep, usuario: ViewDep) -> Response:
     escritor = csv.writer(saida)
     escritor.writerow(["id", "categoria", "descricao", "valor", "departamento_id"])
     for item in itens:
-        escritor.writerow(
-            [item.id, item.categoria, item.descricao, item.valor, item.departamento_id]
-        )
+        escritor.writerow([item.id, item.categoria, item.descricao, item.valor, item.departamento_id])
     return Response(
         saida.getvalue(),
         media_type="text/csv",
@@ -348,11 +328,7 @@ async def exportar_custos(session: SessionDep, usuario: ViewDep) -> Response:
 @router.get("/relatorio-executivo")
 async def relatorio_executivo(session: SessionDep, usuario: ViewDep) -> dict:
     itens = (
-        (
-            await session.execute(
-                select(CustoJuridico).where(CustoJuridico.organizacao_id == usuario.organizacao_id)
-            )
-        )
+        (await session.execute(select(CustoJuridico).where(CustoJuridico.organizacao_id == usuario.organizacao_id)))
         .scalars()
         .all()
     )

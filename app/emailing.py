@@ -16,9 +16,7 @@ def _link_recuperacao(settings: Settings, token: str) -> str:
     return f"{base}/redefinir-senha#token={quote(token, safe='')}"
 
 
-def _mensagem_recuperacao(
-    destinatario: str, nome: str, token: str, settings: Settings
-) -> EmailMessage:
+def _mensagem_recuperacao(destinatario: str, nome: str, token: str, settings: Settings) -> EmailMessage:
     link = _link_recuperacao(settings, token)
     nome_seguro = html.escape(nome or "usuário")
     minutos = settings.password_reset_minutes
@@ -104,7 +102,9 @@ async def enviar_recuperacao_portal(destinatario: str, nome: str, token: str) ->
     mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
     mensagem["To"] = destinatario
     link = f"{settings.app_public_url.rstrip('/')}/portal#recuperacao={quote(token, safe='')}"
-    mensagem.set_content(f"Olá, {nome or 'cliente'}.\n\nAcesse o portal para redefinir seu acesso:\n{link}\n\nO link expira em 30 minutos e pode ser usado uma única vez.")
+    mensagem.set_content(
+        f"Olá, {nome or 'cliente'}.\n\nAcesse o portal para redefinir seu acesso:\n{link}\n\nO link expira em 30 minutos e pode ser usado uma única vez."
+    )
     await asyncio.to_thread(_enviar_smtp, mensagem, settings)
 
 

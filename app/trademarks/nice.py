@@ -200,15 +200,10 @@ CLASSES_NICE: dict[str, tuple[str, tuple[str, ...]]] = {
 
 def _normalizar(valor: str) -> str:
     sem_acentos = "".join(
-        caractere
-        for caractere in unicodedata.normalize("NFKD", valor)
-        if not unicodedata.combining(caractere)
+        caractere for caractere in unicodedata.normalize("NFKD", valor) if not unicodedata.combining(caractere)
     )
     texto = re.sub(r"\s+", " ", sem_acentos.lower()).strip()
-    palavras = [
-        palavra[:-1] if len(palavra) > 4 and palavra.endswith("s") else palavra
-        for palavra in texto.split()
-    ]
+    palavras = [palavra[:-1] if len(palavra) > 4 and palavra.endswith("s") else palavra for palavra in texto.split()]
     return " ".join(palavras)
 
 

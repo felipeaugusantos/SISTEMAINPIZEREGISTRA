@@ -94,7 +94,7 @@ def _comando(individual: bool) -> text:
         OR p.situacao_normalizada IS DISTINCT FROM c.codigo
       )
     """
-)
+    )
 
 
 async def consolidar_situacao(session: AsyncSession, processo_id: int | None = None) -> int:

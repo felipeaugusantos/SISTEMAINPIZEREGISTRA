@@ -27,7 +27,13 @@ def test_comunicacao_exige_regra_e_aprovacao():
 
 def test_falso_positivo_bloqueia_comunicacao():
     preferencia = PreferenciaVigilancia(ativo=True, canais=["portal"])
-    item = ColidenciaVigilancia(status="aprovado", aprovado_por=1, aprovado_em=datetime.now(UTC),
-                                evidencias={"regra": "vigilancia"}, justificativa="revisado", falso_positivo=True)
+    item = ColidenciaVigilancia(
+        status="aprovado",
+        aprovado_por=1,
+        aprovado_em=datetime.now(UTC),
+        evidencias={"regra": "vigilancia"},
+        justificativa="revisado",
+        falso_positivo=True,
+    )
     permitido, motivo = validar_comunicacao(preferencia=preferencia, colidencia=item, canal="portal")
     assert not permitido and "falso positivo" in motivo

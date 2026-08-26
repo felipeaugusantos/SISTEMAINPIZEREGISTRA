@@ -20,9 +20,7 @@ def test_catalogo_social_nao_expoe_credenciais() -> None:
 
 
 def test_provedor_desativado_nao_inicia_fluxo() -> None:
-    resposta = TestClient(app).get(
-        "/v1/auth/social/google/start", follow_redirects=False
-    )
+    resposta = TestClient(app).get("/v1/auth/social/google/start", follow_redirects=False)
 
     assert resposta.status_code == 404
 

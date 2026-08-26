@@ -106,9 +106,7 @@ class RateLimiter:
         registros.append(agora)
         if len(self._acessos) > self.maximo_chaves:
             expiradas = [
-                item
-                for item, acessos in self._acessos.items()
-                if not acessos or agora - acessos[-1] > self.janela
+                item for item, acessos in self._acessos.items() if not acessos or agora - acessos[-1] > self.janela
             ]
             for item in expiradas:
                 self._acessos.pop(item, None)

@@ -227,9 +227,7 @@ async def obter_relatorio(
     return await gerar_resumo_pesquisa(session, pesquisa)
 
 
-async def gerar_resumo_pesquisa(
-    session: AsyncSession, pesquisa: PesquisaMarca
-) -> ResumoPublicoMarcaResponse:
+async def gerar_resumo_pesquisa(session: AsyncSession, pesquisa: PesquisaMarca) -> ResumoPublicoMarcaResponse:
     """Motor de geração do relatório, reutilizável pelo fluxo público e pelo admin."""
     inicio_busca = perf_counter()
     total, ocorrencias, evidencias = await buscar_marcas(
@@ -248,14 +246,10 @@ async def gerar_resumo_pesquisa(
     codigos_atividade = [classe.codigo for classe in classes_atividade]
     matriz = (await session.execute(select(AfinidadeClasse))).scalars().all()
     registros_alto_renome = (
-        (await session.execute(select(MarcaAltoRenome).where(MarcaAltoRenome.vigente.is_(True))))
-        .scalars()
-        .all()
+        (await session.execute(select(MarcaAltoRenome).where(MarcaAltoRenome.vigente.is_(True)))).scalars().all()
     )
     alto_renome = {item.numero_processo_normalizado for item in registros_alto_renome}
-    nomes_alto_renome = {
-        normalizar_texto(item.marca) for item in registros_alto_renome if item.marca
-    }
+    nomes_alto_renome = {normalizar_texto(item.marca) for item in registros_alto_renome if item.marca}
     itens = []
     for ocorrencia in ocorrencias:
         processo = ocorrencia.processo
@@ -265,12 +259,8 @@ async def gerar_resumo_pesquisa(
             ultima_movimentacao.codigo_despacho if ultima_movimentacao else None,
             ultima_movimentacao.descricao if ultima_movimentacao else processo.situacao,
         )
-        situacao_oficial = (
-            ultima_movimentacao.descricao if ultima_movimentacao else processo.situacao
-        )
-        classes_processo = [
-            classe.codigo for classe in processo.classificacoes if classe.sistema == "nice"
-        ]
+        situacao_oficial = ultima_movimentacao.descricao if ultima_movimentacao else processo.situacao
+        classes_processo = [classe.codigo for classe in processo.classificacoes if classe.sistema == "nice"]
         afinidade = avaliar_afinidade(codigos_atividade, classes_processo, list(matriz))
         processo_alto_renome = (
             normalizar_numero_processo(processo.numero) in alto_renome
@@ -322,13 +312,9 @@ async def gerar_resumo_pesquisa(
                     "relevancia_rotulo": relevancia.rotulo,
                     "justificativas_relevancia": list(relevancia.justificativas),
                     "url_detalhe": f"/processos/{processo.numero}",
-                    "url_busca_oficial": (
-                        "https://busca.inpi.gov.br/pePI/jsp/marcas/Pesquisa_classe_basica.jsp"
-                    ),
+                    "url_busca_oficial": ("https://busca.inpi.gov.br/pePI/jsp/marcas/Pesquisa_classe_basica.jsp"),
                     "ultima_rpi": (ultima_movimentacao.numero_rpi if ultima_movimentacao else None),
-                    "data_ultima_rpi": (
-                        ultima_movimentacao.data_rpi if ultima_movimentacao else None
-                    ),
+                    "data_ultima_rpi": (ultima_movimentacao.data_rpi if ultima_movimentacao else None),
                 }
             )
         )
@@ -354,13 +340,9 @@ async def gerar_resumo_pesquisa(
         [ocorrencia.processo for ocorrencia in ocorrencias],
     )
     ultima_rpi = (await session.execute(select(func.max(Movimentacao.numero_rpi)))).scalar_one()
-    alto_renome_atualizado_em = (
-        await session.execute(select(func.max(MarcaAltoRenome.sincronizado_em)))
-    ).scalar_one()
+    alto_renome_atualizado_em = (await session.execute(select(func.max(MarcaAltoRenome.sincronizado_em)))).scalar_one()
     matriz_status = (
-        "validada"
-        if matriz and all(item.status_revisao == "aprovada" for item in matriz)
-        else "pendente_de_validacao"
+        "validada" if matriz and all(item.status_revisao == "aprovada" for item in matriz) else "pendente_de_validacao"
     )
     avaliacao = calcular_risco(
         [
@@ -371,12 +353,8 @@ async def gerar_resumo_pesquisa(
                 relevancia_situacao=item.relevancia_situacao,
                 situacao_normalizada=item.situacao_normalizada,
                 afinidade_nivel=(item.afinidade_classes.nivel if item.afinidade_classes else None),
-                afinidade_revisao=(
-                    item.afinidade_classes.revisao if item.afinidade_classes else None
-                ),
-                classes_processo=tuple(
-                    item.afinidade_classes.classes_processo if item.afinidade_classes else ()
-                ),
+                afinidade_revisao=(item.afinidade_classes.revisao if item.afinidade_classes else None),
+                classes_processo=tuple(item.afinidade_classes.classes_processo if item.afinidade_classes else ()),
                 alto_renome=item.alto_renome,
             )
             for item in itens
@@ -390,9 +368,7 @@ async def gerar_resumo_pesquisa(
             modo=MODO_MOTOR,
             pontuacao=avaliacao.pontuacao,
             nivel=avaliacao.nivel,
-            principais_conflitos=[
-                conflito_para_json(conflito) for conflito in avaliacao.principais_conflitos
-            ],
+            principais_conflitos=[conflito_para_json(conflito) for conflito in avaliacao.principais_conflitos],
             regras_aplicadas=regras_para_json(),
         )
         .on_conflict_do_update(
@@ -402,9 +378,7 @@ async def gerar_resumo_pesquisa(
                 "modo": MODO_MOTOR,
                 "pontuacao": avaliacao.pontuacao,
                 "nivel": avaliacao.nivel,
-                "principais_conflitos": [
-                    conflito_para_json(conflito) for conflito in avaliacao.principais_conflitos
-                ],
+                "principais_conflitos": [conflito_para_json(conflito) for conflito in avaliacao.principais_conflitos],
                 "regras_aplicadas": regras_para_json(),
                 "calculado_em": func.now(),
             },
@@ -418,8 +392,7 @@ async def gerar_resumo_pesquisa(
             codigos_atividade,
             list(item.afinidade_classes.classes_processo) if item.afinidade_classes else [],
             afinidade_conhecida=bool(
-                item.afinidade_classes
-                and item.afinidade_classes.nivel in {"identica", "alta", "moderada"}
+                item.afinidade_classes and item.afinidade_classes.nivel in {"identica", "alta", "moderada"}
             ),
             candidata_ativa=item.relevancia_situacao == "ativa",
         )
@@ -431,11 +404,7 @@ async def gerar_resumo_pesquisa(
         pares=pares_aprendizado,
         marca=pesquisa.marca,
     )
-    modelo_previsao = (
-        await session.get(ModeloRegistrabilidade, previsao.modelo_id)
-        if previsao is not None
-        else None
-    )
+    modelo_previsao = await session.get(ModeloRegistrabilidade, previsao.modelo_id) if previsao is not None else None
     nivel, titulo, resumo, revisao = construir_conclusao(itens, total)
     relatorio = RelatorioMarcaResponse(
         id=pesquisa.id,
@@ -549,11 +518,7 @@ async def gerar_resumo_pesquisa(
     )
     prognostico = construir_prognostico_registrabilidade(matriz_registrabilidade)
     relatorio = relatorio.model_copy(
-        update={
-            "prognostico_registrabilidade": PrognosticoRegistrabilidadeResponse.model_validate(
-                prognostico
-            )
-        }
+        update={"prognostico_registrabilidade": PrognosticoRegistrabilidadeResponse.model_validate(prognostico)}
     )
     relatorio_versionado = await versionar_relatorio(session, relatorio)
     await session.commit()

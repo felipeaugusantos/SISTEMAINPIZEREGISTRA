@@ -48,9 +48,7 @@ def test_historico_crm_lista_interacao_e_respeita_pii() -> None:
         FakeResult(itens=[(CanalContato.TELEFONE, 1)]),
         FakeResult(itens=[(contato, lead, "ACME", "Empresa CRM")]),
     )
-    app.dependency_overrides[obter_usuario_atual] = auth_override(
-        usuario_teste("operador", {"crm.view"})
-    )
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario_teste("operador", {"crm.view"}))
     try:
         resposta = TestClient(app).get("/v1/admin/crm/historico")
     finally:
@@ -65,9 +63,7 @@ def test_historico_crm_lista_interacao_e_respeita_pii() -> None:
 
 
 def test_pagina_crm_exige_permissao_de_leads() -> None:
-    app.dependency_overrides[obter_usuario_atual] = auth_override(
-        usuario_teste("operador", {"dashboard.view"})
-    )
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario_teste("operador", {"dashboard.view"}))
     try:
         resposta = TestClient(app).get("/admin/crm", follow_redirects=False)
     finally:

@@ -117,8 +117,7 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
                 .where(
                     RotuloHistoricoMarca.status_revisao == "pendente",
                     or_(
-                        RotuloHistoricoMarca.fundamento
-                        == "indeferimento_nao_especificado",
+                        RotuloHistoricoMarca.fundamento == "indeferimento_nao_especificado",
                         RotuloHistoricoMarca.confianca < 0.75,
                     ),
                 )
@@ -156,20 +155,14 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
     modelos = (
         (
             await session.execute(
-                select(ModeloRegistrabilidade)
-                .order_by(ModeloRegistrabilidade.treinado_em.desc())
-                .limit(20)
+                select(ModeloRegistrabilidade).order_by(ModeloRegistrabilidade.treinado_em.desc()).limit(20)
             )
         )
         .scalars()
         .all()
     )
     ativo = next(
-        (
-            item
-            for item in modelos
-            if normalizar_status_modelo(item.status) is StatusModelo.ACTIVE
-        ),
+        (item for item in modelos if normalizar_status_modelo(item.status) is StatusModelo.ACTIVE),
         None,
     )
     rotulos = (
@@ -232,9 +225,7 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
                 numero_rpi=rotulo.numero_rpi,
                 despacho_codigo=rotulo.despacho_codigo,
                 despacho_descricao=rotulo.despacho_descricao,
-                prioridade_revisao=prioridade_revisao_rotulo(
-                    rotulo.fundamento, rotulo.confianca, rotulo.rotulo
-                ),
+                prioridade_revisao=prioridade_revisao_rotulo(rotulo.fundamento, rotulo.confianca, rotulo.rotulo),
                 elegivel_treinamento=rotulo.elegivel_treinamento,
                 motivo_inelegibilidade=rotulo.motivo_inelegibilidade,
                 classificador_versao=rotulo.classificador_versao,
@@ -281,10 +272,7 @@ async def obter_aprendizado(session: SessionDep, usuario: AdminDep) -> Aprendiza
         ],
         controle=_controle(controle),
         liberacao_cliente_permitida=bool(
-            ativo
-            and controle.inferencia_habilitada
-            and controle.exibir_cliente
-            and not bloqueios
+            ativo and controle.inferencia_habilitada and controle.exibir_cliente and not bloqueios
         ),
         bloqueios_liberacao=bloqueios,
     )
@@ -298,9 +286,7 @@ async def construir_dataset(
     _limite: AcaoAdminDep,
 ) -> AprendizadoAcaoResponse:
     if not usuario.superadmin:
-        raise HTTPException(
-            403, detail="Preparacao global de dataset exclusiva do superadministrador"
-        )
+        raise HTTPException(403, detail="Preparacao global de dataset exclusiva do superadministrador")
     rotulos, pares = await construir_dataset_historico(
         session,
         limite=dados.limite,
@@ -386,9 +372,7 @@ async def revisar_rotulo(
     rotulo.observacoes_revisao = dados.observacoes
     rotulo.revisado_em = datetime.now(UTC)
     rotulo.elegivel_treinamento = dados.status_revisao == "aprovada"
-    rotulo.motivo_inelegibilidade = (
-        None if rotulo.elegivel_treinamento else "rejeitado_por_especialista"
-    )
+    rotulo.motivo_inelegibilidade = None if rotulo.elegivel_treinamento else "rejeitado_por_especialista"
     rotulo.classificador_versao = "revisao-humana-1.0"
     session.add(
         EventoAuditoria(
@@ -456,10 +440,7 @@ async def revisar_previsao(
         mensagem=(
             "Comparação humana registrada; gates completos, ativação explícita disponível"
             if revisoes >= minimo_revisoes
-            else (
-                "Comparação humana registrada "
-                f"({revisoes}/{minimo_revisoes} revisões mínimas)"
-            )
+            else (f"Comparação humana registrada ({revisoes}/{minimo_revisoes} revisões mínimas)")
         )
     )
 
@@ -472,9 +453,7 @@ async def atualizar_controle(
     _limite: AcaoAdminDep,
 ) -> AprendizadoControleResponse:
     if not administrador.superadmin:
-        raise HTTPException(
-            403, detail="Controle global de aprendizado exclusivo do superadministrador"
-        )
+        raise HTTPException(403, detail="Controle global de aprendizado exclusivo do superadministrador")
     controle = await obter_controle(session)
     controle.minimo_revisoes_humanas = dados.minimo_revisoes_humanas
     controle.minimo_recall = dados.minimo_recall

@@ -13,31 +13,21 @@ class SituacaoNormalizada:
 SITUACOES = {
     "registrada": SituacaoNormalizada("registrada", "Registro em vigor", "ativa"),
     "deferida": SituacaoNormalizada("deferida", "Pedido deferido", "ativa"),
-    "deferida_parcial": SituacaoNormalizada(
-        "deferida_parcial", "Pedido parcialmente deferido", "ativa"
-    ),
+    "deferida_parcial": SituacaoNormalizada("deferida_parcial", "Pedido parcialmente deferido", "ativa"),
     "publicada": SituacaoNormalizada("publicada", "Pedido publicado", "ativa"),
     "em_exame": SituacaoNormalizada("em_exame", "Em exame", "ativa"),
     "exigencia": SituacaoNormalizada("exigencia", "Exigência", "ativa"),
     "oposicao": SituacaoNormalizada("oposicao", "Oposição", "ativa"),
     "recurso": SituacaoNormalizada("recurso", "Em recurso", "ativa"),
-    "recurso_decidido": SituacaoNormalizada(
-        "recurso_decidido", "Recurso decidido", "ativa"
-    ),
-    "peticao_decidida": SituacaoNormalizada(
-        "peticao_decidida", "Petição acessória decidida", "ativa"
-    ),
+    "recurso_decidido": SituacaoNormalizada("recurso_decidido", "Recurso decidido", "ativa"),
+    "peticao_decidida": SituacaoNormalizada("peticao_decidida", "Petição acessória decidida", "ativa"),
     "suspensa": SituacaoNormalizada("suspensa", "Exame suspenso", "incerta"),
     "indeferida": SituacaoNormalizada("indeferida", "Pedido indeferido", "inativa"),
     "arquivada": SituacaoNormalizada("arquivada", "Pedido arquivado", "inativa"),
-    "inexistente": SituacaoNormalizada(
-        "inexistente", "Pedido considerado inexistente", "inativa"
-    ),
+    "inexistente": SituacaoNormalizada("inexistente", "Pedido considerado inexistente", "inativa"),
     "extinta": SituacaoNormalizada("extinta", "Registro extinto", "inativa"),
     "cancelada": SituacaoNormalizada("cancelada", "Registro cancelado", "inativa"),
-    "nao_classificada": SituacaoNormalizada(
-        "nao_classificada", "Situação não classificada", "incerta"
-    ),
+    "nao_classificada": SituacaoNormalizada("nao_classificada", "Situação não classificada", "incerta"),
 }
 
 
@@ -45,9 +35,7 @@ def _normalizar(valor: str | None) -> str:
     if not valor:
         return ""
     sem_acentos = "".join(
-        caractere
-        for caractere in unicodedata.normalize("NFKD", valor)
-        if not unicodedata.combining(caractere)
+        caractere for caractere in unicodedata.normalize("NFKD", valor) if not unicodedata.combining(caractere)
     )
     return re.sub(r"\s+", " ", sem_acentos.lower()).strip()
 

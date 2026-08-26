@@ -151,9 +151,17 @@ async def _registrar_importacao(
                 movimentacoes_processadas, anomalias, request_id
             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)
             """,
-            numero, tipo.value, arquivo_sha256, arquivo_tamanho_bytes, status_integridade,
-            registros, titulares, classes, movimentacoes,
-            json.dumps(anomalias, ensure_ascii=False), request_id,
+            numero,
+            tipo.value,
+            arquivo_sha256,
+            arquivo_tamanho_bytes,
+            status_integridade,
+            registros,
+            titulares,
+            classes,
+            movimentacoes,
+            json.dumps(anomalias, ensure_ascii=False),
+            request_id,
         )
         if anomalias:
             await conexao.execute(
@@ -193,7 +201,12 @@ async def _registrar_falha(
                 status, anomalias, erro, request_id
             ) VALUES ($1,$2,$3,$4,'erro','[]'::jsonb,$5,$6)
             """,
-            numero, tipo.value, arquivo_sha256, arquivo_tamanho_bytes, erro[:4000], request_id,
+            numero,
+            tipo.value,
+            arquivo_sha256,
+            arquivo_tamanho_bytes,
+            erro[:4000],
+            request_id,
         )
         await conexao.execute(
             """
@@ -201,7 +214,15 @@ async def _registrar_falha(
             VALUES (NULL, 'critica', 'RPI_IMPORTACAO_FALHOU', $1, $2::jsonb)
             """,
             f"Falha na importação da RPI {numero} ({tipo.value}).",
-            json.dumps({"numero_rpi": numero, "tipo": tipo.value, "erro": erro[:4000], "request_id": request_id}, ensure_ascii=False),
+            json.dumps(
+                {
+                    "numero_rpi": numero,
+                    "tipo": tipo.value,
+                    "erro": erro[:4000],
+                    "request_id": request_id,
+                },
+                ensure_ascii=False,
+            ),
         )
     finally:
         await conexao.close()
@@ -226,11 +247,13 @@ async def _avaliar_antes_da_importacao(
         )
         anterior = await conexao.fetchrow(
             "SELECT * FROM rpi_importacoes WHERE numero_rpi < $1 AND tipo=$2 ORDER BY numero_rpi DESC LIMIT 1",
-            numero, tipo.value,
+            numero,
+            tipo.value,
         )
         ultima = await conexao.fetchval(
             "SELECT max(numero_rpi) FROM rpi_importacoes WHERE numero_rpi < $1 AND tipo=$2",
-            numero, tipo.value,
+            numero,
+            tipo.value,
         )
         settings = get_settings()
         return avaliar_importacao(
@@ -257,11 +280,7 @@ async def executar_legado() -> None:
     if args.inicio > args.fim:
         raise SystemExit("--inicio deve ser menor ou igual a --fim")
 
-    tipos = (
-        (TipoProcesso.MARCA, TipoProcesso.PATENTE)
-        if args.tipo == "ambos"
-        else (TipoProcesso(args.tipo),)
-    )
+    tipos = (TipoProcesso.MARCA, TipoProcesso.PATENTE) if args.tipo == "ambos" else (TipoProcesso(args.tipo),)
     database_url = get_settings().database_url
     lock = await adquirir_lock_sincronizacao(database_url)
     if lock is None:
@@ -302,7 +321,7 @@ async def executar() -> None:
     args = argumentos()
     if args.inicio > args.fim:
         raise SystemExit("--inicio deve ser menor ou igual ao fim")
-    tipos = ((TipoProcesso.MARCA, TipoProcesso.PATENTE) if args.tipo == "ambos" else (TipoProcesso(args.tipo),))
+    tipos = (TipoProcesso.MARCA, TipoProcesso.PATENTE) if args.tipo == "ambos" else (TipoProcesso(args.tipo),)
     database_url = get_settings().database_url
     lock = await adquirir_lock_sincronizacao(database_url)
     if lock is None:
@@ -319,23 +338,72 @@ async def executar() -> None:
                     validar_arquivo_rpi(xml, tipo)
                     checksum, tamanho = calcular_integridade_arquivo(xml)
                     if existente is not None and existente["arquivo_sha256"] == checksum:
-                        logger.info(json.dumps({"event": "RPI_IMPORT_SKIPPED", "numero_rpi": numero, "tipo": tipo.value, "request_id": request_id}))
+                        logger.info(
+                            json.dumps(
+                                {
+                                    "event": "RPI_IMPORT_SKIPPED",
+                                    "numero_rpi": numero,
+                                    "tipo": tipo.value,
+                                    "request_id": request_id,
+                                }
+                            )
+                        )
                         continue
                     leitor = ler_marcas if tipo is TipoProcesso.MARCA else ler_patentes
                     registros = list(leitor(xml))
-                    contagem = (len(registros), sum(len(r.titulares) for r in registros), sum(len(r.classificacoes) for r in registros), sum(len(r.movimentacoes) for r in registros))
-                    integridade, anomalias = await _avaliar_antes_da_importacao(database_url, numero, tipo, *contagem, checksum, tamanho)
+                    contagem = (
+                        len(registros),
+                        sum(len(r.titulares) for r in registros),
+                        sum(len(r.classificacoes) for r in registros),
+                        sum(len(r.movimentacoes) for r in registros),
+                    )
+                    integridade, anomalias = await _avaliar_antes_da_importacao(
+                        database_url, numero, tipo, *contagem, checksum, tamanho
+                    )
                     if integridade == "erro":
                         raise ValueError("; ".join(item["mensagem"] for item in anomalias))
                     estatisticas = await importar_rpi_em_lotes(database_url, registros)
-                    await _registrar_importacao(database_url, numero, tipo, estatisticas.registros, estatisticas.titulares, estatisticas.classes, estatisticas.movimentacoes, checksum, tamanho, integridade, anomalias, request_id)
-                    logger.info(json.dumps({"event": "RPI_IMPORT_COMPLETED", "numero_rpi": numero, "tipo": tipo.value, "records": estatisticas.registros, "request_id": request_id}))
+                    await _registrar_importacao(
+                        database_url,
+                        numero,
+                        tipo,
+                        estatisticas.registros,
+                        estatisticas.titulares,
+                        estatisticas.classes,
+                        estatisticas.movimentacoes,
+                        checksum,
+                        tamanho,
+                        integridade,
+                        anomalias,
+                        request_id,
+                    )
+                    logger.info(
+                        json.dumps(
+                            {
+                                "event": "RPI_IMPORT_COMPLETED",
+                                "numero_rpi": numero,
+                                "tipo": tipo.value,
+                                "records": estatisticas.registros,
+                                "request_id": request_id,
+                            }
+                        )
+                    )
                 except Exception as erro:
                     checksum = tamanho = None
                     if xml is not None and xml.is_file():
                         checksum, tamanho = calcular_integridade_arquivo(xml)
                     await _registrar_falha(database_url, numero, tipo, str(erro), request_id, checksum, tamanho)
-                    logger.exception(json.dumps({"event": "RPI_IMPORT_FAILED", "numero_rpi": numero, "tipo": tipo.value, "request_id": request_id, "error": type(erro).__name__}))
+                    logger.exception(
+                        json.dumps(
+                            {
+                                "event": "RPI_IMPORT_FAILED",
+                                "numero_rpi": numero,
+                                "tipo": tipo.value,
+                                "request_id": request_id,
+                                "error": type(erro).__name__,
+                            }
+                        )
+                    )
                     raise
     finally:
         await liberar_lock_sincronizacao(lock)

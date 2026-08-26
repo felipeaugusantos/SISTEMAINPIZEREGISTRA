@@ -37,7 +37,19 @@ async def benchmark_figurativo(
 ) -> dict:
     metricas = avaliar_benchmark(dados.casos)
     gate = avaliar_gate_regressao(metricas, dados.baseline, dados.tolerancia)
-    session.add(EventoAuditoria(organizacao_id=operador.organizacao_id, actor_id=operador.id, ator=operador.ator, acao="benchmark", recurso="busca_figurativa", sucesso=True, status_http=200, ip_hash=hash_ip(cliente_ip(request)), detalhes=metricas))
+    session.add(
+        EventoAuditoria(
+            organizacao_id=operador.organizacao_id,
+            actor_id=operador.id,
+            ator=operador.ator,
+            acao="benchmark",
+            recurso="busca_figurativa",
+            sucesso=True,
+            status_http=200,
+            ip_hash=hash_ip(cliente_ip(request)),
+            detalhes=metricas,
+        )
+    )
     await session.commit()
     return {**metricas, "gate_regressao": gate, "publicacao_permitida": not gate["bloqueado"]}
 
@@ -49,7 +61,21 @@ async def validar_resultado_figurativo(
     session: SessionDep,
     operador: OperadorDep,
 ) -> dict:
-    session.add(EventoAuditoria(organizacao_id=operador.organizacao_id, actor_id=operador.id, ator=operador.ator, acao="validar", recurso=f"processo:{dados.processo}", resource_type="busca_figurativa", resource_id=dados.processo, sucesso=True, status_http=200, ip_hash=hash_ip(cliente_ip(request)), detalhes=dados.model_dump()))
+    session.add(
+        EventoAuditoria(
+            organizacao_id=operador.organizacao_id,
+            actor_id=operador.id,
+            ator=operador.ator,
+            acao="validar",
+            recurso=f"processo:{dados.processo}",
+            resource_type="busca_figurativa",
+            resource_id=dados.processo,
+            sucesso=True,
+            status_http=200,
+            ip_hash=hash_ip(cliente_ip(request)),
+            detalhes=dados.model_dump(),
+        )
+    )
     await session.commit()
     return {"registrado": True, **dados.model_dump()}
 

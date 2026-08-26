@@ -99,9 +99,7 @@ async def status_fila() -> dict:
             "falhas": await redis.llen(FAILED_KEY),
             "processando": await redis.llen(PROCESSING_KEY),
             "retries_aguardando": await redis.zcard(RETRY_KEY),
-            "metricas": {
-                chave: int(valor) for chave, valor in (await redis.hgetall(METRICS_KEY)).items()
-            },
+            "metricas": {chave: int(valor) for chave, valor in (await redis.hgetall(METRICS_KEY)).items()},
         }
     except Exception as exc:
         return {

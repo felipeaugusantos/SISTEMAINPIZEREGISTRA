@@ -128,9 +128,7 @@ def test_chave_da_movimentacao_e_deterministica() -> None:
         movimentacoes=(MovimentacaoRpi(codigo="123", descricao="Despacho"),),
     )
 
-    assert _chave_movimentacao(registro, "123", "Despacho") == _chave_movimentacao(
-        registro, "123", "Despacho"
-    )
+    assert _chave_movimentacao(registro, "123", "Despacho") == _chave_movimentacao(registro, "123", "Despacho")
 
 
 def test_health_rpi_distingue_processamento_atraso_e_erro() -> None:

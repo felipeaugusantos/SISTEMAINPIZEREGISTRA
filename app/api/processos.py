@@ -76,9 +76,7 @@ async def pesquisar_processos(
         limite=limite,
         deslocamento=deslocamento,
         itens=[
-            ProcessoResumo.model_validate(processo).model_copy(
-                update={"titulares": _titulares_publicos(processo)}
-            )
+            ProcessoResumo.model_validate(processo).model_copy(update={"titulares": _titulares_publicos(processo)})
             for processo in processos
         ],
     )
@@ -104,6 +102,4 @@ async def buscar_processo(numero: str, session: SessionDep) -> ProcessoResponse:
             detail="Processo não encontrado",
         )
 
-    return ProcessoResponse.model_validate(processo).model_copy(
-        update={"titulares": _titulares_publicos(processo)}
-    )
+    return ProcessoResponse.model_validate(processo).model_copy(update={"titulares": _titulares_publicos(processo)})

@@ -71,12 +71,8 @@ def _resultado_json(itens: list) -> list[dict]:
             "evidencia": {
                 "url_detalhe": f"/processos/{item.processo.numero}",
                 "titulares": [titular.nome for titular in item.processo.titulares],
-                "classes_nice": [
-                    c.codigo for c in item.processo.classificacoes if c.sistema == "nice"
-                ],
-                "codigos_viena": [
-                    c.codigo for c in item.processo.classificacoes if c.sistema in {"viena", "vienna"}
-                ],
+                "classes_nice": [c.codigo for c in item.processo.classificacoes if c.sistema == "nice"],
+                "codigos_viena": [c.codigo for c in item.processo.classificacoes if c.sistema in {"viena", "vienna"}],
             },
         }
         for item in itens
@@ -84,9 +80,7 @@ def _resultado_json(itens: list) -> list[dict]:
 
 
 @router.post("/consultar", summary="Busca avançada de anterioridade")
-async def consultar_busca_avancada(
-    dados: ConsultaAvancadaInput, session: SessionDep, usuario: ViewDep
-) -> dict:
+async def consultar_busca_avancada(dados: ConsultaAvancadaInput, session: SessionDep, usuario: ViewDep) -> dict:
     total, itens, evidencias = await buscar_marcas(
         session,
         marca=dados.marca,
@@ -113,17 +107,38 @@ async def consultar_busca_avancada(
 @router.get("/projetos")
 async def listar_projetos_busca(session: SessionDep, usuario: ViewDep) -> dict:
     itens = (
-        await session.execute(
-            select(ProjetoBuscaMarca)
-            .where(ProjetoBuscaMarca.organizacao_id == usuario.organizacao_id, ProjetoBuscaMarca.status == "ativo")
-            .order_by(ProjetoBuscaMarca.atualizado_em.desc())
+        (
+            await session.execute(
+                select(ProjetoBuscaMarca)
+                .where(
+                    ProjetoBuscaMarca.organizacao_id == usuario.organizacao_id,
+                    ProjetoBuscaMarca.status == "ativo",
+                )
+                .order_by(ProjetoBuscaMarca.atualizado_em.desc())
+            )
         )
-    ).scalars().all()
-    return {"projetos": [{"id": item.id, "nome": item.nome, "slug": item.slug, "consulta": item.consulta, "executado_em": item.executado_em, "total": (item.ultima_execucao or {}).get("total", 0)} for item in itens]}
+        .scalars()
+        .all()
+    )
+    return {
+        "projetos": [
+            {
+                "id": item.id,
+                "nome": item.nome,
+                "slug": item.slug,
+                "consulta": item.consulta,
+                "executado_em": item.executado_em,
+                "total": (item.ultima_execucao or {}).get("total", 0),
+            }
+            for item in itens
+        ]
+    }
 
 
 @router.post("/projetos", status_code=201)
-async def criar_projeto_busca(dados: ProjetoBuscaInput, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
+async def criar_projeto_busca(
+    dados: ProjetoBuscaInput, request: Request, session: SessionDep, usuario: ManageDep
+) -> dict:
     projeto = ProjetoBuscaMarca(
         organizacao_id=usuario.organizacao_id,
         nome=dados.nome,
@@ -134,62 +149,173 @@ async def criar_projeto_busca(dados: ProjetoBuscaInput, request: Request, sessio
     session.add(projeto)
     try:
         await session.commit()
-    except Exception:
+    except Exception as exc:
         await session.rollback()
-        raise HTTPException(status_code=409, detail="Já existe um projeto com esse nome")
+        raise HTTPException(status_code=409, detail="Já existe um projeto com esse nome") from exc
     await session.refresh(projeto)
     return {"id": projeto.id, "nome": projeto.nome, "slug": projeto.slug}
 
 
 @router.post("/projetos/{projeto_id}/reprocessar")
 async def reprocessar_projeto_busca(projeto_id: int, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
-    projeto = (await session.execute(select(ProjetoBuscaMarca).where(ProjetoBuscaMarca.id == projeto_id, ProjetoBuscaMarca.organizacao_id == usuario.organizacao_id, ProjetoBuscaMarca.status == "ativo"))).scalar_one_or_none()
+    projeto = (
+        await session.execute(
+            select(ProjetoBuscaMarca).where(
+                ProjetoBuscaMarca.id == projeto_id,
+                ProjetoBuscaMarca.organizacao_id == usuario.organizacao_id,
+                ProjetoBuscaMarca.status == "ativo",
+            )
+        )
+    ).scalar_one_or_none()
     if projeto is None:
         raise HTTPException(status_code=404, detail="Projeto de busca não encontrado")
     consulta = ConsultaAvancadaInput.model_validate(projeto.consulta)
     total, itens, evidencias = await buscar_marcas(session, **consulta.model_dump())
-    projeto.ultima_execucao = {"total": total, "resultados": _resultado_json(itens), "evidencias": evidencias}
+    projeto.ultima_execucao = {
+        "total": total,
+        "resultados": _resultado_json(itens),
+        "evidencias": evidencias,
+    }
     projeto.executado_em = datetime.now(UTC)
-    session.add(EventoAuditoria(organizacao_id=usuario.organizacao_id, actor_id=usuario.id, ator=usuario.ator, acao="reprocessar_projeto_busca", recurso=f"projeto:{projeto.id}", sucesso=True, status_http=200, detalhes={"total": total}))
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
+            ator=usuario.ator,
+            acao="reprocessar_projeto_busca",
+            recurso=f"projeto:{projeto.id}",
+            sucesso=True,
+            status_http=200,
+            detalhes={"total": total},
+        )
+    )
     await session.commit()
-    return {"id": projeto.id, "executado_em": projeto.executado_em, "total": total, "resultados": _resultado_json(itens), "evidencias": evidencias, "revisao_humana_obrigatoria": True}
+    return {
+        "id": projeto.id,
+        "executado_em": projeto.executado_em,
+        "total": total,
+        "resultados": _resultado_json(itens),
+        "evidencias": evidencias,
+        "revisao_humana_obrigatoria": True,
+    }
 
 
 @router.get("/modelos")
 async def listar_modelos_busca(session: SessionDep, usuario: ViewDep) -> dict:
-    itens = (await session.execute(select(ModeloRankingBusca).where(ModeloRankingBusca.organizacao_id == usuario.organizacao_id).order_by(ModeloRankingBusca.criado_em.desc()))).scalars().all()
-    return {"modelos": [{"id": item.id, "versao": item.versao, "algoritmo": item.algoritmo, "status": item.status, "metricas": item.metricas, "dataset_version": item.dataset_version, "bloqueado_motivo": item.bloqueado_motivo} for item in itens]}
+    itens = (
+        (
+            await session.execute(
+                select(ModeloRankingBusca)
+                .where(ModeloRankingBusca.organizacao_id == usuario.organizacao_id)
+                .order_by(ModeloRankingBusca.criado_em.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "modelos": [
+            {
+                "id": item.id,
+                "versao": item.versao,
+                "algoritmo": item.algoritmo,
+                "status": item.status,
+                "metricas": item.metricas,
+                "dataset_version": item.dataset_version,
+                "bloqueado_motivo": item.bloqueado_motivo,
+            }
+            for item in itens
+        ]
+    }
 
 
 @router.post("/modelos", status_code=201)
-async def criar_modelo_busca(dados: ModeloBuscaInput, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
-    item = ModeloRankingBusca(organizacao_id=usuario.organizacao_id, versao=dados.versao, algoritmo=dados.algoritmo, parametros=dados.parametros, metricas=dados.metricas, evidencias=dados.evidencias, dataset_version=dados.dataset_version, status="SHADOW")
+async def criar_modelo_busca(
+    dados: ModeloBuscaInput, request: Request, session: SessionDep, usuario: ManageDep
+) -> dict:
+    item = ModeloRankingBusca(
+        organizacao_id=usuario.organizacao_id,
+        versao=dados.versao,
+        algoritmo=dados.algoritmo,
+        parametros=dados.parametros,
+        metricas=dados.metricas,
+        evidencias=dados.evidencias,
+        dataset_version=dados.dataset_version,
+        status="SHADOW",
+    )
     session.add(item)
-    session.add(EventoAuditoria(organizacao_id=usuario.organizacao_id, actor_id=usuario.id, ator=usuario.ator, acao="modelo_busca", recurso=f"modelo:{dados.versao}", sucesso=True, status_http=201, ip_hash=hash_ip(request.client.host if request.client else None), detalhes={"status": "SHADOW"}))
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
+            ator=usuario.ator,
+            acao="modelo_busca",
+            recurso=f"modelo:{dados.versao}",
+            sucesso=True,
+            status_http=201,
+            ip_hash=hash_ip(request.client.host if request.client else None),
+            detalhes={"status": "SHADOW"},
+        )
+    )
     await session.commit()
     return {"id": item.id, "versao": item.versao, "status": item.status}
 
 
 @router.patch("/modelos/{modelo_id}/status")
-async def publicar_modelo_busca(modelo_id: int, dados: PublicacaoBuscaInput, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
-    item = (await session.execute(select(ModeloRankingBusca).where(ModeloRankingBusca.id == modelo_id, ModeloRankingBusca.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
+async def publicar_modelo_busca(
+    modelo_id: int,
+    dados: PublicacaoBuscaInput,
+    request: Request,
+    session: SessionDep,
+    usuario: ManageDep,
+) -> dict:
+    item = (
+        await session.execute(
+            select(ModeloRankingBusca).where(
+                ModeloRankingBusca.id == modelo_id,
+                ModeloRankingBusca.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
     if item is None:
         raise HTTPException(status_code=404, detail="Modelo de busca não encontrado")
     try:
         validar_transicao_status(item.status, dados.status)
     except ValueError as erro:
         raise HTTPException(status_code=422, detail=str(erro)) from erro
-    gate = gate_publicacao_busca(item.metricas or {}, dados.baseline, revisoes_humanas=dados.revisoes_humanas) if dados.status == "ACTIVE" else {"bloqueado": False, "regressoes": []}
+    gate = (
+        gate_publicacao_busca(item.metricas or {}, dados.baseline, revisoes_humanas=dados.revisoes_humanas)
+        if dados.status == "ACTIVE"
+        else {"bloqueado": False, "regressoes": []}
+    )
     if gate["bloqueado"]:
         item.bloqueado_motivo = "; ".join(gate["regressoes"])
         item.status = "DISABLED"
         await session.commit()
-        raise HTTPException(status_code=409, detail={"mensagem": "Publicação bloqueada pelo gate de busca", "regressoes": gate["regressoes"]})
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "mensagem": "Publicação bloqueada pelo gate de busca",
+                "regressoes": gate["regressoes"],
+            },
+        )
     item.status = dados.status
     item.bloqueado_motivo = None
     if dados.status == "ACTIVE":
         item.publicado_em = datetime.now(UTC)
         item.publicado_por = usuario.ator
-    session.add(EventoAuditoria(organizacao_id=usuario.organizacao_id, actor_id=usuario.id, ator=usuario.ator, acao="publicar_modelo", recurso=f"modelo:{item.id}", sucesso=True, status_http=200, ip_hash=hash_ip(request.client.host if request.client else None), detalhes={"status": dados.status, "gate": gate}))
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
+            ator=usuario.ator,
+            acao="publicar_modelo",
+            recurso=f"modelo:{item.id}",
+            sucesso=True,
+            status_http=200,
+            ip_hash=hash_ip(request.client.host if request.client else None),
+            detalhes={"status": dados.status, "gate": gate},
+        )
+    )
     await session.commit()
     return {"id": item.id, "status": item.status, "gate": gate}

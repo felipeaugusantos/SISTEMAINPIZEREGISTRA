@@ -38,8 +38,14 @@ PAPEIS = {"inventor", "procurador", "titular_adicional"}
 class AtivoInput(BaseModel):
     codigo: str = Field(min_length=1, max_length=80)
     tipo: Literal[
-        "marca", "patente", "modelo_utilidade", "desenho_industrial",
-        "contrato", "cessao", "licenca", "franquia",
+        "marca",
+        "patente",
+        "modelo_utilidade",
+        "desenho_industrial",
+        "contrato",
+        "cessao",
+        "licenca",
+        "franquia",
     ]
     nome: str = Field(min_length=2, max_length=240)
     titular_id: int = Field(ge=1)
@@ -72,14 +78,37 @@ def _slug(valor: str) -> str:
 
 
 async def _obter_ativo(session: AsyncSession, usuario: UsuarioAutenticado, ativo_id: int) -> AtivoPI:
-    ativo = (await session.execute(select(AtivoPI).where(AtivoPI.id == ativo_id, AtivoPI.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
+    ativo = (
+        await session.execute(
+            select(AtivoPI).where(AtivoPI.id == ativo_id, AtivoPI.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one_or_none()
     if ativo is None:
         raise HTTPException(status_code=404, detail="Ativo de propriedade intelectual não encontrado")
     return ativo
 
 
-def _auditar(session: AsyncSession, request: Request, usuario: UsuarioAutenticado, acao: str, recurso: str, detalhes: dict) -> None:
-    session.add(EventoAuditoria(organizacao_id=usuario.organizacao_id, actor_id=usuario.id, ator=usuario.ator, acao=acao, recurso=recurso, sucesso=True, status_http=200, ip_hash=hash_ip(request.client.host if request.client else None), detalhes=detalhes))
+def _auditar(
+    session: AsyncSession,
+    request: Request,
+    usuario: UsuarioAutenticado,
+    acao: str,
+    recurso: str,
+    detalhes: dict,
+) -> None:
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
+            ator=usuario.ator,
+            acao=acao,
+            recurso=recurso,
+            sucesso=True,
+            status_http=200,
+            ip_hash=hash_ip(request.client.host if request.client else None),
+            detalhes=detalhes,
+        )
+    )
 
 
 def _serializar(ativo: AtivoPI, titular: Titular | None = None) -> dict:
@@ -120,8 +149,18 @@ async def listar_ativos(
     if busca:
         termo = f"%{busca.strip()}%"
         filtros.append(AtivoPI.nome.ilike(termo) | AtivoPI.codigo.ilike(termo))
-    linhas = (await session.execute(select(AtivoPI, Titular).join(Titular, Titular.id == AtivoPI.titular_id).where(*filtros).order_by(AtivoPI.nome))).all()
-    return {"ativos": [_serializar(ativo, titular) for ativo, titular in linhas], "tipos": sorted(TIPOS)}
+    linhas = (
+        await session.execute(
+            select(AtivoPI, Titular)
+            .join(Titular, Titular.id == AtivoPI.titular_id)
+            .where(*filtros)
+            .order_by(AtivoPI.nome)
+        )
+    ).all()
+    return {
+        "ativos": [_serializar(ativo, titular) for ativo, titular in linhas],
+        "tipos": sorted(TIPOS),
+    }
 
 
 @router.post("/ativos", status_code=201)
@@ -130,19 +169,35 @@ async def criar_ativo(dados: AtivoInput, request: Request, session: SessionDep, 
     if titular is None:
         raise HTTPException(status_code=422, detail="Titular não encontrado")
     if dados.cliente_portal_id:
-        cliente = (await session.execute(select(ClientePortal).where(ClientePortal.id == dados.cliente_portal_id, ClientePortal.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
+        cliente = (
+            await session.execute(
+                select(ClientePortal).where(
+                    ClientePortal.id == dados.cliente_portal_id,
+                    ClientePortal.organizacao_id == usuario.organizacao_id,
+                )
+            )
+        ).scalar_one_or_none()
         if cliente is None:
             raise HTTPException(status_code=404, detail="Cliente do portal não encontrado")
     ativo = AtivoPI(organizacao_id=usuario.organizacao_id, criado_por=usuario.ator, **dados.model_dump())
     session.add(ativo)
     await session.flush()
-    _auditar(session, request, usuario, "criar_ativo_pi", f"ativo:{ativo.id}", {"tipo": ativo.tipo, "codigo": ativo.codigo})
+    _auditar(
+        session,
+        request,
+        usuario,
+        "criar_ativo_pi",
+        f"ativo:{ativo.id}",
+        {"tipo": ativo.tipo, "codigo": ativo.codigo},
+    )
     await session.commit()
     return {"ativo": _serializar(ativo, titular)}
 
 
 @router.post("/ativos/{ativo_id}/processos", status_code=201)
-async def vincular_processo(ativo_id: int, dados: ProcessoInput, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
+async def vincular_processo(
+    ativo_id: int, dados: ProcessoInput, request: Request, session: SessionDep, usuario: ManageDep
+) -> dict:
     ativo = await _obter_ativo(session, usuario, ativo_id)
     processo = (await session.execute(select(Processo).where(Processo.id == dados.processo_id))).scalar_one_or_none()
     if processo is None:
@@ -151,9 +206,21 @@ async def vincular_processo(ativo_id: int, dados: ProcessoInput, request: Reques
         raise HTTPException(status_code=422, detail="Processo incompatível com o ativo de marca")
     if ativo.tipo in {"patente", "modelo_utilidade"} and processo.tipo.value != "patente":
         raise HTTPException(status_code=422, detail="Processo incompatível com o ativo técnico")
-    link = AtivoProcessoPI(organizacao_id=usuario.organizacao_id, ativo_id=ativo.id, processo_id=processo.id, papel=dados.papel)
+    link = AtivoProcessoPI(
+        organizacao_id=usuario.organizacao_id,
+        ativo_id=ativo.id,
+        processo_id=processo.id,
+        papel=dados.papel,
+    )
     session.add(link)
-    _auditar(session, request, usuario, "vincular_processo_ativo_pi", f"ativo:{ativo.id}", {"processo_id": processo.id, "papel": dados.papel})
+    _auditar(
+        session,
+        request,
+        usuario,
+        "vincular_processo_ativo_pi",
+        f"ativo:{ativo.id}",
+        {"processo_id": processo.id, "papel": dados.papel},
+    )
     try:
         await session.commit()
     except Exception as exc:
@@ -165,16 +232,46 @@ async def vincular_processo(ativo_id: int, dados: ProcessoInput, request: Reques
 @router.get("/ativos/{ativo_id}/processos")
 async def listar_processos(ativo_id: int, session: SessionDep, usuario: ViewDep) -> dict:
     await _obter_ativo(session, usuario, ativo_id)
-    linhas = (await session.execute(select(AtivoProcessoPI, Processo).join(Processo, Processo.id == AtivoProcessoPI.processo_id).where(AtivoProcessoPI.ativo_id == ativo_id, AtivoProcessoPI.organizacao_id == usuario.organizacao_id).order_by(Processo.numero))).all()
-    return {"processos": [{"id": link.processo_id, "numero": processo.numero, "titulo": processo.titulo, "tipo": processo.tipo.value, "papel": link.papel} for link, processo in linhas]}
+    linhas = (
+        await session.execute(
+            select(AtivoProcessoPI, Processo)
+            .join(Processo, Processo.id == AtivoProcessoPI.processo_id)
+            .where(
+                AtivoProcessoPI.ativo_id == ativo_id,
+                AtivoProcessoPI.organizacao_id == usuario.organizacao_id,
+            )
+            .order_by(Processo.numero)
+        )
+    ).all()
+    return {
+        "processos": [
+            {
+                "id": link.processo_id,
+                "numero": processo.numero,
+                "titulo": processo.titulo,
+                "tipo": processo.tipo.value,
+                "papel": link.papel,
+            }
+            for link, processo in linhas
+        ]
+    }
 
 
 @router.post("/ativos/{ativo_id}/partes", status_code=201)
-async def adicionar_parte(ativo_id: int, dados: ParteInput, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
+async def adicionar_parte(
+    ativo_id: int, dados: ParteInput, request: Request, session: SessionDep, usuario: ManageDep
+) -> dict:
     ativo = await _obter_ativo(session, usuario, ativo_id)
     parte = AtivoPartePI(organizacao_id=usuario.organizacao_id, ativo_id=ativo.id, **dados.model_dump())
     session.add(parte)
-    _auditar(session, request, usuario, "adicionar_parte_ativo_pi", f"ativo:{ativo.id}", dados.model_dump())
+    _auditar(
+        session,
+        request,
+        usuario,
+        "adicionar_parte_ativo_pi",
+        f"ativo:{ativo.id}",
+        dados.model_dump(),
+    )
     try:
         await session.commit()
     except Exception as exc:
@@ -184,22 +281,42 @@ async def adicionar_parte(ativo_id: int, dados: ParteInput, request: Request, se
 
 
 @router.post("/ativos/{ativo_id}/documentos", status_code=201)
-async def adicionar_documento(ativo_id: int, dados: DocumentoInput, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
+async def adicionar_documento(
+    ativo_id: int, dados: DocumentoInput, request: Request, session: SessionDep, usuario: ManageDep
+) -> dict:
     ativo = await _obter_ativo(session, usuario, ativo_id)
     try:
         conteudo = base64.b64decode(dados.conteudo_base64, validate=True)
     except Exception as exc:
         raise HTTPException(status_code=422, detail="conteúdo base64 inválido") from exc
     digest = hashlib.sha256(conteudo).hexdigest()
-    ultima = (await session.execute(select(func.max(DocumentoAtivoPI.versao)).where(DocumentoAtivoPI.ativo_id == ativo.id))).scalar_one() or 0
+    ultima = (
+        await session.execute(select(func.max(DocumentoAtivoPI.versao)).where(DocumentoAtivoPI.ativo_id == ativo.id))
+    ).scalar_one() or 0
     versao = int(ultima) + 1
     pasta = Path("data") / "portfolio_pi" / str(usuario.organizacao_id) / str(ativo.id)
     pasta.mkdir(parents=True, exist_ok=True)
     caminho = pasta / f"{versao}-{_slug(dados.nome)}"
     caminho.write_bytes(conteudo)
-    documento = DocumentoAtivoPI(organizacao_id=usuario.organizacao_id, ativo_id=ativo.id, nome=dados.nome, versao=versao, hash_documento=digest, caminho=str(caminho), content_type=dados.content_type, criado_por=usuario.ator)
+    documento = DocumentoAtivoPI(
+        organizacao_id=usuario.organizacao_id,
+        ativo_id=ativo.id,
+        nome=dados.nome,
+        versao=versao,
+        hash_documento=digest,
+        caminho=str(caminho),
+        content_type=dados.content_type,
+        criado_por=usuario.ator,
+    )
     session.add(documento)
-    _auditar(session, request, usuario, "criar_versao_documento_ativo_pi", f"ativo:{ativo.id}", {"documento": dados.nome, "versao": versao, "hash": digest})
+    _auditar(
+        session,
+        request,
+        usuario,
+        "criar_versao_documento_ativo_pi",
+        f"ativo:{ativo.id}",
+        {"documento": dados.nome, "versao": versao, "hash": digest},
+    )
     await session.commit()
     return {"id": documento.id, "ativo_id": ativo.id, "versao": versao, "hash": digest}
 
@@ -207,11 +324,47 @@ async def adicionar_documento(ativo_id: int, dados: DocumentoInput, request: Req
 @router.get("/ativos/{ativo_id}/documentos")
 async def listar_documentos(ativo_id: int, session: SessionDep, usuario: ViewDep) -> dict:
     await _obter_ativo(session, usuario, ativo_id)
-    itens = (await session.execute(select(DocumentoAtivoPI).where(DocumentoAtivoPI.ativo_id == ativo_id, DocumentoAtivoPI.organizacao_id == usuario.organizacao_id).order_by(DocumentoAtivoPI.versao.desc()))).scalars().all()
-    return {"documentos": [{"id": item.id, "nome": item.nome, "versao": item.versao, "hash": item.hash_documento, "content_type": item.content_type, "criado_em": item.criado_em} for item in itens]}
+    itens = (
+        (
+            await session.execute(
+                select(DocumentoAtivoPI)
+                .where(
+                    DocumentoAtivoPI.ativo_id == ativo_id,
+                    DocumentoAtivoPI.organizacao_id == usuario.organizacao_id,
+                )
+                .order_by(DocumentoAtivoPI.versao.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "documentos": [
+            {
+                "id": item.id,
+                "nome": item.nome,
+                "versao": item.versao,
+                "hash": item.hash_documento,
+                "content_type": item.content_type,
+                "criado_em": item.criado_em,
+            }
+            for item in itens
+        ]
+    }
 
 
 @portal_router.get("/v1/portal/ativos", include_in_schema=True)
 async def listar_ativos_portal(cliente: ClientDep, session: SessionDep) -> dict:
-    linhas = (await session.execute(select(AtivoPI, Titular).join(Titular, Titular.id == AtivoPI.titular_id).where(AtivoPI.organizacao_id == cliente.organizacao_id, AtivoPI.cliente_portal_id == cliente.id, AtivoPI.status != "arquivado").order_by(AtivoPI.nome))).all()
+    linhas = (
+        await session.execute(
+            select(AtivoPI, Titular)
+            .join(Titular, Titular.id == AtivoPI.titular_id)
+            .where(
+                AtivoPI.organizacao_id == cliente.organizacao_id,
+                AtivoPI.cliente_portal_id == cliente.id,
+                AtivoPI.status != "arquivado",
+            )
+            .order_by(AtivoPI.nome)
+        )
+    ).all()
     return {"ativos": [_serializar(ativo, titular) for ativo, titular in linhas]}

@@ -15,7 +15,12 @@ def test_gate_bloqueia_qualquer_queda_de_recall() -> None:
 
 def test_gate_exige_validacao_humana_e_bloqueia_falso_negativo() -> None:
     resultado = gate_publicacao_busca(
-        {"recall_at_5": 1.0, "recall_at_10": 1.0, "recall_at_20": 1.0, "falsos_negativos_criticos": 1},
+        {
+            "recall_at_5": 1.0,
+            "recall_at_10": 1.0,
+            "recall_at_20": 1.0,
+            "falsos_negativos_criticos": 1,
+        },
         None,
         revisoes_humanas=0,
     )

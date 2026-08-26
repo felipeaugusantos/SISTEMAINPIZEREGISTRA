@@ -353,6 +353,5 @@ async def _importar_lote(conexao: asyncpg.Connection, lote: list[RegistroRpi]) -
             )
 
         await conexao.execute(
-            "TRUNCATE rpi_processos_lote, rpi_titulares_lote, "
-            "rpi_movimentacoes_lote, rpi_classificacoes_lote"
+            "TRUNCATE rpi_processos_lote, rpi_titulares_lote, rpi_movimentacoes_lote, rpi_classificacoes_lote"
         )

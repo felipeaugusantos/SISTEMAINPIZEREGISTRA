@@ -246,9 +246,7 @@ def criar_sessao(usuario_id: int, request: Request) -> tuple[SessaoOperacoes, st
     return sessao, token, csrf
 
 
-def definir_cookies_sessao(
-    response: Response, token: str, csrf: str, request: Request | None = None
-) -> None:
+def definir_cookies_sessao(response: Response, token: str, csrf: str, request: Request | None = None) -> None:
     settings = get_settings()
     secure = requisicao_https(request)
     comum = {

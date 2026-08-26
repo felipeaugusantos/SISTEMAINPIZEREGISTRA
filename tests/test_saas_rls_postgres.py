@@ -233,14 +233,10 @@ async def _limpar_cenario(admin: asyncpg.Connection, ids: dict) -> None:
         coluna = "pesquisa_id" if tabela == "versoes_relatorio_marca" else "organizacao_id"
         if tabela == "versoes_relatorio_marca":
             pesquisas = [ids[tenant]["pesquisas_marca"] for tenant in ("a", "b")]
-            await admin.execute(
-                f"DELETE FROM {tabela} WHERE {coluna} = ANY($1::varchar[])", pesquisas
-            )
+            await admin.execute(f"DELETE FROM {tabela} WHERE {coluna} = ANY($1::varchar[])", pesquisas)
         elif tabela == "sessoes_operacoes":
             usuarios = [ids[tenant]["usuarios_operacoes"] for tenant in ("a", "b")]
-            await admin.execute(
-                "DELETE FROM sessoes_operacoes WHERE usuario_id = ANY($1::bigint[])", usuarios
-            )
+            await admin.execute("DELETE FROM sessoes_operacoes WHERE usuario_id = ANY($1::bigint[])", usuarios)
         else:
             await admin.execute(f"DELETE FROM {tabela} WHERE {coluna} = ANY($1::bigint[])", orgs)
     await admin.execute("DELETE FROM organizacoes WHERE id = ANY($1::bigint[])", orgs)
@@ -267,15 +263,13 @@ async def test_rls_real_isola_toda_matriz_e_ids_cruzados_na_api() -> None:
                 )
                 assert await app_conn.fetchval("SELECT count(*) FROM usuarios_operacoes") == 1
                 await app_conn.execute(
-                    "SELECT set_config('app.auth_scope', 'sessao', true), "
-                    "set_config('app.auth_value', $1, true)",
+                    "SELECT set_config('app.auth_scope', 'sessao', true), set_config('app.auth_value', $1, true)",
                     ids["auth_a"]["sessao_hash"],
                 )
                 assert await app_conn.fetchval("SELECT count(*) FROM sessoes_operacoes") == 1
                 assert await app_conn.fetchval("SELECT count(*) FROM usuarios_operacoes") == 1
                 await app_conn.execute(
-                    "SELECT set_config('app.auth_scope', 'integracao', true), "
-                    "set_config('app.auth_value', $1, true)",
+                    "SELECT set_config('app.auth_scope', 'integracao', true), set_config('app.auth_value', $1, true)",
                     ids["auth_a"]["integracao_hash"],
                 )
                 assert await app_conn.fetchval("SELECT count(*) FROM credenciais_integracao") == 1
@@ -285,24 +279,13 @@ async def test_rls_real_isola_toda_matriz_e_ids_cruzados_na_api() -> None:
                 )
                 assert await app_conn.fetchval("SELECT count(*) FROM credenciais_integracao") == 0
                 await app_conn.execute(
-                    "SELECT set_config('app.organizacao_id', $1, true), "
-                    "set_config('app.superadmin', 'false', true)",
+                    "SELECT set_config('app.organizacao_id', $1, true), set_config('app.superadmin', 'false', true)",
                     str(ids["orgs"][0]),
                 )
                 for tabela, id_a in ids["a"].items():
                     id_b = ids["b"][tabela]
-                    assert (
-                        await app_conn.fetchval(
-                            f"SELECT count(*) FROM {tabela} WHERE id = $1", id_a
-                        )
-                        == 1
-                    )
-                    assert (
-                        await app_conn.fetchval(
-                            f"SELECT count(*) FROM {tabela} WHERE id = $1", id_b
-                        )
-                        == 0
-                    )
+                    assert await app_conn.fetchval(f"SELECT count(*) FROM {tabela} WHERE id = $1", id_a) == 1
+                    assert await app_conn.fetchval(f"SELECT count(*) FROM {tabela} WHERE id = $1", id_b) == 0
                 assert (
                     await app_conn.execute(
                         "UPDATE empresas_crm SET observacoes = 'bloqueado' WHERE id = $1",
@@ -310,18 +293,12 @@ async def test_rls_real_isola_toda_matriz_e_ids_cruzados_na_api() -> None:
                     )
                     == "UPDATE 0"
                 )
-                assert (
-                    await app_conn.execute(
-                        "DELETE FROM contatos WHERE id = $1", ids["b"]["contatos"]
-                    )
-                    == "DELETE 0"
-                )
+                assert await app_conn.execute("DELETE FROM contatos WHERE id = $1", ids["b"]["contatos"]) == "DELETE 0"
                 insercao_cruzada = app_conn.transaction()
                 await insercao_cruzada.start()
                 with pytest.raises(asyncpg.InsufficientPrivilegeError):
                     await app_conn.execute(
-                        "INSERT INTO empresas_crm "
-                        "(organizacao_id, nome, nome_normalizado) VALUES ($1, $2, $3)",
+                        "INSERT INTO empresas_crm (organizacao_id, nome, nome_normalizado) VALUES ($1, $2, $3)",
                         ids["orgs"][1],
                         "Empresa cruzada bloqueada",
                         f"empresa-cruzada-{uuid4().hex}",
@@ -347,9 +324,7 @@ async def test_rls_real_isola_toda_matriz_e_ids_cruzados_na_api() -> None:
         async def usuario_override() -> UsuarioAutenticado:
             return usuario
 
-        engine_teste = create_async_engine(
-            app_dsn.replace("postgresql://", "postgresql+asyncpg://")
-        )
+        engine_teste = create_async_engine(app_dsn.replace("postgresql://", "postgresql+asyncpg://"))
         fabrica_teste = async_sessionmaker(engine_teste, expire_on_commit=False)
 
         async def sessao_override():
@@ -361,26 +336,15 @@ async def test_rls_real_isola_toda_matriz_e_ids_cruzados_na_api() -> None:
         app.dependency_overrides[get_session] = sessao_override
         try:
             transport = httpx.ASGITransport(app=app)
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://testserver"
-            ) as client:
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
                 respostas = (
-                    await client.get(
-                        f"/v1/admin/crm/empresas/{ids['b']['empresas_crm']}"
-                    ),
+                    await client.get(f"/v1/admin/crm/empresas/{ids['b']['empresas_crm']}"),
                     await client.get(f"/v1/admin/leads/{ids['b']['leads']}"),
+                    await client.get(f"/v1/admin/analises/{ids['b']['pesquisas_marca']}"),
+                    await client.get(f"/v1/admin/leads/{ids['b']['leads']}/documentos"),
+                    await client.get(f"/v1/admin/carteira/{ids['b']['processos_monitorados']}/historico-kanban"),
                     await client.get(
-                        f"/v1/admin/analises/{ids['b']['pesquisas_marca']}"
-                    ),
-                    await client.get(
-                        f"/v1/admin/leads/{ids['b']['leads']}/documentos"
-                    ),
-                    await client.get(
-                        f"/v1/admin/carteira/{ids['b']['processos_monitorados']}/historico-kanban"
-                    ),
-                    await client.get(
-                        "/v1/admin/financeiro/lancamentos/"
-                        f"{ids['b']['lancamentos_financeiros']}/historico"
+                        f"/v1/admin/financeiro/lancamentos/{ids['b']['lancamentos_financeiros']}/historico"
                     ),
                 )
             assert [resposta.status_code for resposta in respostas] == [404] * 6

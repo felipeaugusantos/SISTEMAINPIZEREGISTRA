@@ -116,19 +116,22 @@ async def _salvar_resultado(rotulo_id: int, processo_numero: str, decisao) -> st
                 for item in (rotulo.evidencias_classificacao or [])
                 if item.get("tipo") != "complemento_despacho_oficial"
             ] + [oficial]
-            if decisao.fundamento in {
-                "conflito_anterior",
-                "falta_distintividade",
-                "outra_proibicao",
-            } and decisao.confianca >= 0.95:
+            if (
+                decisao.fundamento
+                in {
+                    "conflito_anterior",
+                    "falta_distintividade",
+                    "outra_proibicao",
+                }
+                and decisao.confianca >= 0.95
+            ):
                 rotulo.fundamento = decisao.fundamento
                 rotulo.origem = "pepi_despacho_oficial"
                 rotulo.confianca = decisao.confianca
                 rotulo.status_revisao = "documental"
                 rotulo.revisor = "regra-documental-inpi"
                 rotulo.observacoes_revisao = (
-                    f"Fundamento extraído do complemento público do despacho. "
-                    f"SHA-256: {decisao.hash_conteudo}"
+                    f"Fundamento extraído do complemento público do despacho. SHA-256: {decisao.hash_conteudo}"
                 )
                 rotulo.revisado_em = datetime.now(UTC)
                 rotulo.elegivel_treinamento = True
@@ -161,13 +164,17 @@ async def _salvar_erro(rotulo_id: int, processo_numero: str, erro: Exception) ->
 async def _reclassificar_existentes() -> int:
     async with session_factory() as session:
         linhas = (
-            await session.execute(
-                select(EvidenciaDecisaoMarca).where(
-                    EvidenciaDecisaoMarca.despacho_texto.is_not(None),
-                    EvidenciaDecisaoMarca.status_coleta.in_(["revisao", "coletado"]),
+            (
+                await session.execute(
+                    select(EvidenciaDecisaoMarca).where(
+                        EvidenciaDecisaoMarca.despacho_texto.is_not(None),
+                        EvidenciaDecisaoMarca.status_coleta.in_(["revisao", "coletado"]),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     alteradas = 0
     for evidencia in linhas:
         classificacao = classificar_fundamento(evidencia.despacho_texto or "")

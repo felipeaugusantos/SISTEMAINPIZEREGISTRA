@@ -102,9 +102,7 @@ class DominioInput(BaseModel):
     @field_validator("dominio")
     @classmethod
     def normalizar(cls, valor: str) -> str:
-        dominio = (
-            valor.strip().lower().removeprefix("https://").removeprefix("http://").split("/", 1)[0]
-        )
+        dominio = valor.strip().lower().removeprefix("https://").removeprefix("http://").split("/", 1)[0]
         if not re.fullmatch(r"[a-z0-9.-]+", dominio):
             raise ValueError("Dominio invalido")
         return dominio
@@ -124,9 +122,7 @@ class ConviteInput(BaseModel):
 
 
 class CobrancaSandboxInput(BaseModel):
-    evento: str = Field(
-        pattern=r"^(trial_iniciado|pagamento_aprovado|pagamento_falhou|cancelamento)$"
-    )
+    evento: str = Field(pattern=r"^(trial_iniciado|pagamento_aprovado|pagamento_falhou|cancelamento)$")
     dias_trial: int = Field(default=14, ge=1, le=90)
 
 
@@ -150,7 +146,9 @@ def _org_json(org: Organizacao, usuarios: int = 0, leads: int = 0, pesquisas: in
         "assinatura_status": org.assinatura_status,
         "email_contato": org.email_contato,
         "telefone_contato": org.telefone_contato,
-        "modulos_liberados": sorted(normalizar_modulos_plano(org.modulos_liberados)) if org.modulos_liberados is not None else None,
+        "modulos_liberados": sorted(normalizar_modulos_plano(org.modulos_liberados))
+        if org.modulos_liberados is not None
+        else None,
         "branding": org.branding or {},
         "criado_em": org.criado_em,
         "trial_ate": org.trial_ate,
@@ -200,9 +198,7 @@ async def painel(session: SessionDep, _: SuperAdminDep) -> dict:
     organizacoes = list(
         (
             await session.execute(
-                select(Organizacao)
-                .options(selectinload(Organizacao.plano))
-                .order_by(Organizacao.nome)
+                select(Organizacao).options(selectinload(Organizacao.plano)).order_by(Organizacao.nome)
             )
         ).scalars()
     )
@@ -214,9 +210,7 @@ async def painel(session: SessionDep, _: SuperAdminDep) -> dict:
         (PesquisaMarca, "pesquisas"),
     ):
         linhas = (
-            await session.execute(
-                select(modelo.organizacao_id, func.count()).group_by(modelo.organizacao_id)
-            )
+            await session.execute(select(modelo.organizacao_id, func.count()).group_by(modelo.organizacao_id))
         ).all()
         for org_id, total in linhas:
             usos.setdefault(org_id, {})[chave] = total
@@ -239,9 +233,7 @@ async def painel(session: SessionDep, _: SuperAdminDep) -> dict:
 
 @router.post("/planos", status_code=status.HTTP_201_CREATED)
 async def criar_plano(dados: PlanoInput, session: SessionDep, ator: SuperAdminDep) -> dict:
-    if (
-        await session.execute(select(PlanoSaas.id).where(PlanoSaas.codigo == dados.codigo))
-    ).scalar_one_or_none():
+    if (await session.execute(select(PlanoSaas.id).where(PlanoSaas.codigo == dados.codigo))).scalar_one_or_none():
         raise HTTPException(409, "Codigo de plano ja cadastrado")
     plano = PlanoSaas(**dados.model_dump())
     session.add(plano)
@@ -252,9 +244,7 @@ async def criar_plano(dados: PlanoInput, session: SessionDep, ator: SuperAdminDe
 
 
 @router.post("/organizacoes", status_code=status.HTTP_201_CREATED)
-async def criar_organizacao(
-    dados: OrganizacaoInput, session: SessionDep, ator: SuperAdminDep
-) -> dict:
+async def criar_organizacao(dados: OrganizacaoInput, session: SessionDep, ator: SuperAdminDep) -> dict:
     duplicada = (
         await session.execute(
             select(Organizacao.id).where(
@@ -331,9 +321,7 @@ async def atualizar_organizacao(
 ) -> dict:
     org = (
         await session.execute(
-            select(Organizacao)
-            .options(selectinload(Organizacao.plano))
-            .where(Organizacao.id == organizacao_id)
+            select(Organizacao).options(selectinload(Organizacao.plano)).where(Organizacao.id == organizacao_id)
         )
     ).scalar_one_or_none()
     if not org:
@@ -355,24 +343,26 @@ async def atualizar_organizacao(
 
 
 @router.post("/organizacoes/{organizacao_id}/acesso")
-async def gerar_acesso_administrador(
-    organizacao_id: int, session: SessionDep, ator: SuperAdminDep
-) -> dict:
+async def gerar_acesso_administrador(organizacao_id: int, session: SessionDep, ator: SuperAdminDep) -> dict:
     """Regenera o acesso do administrador de uma organização cadastrada."""
     org = await session.get(Organizacao, organizacao_id)
     if not org:
         raise HTTPException(404, "Organizacao nao encontrada")
     administrador = (
-        await session.execute(
-            select(UsuarioOperacoes)
-            .where(
-                UsuarioOperacoes.organizacao_id == organizacao_id,
-                UsuarioOperacoes.perfil == "administrador",
-                UsuarioOperacoes.ativo.is_(True),
+        (
+            await session.execute(
+                select(UsuarioOperacoes)
+                .where(
+                    UsuarioOperacoes.organizacao_id == organizacao_id,
+                    UsuarioOperacoes.perfil == "administrador",
+                    UsuarioOperacoes.ativo.is_(True),
+                )
+                .order_by(UsuarioOperacoes.id)
             )
-            .order_by(UsuarioOperacoes.id)
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if not administrador:
         raise HTTPException(404, "Administrador ativo nao encontrado")
     senha = _senha_temporaria()
@@ -413,9 +403,7 @@ async def adicionar_dominio(
     if not await session.get(Organizacao, organizacao_id):
         raise HTTPException(404, "Organizacao nao encontrada")
     if (
-        await session.execute(
-            select(DominioOrganizacao.id).where(DominioOrganizacao.dominio == dados.dominio)
-        )
+        await session.execute(select(DominioOrganizacao.id).where(DominioOrganizacao.dominio == dados.dominio))
     ).scalar_one_or_none():
         raise HTTPException(409, "Dominio ja cadastrado")
     codigo = secrets.token_urlsafe(24)
@@ -427,9 +415,7 @@ async def adicionar_dominio(
     )
     session.add(item)
     await session.flush()
-    await _auditar(
-        session, ator, "CRIAR_DOMINIO", f"organizacao:{organizacao_id}", {"dominio": dados.dominio}
-    )
+    await _auditar(session, ator, "CRIAR_DOMINIO", f"organizacao:{organizacao_id}", {"dominio": dados.dominio})
     await session.commit()
     return {
         "id": item.id,
@@ -458,9 +444,7 @@ async def criar_credencial(
         criado_por=ator.email,
     )
     session.add(credencial)
-    await _auditar(
-        session, ator, "CRIAR_CREDENCIAL", f"organizacao:{organizacao_id}", {"nome": dados.nome}
-    )
+    await _auditar(session, ator, "CRIAR_CREDENCIAL", f"organizacao:{organizacao_id}", {"nome": dados.nome})
     await session.commit()
     return {"token": token, "aviso": "Copie agora; o token nao sera exibido novamente."}
 
@@ -536,9 +520,7 @@ async def criar_convite(
         criado_por=ator.email,
     )
     session.add(convite)
-    await _auditar(
-        session, ator, "CRIAR_CONVITE", f"organizacao:{organizacao_id}", {"email": convite.email}
-    )
+    await _auditar(session, ator, "CRIAR_CONVITE", f"organizacao:{organizacao_id}", {"email": convite.email})
     await session.commit()
     return {"status": "criado", "token_teste_local": token, "expira_em": convite.expira_em}
 
@@ -570,9 +552,7 @@ async def verificar_dominio(
     try:
         valores = await asyncio.to_thread(_consultar_txt, f"_ze-registra.{item.dominio}")
     except Exception as exc:
-        raise HTTPException(
-            422, f"Registro TXT ainda não encontrado: {type(exc).__name__}"
-        ) from exc
+        raise HTTPException(422, f"Registro TXT ainda não encontrado: {type(exc).__name__}") from exc
     if esperado not in valores:
         raise HTTPException(422, "Registro TXT não corresponde ao código esperado")
     item.verificado_em = datetime.now(UTC)
@@ -599,9 +579,7 @@ async def simular_cobranca(
         "cancelamento": ("cancelada", "cancelada"),
     }
     org.status, org.assinatura_status = status_por_evento[dados.evento]
-    org.trial_ate = (
-        agora + timedelta(days=dados.dias_trial) if dados.evento == "trial_iniciado" else None
-    )
+    org.trial_ate = agora + timedelta(days=dados.dias_trial) if dados.evento == "trial_iniciado" else None
     evento = EventoCobrancaSandbox(
         organizacao_id=org.id,
         tipo=dados.evento,
@@ -610,9 +588,7 @@ async def simular_cobranca(
         detalhes={"dias_trial": dados.dias_trial},
     )
     session.add(evento)
-    await _auditar(
-        session, ator, "COBRANCA_TESTE", f"organizacao:{org.id}", {"evento": dados.evento}
-    )
+    await _auditar(session, ator, "COBRANCA_TESTE", f"organizacao:{org.id}", {"evento": dados.evento})
     await session.commit()
     return {
         "status": org.status,
@@ -658,21 +634,15 @@ async def relatorio_uso(session: SessionDep, _: SuperAdminDep) -> list[dict]:
     for org in orgs:
         usuarios = (
             await session.execute(
-                select(func.count())
-                .select_from(UsuarioOperacoes)
-                .where(UsuarioOperacoes.organizacao_id == org.id)
+                select(func.count()).select_from(UsuarioOperacoes).where(UsuarioOperacoes.organizacao_id == org.id)
             )
         ).scalar_one()
         leads = (
-            await session.execute(
-                select(func.count()).select_from(Lead).where(Lead.organizacao_id == org.id)
-            )
+            await session.execute(select(func.count()).select_from(Lead).where(Lead.organizacao_id == org.id))
         ).scalar_one()
         pesquisas = (
             await session.execute(
-                select(func.count())
-                .select_from(PesquisaMarca)
-                .where(PesquisaMarca.organizacao_id == org.id)
+                select(func.count()).select_from(PesquisaMarca).where(PesquisaMarca.organizacao_id == org.id)
             )
         ).scalar_one()
         saida.append(

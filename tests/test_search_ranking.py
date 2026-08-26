@@ -81,9 +81,7 @@ def test_chave_fonetica_e_explicavel_para_variacoes_comuns() -> None:
 
 
 def test_contrato_versionado_bloqueia_mudanca_acidental_dos_pesos() -> None:
-    contrato = json.loads(
-        Path("data/search-ranking-contract.v1.json").read_text(encoding="utf-8")
-    )
+    contrato = json.loads(Path("data/search-ranking-contract.v1.json").read_text(encoding="utf-8"))
 
     for caso in contrato["casos"]:
         score = calcular_score_nominativo(

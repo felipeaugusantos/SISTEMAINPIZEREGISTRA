@@ -69,10 +69,13 @@ async def exigir_chave_health(x_health_key: str | None = Header(default=None)) -
         return
     if not settings.health_api_key:
         raise HTTPException(status_code=503, detail="Health check protegido nao configurado")
-    if not settings.health_api_key or not x_health_key or not secrets.compare_digest(
-        x_health_key, settings.health_api_key
+    if (
+        not settings.health_api_key
+        or not x_health_key
+        or not secrets.compare_digest(x_health_key, settings.health_api_key)
     ):
         raise HTTPException(status_code=401, detail="Chave de health check invalida")
+
 
 app = FastAPI(
     title=settings.app_name,
@@ -90,7 +93,11 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=[
-        "Authorization", "Content-Type", "X-Integration-Key", "X-CSRF-Token", "X-Health-Key"
+        "Authorization",
+        "Content-Type",
+        "X-Integration-Key",
+        "X-CSRF-Token",
+        "X-Health-Key",
     ],
 )
 app.middleware("http")(observar_requisicao)
@@ -177,16 +184,12 @@ async def pagina_redefinir_senha() -> FileResponse:
     return FileResponse(web_dir / "redefinir-senha.html")
 
 
-@app.get(
-    "/admin/leads", include_in_schema=False, dependencies=[Depends(exigir_permissao("leads.view"))]
-)
+@app.get("/admin/leads", include_in_schema=False, dependencies=[Depends(exigir_permissao("leads.view"))])
 async def painel_leads() -> FileResponse:
     return FileResponse(web_dir / "admin-leads.html")
 
 
-@app.get(
-    "/admin", include_in_schema=False, dependencies=[Depends(exigir_permissao("dashboard.view"))]
-)
+@app.get("/admin", include_in_schema=False, dependencies=[Depends(exigir_permissao("dashboard.view"))])
 async def painel_administrativo() -> FileResponse:
     return FileResponse(web_dir / "admin.html")
 
@@ -371,16 +374,12 @@ async def painel_validacao() -> FileResponse:
     return FileResponse(web_dir / "admin-fase2.html")
 
 
-@app.get(
-    "/admin/fase3", include_in_schema=False, dependencies=[Depends(exigir_permissao("risk.view"))]
-)
+@app.get("/admin/fase3", include_in_schema=False, dependencies=[Depends(exigir_permissao("risk.view"))])
 async def painel_fase3() -> FileResponse:
     return FileResponse(web_dir / "admin-fase3.html")
 
 
-@app.get(
-    "/admin/risco", include_in_schema=False, dependencies=[Depends(exigir_permissao("risk.view"))]
-)
+@app.get("/admin/risco", include_in_schema=False, dependencies=[Depends(exigir_permissao("risk.view"))])
 async def painel_risco() -> FileResponse:
     return FileResponse(web_dir / "admin-fase3.html")
 
@@ -562,15 +561,13 @@ async def health_rpi(
     ).scalar_one_or_none()
     quantidade_erros = int(
         await session.scalar(
-            select(func.count())
-            .select_from(RpiSyncExecucao)
-            .where(RpiSyncExecucao.status == "falhou")
+            select(func.count()).select_from(RpiSyncExecucao).where(RpiSyncExecucao.status == "falhou")
         )
         or 0
     )
-    ultima_sincronizacao = (
-        estado.ultima_verificacao_em if estado and estado.ultima_verificacao_em else None
-    ) or (ultima.importado_em if ultima else None)
+    ultima_sincronizacao = (estado.ultima_verificacao_em if estado and estado.ultima_verificacao_em else None) or (
+        ultima.importado_em if ultima else None
+    )
     status_rpi, idade_horas, motivos = avaliar_saude_rpi(
         status_sync=estado.status if estado else None,
         ultima_rpi_oficial=estado.ultima_rpi_oficial if estado else None,

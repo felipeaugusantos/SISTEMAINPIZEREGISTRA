@@ -41,16 +41,21 @@ def avaliar_afinidade_viena(
     processo = tuple(dict.fromkeys(c for c in codigos_processo if c))
     if not alvo or not processo:
         return ResultadoAfinidadeViena(
-            "sem_dados", "Dados insuficientes",
-            "Não há códigos de Viena suficientes para comparar.", "pendente", (),
+            "sem_dados",
+            "Dados insuficientes",
+            "Não há códigos de Viena suficientes para comparar.",
+            "pendente",
+            (),
         )
 
     iguais = sorted(set(alvo) & set(processo))
     if iguais:
         return ResultadoAfinidadeViena(
-            "identica", "Mesmos elementos figurativos",
+            "identica",
+            "Mesmos elementos figurativos",
             f"Código(s) de Viena coincidente(s): {', '.join(iguais)}.",
-            "nao_aplicavel", tuple(iguais),
+            "nao_aplicavel",
+            tuple(iguais),
         )
 
     # Proximidade hierárquica dos códigos de Viena (categoria.divisão.seção).
@@ -58,19 +63,21 @@ def avaliar_afinidade_viena(
     divisoes_comuns = sorted({_divisao(c) for c in processo if _divisao(c) in divisoes_alvo})
     if divisoes_comuns:
         return ResultadoAfinidadeViena(
-            "alta", "Mesma divisão de Viena",
+            "alta",
+            "Mesma divisão de Viena",
             f"Divisão figurativa em comum: {', '.join(divisoes_comuns)}.",
-            "nao_aplicavel", tuple(divisoes_comuns),
+            "nao_aplicavel",
+            tuple(divisoes_comuns),
         )
     categorias_alvo = {_categoria(c) for c in alvo}
-    categorias_comuns = sorted(
-        {_categoria(c) for c in processo if _categoria(c) in categorias_alvo}
-    )
+    categorias_comuns = sorted({_categoria(c) for c in processo if _categoria(c) in categorias_alvo})
     if categorias_comuns:
         return ResultadoAfinidadeViena(
-            "moderada", "Mesma categoria de Viena",
+            "moderada",
+            "Mesma categoria de Viena",
             f"Categoria figurativa em comum: {', '.join(categorias_comuns)}.",
-            "nao_aplicavel", tuple(categorias_comuns),
+            "nao_aplicavel",
+            tuple(categorias_comuns),
         )
 
     # Relações curadas (não-hierárquicas), validadas por humano.
@@ -90,13 +97,19 @@ def avaliar_afinidade_viena(
         melhor = sorted(encontrados, key=lambda item: prioridade.get(item.nivel.lower(), 9))[0]
         pendente = melhor.status_revisao != "aprovada"
         return ResultadoAfinidadeViena(
-            melhor.nivel.lower(), "Afinidade figurativa mapeada", melhor.justificativa,
-            "pendente" if pendente else "aprovada", (),
+            melhor.nivel.lower(),
+            "Afinidade figurativa mapeada",
+            melhor.justificativa,
+            "pendente" if pendente else "aprovada",
+            (),
         )
 
     return ResultadoAfinidadeViena(
-        "nao_mapeada", "Sem relação figurativa",
-        "Nenhum elemento figurativo em comum foi identificado.", "pendente", (),
+        "nao_mapeada",
+        "Sem relação figurativa",
+        "Nenhum elemento figurativo em comum foi identificado.",
+        "pendente",
+        (),
     )
 
 

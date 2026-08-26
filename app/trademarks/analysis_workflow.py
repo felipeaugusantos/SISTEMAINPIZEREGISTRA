@@ -17,9 +17,7 @@ class AcaoWorkflowAnalise(StrEnum):
     REOPEN = "REOPEN"
 
 
-TRANSICOES_ANALISE: dict[
-    tuple[EstadoAnalise, AcaoWorkflowAnalise], EstadoAnalise
-] = {
+TRANSICOES_ANALISE: dict[tuple[EstadoAnalise, AcaoWorkflowAnalise], EstadoAnalise] = {
     (EstadoAnalise.DRAFT, AcaoWorkflowAnalise.SUBMIT_REVIEW): EstadoAnalise.PENDING_REVIEW,
     (
         EstadoAnalise.PENDING_REVIEW,
@@ -49,9 +47,7 @@ def proximo_estado_analise(
         raise ValueError("Estado ou ação de análise inválidos") from exc
     destino = TRANSICOES_ANALISE.get((estado, acao_normalizada))
     if destino is None:
-        raise ValueError(
-            f"Transição não permitida: {estado.value} → {acao_normalizada.value}"
-        )
+        raise ValueError(f"Transição não permitida: {estado.value} → {acao_normalizada.value}")
     return destino
 
 

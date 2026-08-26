@@ -108,9 +108,7 @@ def extrair_link_detalhe(documento: str) -> tuple[str, str]:
     return urljoin(BASE_URL, href), match.group(1)
 
 
-def extrair_despacho_indeferimento(
-    documento: str, numero_rpi: int | None = None
-) -> tuple[str, int | None]:
+def extrair_despacho_indeferimento(documento: str, numero_rpi: int | None = None) -> tuple[str, int | None]:
     parser = _TableParser()
     parser.feed(documento)
     candidatos: list[tuple[str, int | None]] = []
@@ -122,9 +120,7 @@ def extrair_despacho_indeferimento(
         if row and re.fullmatch(r"\d{3,5}", row[0]):
             rpi = int(row[0])
         complemento = row[-1] if row else ""
-        complemento = re.sub(
-            r"^Detalhes do despacho:\s*", "", complemento, flags=re.IGNORECASE
-        ).strip()
+        complemento = re.sub(r"^Detalhes do despacho:\s*", "", complemento, flags=re.IGNORECASE).strip()
         if complemento:
             candidatos.append((complemento, rpi))
     if not candidatos:
@@ -157,20 +153,17 @@ def classificar_fundamento(texto: str) -> DecisionClassification:
         or "confusao ou associacao" in minusculo
         or "colidência" in minusculo
     )
-    distintividade = (
-        bool(re.search(r"(?:inciso\s*)?vi\b", minusculo))
-        or any(
-            termo in minusculo
-            for termo in (
-                "descritiv",
-                "genéric",
-                "generico",
-                "caráter vulgar",
-                "carater vulgar",
-                "sinal de caráter genérico",
-                "destituído de distintividade",
-                "destituido de distintividade",
-            )
+    distintividade = bool(re.search(r"(?:inciso\s*)?vi\b", minusculo)) or any(
+        termo in minusculo
+        for termo in (
+            "descritiv",
+            "genéric",
+            "generico",
+            "caráter vulgar",
+            "carater vulgar",
+            "sinal de caráter genérico",
+            "destituído de distintividade",
+            "destituido de distintividade",
         )
     )
     if conflito:
@@ -215,9 +208,7 @@ class InpiDecisionClient:
         response.raise_for_status()
         self._started = True
 
-    async def coletar(
-        self, processo_numero: str, numero_rpi: int | None = None
-    ) -> OfficialDecision:
+    async def coletar(self, processo_numero: str, numero_rpi: int | None = None) -> OfficialDecision:
         await self.start()
         numero = re.sub(r"\D", "", processo_numero)
         response = await self.client.post(

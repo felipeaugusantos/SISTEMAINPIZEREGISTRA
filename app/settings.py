@@ -94,8 +94,7 @@ class Settings(BaseSettings):
     def exigir_senha_forte_em_producao(self) -> "Settings":
         if self.google_oauth_enabled and not (self.google_client_id and self.google_client_secret):
             raise ValueError(
-                "GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET sao obrigatorios "
-                "quando o Google OAuth estiver ativo."
+                "GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET sao obrigatorios quando o Google OAuth estiver ativo."
             )
         if self.apple_oauth_enabled and not all(
             (self.apple_client_id, self.apple_team_id, self.apple_key_id, self.apple_private_key)
@@ -108,10 +107,7 @@ class Settings(BaseSettings):
             not self.app_public_url.startswith("https://") or "localhost" in self.app_public_url
         ):
             raise ValueError("Sign in with Apple exige APP_PUBLIC_URL HTTPS com dominio real.")
-        if (
-            self.integration_auth_enabled
-            and len(self.inpi_integration_token) < TAMANHO_MINIMO_TOKEN_INTEGRACAO
-        ):
+        if self.integration_auth_enabled and len(self.inpi_integration_token) < TAMANHO_MINIMO_TOKEN_INTEGRACAO:
             raise ValueError(
                 "INPI_INTEGRATION_TOKEN deve ter ao menos "
                 f"{TAMANHO_MINIMO_TOKEN_INTEGRACAO} caracteres quando a autenticação estiver ativa."
@@ -120,13 +116,10 @@ class Settings(BaseSettings):
             return self
         if self.admin_password in SENHAS_PLACEHOLDER:
             raise ValueError(
-                "ADMIN_PASSWORD não pode usar o valor padrão em produção. "
-                "Defina uma senha administrativa própria."
+                "ADMIN_PASSWORD não pode usar o valor padrão em produção. Defina uma senha administrativa própria."
             )
         if len(self.admin_password) < TAMANHO_MINIMO_SENHA:
-            raise ValueError(
-                f"ADMIN_PASSWORD deve ter ao menos {TAMANHO_MINIMO_SENHA} caracteres em produção."
-            )
+            raise ValueError(f"ADMIN_PASSWORD deve ter ao menos {TAMANHO_MINIMO_SENHA} caracteres em produção.")
         if len(self.audit_ip_salt) < 16:
             raise ValueError("AUDIT_IP_SALT deve ter ao menos 16 caracteres em produção.")
         if len(self.security_master_key) < 32:
@@ -137,9 +130,7 @@ class Settings(BaseSettings):
             self.security_master_key_previous_version < 1
             or self.security_master_key_previous_version == self.security_master_key_version
         ):
-            raise ValueError(
-                "SECURITY_MASTER_KEY_PREVIOUS_VERSION deve identificar uma versao anterior."
-            )
+            raise ValueError("SECURITY_MASTER_KEY_PREVIOUS_VERSION deve identificar uma versao anterior.")
         if "inpi:inpi@" in self.database_url or "change-me" in self.database_url:
             raise ValueError("DATABASE_URL usa credenciais padrão em produção.")
         if not self.admin_force_https:

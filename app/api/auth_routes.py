@@ -163,9 +163,7 @@ async def login(
         )
     ).scalar_one_or_none()
     agora = datetime.now(UTC)
-    valido = (
-        usuario is not None and usuario.ativo and verificar_senha(usuario.senha_hash, dados.senha)
-    )
+    valido = usuario is not None and usuario.ativo and verificar_senha(usuario.senha_hash, dados.senha)
     segredo_mfa = None
     if valido and usuario.mfa_ativo:
         codigo = dados.codigo_mfa or ""
@@ -203,11 +201,7 @@ async def login(
             {"motivo": "excesso_tentativas" if bloqueou else "credenciais_invalidas"},
         )
         await session.commit()
-        detalhe = (
-            "Código MFA inválido ou ausente"
-            if usuario and usuario.mfa_ativo
-            else "Usuario ou senha invalidos"
-        )
+        detalhe = "Código MFA inválido ou ausente" if usuario and usuario.mfa_ativo else "Usuario ou senha invalidos"
         raise HTTPException(status_code=401, detail=detalhe)
     usuario.tentativas_falhas = 0
     usuario.bloqueado_ate = None
@@ -394,8 +388,7 @@ async def solicitar_recuperacao(
             TokenRecuperacaoSenha(
                 usuario_id=usuario.id,
                 token_hash=hash_token(token),
-                expira_em=datetime.now(UTC)
-                + timedelta(minutes=get_settings().password_reset_minutes),
+                expira_em=datetime.now(UTC) + timedelta(minutes=get_settings().password_reset_minutes),
             )
         )
         await _auditar(
@@ -465,9 +458,7 @@ async def redefinir_senha(
 
 
 @router.post("/mfa/iniciar")
-async def iniciar_mfa(
-    request: Request, usuario: UsuarioAtualDep, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def iniciar_mfa(request: Request, usuario: UsuarioAtualDep, session: AsyncSession = Depends(get_session)) -> dict:
     limitar_mfa.aplicar(f"usuario:{usuario.id}")
     exigir_csrf(request, usuario)
     registro = await session.get(UsuarioOperacoes, usuario.id)
@@ -494,9 +485,7 @@ async def confirmar_mfa(
     limitar_mfa.aplicar(f"usuario:{usuario.id}")
     exigir_csrf(request, usuario)
     registro = await session.get(UsuarioOperacoes, usuario.id)
-    if not registro.mfa_segredo or not validar_totp(
-        revelar_segredo(registro.mfa_segredo), dados.codigo
-    ):
+    if not registro.mfa_segredo or not validar_totp(revelar_segredo(registro.mfa_segredo), dados.codigo):
         raise HTTPException(400, "Código MFA inválido")
     codigos = [secrets.token_hex(5).upper() for _ in range(8)]
     registro.codigos_recuperacao = [hash_token(c) for c in codigos]
@@ -515,9 +504,7 @@ async def desativar_mfa(
 ) -> dict:
     exigir_csrf(request, usuario)
     registro = await session.get(UsuarioOperacoes, usuario.id)
-    if not registro.mfa_ativo or not validar_totp(
-        revelar_segredo(registro.mfa_segredo or ""), dados.codigo
-    ):
+    if not registro.mfa_ativo or not validar_totp(revelar_segredo(registro.mfa_segredo or ""), dados.codigo):
         raise HTTPException(400, "Código MFA inválido")
     registro.mfa_ativo = False
     registro.mfa_segredo = None
@@ -529,9 +516,7 @@ async def desativar_mfa(
 
 
 @router.post("/convites/aceitar", status_code=201)
-async def aceitar_convite(
-    dados: AceitarConviteInput, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def aceitar_convite(dados: AceitarConviteInput, session: AsyncSession = Depends(get_session)) -> dict:
     agora = datetime.now(UTC)
     token_hash = hash_token(dados.token)
     await aplicar_contexto_autenticacao(session, "convite", token_hash)
@@ -578,9 +563,7 @@ async def aceitar_convite(
     if chaves_convite:
         registro.permissoes = list(
             (
-                await session.execute(
-                    select(PermissaoOperacoes).where(PermissaoOperacoes.chave.in_(chaves_convite))
-                )
+                await session.execute(select(PermissaoOperacoes).where(PermissaoOperacoes.chave.in_(chaves_convite)))
             ).scalars()
         )
     session.add(registro)

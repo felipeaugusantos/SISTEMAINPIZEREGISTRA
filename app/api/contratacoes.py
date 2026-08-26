@@ -1,4 +1,4 @@
-﻿import hashlib
+import hashlib
 import hmac
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -76,8 +76,33 @@ class RenovacaoInput(BaseModel):
 
 @router.get("/servicos")
 async def listar_servicos(session: SessionDep, usuario: ViewDep) -> dict:
-    itens = (await session.execute(select(ServicoFinanceiro).where(ServicoFinanceiro.organizacao_id == usuario.organizacao_id, ServicoFinanceiro.ativo.is_(True)).order_by(ServicoFinanceiro.nome))).scalars().all()
-    return {"servicos": [{"id": i.id, "codigo": i.codigo, "nome": i.nome, "descricao": i.descricao, "valor": i.valor, "recorrente": i.recorrente} for i in itens]}
+    itens = (
+        (
+            await session.execute(
+                select(ServicoFinanceiro)
+                .where(
+                    ServicoFinanceiro.organizacao_id == usuario.organizacao_id,
+                    ServicoFinanceiro.ativo.is_(True),
+                )
+                .order_by(ServicoFinanceiro.nome)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "servicos": [
+            {
+                "id": i.id,
+                "codigo": i.codigo,
+                "nome": i.nome,
+                "descricao": i.descricao,
+                "valor": i.valor,
+                "recorrente": i.recorrente,
+            }
+            for i in itens
+        ]
+    }
 
 
 @router.post("/servicos", status_code=201)
@@ -91,50 +116,145 @@ async def criar_servico(dados: ServicoInput, session: SessionDep, usuario: Manag
 @router.post("/contratacoes", status_code=201)
 async def contratar_servico(dados: ContratacaoInput, session: SessionDep, usuario: ManageDep) -> dict:
     if dados.lead_id is None and dados.processo_id is None and dados.proposta_id is None:
-        raise HTTPException(status_code=422, detail="A contratacao deve estar vinculada a proposta, oportunidade ou processo")
-    existente = (await session.execute(select(LancamentoFinanceiro).where(LancamentoFinanceiro.organizacao_id == usuario.organizacao_id, LancamentoFinanceiro.idempotency_key == dados.idempotency_key))).scalar_one_or_none()
+        raise HTTPException(
+            status_code=422,
+            detail="A contratacao deve estar vinculada a proposta, oportunidade ou processo",
+        )
+    existente = (
+        await session.execute(
+            select(LancamentoFinanceiro).where(
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.idempotency_key == dados.idempotency_key,
+            )
+        )
+    ).scalar_one_or_none()
     if existente:
-        return {"idempotente": True, "lancamento_id": existente.id, "parcelas": len(existente.parcelas)}
-    servico = (await session.execute(select(ServicoFinanceiro).where(ServicoFinanceiro.id == dados.servico_id, ServicoFinanceiro.organizacao_id == usuario.organizacao_id, ServicoFinanceiro.ativo.is_(True)))).scalar_one_or_none()
+        return {
+            "idempotente": True,
+            "lancamento_id": existente.id,
+            "parcelas": len(existente.parcelas),
+        }
+    servico = (
+        await session.execute(
+            select(ServicoFinanceiro).where(
+                ServicoFinanceiro.id == dados.servico_id,
+                ServicoFinanceiro.organizacao_id == usuario.organizacao_id,
+                ServicoFinanceiro.ativo.is_(True),
+            )
+        )
+    ).scalar_one_or_none()
     if servico is None:
         raise HTTPException(status_code=404, detail="ServiÃ§o nÃ£o encontrado")
     total = Decimal(servico.valor)
     if dados.proposta_id:
-        proposta = (await session.execute(select(PropostaComercial).where(PropostaComercial.id == dados.proposta_id, PropostaComercial.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
+        proposta = (
+            await session.execute(
+                select(PropostaComercial).where(
+                    PropostaComercial.id == dados.proposta_id,
+                    PropostaComercial.organizacao_id == usuario.organizacao_id,
+                )
+            )
+        ).scalar_one_or_none()
         if proposta is None:
             raise HTTPException(status_code=404, detail="Proposta nao encontrada")
         if dados.lead_id and proposta.lead_id != dados.lead_id:
             raise HTTPException(status_code=422, detail="Proposta nao pertence ao lead informado")
-    lancamento = LancamentoFinanceiro(organizacao_id=usuario.organizacao_id, lead_id=dados.lead_id, processo_id=dados.processo_id, proposta_id=dados.proposta_id, idempotency_key=dados.idempotency_key, tipo="receber", descricao=servico.nome, competencia=date.today(), valor_total=total, status="aberto", criado_por_id=usuario.id, criado_por=usuario.nome or usuario.email)
+    lancamento = LancamentoFinanceiro(
+        organizacao_id=usuario.organizacao_id,
+        lead_id=dados.lead_id,
+        processo_id=dados.processo_id,
+        proposta_id=dados.proposta_id,
+        idempotency_key=dados.idempotency_key,
+        tipo="receber",
+        descricao=servico.nome,
+        competencia=date.today(),
+        valor_total=total,
+        status="aberto",
+        criado_por_id=usuario.id,
+        criado_por=usuario.nome or usuario.email,
+    )
     session.add(lancamento)
     await session.flush()
     inicio = dados.primeiro_vencimento or date.today()
     valor_parcela = (total / dados.parcelas).quantize(Decimal("0.01"))
     for numero in range(1, dados.parcelas + 1):
         valor = total - valor_parcela * (dados.parcelas - 1) if numero == dados.parcelas else valor_parcela
-        session.add(ParcelaFinanceira(organizacao_id=usuario.organizacao_id, lancamento_id=lancamento.id, numero=numero, vencimento=inicio + timedelta(days=30 * (numero - 1)), valor=valor))
-    contratacao = ContratacaoServico(organizacao_id=usuario.organizacao_id, servico_id=servico.id, lead_id=dados.lead_id, processo_id=dados.processo_id, proposta_id=dados.proposta_id, lancamento_id=lancamento.id)
+        session.add(
+            ParcelaFinanceira(
+                organizacao_id=usuario.organizacao_id,
+                lancamento_id=lancamento.id,
+                numero=numero,
+                vencimento=inicio + timedelta(days=30 * (numero - 1)),
+                valor=valor,
+            )
+        )
+    contratacao = ContratacaoServico(
+        organizacao_id=usuario.organizacao_id,
+        servico_id=servico.id,
+        lead_id=dados.lead_id,
+        processo_id=dados.processo_id,
+        proposta_id=dados.proposta_id,
+        lancamento_id=lancamento.id,
+    )
     session.add(contratacao)
     await session.commit()
-    return {"idempotente": False, "contratacao_id": contratacao.id, "lancamento_id": lancamento.id, "parcelas": dados.parcelas}
+    return {
+        "idempotente": False,
+        "contratacao_id": contratacao.id,
+        "lancamento_id": lancamento.id,
+        "parcelas": dados.parcelas,
+    }
 
 
 @router.get("/inadimplencia")
 async def listar_inadimplencia(session: SessionDep, usuario: ViewDep) -> dict:
     hoje = date.today()
-    itens = (await session.execute(select(ParcelaFinanceira).join(LancamentoFinanceiro).where(
-        ParcelaFinanceira.organizacao_id == usuario.organizacao_id,
-        LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
-        ParcelaFinanceira.status == "aberta", ParcelaFinanceira.vencimento < hoje,
-    ).order_by(ParcelaFinanceira.vencimento))).scalars().all()
-    return {"itens": [{"parcela_id": p.id, "lancamento_id": p.lancamento_id, "vencimento": p.vencimento, "valor": p.valor, "dias_atraso": (hoje - p.vencimento).days} for p in itens], "total": len(itens)}
+    itens = (
+        (
+            await session.execute(
+                select(ParcelaFinanceira)
+                .join(LancamentoFinanceiro)
+                .where(
+                    ParcelaFinanceira.organizacao_id == usuario.organizacao_id,
+                    LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+                    ParcelaFinanceira.status == "aberta",
+                    ParcelaFinanceira.vencimento < hoje,
+                )
+                .order_by(ParcelaFinanceira.vencimento)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "itens": [
+            {
+                "parcela_id": p.id,
+                "lancamento_id": p.lancamento_id,
+                "vencimento": p.vencimento,
+                "valor": p.valor,
+                "dias_atraso": (hoje - p.vencimento).days,
+            }
+            for p in itens
+        ],
+        "total": len(itens),
+    }
 
 
 @router.post("/guias", status_code=201)
 async def criar_guia_financeira(dados: GuiaFinanceiraInput, session: SessionDep, usuario: ManageDep) -> dict:
     if dados.processo_id is None and dados.proposta_id is None:
         raise HTTPException(status_code=422, detail="GRU deve estar vinculada a proposta ou processo")
-    guia = GuiaInpi(organizacao_id=usuario.organizacao_id, lead_id=dados.lead_id, processo_id=dados.processo_id, proposta_id=dados.proposta_id, descricao=dados.descricao.strip(), valor=dados.valor, vencimento=dados.vencimento, status="pendente")
+    guia = GuiaInpi(
+        organizacao_id=usuario.organizacao_id,
+        lead_id=dados.lead_id,
+        processo_id=dados.processo_id,
+        proposta_id=dados.proposta_id,
+        descricao=dados.descricao.strip(),
+        valor=dados.valor,
+        vencimento=dados.vencimento,
+        status="pendente",
+    )
     session.add(guia)
     await session.commit()
     return {"id": guia.id, "status": guia.status}
@@ -142,12 +262,16 @@ async def criar_guia_financeira(dados: GuiaFinanceiraInput, session: SessionDep,
 
 @router.post("/renovacoes", status_code=201)
 async def criar_renovacao(dados: RenovacaoInput, session: SessionDep, usuario: ManageDep) -> dict:
-    existente = (await session.execute(select(RenovacaoFinanceira).where(
-        RenovacaoFinanceira.organizacao_id == usuario.organizacao_id,
-        RenovacaoFinanceira.processo_id == dados.processo_id,
-        RenovacaoFinanceira.tipo == dados.tipo,
-        RenovacaoFinanceira.referencia == dados.referencia,
-    ))).scalar_one_or_none()
+    existente = (
+        await session.execute(
+            select(RenovacaoFinanceira).where(
+                RenovacaoFinanceira.organizacao_id == usuario.organizacao_id,
+                RenovacaoFinanceira.processo_id == dados.processo_id,
+                RenovacaoFinanceira.tipo == dados.tipo,
+                RenovacaoFinanceira.referencia == dados.referencia,
+            )
+        )
+    ).scalar_one_or_none()
     if existente:
         return {"id": existente.id, "idempotente": True, "status": existente.status}
     item = RenovacaoFinanceira(organizacao_id=usuario.organizacao_id, **dados.model_dump())
@@ -158,18 +282,33 @@ async def criar_renovacao(dados: RenovacaoInput, session: SessionDep, usuario: M
 
 @router.post("/parcelas/{parcela_id}/recibo", status_code=201)
 async def emitir_recibo(parcela_id: int, session: SessionDep, usuario: ManageDep) -> dict:
-    parcela = (await session.execute(select(ParcelaFinanceira).where(
-        ParcelaFinanceira.id == parcela_id, ParcelaFinanceira.organizacao_id == usuario.organizacao_id
-    ))).scalar_one_or_none()
+    parcela = (
+        await session.execute(
+            select(ParcelaFinanceira).where(
+                ParcelaFinanceira.id == parcela_id,
+                ParcelaFinanceira.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
     if parcela is None or parcela.status != "paga":
         raise HTTPException(status_code=409, detail="Somente parcela paga pode gerar recibo")
-    existente = (await session.execute(select(ReciboFinanceiro).where(
-        ReciboFinanceiro.organizacao_id == usuario.organizacao_id, ReciboFinanceiro.parcela_id == parcela_id
-    ))).scalar_one_or_none()
+    existente = (
+        await session.execute(
+            select(ReciboFinanceiro).where(
+                ReciboFinanceiro.organizacao_id == usuario.organizacao_id,
+                ReciboFinanceiro.parcela_id == parcela_id,
+            )
+        )
+    ).scalar_one_or_none()
     if existente:
         return {"id": existente.id, "numero": existente.numero, "idempotente": True}
     numero = f"REC-{usuario.organizacao_id}-{parcela_id}"
-    recibo = ReciboFinanceiro(organizacao_id=usuario.organizacao_id, parcela_id=parcela_id, numero=numero, dados={"valor": str(parcela.valor_pago), "pago_em": str(parcela.pago_em)})
+    recibo = ReciboFinanceiro(
+        organizacao_id=usuario.organizacao_id,
+        parcela_id=parcela_id,
+        numero=numero,
+        dados={"valor": str(parcela.valor_pago), "pago_em": str(parcela.pago_em)},
+    )
     session.add(recibo)
     await session.commit()
     return {"id": recibo.id, "numero": recibo.numero, "idempotente": False}
@@ -191,16 +330,26 @@ async def receber_webhook_gateway(
     if not x_gateway_signature or not hmac.compare_digest(x_gateway_signature, esperado):
         raise HTTPException(status_code=401, detail="Assinatura do gateway invalida")
     await aplicar_contexto_tenant(session, dados.organizacao_id)
-    evento = (await session.execute(select(EventoCobrancaSandbox).where(
-        EventoCobrancaSandbox.organizacao_id == dados.organizacao_id,
-        EventoCobrancaSandbox.referencia == dados.referencia,
-    ))).scalar_one_or_none()
+    evento = (
+        await session.execute(
+            select(EventoCobrancaSandbox).where(
+                EventoCobrancaSandbox.organizacao_id == dados.organizacao_id,
+                EventoCobrancaSandbox.referencia == dados.referencia,
+            )
+        )
+    ).scalar_one_or_none()
     if evento is not None:
         return {"idempotente": True, "status": evento.status}
-    parcela = (await session.execute(select(ParcelaFinanceira).where(
-        ParcelaFinanceira.id == dados.parcela_id,
-        ParcelaFinanceira.organizacao_id == dados.organizacao_id,
-    ).with_for_update())).scalar_one_or_none()
+    parcela = (
+        await session.execute(
+            select(ParcelaFinanceira)
+            .where(
+                ParcelaFinanceira.id == dados.parcela_id,
+                ParcelaFinanceira.organizacao_id == dados.organizacao_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
     if parcela is None:
         raise HTTPException(status_code=404, detail="Parcela nao encontrada")
     evento = EventoCobrancaSandbox(
@@ -217,18 +366,22 @@ async def receber_webhook_gateway(
         parcela.valor_pago = dados.valor
         parcela.pago_em = datetime.now(UTC).date()
         parcela.status = "paga"
-        parcela.lancamento.status = "pago" if all(item.status == "paga" for item in parcela.lancamento.parcelas) else "parcial"
+        parcela.lancamento.status = (
+            "pago" if all(item.status == "paga" for item in parcela.lancamento.parcelas) else "parcial"
+        )
     try:
         await session.commit()
     except IntegrityError:
         await session.rollback()
-        repetido = (await session.execute(select(EventoCobrancaSandbox).where(
-            EventoCobrancaSandbox.organizacao_id == dados.organizacao_id,
-            EventoCobrancaSandbox.referencia == dados.referencia,
-        ))).scalar_one_or_none()
+        repetido = (
+            await session.execute(
+                select(EventoCobrancaSandbox).where(
+                    EventoCobrancaSandbox.organizacao_id == dados.organizacao_id,
+                    EventoCobrancaSandbox.referencia == dados.referencia,
+                )
+            )
+        ).scalar_one_or_none()
         if repetido is not None:
             return {"idempotente": True, "status": repetido.status}
         raise
     return {"idempotente": False, "status": dados.status, "parcela_id": parcela.id}
-
-

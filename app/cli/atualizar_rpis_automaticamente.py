@@ -17,9 +17,7 @@ RPI_INICIAL_PADRAO = 2900
 
 
 def argumentos() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Mantém a Seção V — Marcas atualizada com as RPIs oficiais"
-    )
+    parser = argparse.ArgumentParser(description="Mantém a Seção V — Marcas atualizada com as RPIs oficiais")
     parser.add_argument("--uma-vez", action="store_true")
     parser.add_argument("--diretorio", type=Path, default=Path("data/raw/rpis"))
     return parser.parse_args()
@@ -37,9 +35,7 @@ def intervalo_pendente(
     inicio_minimo: int,
     ultima_oficial: int,
 ) -> tuple[int, int] | None:
-    pendentes = [
-        numero for numero in range(inicio_minimo, ultima_oficial + 1) if numero not in importadas
-    ]
+    pendentes = [numero for numero in range(inicio_minimo, ultima_oficial + 1) if numero not in importadas]
     if not pendentes:
         return None
     return min(pendentes), max(pendentes)
@@ -96,15 +92,11 @@ async def _reivindicar_execucao(
                 )
                 return solicitada["id"], solicitada["origem"]
 
-            estado = await conexao.fetchrow(
-                "SELECT proxima_verificacao_em FROM rpi_sync_estado WHERE id=1 FOR UPDATE"
-            )
+            estado = await conexao.fetchrow("SELECT proxima_verificacao_em FROM rpi_sync_estado WHERE id=1 FOR UPDATE")
             proxima = estado["proxima_verificacao_em"] if estado else None
             agora = datetime.now(UTC)
             if not forcar_automatica and proxima is not None and proxima > agora:
-                await conexao.execute(
-                    "UPDATE rpi_sync_estado SET heartbeat_em=now(), atualizado_em=now() WHERE id=1"
-                )
+                await conexao.execute("UPDATE rpi_sync_estado SET heartbeat_em=now(), atualizado_em=now() WHERE id=1")
                 return None
 
             execucao_id = await conexao.fetchval(
@@ -135,9 +127,7 @@ async def _heartbeat(database_url: str, execucao_id: int | None = None) -> None:
     conexao = await asyncpg.connect(dsn=_dsn(database_url))
     try:
         await _garantir_estado(conexao)
-        await conexao.execute(
-            "UPDATE rpi_sync_estado SET heartbeat_em=now(), atualizado_em=now() WHERE id=1"
-        )
+        await conexao.execute("UPDATE rpi_sync_estado SET heartbeat_em=now(), atualizado_em=now() WHERE id=1")
         if execucao_id is not None:
             await conexao.execute(
                 "UPDATE rpi_sync_execucoes SET heartbeat_em=now() WHERE id=$1",
@@ -187,9 +177,7 @@ async def _processar_execucao(
         ultima_oficial = await asyncio.to_thread(consultar_ultima_rpi)
         conexao = await asyncpg.connect(dsn=_dsn(database_url))
         try:
-            registros = await conexao.fetch(
-                "SELECT numero_rpi FROM rpi_importacoes WHERE tipo='marca'"
-            )
+            registros = await conexao.fetch("SELECT numero_rpi FROM rpi_importacoes WHERE tipo='marca'")
             importadas = {registro["numero_rpi"] for registro in registros}
             ultima_local = max(importadas) if importadas else None
             intervalo = intervalo_pendente(importadas, inicio_minimo, ultima_oficial)
@@ -244,8 +232,7 @@ async def _processar_execucao(
                     proxima,
                 )
                 print(
-                    f"Base de marcas atualizada: RPI {ultima_local}; "
-                    f"última oficial: RPI {ultima_oficial}",
+                    f"Base de marcas atualizada: RPI {ultima_local}; última oficial: RPI {ultima_oficial}",
                     flush=True,
                 )
                 return

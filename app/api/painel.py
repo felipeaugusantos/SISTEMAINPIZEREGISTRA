@@ -88,9 +88,7 @@ async def _bloco_financeiro(session: AsyncSession, organizacao_id: int) -> dict:
                     ),
                     0,
                 ),
-                func.count().filter(
-                    and_(em_aberto, ParcelaFinanceira.vencimento < hoje)
-                ),
+                func.count().filter(and_(em_aberto, ParcelaFinanceira.vencimento < hoje)),
             )
             .select_from(ParcelaFinanceira)
             .join(
@@ -122,12 +120,8 @@ async def _bloco_juridico(session: AsyncSession, organizacao_id: int) -> dict:
             select(
                 func.count().filter(and_(ativo, PrazoJuridico.vencimento_em < agora)),
                 func.count().filter(and_(ativo, venc == hoje)),
-                func.count().filter(
-                    and_(ativo, venc > hoje, venc <= hoje + timedelta(days=7))
-                ),
-                func.count().filter(
-                    and_(ativo, PrazoJuridico.confirmado.is_(False))
-                ),
+                func.count().filter(and_(ativo, venc > hoje, venc <= hoje + timedelta(days=7))),
+                func.count().filter(and_(ativo, PrazoJuridico.confirmado.is_(False))),
             ).where(PrazoJuridico.organizacao_id == organizacao_id)
         )
     ).one()
@@ -144,10 +138,7 @@ async def _bloco_comercial(session: AsyncSession, organizacao_id: int) -> dict:
     linha = (
         await session.execute(
             select(
-                select(func.count())
-                .select_from(Lead)
-                .where(Lead.organizacao_id == organizacao_id)
-                .scalar_subquery(),
+                select(func.count()).select_from(Lead).where(Lead.organizacao_id == organizacao_id).scalar_subquery(),
                 select(func.count())
                 .select_from(Lead)
                 .where(Lead.organizacao_id == organizacao_id, Lead.status == StatusLead.NOVO)
@@ -226,21 +217,25 @@ async def listar_notificacoes(session: SessionDep, usuario: DashboardDep) -> dic
 
     if usuario.pode("legal.view"):
         juridicas = (
-            await session.execute(
-                select(NotificacaoJuridica)
-                .where(
-                    NotificacaoJuridica.organizacao_id == organizacao_id,
-                    NotificacaoJuridica.lida_em.is_(None),
-                    NotificacaoJuridica.status != "arquivada",
-                    or_(
-                        NotificacaoJuridica.destinatario_id.is_(None),
-                        NotificacaoJuridica.destinatario_id == usuario.id,
-                    ),
+            (
+                await session.execute(
+                    select(NotificacaoJuridica)
+                    .where(
+                        NotificacaoJuridica.organizacao_id == organizacao_id,
+                        NotificacaoJuridica.lida_em.is_(None),
+                        NotificacaoJuridica.status != "arquivada",
+                        or_(
+                            NotificacaoJuridica.destinatario_id.is_(None),
+                            NotificacaoJuridica.destinatario_id == usuario.id,
+                        ),
+                    )
+                    .order_by(NotificacaoJuridica.criado_em.desc())
+                    .limit(50)
                 )
-                .order_by(NotificacaoJuridica.criado_em.desc())
-                .limit(50)
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for item in juridicas:
             itens.append(
                 {
@@ -256,16 +251,20 @@ async def listar_notificacoes(session: SessionDep, usuario: DashboardDep) -> dic
 
     if usuario.pode("production.manage"):
         alertas = (
-            await session.execute(
-                select(AlertaSistema)
-                .where(
-                    AlertaSistema.organizacao_id == organizacao_id,
-                    AlertaSistema.resolvido_em.is_(None),
+            (
+                await session.execute(
+                    select(AlertaSistema)
+                    .where(
+                        AlertaSistema.organizacao_id == organizacao_id,
+                        AlertaSistema.resolvido_em.is_(None),
+                    )
+                    .order_by(AlertaSistema.criado_em.desc())
+                    .limit(50)
                 )
-                .order_by(AlertaSistema.criado_em.desc())
-                .limit(50)
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for item in alertas:
             itens.append(
                 {
@@ -284,9 +283,7 @@ async def listar_notificacoes(session: SessionDep, usuario: DashboardDep) -> dic
 
 
 @router.post("/notificacoes/{fonte}/{item_id}/lida")
-async def marcar_notificacao_lida(
-    fonte: str, item_id: int, session: SessionDep, usuario: DashboardDep
-) -> dict:
+async def marcar_notificacao_lida(fonte: str, item_id: int, session: SessionDep, usuario: DashboardDep) -> dict:
     """Marca uma notificação da central como lida/resolvida, respeitando a fonte."""
     organizacao_id = getattr(usuario, "organizacao_id", 1)
     agora = datetime.now(UTC)

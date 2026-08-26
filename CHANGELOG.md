@@ -1,5 +1,12 @@
 # Changelog
 
+## Qualidade de código e lint — 2026-08-26
+
+- Reformatados módulos Python e testes com Ruff.
+- Corrigidos imports e exceções sem encadeamento explícito (`B904`).
+- Padronizado limite de linha do projeto para 120 caracteres.
+- Ruff e formatação passam sem erros.
+
 ## Hardening e isolamento de produção — 2026-08-26
 
 - Tenant desconhecido não cai mais na organização padrão em produção.

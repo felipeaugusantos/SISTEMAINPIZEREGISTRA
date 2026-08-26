@@ -41,8 +41,10 @@ async def configuracao_clicksign(session: SessionDep, usuario: TechDep) -> dict:
     return {
         "habilitado": saved.get("habilitado", settings.clicksign_enabled),
         "ambiente": "sandbox" if "sandbox" in base_url else "producao",
-        "base_url": base_url, "webhook_url": webhook_url or None,
-        "token_configurado": token_configurado, "webhook_segredo_configurado": secret_configurado,
+        "base_url": base_url,
+        "webhook_url": webhook_url or None,
+        "token_configurado": token_configurado,
+        "webhook_segredo_configurado": secret_configurado,
     }
 
 
@@ -54,10 +56,24 @@ async def salvar_configuracao_clicksign(dados: ClicksignConfigInput, session: Se
         raise HTTPException(status_code=404, detail="Organização não encontrada")
     branding = dict(org.branding or {})
     anterior = dict(branding.get("clicksign") or {})
-    base_url = "https://sandbox.clicksign.com/api/v3" if dados.ambiente == "sandbox" else "https://app.clicksign.com/api/v3"
-    config = {"habilitado": dados.habilitado, "base_url": base_url, "webhook_url": dados.webhook_url.strip()}
-    config["api_token_enc"] = proteger_segredo(dados.api_token.strip()) if dados.api_token and dados.api_token.strip() else anterior.get("api_token_enc")
-    config["webhook_secret_enc"] = proteger_segredo(dados.webhook_secret.strip()) if dados.webhook_secret and dados.webhook_secret.strip() else anterior.get("webhook_secret_enc")
+    base_url = (
+        "https://sandbox.clicksign.com/api/v3" if dados.ambiente == "sandbox" else "https://app.clicksign.com/api/v3"
+    )
+    config = {
+        "habilitado": dados.habilitado,
+        "base_url": base_url,
+        "webhook_url": dados.webhook_url.strip(),
+    }
+    config["api_token_enc"] = (
+        proteger_segredo(dados.api_token.strip())
+        if dados.api_token and dados.api_token.strip()
+        else anterior.get("api_token_enc")
+    )
+    config["webhook_secret_enc"] = (
+        proteger_segredo(dados.webhook_secret.strip())
+        if dados.webhook_secret and dados.webhook_secret.strip()
+        else anterior.get("webhook_secret_enc")
+    )
     branding["clicksign"] = config
     org.branding = branding
     await session.commit()
@@ -83,14 +99,9 @@ async def obter_observabilidade(session: SessionDep, usuario: TechDep) -> dict:
         await session.execute(text("SELECT 1"))
         banco["latencia_ms"] = round((datetime.now(UTC) - inicio).total_seconds() * 1000, 2)
         banco["conexoes"] = int(
-            await session.scalar(
-                text("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()")
-            )
-            or 0
+            await session.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()")) or 0
         )
-        banco["tamanho_bytes"] = int(
-            await session.scalar(text("SELECT pg_database_size(current_database())")) or 0
-        )
+        banco["tamanho_bytes"] = int(await session.scalar(text("SELECT pg_database_size(current_database())")) or 0)
     except Exception as exc:
         banco = {"status": "indisponivel", "erro": type(exc).__name__}
 
@@ -118,9 +129,9 @@ async def obter_observabilidade(session: SessionDep, usuario: TechDep) -> dict:
         )
         or 0
     )
-    ultima_sincronizacao = (
-        estado.ultima_verificacao_em if estado and estado.ultima_verificacao_em else None
-    ) or (ultima.importado_em if ultima else None)
+    ultima_sincronizacao = (estado.ultima_verificacao_em if estado and estado.ultima_verificacao_em else None) or (
+        ultima.importado_em if ultima else None
+    )
     status_rpi, idade_horas, motivos = avaliar_saude_rpi(
         status_sync=estado.status if estado else None,
         ultima_rpi_oficial=estado.ultima_rpi_oficial if estado else None,
@@ -150,7 +161,10 @@ async def obter_observabilidade(session: SessionDep, usuario: TechDep) -> dict:
             "banco": banco,
             "redis": fila,
             "worker": {"status": "ok" if fila["status"] == "ok" else "atencao"},
-            "rpi_sync": {"status": status_rpi, "ultima_execucao": ultima_execucao.status if ultima_execucao else None},
+            "rpi_sync": {
+                "status": status_rpi,
+                "ultima_execucao": ultima_execucao.status if ultima_execucao else None,
+            },
         },
         "rpi": {
             "status": status_rpi,

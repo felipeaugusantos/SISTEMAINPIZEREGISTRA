@@ -54,9 +54,7 @@ class OcorrenciaBusca:
 
 def normalizar_texto(valor: str) -> str:
     sem_acentos = "".join(
-        caractere
-        for caractere in unicodedata.normalize("NFKD", valor)
-        if not unicodedata.combining(caractere)
+        caractere for caractere in unicodedata.normalize("NFKD", valor) if not unicodedata.combining(caractere)
     )
     return " ".join(re.findall(r"[A-Z0-9]+", sem_acentos.upper()))
 
@@ -181,23 +179,24 @@ async def buscar_marcas(
     marca_limpa = marca.strip()
     frase = f"%{marca_limpa}%"
     filtro_frase = titulo_normalizado.ilike(func.immutable_unaccent(frase))
-    filtro_identico = func.lower(titulo_normalizado) == func.lower(
-        func.immutable_unaccent(marca_limpa)
-    )
-    filtro_trigrama = titulo_normalizado.bool_op("%")(
-        func.immutable_unaccent(marca_limpa)
-    )
+    filtro_identico = func.lower(titulo_normalizado) == func.lower(func.immutable_unaccent(marca_limpa))
+    filtro_trigrama = titulo_normalizado.bool_op("%")(func.immutable_unaccent(marca_limpa))
 
     radicais = extrair_radicais(marca_limpa)
     variacoes = gerar_variacoes(marca_limpa)
     termos_ampliados = list(dict.fromkeys([*radicais, *variacoes]))
-    filtros_ampliados = [
-        titulo_normalizado.ilike(func.immutable_unaccent(f"%{termo}%"))
-        for termo in termos_ampliados
-    ]
+    filtros_ampliados = [titulo_normalizado.ilike(func.immutable_unaccent(f"%{termo}%")) for termo in termos_ampliados]
 
     estrategia = estrategia.lower().strip()
-    if estrategia not in {"exata", "radical", "prefixo", "sufixo", "fonetica", "similaridade", "completa"}:
+    if estrategia not in {
+        "exata",
+        "radical",
+        "prefixo",
+        "sufixo",
+        "fonetica",
+        "similaridade",
+        "completa",
+    }:
         raise ValueError("Estratégia de busca inválida")
     if estrategia == "exata" or tipo_pesquisa == "exata" or not filtros_ampliados:
         filtro_texto = filtro_frase
@@ -224,9 +223,7 @@ async def buscar_marcas(
             )
         )
     if titular and titular.strip():
-        filtros_base.append(
-            Processo.titulares.any(Titular.nome.ilike(f"%{titular.strip()}%"))
-        )
+        filtros_base.append(Processo.titulares.any(Titular.nome.ilike(f"%{titular.strip()}%")))
     if situacao:
         situacao_limpa = situacao.strip().lower()
         filtros_base.append(
@@ -269,9 +266,7 @@ async def buscar_marcas(
     ).one()
 
     total = int(contagens[3] or 0)
-    similaridade_sql = func.similarity(
-        titulo_normalizado, func.immutable_unaccent(marca_limpa)
-    )
+    similaridade_sql = func.similarity(titulo_normalizado, func.immutable_unaccent(marca_limpa))
     consulta = (
         select(Processo, similaridade_sql.label("similaridade_nominativa"))
         .where(*filtros)
@@ -300,16 +295,16 @@ async def buscar_marcas(
         marca_chave = chave_fonetica(marca_limpa)
         if estrategia == "fonetica" and marca_chave and marca_chave in titulo_chave:
             criterios = ["Correspondência fonética", *criterios]
-        if estrategia == "prefixo" and normalizar_texto(processo.titulo or "").startswith(normalizar_texto(marca_limpa)):
+        if estrategia == "prefixo" and normalizar_texto(processo.titulo or "").startswith(
+            normalizar_texto(marca_limpa)
+        ):
             criterios = ["Prefixo correspondente", *criterios]
         if estrategia == "sufixo" and normalizar_texto(processo.titulo or "").endswith(normalizar_texto(marca_limpa)):
             criterios = ["Sufixo correspondente", *criterios]
         if apresentacao in {"mista", "figurativa"}:
             criterios = [f"Marca {apresentacao}", *criterios]
         classes_nice = {
-            classificacao.codigo
-            for classificacao in processo.classificacoes
-            if classificacao.sistema == "nice"
+            classificacao.codigo for classificacao in processo.classificacoes if classificacao.sistema == "nice"
         }
         score = calcular_score_nominativo(
             criterios=criterios,
@@ -356,9 +351,7 @@ async def buscar_marcas(
             "fonetica",
             "similaridade_trigrama",
         ],
-        "termos_consultados": list(
-            dict.fromkeys([normalizar_texto(marca_limpa), *radicais, *variacoes])
-        ),
+        "termos_consultados": list(dict.fromkeys([normalizar_texto(marca_limpa), *radicais, *variacoes])),
         "limiar_trigrama": LIMIAR_TRIGRAMA,
         "ranking": configuracao_ranking(),
         **resultado_busca_exige_revisao_humana(),

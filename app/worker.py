@@ -69,9 +69,7 @@ async def processar(tipo: str, payload: dict) -> None:
                     list(
                         (
                             await session.execute(
-                                select(Lead.id).where(
-                                    Lead.organizacao_id == org.id, Lead.criado_em < limite
-                                )
+                                select(Lead.id).where(Lead.organizacao_id == org.id, Lead.criado_em < limite)
                             )
                         ).scalars()
                     )
@@ -92,10 +90,7 @@ async def processar(tipo: str, payload: dict) -> None:
                                 organizacao_id=org.id,
                                 severidade="aviso",
                                 codigo="RETENCAO_PENDENTE",
-                                mensagem=(
-                                    f"{total} lead(s) excedem a política de retenção "
-                                    "e aguardam revisão humana."
-                                ),
+                                mensagem=(f"{total} lead(s) excedem a política de retenção e aguardam revisão humana."),
                                 detalhes={"total": total},
                             )
                         )
@@ -115,10 +110,7 @@ async def processar(tipo: str, payload: dict) -> None:
                     mensagem=(
                         "Nenhuma previsão foi criada: não existe modelo supervisionado ativo."
                         if sem_modelo
-                        else (
-                            f"Reprocessamento concluído: {resultado['processadas']} "
-                            "previsão(ões) criada(s)."
-                        )
+                        else (f"Reprocessamento concluído: {resultado['processadas']} previsão(ões) criada(s).")
                     ),
                     detalhes=resultado,
                 )
@@ -133,9 +125,7 @@ async def processar(tipo: str, payload: dict) -> None:
                     organizacao_id=payload.get("organizacao_id") or 1,
                     severidade="info",
                     codigo="AGENTES_REPROCESSADOS",
-                    mensagem=(
-                        f"Agentes atualizados: {resultado['processadas']} pesquisa(s) processada(s)."
-                    ),
+                    mensagem=(f"Agentes atualizados: {resultado['processadas']} pesquisa(s) processada(s)."),
                     detalhes=resultado,
                 )
             )
@@ -165,8 +155,7 @@ async def processar(tipo: str, payload: dict) -> None:
                         (
                             f"Modelo em VALIDATION; "
                             f"{resultado['reprocessamento']['processadas']} previsão(ões) "
-                            "interna(s) preparada(s). Ativação bloqueada: "
-                            + "; ".join(resultado["bloqueios"])
+                            "interna(s) preparada(s). Ativação bloqueada: " + "; ".join(resultado["bloqueios"])
                         )
                         if aguardando_revisoes
                         else (
@@ -193,22 +182,23 @@ async def processar(tipo: str, payload: dict) -> None:
             await sincronizar_alto_renome(get_settings().alto_renome_page_url)
         elif tipo == "juridico.executar_motor":
             organizacoes = (
-                await session.execute(
-                    select(Organizacao.id).where(Organizacao.status != "suspensa")
-                )
+                await session.execute(select(Organizacao.id).where(Organizacao.status != "suspensa"))
             ).scalars()
             for organizacao_id in organizacoes:
                 await executar_motor_organizacao(session, organizacao_id)
         elif tipo == "vigilancia.executar_semanal":
             from app.vigilancia import executar_vigilancia_semanal
+
             resultado = await executar_vigilancia_semanal(session, payload.get("organizacao_id"))
-            session.add(AlertaSistema(
-                organizacao_id=payload.get("organizacao_id") or 1,
-                severidade="info",
-                codigo="VIGILANCIA_SEMANAL_CONCLUIDA",
-                mensagem=f"Vigilancia semanal concluida: {resultado['criadas']} colidencia(s) nova(s).",
-                detalhes=resultado,
-            ))
+            session.add(
+                AlertaSistema(
+                    organizacao_id=payload.get("organizacao_id") or 1,
+                    severidade="info",
+                    codigo="VIGILANCIA_SEMANAL_CONCLUIDA",
+                    mensagem=f"Vigilancia semanal concluida: {resultado['criadas']} colidencia(s) nova(s).",
+                    detalhes=resultado,
+                )
+            )
         else:
             raise ValueError(f"Tipo de trabalho desconhecido: {tipo}")
         await session.commit()

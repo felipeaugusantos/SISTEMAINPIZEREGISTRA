@@ -186,9 +186,7 @@ async def historico_crm(
     )
     linhas = (
         await session.execute(
-            base.with_only_columns(
-                ContatoLead, Lead, PesquisaMarca.marca, EmpresaCRM.nome, proximo_contato
-            )
+            base.with_only_columns(ContatoLead, Lead, PesquisaMarca.marca, EmpresaCRM.nome, proximo_contato)
             .where(*filtros)
             .order_by(ContatoLead.criado_em.desc(), ContatoLead.id.desc())
             .offset(deslocamento)
@@ -237,9 +235,7 @@ async def referencias_crm(session: SessionDep, usuario: CRMViewDep) -> dict:
     return {
         "canais": [{"id": item.value, "nome": item.value.title()} for item in CanalContato],
         "operadores": [{"id": item.id, "nome": item.nome} for item in operadores],
-        "status_clientes": [
-            {"id": item.value, "nome": item.value.replace("_", " ").title()} for item in StatusLead
-        ],
+        "status_clientes": [{"id": item.value, "nome": item.value.replace("_", " ").title()} for item in StatusLead],
         "tipos_lembrete": [{"id": chave, "nome": nome} for chave, nome in TIPOS_LEMBRETE.items()],
         "prioridades": [{"id": chave, "nome": nome} for chave, nome in PRIORIDADES.items()],
         "clientes": [
@@ -364,9 +360,7 @@ def _serializar_lembrete(item: LembreteCRM) -> dict:
 async def listar_lembretes(
     session: SessionDep,
     usuario: CRMViewDep,
-    status_lembrete: Literal["pendente", "concluido", "cancelado"] | None = Query(
-        default="pendente", alias="status"
-    ),
+    status_lembrete: Literal["pendente", "concluido", "cancelado"] | None = Query(default="pendente", alias="status"),
     responsavel_id: int | None = Query(default=None, ge=1),
     tipo: str | None = Query(default=None, max_length=40),
     limite: int = Query(default=100, ge=1, le=200),
@@ -383,24 +377,17 @@ async def listar_lembretes(
     itens = (
         (
             await session.execute(
-                select(LembreteCRM)
-                .where(*filtros)
-                .order_by(LembreteCRM.lembrar_em, LembreteCRM.id)
-                .limit(limite)
+                select(LembreteCRM).where(*filtros).order_by(LembreteCRM.lembrar_em, LembreteCRM.id).limit(limite)
             )
         )
         .scalars()
         .all()
     )
-    alertas_atraso = [
-        item for item in itens if item.status == "pendente" and item.lembrar_em < agora
-    ]
+    alertas_atraso = [item for item in itens if item.status == "pendente" and item.lembrar_em < agora]
     metricas = (
         await session.execute(
             select(
-                func.count().filter(
-                    LembreteCRM.status == "pendente", LembreteCRM.lembrar_em < agora
-                ),
+                func.count().filter(LembreteCRM.status == "pendente", LembreteCRM.lembrar_em < agora),
                 func.count().filter(
                     LembreteCRM.status == "pendente",
                     LembreteCRM.lembrar_em >= agora,
@@ -463,9 +450,7 @@ async def criar_lembrete(
     session: SessionDep,
     usuario: CRMManageDep,
 ) -> dict:
-    lead, responsavel = await _validar_cliente_responsavel(
-        session, usuario, dados.lead_id, dados.responsavel_id
-    )
+    lead, responsavel = await _validar_cliente_responsavel(session, usuario, dados.lead_id, dados.responsavel_id)
     item = LembreteCRM(
         organizacao_id=usuario.organizacao_id,
         lead_id=lead.id,
@@ -515,9 +500,7 @@ async def atualizar_lembrete(
     if item is None:
         raise HTTPException(status_code=404, detail="Lembrete não encontrado")
     if "responsavel_id" in dados.model_fields_set:
-        _, responsavel = await _validar_cliente_responsavel(
-            session, usuario, item.lead_id, dados.responsavel_id
-        )
+        _, responsavel = await _validar_cliente_responsavel(session, usuario, item.lead_id, dados.responsavel_id)
         item.responsavel_id = dados.responsavel_id
         item.responsavel = responsavel
     if dados.prioridade is not None:
@@ -580,14 +563,10 @@ def _contato_dict(c: Contato) -> dict:
     }
 
 
-async def _empresa_da_org(
-    session: AsyncSession, empresa_id: int, organizacao_id: int
-) -> EmpresaCRM:
+async def _empresa_da_org(session: AsyncSession, empresa_id: int, organizacao_id: int) -> EmpresaCRM:
     empresa = (
         await session.execute(
-            select(EmpresaCRM).where(
-                EmpresaCRM.id == empresa_id, EmpresaCRM.organizacao_id == organizacao_id
-            )
+            select(EmpresaCRM).where(EmpresaCRM.id == empresa_id, EmpresaCRM.organizacao_id == organizacao_id)
         )
     ).scalar_one_or_none()
     if empresa is None:
@@ -659,16 +638,12 @@ async def editar_empresa(
 
 
 @router.post("/empresas/{empresa_id}/contatos", status_code=status.HTTP_201_CREATED)
-async def criar_contato(
-    empresa_id: int, dados: ContatoInput, session: SessionDep, usuario: CRMManageDep
-) -> dict:
+async def criar_contato(empresa_id: int, dados: ContatoInput, session: SessionDep, usuario: CRMManageDep) -> dict:
     await _empresa_da_org(session, empresa_id, usuario.organizacao_id)
     if dados.principal:
         await session.execute(
             Contato.__table__.update()
-            .where(
-                Contato.empresa_id == empresa_id, Contato.organizacao_id == usuario.organizacao_id
-            )
+            .where(Contato.empresa_id == empresa_id, Contato.organizacao_id == usuario.organizacao_id)
             .values(principal=False)
         )
     contato = Contato(
@@ -688,11 +663,7 @@ async def criar_contato(
 
 async def _contato_da_org(session: AsyncSession, contato_id: int, organizacao_id: int) -> Contato:
     contato = (
-        await session.execute(
-            select(Contato).where(
-                Contato.id == contato_id, Contato.organizacao_id == organizacao_id
-            )
-        )
+        await session.execute(select(Contato).where(Contato.id == contato_id, Contato.organizacao_id == organizacao_id))
     ).scalar_one_or_none()
     if contato is None:
         raise HTTPException(status_code=404, detail="Contato não encontrado")
@@ -700,9 +671,7 @@ async def _contato_da_org(session: AsyncSession, contato_id: int, organizacao_id
 
 
 @router.put("/contatos/{contato_id}")
-async def editar_contato(
-    contato_id: int, dados: ContatoInput, session: SessionDep, usuario: CRMManageDep
-) -> dict:
+async def editar_contato(contato_id: int, dados: ContatoInput, session: SessionDep, usuario: CRMManageDep) -> dict:
     contato = await _contato_da_org(session, contato_id, usuario.organizacao_id)
     if dados.principal and not contato.principal:
         await session.execute(
@@ -763,13 +732,9 @@ async def consultar_politica_crm(session: SessionDep, usuario: CRMViewDep) -> di
 
 
 @router.put("/politica")
-async def editar_politica_crm(
-    dados: PoliticaCRMUpdate, session: SessionDep, usuario: CRMManageDep
-) -> dict:
+async def editar_politica_crm(dados: PoliticaCRMUpdate, session: SessionDep, usuario: CRMManageDep) -> dict:
     politica = (
-        await session.execute(
-            select(PoliticaCRM).where(PoliticaCRM.organizacao_id == usuario.organizacao_id)
-        )
+        await session.execute(select(PoliticaCRM).where(PoliticaCRM.organizacao_id == usuario.organizacao_id))
     ).scalar_one_or_none()
     if politica is None:
         politica = PoliticaCRM(organizacao_id=usuario.organizacao_id)
@@ -786,11 +751,7 @@ async def listar_automacoes(session: SessionDep, usuario: CRMViewDep) -> dict:
     overrides = {
         row.chave: row
         for row in (
-            await session.execute(
-                select(RegraAutomacao).where(
-                    RegraAutomacao.organizacao_id == usuario.organizacao_id
-                )
-            )
+            await session.execute(select(RegraAutomacao).where(RegraAutomacao.organizacao_id == usuario.organizacao_id))
         ).scalars()
     }
     itens = []
@@ -812,9 +773,7 @@ async def listar_automacoes(session: SessionDep, usuario: CRMViewDep) -> dict:
 
 
 @router.put("/automacoes/{chave}")
-async def editar_automacao(
-    chave: str, dados: AutomacaoUpdate, session: SessionDep, usuario: CRMManageDep
-) -> dict:
+async def editar_automacao(chave: str, dados: AutomacaoUpdate, session: SessionDep, usuario: CRMManageDep) -> dict:
     if chave not in REGRAS_AUTOMACAO:
         raise HTTPException(status_code=404, detail="Regra não encontrada")
     regra = (
@@ -919,9 +878,7 @@ async def criar_cadencia(dados: CadenciaInput, session: SessionDep, usuario: CRM
 
 
 @router.put("/cadencias/{cadencia_id}")
-async def editar_cadencia(
-    cadencia_id: int, dados: CadenciaInput, session: SessionDep, usuario: CRMManageDep
-) -> dict:
+async def editar_cadencia(cadencia_id: int, dados: CadenciaInput, session: SessionDep, usuario: CRMManageDep) -> dict:
     cadencia = (
         await session.execute(
             select(Cadencia)
@@ -945,9 +902,7 @@ async def editar_cadencia(
 async def remover_cadencia(cadencia_id: int, session: SessionDep, usuario: CRMManageDep):
     cadencia = (
         await session.execute(
-            select(Cadencia).where(
-                Cadencia.id == cadencia_id, Cadencia.organizacao_id == usuario.organizacao_id
-            )
+            select(Cadencia).where(Cadencia.id == cadencia_id, Cadencia.organizacao_id == usuario.organizacao_id)
         )
     ).scalar_one_or_none()
     if cadencia is None:

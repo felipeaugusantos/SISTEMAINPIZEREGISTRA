@@ -70,9 +70,7 @@ def test_classifica_indeferimento_como_recurso_60_dias() -> None:
 
 
 def test_classifica_publicacao_para_oposicao() -> None:
-    dias, tipo, _ = _classificar_despacho(
-        "Publicação de pedido de registro para oposição (exame formal concluído)"
-    )
+    dias, tipo, _ = _classificar_despacho("Publicação de pedido de registro para oposição (exame formal concluído)")
     assert (dias, tipo) == (60, "oposicao")
 
 
@@ -140,9 +138,7 @@ def test_reconcilia_prazo_antigo_quando_rpi_posterior_arquiva_pedido() -> None:
         id=11,
         processo_id=77,
         codigo_despacho="IPAS157",
-        descricao=(
-            "Arquivamento definitivo de pedido de registro por falta de pagamento da concessão"
-        ),
+        descricao=("Arquivamento definitivo de pedido de registro por falta de pagamento da concessão"),
         data_rpi=date(2020, 11, 17),
         numero_rpi=2602,
         fonte_arquivo="marcas2602.xml",
@@ -173,9 +169,7 @@ def test_reconcilia_prazo_antigo_quando_rpi_posterior_arquiva_pedido() -> None:
         ]
     )
 
-    total, terminais = asyncio.run(
-        _reconciliar_prazos_terminais(session, 1, "motor-juridico")
-    )
+    total, terminais = asyncio.run(_reconciliar_prazos_terminais(session, 1, "motor-juridico"))
 
     assert total == 1
     assert terminais[77] is terminal
@@ -238,16 +232,12 @@ def test_reconcilia_importacao_historica_e_duplicidade_da_mesma_rpi() -> None:
         ]
     )
 
-    historicos, duplicados = asyncio.run(
-        _reconciliar_prazos_historicos(session, 1, "motor-juridico")
-    )
+    historicos, duplicados = asyncio.run(_reconciliar_prazos_historicos(session, 1, "motor-juridico"))
 
     assert (historicos, duplicados) == (1, 1)
     assert prazos[0].status == "historico"
     assert prazos[1].status == "duplicado"
-    tipos = {
-        item.tipo for item in session.adicionados if isinstance(item, EventoJuridico)
-    }
+    tipos = {item.tipo for item in session.adicionados if isinstance(item, EventoJuridico)}
     assert tipos == {"prazo_historico", "prazo_duplicado"}
 
 
@@ -302,7 +292,7 @@ def test_tela_juridica_expoe_fluxos_principais() -> None:
     assert 'option value="historico"' in html
     assert "Referência histórica" in javascript
     assert 'id="legal-pagination"' in html
-    assert 'pageSize: 10' in javascript
+    assert "pageSize: 10" in javascript
     assert 'query.set("limite", legalState.pageSize)' in javascript
     assert "pagination.total_clientes" in javascript
     assert "/v1/admin/juridico/motor/executar" in javascript
@@ -340,9 +330,7 @@ def test_painel_pagina_dez_clientes_sem_cortar_prazos_do_cliente() -> None:
         ]
     )
 
-    resultado = asyncio.run(
-        painel(session, usuario_teste(), None, None, None, None, None, 10, 0)
-    )
+    resultado = asyncio.run(painel(session, usuario_teste(), None, None, None, None, None, 10, 0))
 
     assert len(resultado["prazos"]) == 10
     assert resultado["paginacao"] == {
@@ -368,14 +356,16 @@ def test_checklist_tipo_desconhecido_usa_generico() -> None:
 
 def test_marcar_item_registra_autor_e_data() -> None:
     item = SimpleNamespace(
-        id=5, descricao="Protocolar no INPI", concluido=False, ordem=1,
-        concluido_em=None, concluido_por=None,
+        id=5,
+        descricao="Protocolar no INPI",
+        concluido=False,
+        ordem=1,
+        concluido_em=None,
+        concluido_por=None,
     )
     session = FakeSession([FakeResult(scalar=item)])
     usuario = usuario_teste()
-    resultado = asyncio.run(
-        atualizar_item_checklist(5, ChecklistItemUpdate(concluido=True), session, usuario)
-    )
+    resultado = asyncio.run(atualizar_item_checklist(5, ChecklistItemUpdate(concluido=True), session, usuario))
     assert resultado["concluido"] is True
     assert resultado["concluido_por"] == usuario.ator
     assert item.concluido_em is not None
@@ -383,13 +373,15 @@ def test_marcar_item_registra_autor_e_data() -> None:
 
 def test_desmarcar_item_limpa_autor_e_data() -> None:
     item = SimpleNamespace(
-        id=5, descricao="Protocolar no INPI", concluido=True, ordem=1,
-        concluido_em=object(), concluido_por="alguem",
+        id=5,
+        descricao="Protocolar no INPI",
+        concluido=True,
+        ordem=1,
+        concluido_em=object(),
+        concluido_por="alguem",
     )
     session = FakeSession([FakeResult(scalar=item)])
-    resultado = asyncio.run(
-        atualizar_item_checklist(5, ChecklistItemUpdate(concluido=False), session, usuario_teste())
-    )
+    resultado = asyncio.run(atualizar_item_checklist(5, ChecklistItemUpdate(concluido=False), session, usuario_teste()))
     assert resultado["concluido"] is False
     assert item.concluido_em is None
     assert item.concluido_por is None

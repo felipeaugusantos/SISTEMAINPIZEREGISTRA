@@ -54,6 +54,7 @@ async def test_solicitacao_manual_entra_na_fila() -> None:
     session = FakeSession()
 
     from tests.conftest import usuario_teste
+
     resposta = await solicitar_sincronizacao(session, usuario_teste())
 
     assert resposta.status == "solicitada"
@@ -71,6 +72,7 @@ async def test_falha_pode_ser_colocada_novamente_na_fila() -> None:
     session = SessionComFalha()
 
     from tests.conftest import usuario_teste
+
     resposta = await tentar_novamente(44, session, usuario_teste())
 
     assert resposta.status == "solicitada"

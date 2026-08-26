@@ -40,11 +40,7 @@ async def versionar_relatorio(
             .limit(1)
         )
     ).scalar_one_or_none()
-    if (
-        ultima is not None
-        and ultima.conteudo_hash == conteudo_hash
-        and ultima.schema_versao == SCHEMA_RELATORIO
-    ):
+    if ultima is not None and ultima.conteudo_hash == conteudo_hash and ultima.schema_versao == SCHEMA_RELATORIO:
         return RelatorioMarcaResponse.model_validate(ultima.payload)
 
     gerado_em = datetime.now(UTC)

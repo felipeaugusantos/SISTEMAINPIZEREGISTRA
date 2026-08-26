@@ -34,9 +34,7 @@ def test_limiar_otimo_usa_a_distribuicao_real_calibrada() -> None:
     assert 0.76 < limiar <= 0.80
 
 
-def movimento(
-    descricao: str, *, numero_rpi: int = 2900, codigo: str | None = None
-) -> Movimentacao:
+def movimento(descricao: str, *, numero_rpi: int = 2900, codigo: str | None = None) -> Movimentacao:
     item = Movimentacao(
         processo_id=1,
         codigo_despacho=codigo,
@@ -94,9 +92,7 @@ def test_rotulo_generico_prioriza_revisao_e_preserva_evidencias() -> None:
     )
     assert resultado is not None
     assert resultado.fundamento == "indeferimento_nao_especificado"
-    assert prioridade_revisao_rotulo(
-        resultado.fundamento, resultado.confianca, resultado.rotulo
-    ) == "alta"
+    assert prioridade_revisao_rotulo(resultado.fundamento, resultado.confianca, resultado.rotulo) == "alta"
     assert {item["tipo"] for item in resultado.evidencias} == {"decisao", "oposicao"}
 
 
@@ -189,9 +185,7 @@ def test_estimativa_so_e_elegivel_com_intervalo_e_governanca_validos() -> None:
         "medias": {nome: 0.0 for nome in ATRIBUTOS_MODELO},
         "desvios": {nome: 1.0 for nome in ATRIBUTOS_MODELO},
     }
-    parametros["bootstrap_modelos"] = [
-        {**parametros, "vies": 0.30 + indice * 0.01} for indice in range(12)
-    ]
+    parametros["bootstrap_modelos"] = [{**parametros, "vies": 0.30 + indice * 0.01} for indice in range(12)]
     modelo = ModeloRegistrabilidade(
         versao="teste-governanca",
         status=StatusModelo.ACTIVE.value,
@@ -274,9 +268,7 @@ def test_gate_tecnico_bloqueia_estimativa_sem_exigir_revisao_humana() -> None:
 def test_modelo_active_aprovado_nos_gates_pode_ser_exibido() -> None:
     controle = ControleAprendizadoMarca(exibir_cliente=True)
 
-    modo, elegivel, alertas = decidir_exibicao_estimativa(
-        controle, [], modelo_status=StatusModelo.ACTIVE.value
-    )
+    modo, elegivel, alertas = decidir_exibicao_estimativa(controle, [], modelo_status=StatusModelo.ACTIVE.value)
 
     assert modo == "cliente"
     assert elegivel is True
@@ -286,9 +278,7 @@ def test_modelo_active_aprovado_nos_gates_pode_ser_exibido() -> None:
 def test_shadow_nunca_e_exibido_mesmo_sem_alertas() -> None:
     controle = ControleAprendizadoMarca(exibir_cliente=True)
 
-    modo, elegivel, alertas = decidir_exibicao_estimativa(
-        controle, [], modelo_status=StatusModelo.SHADOW.value
-    )
+    modo, elegivel, alertas = decidir_exibicao_estimativa(controle, [], modelo_status=StatusModelo.SHADOW.value)
 
     assert (modo, elegivel, alertas) == ("sombra", False, [])
 
@@ -316,9 +306,7 @@ def test_predicao_e_reproduzivel_para_mesmo_modelo_e_entrada() -> None:
         "medias": {nome: 0.25 for nome in ATRIBUTOS_MODELO},
         "desvios": {nome: 1.0 for nome in ATRIBUTOS_MODELO},
     }
-    parametros["bootstrap_modelos"] = [
-        {**parametros, "vies": -0.3 + indice / 100} for indice in range(12)
-    ]
+    parametros["bootstrap_modelos"] = [{**parametros, "vies": -0.3 + indice / 100} for indice in range(12)]
     modelo = ModeloRegistrabilidade(
         versao="reprodutivel-1",
         status=StatusModelo.ACTIVE.value,
@@ -361,9 +349,7 @@ def test_dataset_documenta_distribuicao_por_classe_e_periodo() -> None:
         "35": {"total": 1, "deferidas": 1, "indeferidas": 0},
         "42": {"total": 1, "deferidas": 1, "indeferidas": 0},
     }
-    assert por_periodo == {
-        "2025": {"total": 1, "deferidas": 1, "indeferidas": 0}
-    }
+    assert por_periodo == {"2025": {"total": 1, "deferidas": 1, "indeferidas": 0}}
 
 
 def test_schema_publico_rejeita_status_legado_do_modelo() -> None:

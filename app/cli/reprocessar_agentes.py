@@ -14,16 +14,11 @@ async def executar(organizacao_id: int) -> None:
             organizacao_id=organizacao_id,
         )
         await session.commit()
-    print(
-        "Reprocessamento concluído: "
-        f"{resultado['processadas']} de {resultado['pendentes_encontradas']} pesquisa(s)."
-    )
+    print(f"Reprocessamento concluído: {resultado['processadas']} de {resultado['pendentes_encontradas']} pesquisa(s).")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Cria snapshots do Agente de Registrabilidade ainda pendentes."
-    )
+    parser = argparse.ArgumentParser(description="Cria snapshots do Agente de Registrabilidade ainda pendentes.")
     parser.add_argument("--organizacao-id", type=int, default=1)
     argumentos = parser.parse_args()
     asyncio.run(executar(argumentos.organizacao_id))

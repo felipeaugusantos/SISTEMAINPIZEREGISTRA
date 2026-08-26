@@ -11,13 +11,15 @@ from tests.conftest import FakeResult, FakeSession, auth_override, usuario_teste
 async def test_consulta_de_leads_sempre_filtra_a_organizacao() -> None:
     class RecordingSession(FakeSession):
         def __init__(self) -> None:
-            super().__init__([
-                FakeResult(scalar=0),
-                FakeResult(scalar=0),
-                FakeResult(itens=[]),
-                FakeResult(itens=[]),
-                FakeResult(scalar=0),
-            ])
+            super().__init__(
+                [
+                    FakeResult(scalar=0),
+                    FakeResult(scalar=0),
+                    FakeResult(itens=[]),
+                    FakeResult(itens=[]),
+                    FakeResult(scalar=0),
+                ]
+            )
             self.statements = []
 
         async def execute(self, statement, *args, **kwargs):
@@ -26,9 +28,17 @@ async def test_consulta_de_leads_sempre_filtra_a_organizacao() -> None:
 
     session = RecordingSession()
     usuario = UsuarioAutenticado(
-        id=7, nome="Operador", usuario="operador", email="op@empresa.test",
-        perfil="administrador", permissoes=frozenset(), alterar_senha=False,
-        sessao_id=1, csrf_hash="", organizacao_id=42, organizacao_slug="empresa",
+        id=7,
+        nome="Operador",
+        usuario="operador",
+        email="op@empresa.test",
+        perfil="administrador",
+        permissoes=frozenset(),
+        alterar_senha=False,
+        sessao_id=1,
+        csrf_hash="",
+        organizacao_id=42,
+        organizacao_slug="empresa",
     )
     resposta = await listar_leads(session, usuario, None, None, 50, 0)
     assert resposta.total == 0
@@ -40,9 +50,17 @@ async def test_consulta_de_leads_sempre_filtra_a_organizacao() -> None:
 
 def test_modulo_do_plano_limita_permissao_individual() -> None:
     usuario = UsuarioAutenticado(
-        id=2, nome="Operador", usuario="operador", email="op@empresa.test",
-        perfil="operador", permissoes=frozenset({"risk.view"}), alterar_senha=False,
-        sessao_id=1, csrf_hash="", organizacao_id=2, organizacao_slug="empresa",
+        id=2,
+        nome="Operador",
+        usuario="operador",
+        email="op@empresa.test",
+        perfil="operador",
+        permissoes=frozenset({"risk.view"}),
+        alterar_senha=False,
+        sessao_id=1,
+        csrf_hash="",
+        organizacao_id=2,
+        organizacao_slug="empresa",
         modulos_plano=frozenset({"consulta"}),
     )
     app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
@@ -60,9 +78,16 @@ def test_painel_saas_exige_superadministrador() -> None:
         app.dependency_overrides.clear()
 
     superadmin = UsuarioAutenticado(
-        id=1, nome="Superadmin", usuario="admin", email="admin@teste.local",
-        perfil="administrador", permissoes=frozenset(), alterar_senha=False,
-        sessao_id=1, csrf_hash="", superadmin=True,
+        id=1,
+        nome="Superadmin",
+        usuario="admin",
+        email="admin@teste.local",
+        perfil="administrador",
+        permissoes=frozenset(),
+        alterar_senha=False,
+        sessao_id=1,
+        csrf_hash="",
+        superadmin=True,
     )
     app.dependency_overrides[obter_usuario_atual] = auth_override(superadmin)
     try:

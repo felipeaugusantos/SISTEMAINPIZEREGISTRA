@@ -14,9 +14,7 @@ def test_consulta_interna_aceita_atividade_ausente() -> None:
 
 
 def test_consulta_interna_normaliza_atividade_vazia() -> None:
-    dados = ConsultaOperadorInput.model_validate(
-        {"marca": "NORTE STUDIO", "atividade": "   "}
-    )
+    dados = ConsultaOperadorInput.model_validate({"marca": "NORTE STUDIO", "atividade": "   "})
 
     assert dados.atividade is None
 
@@ -38,9 +36,7 @@ async def test_consulta_sem_email_nao_cria_lead_vazio() -> None:
 
     session = SessaoConsulta()
 
-    resposta = await criar_consulta(
-        ConsultaOperadorInput(marca="NORTE STUDIO"), session, usuario_teste()
-    )
+    resposta = await criar_consulta(ConsultaOperadorInput(marca="NORTE STUDIO"), session, usuario_teste())
 
     assert resposta.lead_id is None
     assert not any(isinstance(item, Lead) for item in session.adicionados)

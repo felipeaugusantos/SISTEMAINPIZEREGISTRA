@@ -116,9 +116,7 @@ class PredicaoModelo:
 
 
 def _sem_acentos(valor: str) -> str:
-    return "".join(
-        char for char in unicodedata.normalize("NFKD", valor) if not unicodedata.combining(char)
-    ).lower()
+    return "".join(char for char in unicodedata.normalize("NFKD", valor) if not unicodedata.combining(char)).lower()
 
 
 def _fonetica(valor: str) -> str:
@@ -154,8 +152,30 @@ _ESCALA_FREQUENCIA_TOKEN = 20000.0
 # Palavras funcionais ignoradas na frequência: elas aparecem em quase toda marca
 # multivocabular e saturariam o sinal de descritividade sem informar distintividade.
 _STOPWORDS_FREQUENCIA = frozenset(
-    {"DE", "DO", "DA", "DOS", "DAS", "E", "O", "A", "OS", "AS", "EM", "NO", "NA",
-     "COM", "PARA", "POR", "UM", "UMA", "AO", "THE", "OF", "AND"}
+    {
+        "DE",
+        "DO",
+        "DA",
+        "DOS",
+        "DAS",
+        "E",
+        "O",
+        "A",
+        "OS",
+        "AS",
+        "EM",
+        "NO",
+        "NA",
+        "COM",
+        "PARA",
+        "POR",
+        "UM",
+        "UMA",
+        "AO",
+        "THE",
+        "OF",
+        "AND",
+    }
 )
 
 
@@ -199,9 +219,7 @@ def distintividade_marca(marca: str) -> dict[str, float]:
     }
 
 
-def _evidencias_classificacao(
-    movimentacoes: list[Movimentacao], decisao: Movimentacao
-) -> tuple[dict[str, str], ...]:
+def _evidencias_classificacao(movimentacoes: list[Movimentacao], decisao: Movimentacao) -> tuple[dict[str, str], ...]:
     evidencias: list[dict[str, str]] = []
     for movimento in sorted(
         movimentacoes,
@@ -254,9 +272,7 @@ def extrair_rotulo(movimentacoes: list[Movimentacao]) -> RotuloExtraido | None:
         codigo = (movimento.codigo_despacho or "").upper()
         if "recurso" in texto and "decisao" not in texto:
             continue
-        positivo_recurso = codigo == "IPAS237" or (
-            "recurso provido" in texto and "deferimento" in texto
-        )
+        positivo_recurso = codigo == "IPAS237" or ("recurso provido" in texto and "deferimento" in texto)
         negativo = codigo == "IPAS024" or any(
             termo in texto
             for termo in (
@@ -265,15 +281,21 @@ def extrair_rotulo(movimentacoes: list[Movimentacao]) -> RotuloExtraido | None:
                 "indeferido o pedido",
             )
         )
-        positivo = positivo_recurso or (not negativo and (codigo == "IPAS029" or any(
-            termo in texto
-            for termo in (
-                "deferimento do pedido",
-                "pedido deferido",
-                "concessao de registro",
-                "registro de marca concedido",
+        positivo = positivo_recurso or (
+            not negativo
+            and (
+                codigo == "IPAS029"
+                or any(
+                    termo in texto
+                    for termo in (
+                        "deferimento do pedido",
+                        "pedido deferido",
+                        "concessao de registro",
+                        "registro de marca concedido",
+                    )
+                )
             )
-        )))
+        )
         if positivo:
             return RotuloExtraido(
                 "deferida",
@@ -348,22 +370,16 @@ def extrair_atributos_par(
     fonetica_candidata = _fonetica(candidata_norm)
     menor_conjunto = min(len(tokens_marca), len(tokens_candidata))
     prefixo_radical = bool(
-        len(fonetica_marca) >= 4
-        and len(fonetica_candidata) >= 4
-        and fonetica_marca[:4] == fonetica_candidata[:4]
+        len(fonetica_marca) >= 4 and len(fonetica_candidata) >= 4 and fonetica_marca[:4] == fonetica_candidata[:4]
     )
     return {
         "similaridade_sequencia": SequenceMatcher(None, marca_norm, candidata_norm).ratio(),
         "jaccard_tokens": _jaccard(tokens_marca, tokens_candidata),
         "jaccard_trigramas": _jaccard(_trigramas(marca_norm), _trigramas(candidata_norm)),
         "nome_identico": float(bool(marca_norm and marca_norm == candidata_norm)),
-        "contencao_tokens": (
-            len(tokens_marca & tokens_candidata) / menor_conjunto if menor_conjunto else 0.0
-        ),
+        "contencao_tokens": (len(tokens_marca & tokens_candidata) / menor_conjunto if menor_conjunto else 0.0),
         "fonetica_igual": float(bool(fonetica_marca and fonetica_marca == fonetica_candidata)),
-        "fonetica_similaridade": SequenceMatcher(
-            None, fonetica_marca, fonetica_candidata
-        ).ratio(),
+        "fonetica_similaridade": SequenceMatcher(None, fonetica_marca, fonetica_candidata).ratio(),
         "prefixo_radical": float(prefixo_radical),
         "classe_identica": float(bool(set(classes_marca) & set(classes_candidata))),
         "afinidade_conhecida": float(afinidade_conhecida),
@@ -393,17 +409,13 @@ def agregar_atributos(pares: list[dict[str, float]], marca: str = "") -> dict[st
         if nome not in _ATRIBUTOS_NAO_PAREADOS
     }
     atributos["quantidade_candidatos_norm"] = min(1.0, len(pares) / 10.0)
-    top3 = sorted(
-        (par.get("similaridade_sequencia", 0.0) for par in pares), reverse=True
-    )[:3]
+    top3 = sorted((par.get("similaridade_sequencia", 0.0) for par in pares), reverse=True)[:3]
     atributos["similaridade_top3_media"] = sum(top3) / len(top3) if top3 else 0.0
     atributos["conflitos_fortes_norm"] = min(
         1.0,
         sum(par.get("similaridade_sequencia", 0.0) >= 0.7 for par in pares) / 5.0,
     )
-    atributos["conflitos_ativos_norm"] = min(
-        1.0, sum(par.get("candidato_ativo", 0.0) >= 0.5 for par in pares) / 5.0
-    )
+    atributos["conflitos_ativos_norm"] = min(1.0, sum(par.get("candidato_ativo", 0.0) >= 0.5 for par in pares) / 5.0)
     # Distintividade é propriedade da marca-alvo, não do par; computada aqui uma vez.
     if marca:
         atributos.update(distintividade_marca(marca))
@@ -424,9 +436,7 @@ def _classes(processo: Processo) -> list[str]:
 
 def _pares_afinidade(matriz: list[AfinidadeClasse]) -> set[tuple[str, str]]:
     return {
-        tuple(sorted((item.classe_origem, item.classe_destino)))
-        for item in matriz
-        if item.status_revisao == "aprovada"
+        tuple(sorted((item.classe_origem, item.classe_destino))) for item in matriz if item.status_revisao == "aprovada"
     }
 
 
@@ -498,9 +508,7 @@ async def construir_dataset_historico(
         if extraido is None or processo.data_deposito is None:
             continue
         rotulo = (
-            await session.execute(
-                select(RotuloHistoricoMarca).where(RotuloHistoricoMarca.processo_id == processo.id)
-            )
+            await session.execute(select(RotuloHistoricoMarca).where(RotuloHistoricoMarca.processo_id == processo.id))
         ).scalar_one_or_none()
         if rotulo is None:
             rotulo = RotuloHistoricoMarca(processo_id=processo.id)
@@ -558,9 +566,7 @@ async def construir_dataset_historico(
             .scalars()
             .all()
         )
-        await session.execute(
-            delete(ParTreinamentoMarca).where(ParTreinamentoMarca.rotulo_id == rotulo.id)
-        )
+        await session.execute(delete(ParTreinamentoMarca).where(ParTreinamentoMarca.rotulo_id == rotulo.id))
         classes_alvo = _classes(processo)
         for candidata in candidatos:
             classes_candidata = _classes(candidata)
@@ -583,9 +589,7 @@ async def construir_dataset_historico(
                     processo_candidato_id=candidata.id,
                     atributos=atributos,
                     alvo_conflito=(
-                        not extraido.alvo_deferimento
-                        if extraido.fundamento == "conflito_anterior"
-                        else None
+                        not extraido.alvo_deferimento if extraido.fundamento == "conflito_anterior" else None
                     ),
                 )
             )
@@ -615,15 +619,10 @@ def _ajustar_logistica(
     genérico (0,65) influencia menos que um deferimento explícito (1,0), evitando que o
     ruído da extração por texto seja tratado como certeza.
     """
-    medias = {
-        nome: sum(item[0].get(nome, 0.0) for item in linhas) / len(linhas)
-        for nome in ATRIBUTOS_MODELO
-    }
+    medias = {nome: sum(item[0].get(nome, 0.0) for item in linhas) / len(linhas) for nome in ATRIBUTOS_MODELO}
     desvios = {}
     for nome in ATRIBUTOS_MODELO:
-        variancia = sum((item[0].get(nome, 0.0) - medias[nome]) ** 2 for item in linhas) / len(
-            linhas
-        )
+        variancia = sum((item[0].get(nome, 0.0) - medias[nome]) ** 2 for item in linhas) / len(linhas)
         desvios[nome] = max(math.sqrt(variancia), 1e-6)
     pesos = {nome: 0.0 for nome in ATRIBUTOS_MODELO}
     vies = 0.0
@@ -638,12 +637,9 @@ def _ajustar_logistica(
         gradiente_vies = 0.0
         for atributos, alvo, confianca in linhas:
             padronizados = {
-                nome: (atributos.get(nome, 0.0) - medias[nome]) / desvios[nome]
-                for nome in ATRIBUTOS_MODELO
+                nome: (atributos.get(nome, 0.0) - medias[nome]) / desvios[nome] for nome in ATRIBUTOS_MODELO
             }
-            previsao = _sigmoid(
-                vies + sum(pesos[nome] * padronizados[nome] for nome in ATRIBUTOS_MODELO)
-            )
+            previsao = _sigmoid(vies + sum(pesos[nome] * padronizados[nome] for nome in ATRIBUTOS_MODELO))
             erro = (previsao - alvo) * pesos_classe[alvo] * confianca
             gradiente_vies += erro
             for nome in ATRIBUTOS_MODELO:
@@ -745,9 +741,7 @@ def _limiar_otimo(probabilidades: list[float], alvos: list[int]) -> float:
     return melhor_limiar
 
 
-def _metricas(
-    probabilidades: list[float], alvos: list[int], limiar: float = 0.5
-) -> dict[str, Any]:
+def _metricas(probabilidades: list[float], alvos: list[int], limiar: float = 0.5) -> dict[str, Any]:
     tp = fp = tn = fn = 0
     for probabilidade, alvo in zip(probabilidades, alvos, strict=True):
         previsto = int(probabilidade >= limiar)
@@ -812,11 +806,7 @@ def _distribuicoes_dataset(
 
     for rotulo, processo, _ in agrupadas.values():
         for classe in sorted(
-            {
-                item.codigo
-                for item in processo.classificacoes
-                if item.sistema == "nice" and item.codigo
-            }
+            {item.codigo for item in processo.classificacoes if item.sistema == "nice" and item.codigo}
         ) or ["SEM_CLASSE"]:
             adicionar(por_classe, classe, bool(rotulo.alvo_deferimento))
         adicionar(por_periodo, str(rotulo.data_referencia.year), bool(rotulo.alvo_deferimento))
@@ -827,9 +817,7 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
     linhas = (
         await session.execute(
             select(RotuloHistoricoMarca, ParTreinamentoMarca, Processo)
-            .outerjoin(
-                ParTreinamentoMarca, ParTreinamentoMarca.rotulo_id == RotuloHistoricoMarca.id
-            )
+            .outerjoin(ParTreinamentoMarca, ParTreinamentoMarca.rotulo_id == RotuloHistoricoMarca.id)
             .join(Processo, Processo.id == RotuloHistoricoMarca.processo_id)
             .where(
                 RotuloHistoricoMarca.status_revisao != "rejeitada",
@@ -861,12 +849,9 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
     # Confiança e balanceamento de classe ponderam apenas treino/bootstrap. A regressão
     # aplica o balanceamento internamente; validação e teste ficam sem pesos.
     treino_bruto = amostras[:treino_fim]
-    contagem_classes = {
-        classe: sum(item[2] == classe for item in treino_bruto) for classe in (0, 1)
-    }
+    contagem_classes = {classe: sum(item[2] == classe for item in treino_bruto) for classe in (0, 1)}
     pesos_classes = {
-        classe: len(treino_bruto) / (2 * max(1, quantidade))
-        for classe, quantidade in contagem_classes.items()
+        classe: len(treino_bruto) / (2 * max(1, quantidade)) for classe, quantidade in contagem_classes.items()
     }
     treino = [(x, y, peso) for _, x, y, peso in treino_bruto]
     validacao = amostras[treino_fim:validacao_fim]
@@ -886,8 +871,7 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
     metricas["validacao"] = _metricas(probs_validacao_cal, alvos_validacao, limiar)
     distribuicao_classes, distribuicao_periodos = _distribuicoes_dataset(agrupadas)
     identidade_dataset = "|".join(
-        f"{rotulo.id}:{processo.id}:{rotulo.data_referencia.isoformat()}:"
-        f"{int(bool(rotulo.alvo_deferimento))}"
+        f"{rotulo.id}:{processo.id}:{rotulo.data_referencia.isoformat()}:{int(bool(rotulo.alvo_deferimento))}"
         for rotulo, processo, _ in sorted(agrupadas.values(), key=lambda item: item[0].id)
     )
     dataset_hash = hashlib.sha256(identidade_dataset.encode("utf-8")).hexdigest()
@@ -912,9 +896,7 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
             "positivos": sum(item[2] for item in amostras),
             "negativos": len(amostras) - sum(item[2] for item in amostras),
             "fundamentos": {
-                fundamento: sum(
-                    item[0].fundamento == fundamento for item in agrupadas.values()
-                )
+                fundamento: sum(item[0].fundamento == fundamento for item in agrupadas.values())
                 for fundamento in sorted({item[0].fundamento for item in agrupadas.values()})
             },
             "distribuicao_por_classe": distribuicao_classes,
@@ -945,9 +927,7 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
         revisoes_humanas,
         incluir_revisoes_humanas=False,
     )
-    modelo.status = (
-        StatusModelo.SHADOW.value if bloqueios_qualidade else StatusModelo.VALIDATION.value
-    )
+    modelo.status = StatusModelo.SHADOW.value if bloqueios_qualidade else StatusModelo.VALIDATION.value
     modelo.dataset = {
         **modelo.dataset,
         "bloqueios_qualidade": bloqueios_qualidade,
@@ -959,9 +939,7 @@ async def treinar_modelo(session: AsyncSession) -> ModeloRegistrabilidade:
     return modelo
 
 
-async def ativar_modelo(
-    session: AsyncSession, modelo: ModeloRegistrabilidade, administrador: str
-) -> dict[str, Any]:
+async def ativar_modelo(session: AsyncSession, modelo: ModeloRegistrabilidade, administrador: str) -> dict[str, Any]:
     if normalizar_status_modelo(modelo.status) is not StatusModelo.VALIDATION:
         raise ValueError("Somente modelos em VALIDATION podem ser promovidos para ACTIVE")
     controle = await obter_controle(session)
@@ -972,9 +950,7 @@ async def ativar_modelo(
     )
     bloqueios = validar_modelo_para_cliente(modelo, controle, int(revisoes or 0))
     if bloqueios:
-        raise ValueError(
-            "Modelo bloqueado pelos gates de ativação: " + "; ".join(bloqueios)
-        )
+        raise ValueError("Modelo bloqueado pelos gates de ativação: " + "; ".join(bloqueios))
     await session.execute(
         update(ModeloRegistrabilidade)
         .where(ModeloRegistrabilidade.status == StatusModelo.ACTIVE.value)
@@ -1048,9 +1024,9 @@ def prever(atributos: dict[str, float], modelo: ModeloRegistrabilidade) -> Predi
         if nome in modelo.parametros.get("pesos", {})
     ]
     for nome in nomes_modelo:
-        padronizado = (
-            atributos.get(nome, 0.0) - modelo.parametros["medias"][nome]
-        ) / modelo.parametros["desvios"][nome]
+        padronizado = (atributos.get(nome, 0.0) - modelo.parametros["medias"][nome]) / modelo.parametros["desvios"][
+            nome
+        ]
         impacto = modelo.parametros["pesos"][nome] * padronizado
         fatores.append(
             {
@@ -1102,10 +1078,7 @@ def validar_modelo_para_cliente(
     if int(dataset.get("teste", 0)) < controle.minimo_amostras_teste:
         bloqueios.append("Amostras do teste temporal insuficientes")
     if incluir_revisoes_humanas and revisoes_humanas < controle.minimo_revisoes_humanas:
-        bloqueios.append(
-            "Revisões humanas insuficientes "
-            f"({revisoes_humanas}/{controle.minimo_revisoes_humanas})"
-        )
+        bloqueios.append(f"Revisões humanas insuficientes ({revisoes_humanas}/{controle.minimo_revisoes_humanas})")
     if int(dataset.get("bootstrap_modelos", 0)) < 10:
         bloqueios.append("Modelo sem intervalo bootstrap válido")
     if not dataset.get("distribuicao_por_classe"):
@@ -1115,11 +1088,7 @@ def validar_modelo_para_cliente(
     positivos = int(dataset.get("positivos", 0))
     negativos = int(dataset.get("negativos", 0))
     total = int(dataset.get("total", 0))
-    if (
-        {"positivos", "negativos"}.issubset(dataset)
-        and total
-        and min(positivos, negativos) / total < 0.15
-    ):
+    if {"positivos", "negativos"}.issubset(dataset) and total and min(positivos, negativos) / total < 0.15:
         bloqueios.append("Distribuição histórica excessivamente desbalanceada")
     return bloqueios
 
@@ -1131,10 +1100,7 @@ def validar_estimativa_para_cliente(
     revisoes_humanas: int,
 ) -> list[str]:
     bloqueios = validar_modelo_para_cliente(modelo, controle, revisoes_humanas)
-    if (
-        resultado.probabilidade_superior - resultado.probabilidade_inferior
-        > controle.largura_maxima_intervalo
-    ):
+    if resultado.probabilidade_superior - resultado.probabilidade_inferior > controle.largura_maxima_intervalo:
         bloqueios.append("Faixa de incerteza ampla para esta pesquisa")
     if resultado.cobertura_entrada < controle.minima_cobertura:
         bloqueios.append("Pesquisa fora da cobertura histórica adequada")
@@ -1215,9 +1181,7 @@ async def registrar_previsao_sombra(
     if previsao is None:
         previsao = PrevisaoRegistrabilidade(pesquisa_id=pesquisa_id, modelo_id=modelo.id)
         session.add(previsao)
-    motivos_inelegibilidade = validar_estimativa_para_cliente(
-        resultado, modelo, controle, int(revisoes or 0)
-    )
+    motivos_inelegibilidade = validar_estimativa_para_cliente(resultado, modelo, controle, int(revisoes or 0))
     previsao.modo, previsao.elegivel_cliente, motivos_inelegibilidade = decidir_exibicao_estimativa(
         controle,
         motivos_inelegibilidade,
@@ -1246,9 +1210,7 @@ async def registrar_previsao_sombra(
 
 def _pares_de_relatorio(payload: dict[str, Any]) -> list[dict[str, float]]:
     classes_atividade = [
-        str(item.get("codigo"))
-        for item in payload.get("classes_atividade") or []
-        if item.get("codigo")
+        str(item.get("codigo")) for item in payload.get("classes_atividade") or [] if item.get("codigo")
     ]
     pares = []
     for item in payload.get("itens") or []:
@@ -1264,8 +1226,7 @@ def _pares_de_relatorio(payload: dict[str, Any]) -> list[dict[str, float]]:
                 str(item.get("titulo") or ""),
                 classes_atividade,
                 classes_processo,
-                afinidade_conhecida=afinidade.get("nivel")
-                in {"identica", "alta", "moderada"},
+                afinidade_conhecida=afinidade.get("nivel") in {"identica", "alta", "moderada"},
                 candidata_ativa=item.get("relevancia_situacao") == "ativa",
             )
         )
@@ -1295,10 +1256,14 @@ async def reprocessar_previsoes_pendentes(
             "processadas": 0,
             "ignoradas_sem_relatorio": 0,
         }
-    sem_previsao = ~select(PrevisaoRegistrabilidade.id).where(
-        PrevisaoRegistrabilidade.pesquisa_id == PesquisaMarca.id,
-        PrevisaoRegistrabilidade.modelo_id == modelo.id,
-    ).exists()
+    sem_previsao = (
+        ~select(PrevisaoRegistrabilidade.id)
+        .where(
+            PrevisaoRegistrabilidade.pesquisa_id == PesquisaMarca.id,
+            PrevisaoRegistrabilidade.modelo_id == modelo.id,
+        )
+        .exists()
+    )
     filtros = [sem_previsao]
     if organizacao_id is not None:
         filtros.append(PesquisaMarca.organizacao_id == organizacao_id)

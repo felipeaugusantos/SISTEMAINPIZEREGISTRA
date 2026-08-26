@@ -105,9 +105,7 @@ async def importar_registros(
             processo.fonte = f"RPI {registro.numero_rpi}"
             processo.apresentacao = registro.apresentacao or processo.apresentacao
             processo.natureza = registro.natureza or processo.natureza
-            processo.elemento_nominativo = (
-                registro.elemento_nominativo or processo.elemento_nominativo
-            )
+            processo.elemento_nominativo = registro.elemento_nominativo or processo.elemento_nominativo
             processo.procurador = registro.procurador or processo.procurador
             processo.imagem_url = registro.imagem_url or processo.imagem_url
 
@@ -150,9 +148,7 @@ async def importar_registros(
                     data_rpi=registro.data_rpi,
                     numero_rpi=registro.numero_rpi,
                     fonte_arquivo=registro.fonte_arquivo,
-                    chave_origem=_chave_movimentacao(
-                        registro, movimentacao.codigo, movimentacao.descricao
-                    ),
+                    chave_origem=_chave_movimentacao(registro, movimentacao.codigo, movimentacao.descricao),
                 )
                 .on_conflict_do_nothing(constraint="uq_movimentacoes_chave_origem")
             )

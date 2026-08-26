@@ -49,9 +49,7 @@ def registrar_evento_operacional(
 
 async def obter_politica_crm(session: AsyncSession, organizacao_id: int) -> PoliticaCRM:
     politica = (
-        await session.execute(
-            select(PoliticaCRM).where(PoliticaCRM.organizacao_id == organizacao_id)
-        )
+        await session.execute(select(PoliticaCRM).where(PoliticaCRM.organizacao_id == organizacao_id))
     ).scalar_one_or_none()
     return politica or PoliticaCRM(
         organizacao_id=organizacao_id,
@@ -62,23 +60,20 @@ async def obter_politica_crm(session: AsyncSession, organizacao_id: int) -> Poli
     )
 
 
-async def aplicar_politica_oportunidade(
-    session: AsyncSession, lead: Lead, operador_id: int | None = None
-) -> list[str]:
+async def aplicar_politica_oportunidade(session: AsyncSession, lead: Lead, operador_id: int | None = None) -> list[str]:
     """Aplica defaults e retorna os campos obrigatórios ainda ausentes."""
     politica = await obter_politica_crm(session, lead.organizacao_id)
     if lead.responsavel_id is None and politica.atribuir_ao_operador and operador_id:
         lead.responsavel_id = operador_id
     if lead.proxima_acao_em is None and politica.dias_proxima_acao_padrao is not None:
-        lead.proxima_acao_em = datetime.now(UTC) + timedelta(
-            days=politica.dias_proxima_acao_padrao
-        )
+        lead.proxima_acao_em = datetime.now(UTC) + timedelta(days=politica.dias_proxima_acao_padrao)
     faltando: list[str] = []
     if politica.exigir_responsavel and lead.responsavel_id is None:
         faltando.append("responsável")
     if politica.exigir_proxima_acao and lead.proxima_acao_em is None:
         faltando.append("próxima ação")
     return faltando
+
 
 # --- Regras de automação embutidas (Terceira entrega, item 2) --------------
 # evento: "fase" ou "status"; gatilho: valor que dispara a regra.
@@ -126,9 +121,7 @@ REGRAS_AUTOMACAO: dict[str, dict] = {
 }
 
 
-async def aplicar_regras_automacao(
-    session: AsyncSession, lead: Lead, evento: str, valor: str, por: str
-) -> list[str]:
+async def aplicar_regras_automacao(session: AsyncSession, lead: Lead, evento: str, valor: str, por: str) -> list[str]:
     """Dispara as regras de automação embutidas para um evento do lead.
 
     Cria um LembreteCRM (tarefa/alerta) para cada regra ativa cujo gatilho bate.
@@ -200,6 +193,7 @@ async def aplicar_regras_automacao(
         aplicadas.append(chave)
     return aplicadas
 
+
 # --- Sincronização status (pipeline CRM) <-> fase (funil) ------------------
 # A fase do funil é o eixo mais rico; ao mudar a fase o status espelha o mapa
 # abaixo. A fase "contato_inicial" não força status (novo/em_contato são
@@ -223,9 +217,7 @@ MAPA_STATUS_FASE: dict[str, str] = {
 }
 
 
-async def avancar_fase_lead(
-    session: AsyncSession, lead: Lead, nova_fase: str, por: str, forcar: bool = False
-) -> bool:
+async def avancar_fase_lead(session: AsyncSession, lead: Lead, nova_fase: str, por: str, forcar: bool = False) -> bool:
     """Move o lead para ``nova_fase``, espelha o status e registra o histórico.
 
     Automático (``forcar=False``) só avança no funil — nunca retrocede. Manual
@@ -241,11 +233,7 @@ async def avancar_fase_lead(
     novo_status = MAPA_FASE_STATUS.get(nova_fase)
     if novo_status is not None and lead.status != novo_status:
         lead.status = novo_status
-    session.add(
-        HistoricoFaseLead(
-            organizacao_id=lead.organizacao_id, lead_id=lead.id, fase=nova_fase, por=por
-        )
-    )
+    session.add(HistoricoFaseLead(organizacao_id=lead.organizacao_id, lead_id=lead.id, fase=nova_fase, por=por))
     registrar_evento_operacional(
         session,
         organizacao_id=lead.organizacao_id,
@@ -274,16 +262,12 @@ async def sincronizar_fase_por_status(session: AsyncSession, lead: Lead, por: st
 
 def normalizar_empresa(nome: str) -> str:
     sem_acentos = "".join(
-        caractere
-        for caractere in unicodedata.normalize("NFKD", nome)
-        if not unicodedata.combining(caractere)
+        caractere for caractere in unicodedata.normalize("NFKD", nome) if not unicodedata.combining(caractere)
     )
     return re.sub(r"\s+", " ", sem_acentos.strip()).casefold()
 
 
-async def obter_ou_criar_empresa(
-    session: AsyncSession, organizacao_id: int, nome: str | None
-) -> EmpresaCRM | None:
+async def obter_ou_criar_empresa(session: AsyncSession, organizacao_id: int, nome: str | None) -> EmpresaCRM | None:
     nome_limpo = re.sub(r"\s+", " ", (nome or "").strip())
     if not nome_limpo:
         return None
@@ -307,9 +291,7 @@ async def obter_ou_criar_empresa(
     return empresa
 
 
-async def buscar_lead_ativo_por_email(
-    session: AsyncSession, organizacao_id: int, email: str
-) -> Lead | None:
+async def buscar_lead_ativo_por_email(session: AsyncSession, organizacao_id: int, email: str) -> Lead | None:
     """Localiza o contato ativo pelo identificador único usado pelo banco.
 
     A empresa da pesquisa não faz parte da chave única do contato. O vínculo

@@ -133,11 +133,7 @@ def adicionar_contexto_score(
             {"classes": classes_comuns, "processo": processo},
         )
     elif afinidade_revisao == "aprovada" and afinidade_nivel in {"alta", "moderada"}:
-        regra = (
-            "AFINIDADE_ALTA_APROVADA"
-            if afinidade_nivel == "alta"
-            else "AFINIDADE_MODERADA_APROVADA"
-        )
+        regra = "AFINIDADE_ALTA_APROVADA" if afinidade_nivel == "alta" else "AFINIDADE_MODERADA_APROVADA"
         _adicionar_fator(
             fatores,
             regra,
@@ -177,14 +173,27 @@ def configuracao_ranking() -> dict[str, object]:
         "pesos_contexto": PESOS_CONTEXTO,
         "pesos_combinados": PESOS_COMBINADOS,
         "score_maximo": SCORE_MAXIMO,
-        "modalidades": ["nominativa", "mista", "figurativa", "nice", "viena", "ocr", "similaridade_visual"],
+        "modalidades": [
+            "nominativa",
+            "mista",
+            "figurativa",
+            "nice",
+            "viena",
+            "ocr",
+            "similaridade_visual",
+        ],
         "revisao_humana_obrigatoria": True,
     }
 
 
 def calcular_score_combinado(
-    *, nominativo: float, visual: float = 0.0, ocr: float = 0.0,
-    nice: float = 0.0, viena: float = 0.0, processo: str = "",
+    *,
+    nominativo: float,
+    visual: float = 0.0,
+    ocr: float = 0.0,
+    nice: float = 0.0,
+    viena: float = 0.0,
+    processo: str = "",
     pesos: dict[str, float] | None = None,
 ) -> ScoreBusca:
     """Combina sinais técnicos sem convertê-los em decisão jurídica."""
@@ -208,4 +217,8 @@ def calcular_score_combinado(
         for nome, valor in sinais.items()
         if float(valor) > 0
     )
-    return ScoreBusca(total=round(min(SCORE_MAXIMO, sum(item.peso for item in fatores)), 2), fatores=fatores, versao="ranking-combinado-1.1")
+    return ScoreBusca(
+        total=round(min(SCORE_MAXIMO, sum(item.peso for item in fatores)), 2),
+        fatores=fatores,
+        versao="ranking-combinado-1.1",
+    )

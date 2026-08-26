@@ -32,8 +32,7 @@ def test_extracts_denial_complement_matching_rpi() -> None:
 
 def test_classifies_explicit_conflict() -> None:
     result = classificar_fundamento(
-        "A marca reproduz ou imita marca alheia, inciso XIX do Art. 124 da LPI: "
-        "Processo 906566738 (LUXEN)."
+        "A marca reproduz ou imita marca alheia, inciso XIX do Art. 124 da LPI: Processo 906566738 (LUXEN)."
     )
     assert result.fundamento == "conflito_anterior"
     assert result.confianca == 0.99
@@ -41,9 +40,7 @@ def test_classifies_explicit_conflict() -> None:
 
 
 def test_classifies_explicit_lack_of_distinctiveness() -> None:
-    result = classificar_fundamento(
-        "Sinal de caráter genérico e descritivo, inciso VI do Art. 124 da LPI."
-    )
+    result = classificar_fundamento("Sinal de caráter genérico e descritivo, inciso VI do Art. 124 da LPI.")
     assert result.fundamento == "falta_distintividade"
     assert result.confianca == 0.98
 
@@ -56,8 +53,7 @@ def test_does_not_guess_without_explicit_ground() -> None:
 
 def test_classifies_article_128_as_other_prohibition() -> None:
     result = classificar_fundamento(
-        "O requerente não exerce atividade lícita e efetiva compatível, "
-        "conforme Parágrafo 1º do Art. 128 da LPI."
+        "O requerente não exerce atividade lícita e efetiva compatível, conforme Parágrafo 1º do Art. 128 da LPI."
     )
     assert result.fundamento == "outra_proibicao"
     assert result.confianca == 0.99

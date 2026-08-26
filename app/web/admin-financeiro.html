@@ -4,13 +4,13 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>Financeiro — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=36"><link rel="stylesheet" href="/static/admin-financeiro.css?v=6">
-  <script src="/static/admin-shell.js?v=36" defer></script><script src="/static/admin-financeiro.js?v=7" defer></script>
+  <script src="/static/admin-shell.js?v=36" defer></script><script src="/static/admin-financeiro.js?v=8" defer></script>
 </head>
 <body class="admin-body" data-admin-section="finance">
   <main class="admin-main finance-main">
     <section class="finance-hero">
       <div><p class="eyebrow">GESTÃO OPERACIONAL</p><h1 id="finance-title">Financeiro</h1><p id="finance-description">Controle contas a pagar e receber, vencimentos e baixas. Este módulo não substitui a contabilidade fiscal.</p></div>
-      <div class="hero-actions"><a id="finance-back" class="secondary-button" href="/admin/financeiro" hidden>← Voltar ao painel</a><a id="finance-export" class="secondary-button" href="/v1/admin/financeiro/exportar.csv">Exportar CSV</a><button id="new-category" class="secondary-button" type="button">Nova categoria</button><button id="new-entry" class="primary-button" type="button">Novo lançamento</button></div>
+      <div class="hero-actions"><a id="finance-back" class="secondary-button" href="/admin/financeiro" hidden>← Voltar ao painel</a><a id="finance-export" class="secondary-button" href="/v1/admin/financeiro/exportar.csv">Exportar CSV</a><button id="new-company" class="secondary-button" type="button">Cadastrar empresa</button><button id="new-category" class="secondary-button" type="button">Nova categoria</button><button id="new-entry" class="primary-button" type="button">Novo lançamento</button></div>
     </section>
     <nav class="finance-tabs" aria-label="Áreas do financeiro"><a href="/admin/financeiro" data-finance-tab="overview">Visão geral</a><a href="/admin/financeiro/contas-a-pagar" data-finance-tab="pagar">Contas a pagar</a><a href="/admin/financeiro/contas-a-receber" data-finance-tab="receber">Contas a receber</a><a href="/admin/financeiro/formas-pagamento">Formas de pagamento</a></nav>
     <div id="finance-message" class="status-message" hidden role="status" aria-live="polite"></div>
@@ -25,6 +25,7 @@
         <label><span>Vencimento inicial</span><input name="inicio" type="date"></label><label><span>Vencimento final</span><input name="fim" type="date"></label>
         <button class="primary-button" type="submit">Filtrar</button><button id="finance-clear" class="secondary-button" type="button">Limpar</button>
       </form>
+      <div class="finance-list-heading-actions"><button id="new-company-inline" class="secondary-button" type="button">Cadastrar empresa</button><strong id="finance-list-count">0 registros</strong></div>
       <div id="finance-list" class="finance-list"></div>
     </section>
   </main>
@@ -45,6 +46,18 @@
       <label class="wide"><span>Observações</span><textarea name="observacoes" rows="3" maxlength="4000"></textarea></label>
     </div>
     <footer><button class="secondary-button" type="button" data-close="entry-dialog">Cancelar</button><button id="entry-submit" class="primary-button" type="submit">Salvar lançamento</button></footer>
+  </form></dialog>
+
+  <dialog id="company-dialog" class="finance-dialog compact"><form id="company-form">
+    <header><div><p class="eyebrow">CADASTRO FINANCEIRO</p><h2>Nova empresa</h2></div><button type="button" data-close="company-dialog" aria-label="Fechar">×</button></header>
+    <p class="finance-dialog-help">Cadastre o cliente ou fornecedor para vinculá-lo a contas a pagar e contas a receber.</p>
+    <label><span>Nome ou razão social</span><input name="nome" minlength="2" maxlength="200" required></label>
+    <label><span>CPF/CNPJ</span><input name="documento" maxlength="18"></label>
+    <label><span>E-mail</span><input name="email" type="email" maxlength="254"></label>
+    <label><span>Telefone</span><input name="telefone" maxlength="30"></label>
+    <label><span>Segmento</span><input name="segmento" maxlength="80"></label>
+    <label><span>Observações</span><textarea name="observacoes" rows="3" maxlength="2000"></textarea></label>
+    <footer><button class="secondary-button" type="button" data-close="company-dialog">Cancelar</button><button class="primary-button" type="submit">Salvar empresa</button></footer>
   </form></dialog>
 
   <dialog id="category-dialog" class="finance-dialog compact"><form id="category-form">

@@ -26,6 +26,15 @@ PERMISSOES = (
         "Arquivar e restaurar contatos sem apagar pesquisas.",
     ),
     PermissaoDef(
+        "crm.view",
+        "CRM",
+        "Visualizar CRM",
+        "Consultar empresas, contatos, oportunidades e timeline.",
+    ),
+    PermissaoDef(
+        "crm.manage", "CRM", "Gerenciar CRM", "Alterar empresas, contatos, oportunidades e tarefas."
+    ),
+    PermissaoDef(
         "portfolio.view",
         "Processos monitorados",
         "Visualizar carteira",
@@ -139,6 +148,8 @@ PERFIS = {
             "leads.pii.view",
             "leads.manage",
             "leads.export",
+            "crm.view",
+            "crm.manage",
             "portfolio.view",
             "portfolio.manage",
             "legal.view",
@@ -154,6 +165,7 @@ PERFIS = {
         {
             "dashboard.view",
             "leads.view",
+            "crm.view",
             "portfolio.view",
             "legal.view",
             "finance.view",
@@ -182,6 +194,7 @@ def destino_inicial(perfil: str, permissoes: set[str] | frozenset[str]) -> str:
         return "/admin"
     destinos = (
         ("finance.view", "/admin/financeiro"),
+        ("crm.view", "/admin/crm"),
         ("leads.view", "/admin/pesquisas"),
         ("portfolio.view", "/admin/processos-monitorados"),
         ("legal.view", "/admin/operacao-juridica"),

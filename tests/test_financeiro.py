@@ -37,7 +37,7 @@ def test_pagina_financeira_e_protegida_por_permissao() -> None:
         assert "Controle contas a pagar e receber" in response.text
         assert "Novo lançamento" in response.text
         assert "admin-financeiro.css?v=6" in response.text
-        assert "admin-financeiro.js?v=7" in response.text
+        assert "admin-financeiro.js?v=8" in response.text
     finally:
         app.dependency_overrides.pop(obter_usuario_atual, None)
 
@@ -71,6 +71,23 @@ def test_tela_de_formas_de_pagamento_usa_permissao_financeira() -> None:
         assert "admin-financeiro-formas.js?v=1" in response.text
     finally:
         app.dependency_overrides.pop(obter_usuario_atual, None)
+
+
+def test_cadastro_de_empresa_financeira_fica_isolado_no_tenant() -> None:
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=None))
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/empresas",
+            json={"nome": "Empresa Financeira Teste", "documento": "12345678000199"},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+        assert resposta.status_code == 201
+        assert resposta.json()["nome"] == "Empresa Financeira Teste"
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_log_financeiro_e_exclusivo_dos_perfis_autorizados() -> None:

@@ -205,6 +205,12 @@ function render(data) {
   renderSummary(data);
   renderProgress(data);
   sections.innerHTML = [renderValidation(data), renderRisk(data), renderLearning(data), renderAgent(data), renderOpinion(data), renderReport(data)].join("");
+  if (data.permissoes.relatorio_gerar && data.relatorio_completo.base_disponivel && !sections.querySelector("#generate-full-report")) {
+    const actions = sections.querySelector("#step-report .analysis-action-row");
+    if (actions) actions.innerHTML = '<button id="generate-full-report" class="primary-button" type="button">Gerar relatório preliminar</button>';
+  }
+  const reportNotice = sections.querySelector("#step-report .analysis-empty");
+  if (reportNotice && data.workflow.state !== "VALIDATED") reportNotice.textContent = "A revisão humana continua pendente, mas o relatório preliminar pode ser gerado agora. A versão preliminar é indicativa e não constitui parecer jurídico validado.";
 }
 
 async function load() {

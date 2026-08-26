@@ -20,6 +20,12 @@ from app.models import (
 from app.proxy import host_publico
 from app.settings import get_settings
 
+_MODULO_ALIASES = {"portfolio": "processos_monitorados", "legal": "operacao_juridica"}
+
+
+def _normalizar_modulos(modulos: list[str] | tuple[str, ...] | None) -> frozenset[str]:
+    return frozenset(_MODULO_ALIASES.get(modulo, modulo) for modulo in (modulos or []))
+
 
 @dataclass(frozen=True)
 class OrganizacaoAtual:
@@ -129,11 +135,16 @@ async def resolver_organizacao_publica(
                 )
             ).scalar_one_or_none()
     if organizacao is None:
+        # Em produção não é seguro direcionar um host desconhecido para o tenant
+        # padrão: isso pode expor dados da Zé Registra. O fallback continua
+        # disponível somente em desenvolvimento/testes locais.
+        if settings.app_env.lower() == "production":
+            raise HTTPException(404, "Organizacao nao identificada")
         organizacao = (
             await session.execute(
                 select(Organizacao)
                 .options(selectinload(Organizacao.plano))
-                .where(Organizacao.slug == get_settings().default_organization_slug)
+                .where(Organizacao.slug == settings.default_organization_slug)
             )
         ).scalar_one_or_none()
     if organizacao is None:
@@ -145,7 +156,11 @@ async def resolver_organizacao_publica(
         nome=organizacao.nome,
         slug=organizacao.slug,
         plano=organizacao.plano.codigo,
-        modulos=frozenset(organizacao.plano.modulos or []),
+        modulos=_normalizar_modulos(
+            organizacao.modulos_liberados
+            if organizacao.modulos_liberados is not None
+            else organizacao.plano.modulos
+        ),
         limites=organizacao.plano.limites or {},
         branding=organizacao.branding or {},
         politica_privacidade_versao=organizacao.politica_privacidade_versao,
@@ -165,6 +180,9 @@ def _organizacao_padrao() -> OrganizacaoAtual:
             {
                 "consulta",
                 "leads",
+                "crm",
+                "processos_monitorados",
+                "operacao_juridica",
                 "validacao",
                 "risco",
                 "aprendizado",

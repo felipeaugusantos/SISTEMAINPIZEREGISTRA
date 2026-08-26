@@ -37,10 +37,17 @@ MODULO_POR_PERMISSAO = {
     "rpi": "rpi",
     "production": "producao",
     "audit": "producao",
-    "portfolio": "leads",
-    "legal": "leads",
+    "crm": "crm",
+    "portfolio": "processos_monitorados",
+    "legal": "operacao_juridica",
     "finance": "financeiro",
 }
+MODULO_ALIASES = {"portfolio": "processos_monitorados", "legal": "operacao_juridica"}
+
+
+def normalizar_modulos_plano(modulos: list[str] | tuple[str, ...] | None) -> frozenset[str]:
+    """Normaliza aliases legados sem alterar a configuração persistida do plano."""
+    return frozenset(MODULO_ALIASES.get(modulo, modulo) for modulo in (modulos or []))
 
 
 @dataclass(frozen=True)
@@ -56,11 +63,15 @@ class UsuarioAutenticado:
     csrf_hash: str
     organizacao_id: int = 1
     organizacao_slug: str = "ze-registra"
+    departamento: str | None = None
     superadmin: bool = False
     modulos_plano: frozenset[str] = frozenset(
         {
             "consulta",
             "leads",
+            "crm",
+            "processos_monitorados",
+            "operacao_juridica",
             "validacao",
             "risco",
             "ia",
@@ -151,6 +162,7 @@ async def obter_usuario_atual(
         nome=usuario.nome,
         usuario=usuario.usuario,
         email=usuario.email,
+        departamento=usuario.departamento,
         perfil=usuario.perfil,
         permissoes=frozenset(p.chave for p in usuario.permissoes),
         alterar_senha=usuario.alterar_senha,
@@ -159,7 +171,11 @@ async def obter_usuario_atual(
         organizacao_id=usuario.organizacao_id,
         organizacao_slug=usuario.organizacao.slug,
         superadmin=usuario.superadmin,
-        modulos_plano=frozenset(usuario.organizacao.plano.modulos or []),
+        modulos_plano=normalizar_modulos_plano(
+            usuario.organizacao.modulos_liberados
+            if usuario.organizacao.modulos_liberados is not None
+            else usuario.organizacao.plano.modulos
+        ),
     )
     # Contexto de tenant ja aplicado acima (antes das escritas); nada a refazer aqui.
     request.state.auth_user = auth

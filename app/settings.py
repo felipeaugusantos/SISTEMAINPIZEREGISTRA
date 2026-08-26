@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     clicksign_api_token: str = ""
     clicksign_webhook_secret: str = ""
     clicksign_webhook_url: str = ""
+    health_api_key: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

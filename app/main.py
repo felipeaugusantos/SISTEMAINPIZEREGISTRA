@@ -1,8 +1,9 @@
+import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,6 +22,8 @@ from app.api.confiabilidade import router as confiabilidade_router
 from app.api.consulta import router as consulta_router
 from app.api.contratacoes import router as contratacoes_router
 from app.api.crm_admin import router as crm_router
+from app.api.escritorio import router as escritorio_router
+from app.api.escritorio import webhook_router as escritorio_webhook_router
 from app.api.exclusoes import router as exclusoes_router
 from app.api.fase2 import router as fase2_router
 from app.api.fase3 import router as fase3_router
@@ -37,6 +40,7 @@ from app.api.portfolio_pi import portal_router as portfolio_pi_portal_router
 from app.api.portfolio_pi import router as portfolio_pi_router
 from app.api.processos import router as processos_router
 from app.api.producao import router as producao_router
+from app.api.propostas_config import router as propostas_config_router
 from app.api.rpi_admin import router as rpi_admin_router
 from app.api.rpi_consulta import router as rpi_consulta_router
 from app.api.saas import exigir_superadmin
@@ -58,6 +62,18 @@ from app.settings import get_settings
 settings = get_settings()
 web_dir = Path(__file__).resolve().parent / "web"
 
+
+async def exigir_chave_health(x_health_key: str | None = Header(default=None)) -> None:
+    """Protege métricas e diagnósticos detalhados em produção."""
+    if settings.app_env.lower() != "production":
+        return
+    if not settings.health_api_key:
+        raise HTTPException(status_code=503, detail="Health check protegido nao configurado")
+    if not settings.health_api_key or not x_health_key or not secrets.compare_digest(
+        x_health_key, settings.health_api_key
+    ):
+        raise HTTPException(status_code=401, detail="Chave de health check invalida")
+
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
@@ -73,7 +89,9 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Integration-Key"],
+    allow_headers=[
+        "Authorization", "Content-Type", "X-Integration-Key", "X-CSRF-Token", "X-Health-Key"
+    ],
 )
 app.middleware("http")(observar_requisicao)
 app.include_router(processos_router)
@@ -92,6 +110,7 @@ app.include_router(portfolio_pi_portal_router)
 app.include_router(observabilidade_router)
 app.include_router(analises_router)
 app.include_router(producao_router)
+app.include_router(propostas_config_router)
 app.include_router(rpi_admin_router)
 app.include_router(rpi_consulta_router)
 app.include_router(aprendizado_router)
@@ -104,6 +123,8 @@ app.include_router(visual_router)
 app.include_router(vigilancia_router)
 app.include_router(crm_router)
 app.include_router(exclusoes_router)
+app.include_router(escritorio_router)
+app.include_router(escritorio_webhook_router)
 app.include_router(financeiro_router)
 app.include_router(auth_router)
 app.include_router(social_auth_router)
@@ -119,6 +140,11 @@ app.mount("/static", StaticFiles(directory=web_dir / "static"), name="static")
 @app.get("/", include_in_schema=False)
 async def pagina_inicial() -> FileResponse:
     return FileResponse(web_dir / "index.html")
+
+
+@app.get("/buscar-gratuita", include_in_schema=False)
+async def pagina_busca_gratuita() -> FileResponse:
+    return FileResponse(web_dir / "buscar-gratuita.html")
 
 
 @app.get("/processos/{numero}", include_in_schema=False)
@@ -165,7 +191,11 @@ async def painel_administrativo() -> FileResponse:
     return FileResponse(web_dir / "admin.html")
 
 
-@app.get("/admin/configuracao/clicksign", include_in_schema=False, dependencies=[Depends(exigir_permissao("production.view"))])
+@app.get(
+    "/admin/configuracao/clicksign",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("production.view"))],
+)
 async def painel_configuracao_clicksign() -> FileResponse:
     return FileResponse(web_dir / "admin-clicksign.html")
 
@@ -227,7 +257,7 @@ async def painel_operacao_juridica() -> FileResponse:
 @app.get(
     "/admin/crm",
     include_in_schema=False,
-    dependencies=[Depends(exigir_permissao("leads.view"))],
+    dependencies=[Depends(exigir_permissao("crm.view"))],
 )
 async def painel_crm() -> FileResponse:
     return FileResponse(web_dir / "admin-crm.html")
@@ -285,6 +315,15 @@ async def painel_retribuicoes() -> FileResponse:
 )
 async def painel_regras_automaticas() -> FileResponse:
     return FileResponse(web_dir / "admin-regras-automaticas.html")
+
+
+@app.get(
+    "/admin/configuracao/modelo-propostas",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("leads.view"))],
+)
+async def painel_modelo_propostas() -> FileResponse:
+    return FileResponse(web_dir / "admin-modelo-propostas.html")
 
 
 @app.get(
@@ -433,7 +472,7 @@ async def health(
     )
 
 
-@app.get("/health/db", tags=["infraestrutura"])
+@app.get("/health/db", tags=["infraestrutura"], dependencies=[Depends(exigir_chave_health)])
 async def health_db(session: Annotated[AsyncSession, Depends(get_session)]) -> JSONResponse:
     inicio = datetime.now(UTC)
     try:
@@ -441,24 +480,34 @@ async def health_db(session: Annotated[AsyncSession, Depends(get_session)]) -> J
         latencia = round((datetime.now(UTC) - inicio).total_seconds() * 1000, 2)
         return JSONResponse(status_code=200, content={"status": "ok", "latencia_ms": latencia})
     except Exception as exc:
-        return JSONResponse(status_code=503, content={"status": "indisponivel", "erro": type(exc).__name__})
+        return JSONResponse(
+            status_code=503,
+            content={"status": "indisponivel", "erro": type(exc).__name__},
+        )
 
 
-@app.get("/health/queue", tags=["infraestrutura"])
+@app.get("/health/queue", tags=["infraestrutura"], dependencies=[Depends(exigir_chave_health)])
 async def health_queue() -> JSONResponse:
     fila = await status_fila()
     obrigatoria = bool(settings.redis_required)
-    return JSONResponse(status_code=200 if fila["status"] == "ok" or not obrigatoria else 503, content=fila)
+    return JSONResponse(
+        status_code=200 if fila["status"] == "ok" or not obrigatoria else 503,
+        content=fila,
+    )
 
 
-@app.get("/metrics", tags=["infraestrutura"])
+@app.get("/metrics", tags=["infraestrutura"], dependencies=[Depends(exigir_chave_health)])
 async def metrics(session: Annotated[AsyncSession, Depends(get_session)]) -> PlainTextResponse:
     """Métricas Prometheus simples, sem dados sensíveis e compatíveis com scraping."""
-    total, erros, duracao = (await session.execute(select(
-        func.count(EventoOperacional.id),
-        func.sum(case((EventoOperacional.sucesso.is_(False), 1), else_=0)),
-        func.avg(EventoOperacional.duracao_ms),
-    ))).one()
+    total, erros, duracao = (
+        await session.execute(
+            select(
+                func.count(EventoOperacional.id),
+                func.sum(case((EventoOperacional.sucesso.is_(False), 1), else_=0)),
+                func.avg(EventoOperacional.duracao_ms),
+            )
+        )
+    ).one()
     fila = await status_fila()
     linhas = [
         "# HELP ze_registra_http_requests_total Requisições operacionais registradas.",
@@ -472,18 +521,25 @@ async def metrics(session: Annotated[AsyncSession, Depends(get_session)]) -> Pla
         f"ze_registra_http_duration_ms_avg {float(duracao or 0):.2f}",
     ]
     if fila["status"] == "ok":
-        linhas.extend([
-            "# TYPE ze_registra_queue_pending gauge",
-            f"ze_registra_queue_pending {int(fila.get('pendentes') or 0)}",
-            "# TYPE ze_registra_queue_failed gauge",
-            f"ze_registra_queue_failed {int(fila.get('falhas') or 0)}",
-            "# TYPE ze_registra_queue_processing gauge",
-            f"ze_registra_queue_processing {int(fila.get('processando') or 0)}",
-        ])
+        linhas.extend(
+            [
+                "# TYPE ze_registra_queue_pending gauge",
+                f"ze_registra_queue_pending {int(fila.get('pendentes') or 0)}",
+                "# TYPE ze_registra_queue_failed gauge",
+                f"ze_registra_queue_failed {int(fila.get('falhas') or 0)}",
+                "# TYPE ze_registra_queue_processing gauge",
+                f"ze_registra_queue_processing {int(fila.get('processando') or 0)}",
+            ]
+        )
     return PlainTextResponse("\n".join(linhas) + "\n", media_type="text/plain; version=0.0.4")
 
 
-@app.get("/health/rpi", response_model=RpiHealthResponse, tags=["infraestrutura"])
+@app.get(
+    "/health/rpi",
+    response_model=RpiHealthResponse,
+    tags=["infraestrutura"],
+    dependencies=[Depends(exigir_chave_health)],
+)
 async def health_rpi(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> JSONResponse:

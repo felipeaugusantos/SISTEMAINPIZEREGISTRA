@@ -1,0 +1,79 @@
+/* ==========================================================================
+   Kit de marca Zé Registra — tokens extraídos de zeregistra.com.br
+   Carregue DEPOIS do styles.css para aplicar a identidade visual ao admin.
+   É aditivo e reversível: remova o <link> para voltar ao tema anterior.
+   ========================================================================== */
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Manrope:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Paleta da marca (referência) */
+  --brand-green: #008037;
+  --brand-green-deep: #005927;
+  --brand-ink: #003d1a;
+  --brand-mint: #e6f5ed;
+  --brand-sage: #b3c6bc;
+  --brand-bg: #f0f4f2;
+  --brand-cream: #fdf6f0;
+  --brand-border: #d1ded8;
+  --brand-danger: #dc2626;
+
+  /* Remapeia os tokens que o admin já consome */
+  --ink: #1a1a1a;
+  --muted: #4d5f55;
+  --surface: #fdf6f0;
+  --line: #d1ded8;
+  --accent: #008037;
+  --ring: #008037;
+}
+
+/* Tipografia da marca */
+body,
+.admin-body,
+.auth-body {
+  background: var(--brand-bg);
+  font-family: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+h1, h2, h3,
+.eyebrow,
+.brand-wordmark {
+  font-family: "Sora", "Manrope", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Superfícies e cards */
+.admin-sidebar,
+.admin-main,
+.finance-card,
+.crm-card,
+.overview-section,
+dialog {
+  --surface: var(--brand-cream);
+}
+
+/* Botão primário e ações na cor da marca */
+.primary-button,
+.auth-card button,
+.nav-cta {
+  background: var(--brand-green);
+  color: #fff;
+}
+.primary-button:hover,
+.auth-card button:hover,
+.nav-cta:hover {
+  background: var(--brand-green-deep);
+}
+
+/* Item de menu ativo / links de destaque */
+.admin-sidebar-nav a.active,
+.admin-sidebar-nav a[aria-current="page"] {
+  background: var(--brand-mint);
+  color: var(--brand-ink);
+}
+.admin-sidebar-nav a.active .admin-nav-symbol {
+  background: var(--brand-green);
+  color: #fff;
+}
+
+/* Foco/realce coerente com a marca */
+:focus-visible {
+  outline-color: var(--brand-green);
+}

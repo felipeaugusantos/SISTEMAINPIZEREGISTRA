@@ -132,6 +132,7 @@ class Organizacao(Base):
     plano_id: Mapped[int] = mapped_column(
         ForeignKey("planos_saas.id", ondelete="RESTRICT"), index=True
     )
+    modulos_liberados: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="ativa", index=True)
     email_contato: Mapped[str | None] = mapped_column(String(254), nullable=True)
     telefone_contato: Mapped[str | None] = mapped_column(String(30), nullable=True)
@@ -212,6 +213,7 @@ class UsuarioOperacoes(Base):
     usuario: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
     cargo: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    departamento: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     perfil: Mapped[str] = mapped_column(String(30), default="operador", index=True)
     senha_hash: Mapped[str] = mapped_column(Text)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
@@ -839,6 +841,88 @@ class FormaPagamentoFinanceira(Base):
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class DepartamentoFinanceiro(Base):
+    __tablename__ = "departamentos_financeiros"
+    __table_args__ = (UniqueConstraint("organizacao_id", "codigo", name="uq_departamento_financeiro_org"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    codigo: Mapped[str] = mapped_column(String(50), index=True)
+    nome: Mapped[str] = mapped_column(String(150))
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CentroCustoFinanceiro(Base):
+    __tablename__ = "centros_custo_financeiros"
+    __table_args__ = (UniqueConstraint("organizacao_id", "codigo", name="uq_centro_custo_financeiro_org"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    departamento_id: Mapped[int | None] = mapped_column(ForeignKey("departamentos_financeiros.id", ondelete="SET NULL"), nullable=True, index=True)
+    codigo: Mapped[str] = mapped_column(String(50), index=True)
+    nome: Mapped[str] = mapped_column(String(150))
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FornecedorJuridico(Base):
+    __tablename__ = "fornecedores_juridicos"
+    __table_args__ = (UniqueConstraint("organizacao_id", "documento", name="uq_fornecedor_juridico_org_documento"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    nome: Mapped[str] = mapped_column(String(180), index=True)
+    documento: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ContratoJuridico(Base):
+    __tablename__ = "contratos_juridicos"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    titulo: Mapped[str] = mapped_column(String(180))
+    fornecedor_id: Mapped[int | None] = mapped_column(ForeignKey("fornecedores_juridicos.id", ondelete="SET NULL"), nullable=True, index=True)
+    processo_id: Mapped[int | None] = mapped_column(ForeignKey("processos.id", ondelete="SET NULL"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(30), default="ativo", index=True)
+    vigencia_inicio: Mapped[date | None] = mapped_column(Date, nullable=True)
+    vigencia_fim: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    valor: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    documento_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CustoJuridico(Base):
+    __tablename__ = "custos_juridicos"
+    __table_args__ = (UniqueConstraint("organizacao_id", "idempotency_key", name="uq_custo_juridico_idempotencia"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    centro_custo_id: Mapped[int | None] = mapped_column(ForeignKey("centros_custo_financeiros.id", ondelete="SET NULL"), nullable=True, index=True)
+    departamento_id: Mapped[int | None] = mapped_column(ForeignKey("departamentos_financeiros.id", ondelete="SET NULL"), nullable=True, index=True)
+    fornecedor_id: Mapped[int | None] = mapped_column(ForeignKey("fornecedores_juridicos.id", ondelete="SET NULL"), nullable=True, index=True)
+    contrato_id: Mapped[int | None] = mapped_column(ForeignKey("contratos_juridicos.id", ondelete="SET NULL"), nullable=True, index=True)
+    processo_id: Mapped[int | None] = mapped_column(ForeignKey("processos.id", ondelete="SET NULL"), nullable=True, index=True)
+    categoria: Mapped[str] = mapped_column(String(30), index=True)
+    descricao: Mapped[str] = mapped_column(String(240))
+    valor: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    responsaveis: Mapped[list[int]] = mapped_column(JSON, default=list)
+    idempotency_key: Mapped[str] = mapped_column(String(120), index=True)
+    criado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class WebhookFinanceiro(Base):
+    __tablename__ = "webhooks_financeiros"
+    __table_args__ = (UniqueConstraint("organizacao_id", "referencia", name="uq_webhook_financeiro_org_referencia"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    referencia: Mapped[str] = mapped_column(String(150), index=True)
+    evento: Mapped[str] = mapped_column(String(80), index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="recebido", index=True)
+    tentativas: Mapped[int] = mapped_column(Integer, default=1)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ServicoFinanceiro(Base):

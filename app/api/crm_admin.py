@@ -30,8 +30,8 @@ from app.proxy import cliente_ip
 
 router = APIRouter(prefix="/v1/admin/crm", tags=["crm"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-CRMViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
-CRMManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.manage"))]
+CRMViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("crm.view"))]
+CRMManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("crm.manage"))]
 TIPOS_LEMBRETE = {
     "retorno": "Retornar contato",
     "atualizar_cadastro": "Atualizar cadastro",
@@ -207,7 +207,7 @@ async def historico_crm(
         "tem_mais": deslocamento + len(itens) < int(total or 0),
         "por_canal": {str(canal): quantidade for canal, quantidade in canais.items()},
         "itens": itens,
-        "acoes": {"registrar": usuario.pode("leads.manage")},
+        "acoes": {"registrar": usuario.pode("crm.manage")},
     }
 
 
@@ -392,7 +392,9 @@ async def listar_lembretes(
         .scalars()
         .all()
     )
-    alertas_atraso = [item for item in itens if item.status == "pendente" and item.lembrar_em < agora]
+    alertas_atraso = [
+        item for item in itens if item.status == "pendente" and item.lembrar_em < agora
+    ]
     metricas = (
         await session.execute(
             select(
@@ -450,7 +452,7 @@ async def listar_lembretes(
             }
             for lead_id, nome, empresa, atualizado_em in cadastros
         ],
-        "acoes": {"gerenciar": usuario.pode("leads.manage")},
+        "acoes": {"gerenciar": usuario.pode("crm.manage")},
     }
 
 

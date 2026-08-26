@@ -15,6 +15,7 @@ from app.database import get_session
 from app.models import (
     AfinidadeClasse,
     AvaliacaoRiscoMarca,
+    Contato,
     Lead,
     MarcaAltoRenome,
     ModeloRegistrabilidade,
@@ -117,6 +118,20 @@ async def criar_pesquisa(
     await validar_limite_pesquisas(session, organizacao)
     empresa = await obter_ou_criar_empresa(session, organizacao.id, dados.empresa)
     lead = await buscar_lead_ativo_por_email(session, organizacao.id, dados.email_corporativo)
+    if lead is not None and lead.contato_id is not None:
+        # Corrige vínculos legados inválidos antes do autoflush da atualização.
+        with session.no_autoflush:
+            contato_valido = (
+                await session.execute(
+                    select(Contato.id).where(
+                        Contato.id == lead.contato_id,
+                        Contato.organizacao_id == organizacao.id,
+                        Contato.empresa_id == (empresa.id if empresa else None),
+                    )
+                )
+            ).scalar_one_or_none()
+        if contato_valido is None:
+            lead.contato_id = None
     if lead is None:
         lead = Lead(
             organizacao_id=organizacao.id,

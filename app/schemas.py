@@ -165,7 +165,7 @@ class LeadCreate(BaseModel):
     telefone: str = Field(min_length=10, max_length=30)
     marca: str = Field(default="", max_length=200)
     processo_numero: str | None = Field(default=None, max_length=50)
-    origem: Literal["resultados", "processo", "geral"] = "resultados"
+    origem: Literal["resultados", "processo", "geral", "landing"] = "resultados"
     tipo_interesse: TipoProcesso | None = None
     aceite_privacidade: Literal[True]
     website: str = Field(default="", max_length=200)

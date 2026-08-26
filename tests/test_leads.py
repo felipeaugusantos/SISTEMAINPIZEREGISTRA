@@ -364,7 +364,7 @@ def test_operador_gera_relatorio_completo_e_registra_primeira_geracao() -> None:
     assert pesquisa.relatorio_completo_gerado_por == "admin@teste.local"
 
 
-def test_relatorio_completo_e_bloqueado_enquanto_revisao_esta_pendente() -> None:
+def test_relatorio_preliminar_e_permitido_enquanto_revisao_esta_pendente() -> None:
     pesquisa = PesquisaMarca(
         id="pesquisa-pendente",
         organizacao_id=1,
@@ -394,10 +394,14 @@ def test_relatorio_completo_e_bloqueado_enquanto_revisao_esta_pendente() -> None
         headers={"X-CSRF-Token": "csrf-teste"},
     )
 
-    assert resposta.status_code == 409
-    assert "validação formal" in resposta.json()["detail"]
-    assert pesquisa.relatorio_completo_gerado_em is None
-    assert any(
+    assert resposta.status_code == 200
+    assert resposta.headers["content-type"] == "application/pdf"
+    assert resposta.content.startswith(b"%PDF")
+    assert resposta.headers["x-relatorio-status"] == "preliminar"
+    assert resposta.headers["x-analysis-state"] == EstadoAnalise.PENDING_REVIEW.value
+    assert pesquisa.relatorio_completo_gerado_em is not None
+    assert pesquisa.relatorio_completo_gerado_por == "admin@teste.local"
+    assert not any(
         isinstance(item, EventoAuditoria) and item.acao == "bloquear_relatorio"
         for item in sessao.adicionados
     )

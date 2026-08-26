@@ -614,3 +614,51 @@ separadas. O portal retorna somente ativos explicitamente vinculados ao cliente 
 ## Estado do projeto
 
 O projeto está em fase de testes e validação operacional. Antes de disponibilizá-lo para novos clientes, revise as configurações de segurança, domínio, SMTP, backup, monitoramento, credenciais e políticas de privacidade do ambiente de destino.
+
+### Isolamento por empresa e módulos operacionais
+
+Cada organização/empresa opera em seu próprio tenant, com consultas e alterações
+limitadas pelo contexto de organização e pelas políticas de acesso. Os módulos
+operacionais podem ser habilitados individualmente no plano da empresa:
+
+- **Leads** (`leads.view`, `leads.manage`);
+- **CRM** (`crm.view`, `crm.manage`);
+- **Processos Monitorados** (`portfolio.view`, `portfolio.manage`);
+- **Operação Jurídica** (`legal.view`, `legal.manage`).
+
+A migration `aa41b8c6d702_modulos_por_tenant` adiciona os módulos aos planos existentes
+sem duplicar entradas. O acesso por ID de outra organização continua bloqueado pelo
+isolamento de tenant.
+
+### Jornada comercial e busca gratuita
+
+A landing page `/buscar-gratuita` captura nome, e-mail, WhatsApp e marca e cria ou
+atualiza o lead automaticamente com origem `landing`. O fluxo administrativo mantém
+qualificação, Kanban, responsável e próxima ação, vinculando pesquisas e propostas
+versionadas até aceite, pagamento, documentos e protocolo. O endpoint
+`/v1/admin/leads-dashboard` retorna origem, funil, tempos médios até proposta/aceite,
+taxas de pagamento/protocolo, atrasos e motivos de perda.
+
+### Escritórios e departamentos jurídicos
+
+A API versionada `/v1/admin/escritorio` oferece departamentos, centros de custo,
+fornecedores, contratos, custos jurídicos (incluindo custas do INPI e honorários),
+múltiplos responsáveis, relatório executivo e exportação CSV sem e-mail ou documento
+de fornecedores. Os registros possuem `organizacao_id`, políticas RLS e filtragem
+por departamento do usuário. O webhook assinado fica em
+`/v1/webhooks/escritorio/financeiro`, com chave de idempotência, auditoria do evento,
+tentativas e reprocessamento autenticado.
+## Hardening aplicado em 2026-08
+
+- Resolução de tenant desconhecido falha fechado em produção; o fallback da organização padrão fica restrito a desenvolvimento/local.
+- `/metrics`, `/health/db`, `/health/queue` e `/health/rpi` exigem `X-Health-Key` em produção. Configure `HEALTH_API_KEY` com pelo menos 32 caracteres.
+- CORS documenta explicitamente `X-CSRF-Token` e `X-Health-Key`.
+- Webhook Clicksign consulta por envelope, valida HMAC e ignora eventos repetidos.
+- O teste de cache-bust da tela de análise foi alinhado à versão atual do asset.
+
+### Checklist mínimo para produção
+
+1. Defina `APP_ENV=production`, `ADMIN_FORCE_HTTPS=true`, `INTEGRATION_AUTH_ENABLED=true` e origens CORS explícitas.
+2. Defina `HEALTH_API_KEY`, `SECURITY_MASTER_KEY`, `AUDIT_IP_SALT` e credenciais reais fora do repositório.
+3. Configure cada domínio de cliente em `dominios_organizacao`; hosts não cadastrados retornam 404.
+4. Execute backup e restauração de validação antes de aplicar migrations.

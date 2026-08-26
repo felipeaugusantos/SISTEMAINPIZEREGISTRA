@@ -10,6 +10,7 @@ from app.auth import UsuarioAutenticado, exigir_permissao
 from app.crm import buscar_lead_ativo_por_email, obter_ou_criar_empresa
 from app.database import get_session
 from app.models import (
+    Contato,
     Lead,
     PesquisaMarca,
     SolicitacaoExclusaoPesquisa,
@@ -49,6 +50,19 @@ async def criar_consulta(
     empresa = await obter_ou_criar_empresa(session, operador.organizacao_id, dados.empresa)
     email = dados.email.strip().lower()
     lead = await buscar_lead_ativo_por_email(session, operador.organizacao_id, email)
+    if lead is not None and lead.contato_id is not None:
+        with session.no_autoflush:
+            contato_valido = (
+                await session.execute(
+                    select(Contato.id).where(
+                        Contato.id == lead.contato_id,
+                        Contato.organizacao_id == operador.organizacao_id,
+                        Contato.empresa_id == (empresa.id if empresa else None),
+                    )
+                )
+            ).scalar_one_or_none()
+        if contato_valido is None:
+            lead.contato_id = None
     if email and lead is None:
         lead = Lead(
             organizacao_id=operador.organizacao_id,

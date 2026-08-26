@@ -372,10 +372,8 @@ async def obter_central_analise(
         ),
         "relatorio_completo": {
             "base_disponivel": versao is not None,
-            "gerado": (
-                estado_analise == EstadoAnalise.VALIDATED.value
-                and pesquisa.relatorio_completo_gerado_em is not None
-            ),
+            "gerado": pesquisa.relatorio_completo_gerado_em is not None,
+            "validado": estado_analise == EstadoAnalise.VALIDATED.value,
             "gerado_em": pesquisa.relatorio_completo_gerado_em,
             "gerado_por": pesquisa.relatorio_completo_gerado_por,
         },

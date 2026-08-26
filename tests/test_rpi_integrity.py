@@ -3,7 +3,12 @@ from datetime import UTC, datetime, timedelta
 from app.models import TipoProcesso
 from app.rpi.bulk_importer import _chave_movimentacao
 from app.rpi.health import avaliar_saude_rpi
-from app.rpi.integrity import avaliar_importacao, calcular_integridade_arquivo, validar_arquivo_rpi
+from app.rpi.integrity import (
+    avaliar_importacao,
+    calcular_integridade_arquivo,
+    sanitizar_referencias_xml,
+    validar_arquivo_rpi,
+)
 from app.rpi.types import MovimentacaoRpi, RegistroRpi
 
 
@@ -55,6 +60,17 @@ def test_xml_rpi_sem_registros_e_rejeitado(tmp_path) -> None:
         assert "não contém registros" in str(erro)
     else:
         raise AssertionError("RPI sem registros deveria ser rejeitada")
+
+
+def test_referencia_numerica_xml_invalida_eh_removida_sem_perder_o_registro(tmp_path) -> None:
+    arquivo = tmp_path / "RM2902.xml"
+    arquivo.write_text(
+        '<revista numero="2902" data="18/08/2026"><processo><marca>ABC &#x13; DEF</marca></processo></revista>',
+        encoding="utf-8",
+    )
+    assert sanitizar_referencias_xml(arquivo) == 1
+    assert validar_arquivo_rpi(arquivo, TipoProcesso.MARCA) == 1
+    assert "&#x13;" not in arquivo.read_text(encoding="utf-8")
 
 
 def test_rpi_vazia_ou_parcial_e_erro_de_integridade() -> None:

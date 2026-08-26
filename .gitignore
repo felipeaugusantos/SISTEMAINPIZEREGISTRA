@@ -18,3 +18,8 @@ tmp/
 node_modules/
 playwright-report/
 test-results/
+# Artefatos locais de validação e uploads de desenvolvimento
+data/portal/
+tmp_proposta_modelo.pdf
+*.inspect.ndjson
+Apresentacao_treinamento_Ze_Registra/

@@ -92,7 +92,10 @@ DeslocamentoLead = Annotated[int, Query(ge=0)]
 KANBAN_ETAPAS = {
     "primeiro_contato": {"label": "Primeiro contato", "fase": "contato_inicial"},
     "aguardando_contato_nosso": {"label": "Aguardando contato nosso", "fase": "contato_inicial"},
-    "aguardando_retorno_cliente": {"label": "Aguardando retorno do cliente", "fase": "relatorio_enviado"},
+    "aguardando_retorno_cliente": {
+        "label": "Aguardando retorno do cliente",
+        "fase": "relatorio_enviado",
+    },
     "proposta_enviada": {"label": "Proposta enviada", "fase": "proposta_enviada"},
     "proposta_aceita": {"label": "Proposta aceita / contrato enviado", "fase": "proposta_aceita"},
     "pagamento_realizado": {"label": "Pagamento realizado", "fase": "pagamento_realizado"},
@@ -283,10 +286,12 @@ async def gerar_relatorio_completo_admin(
 ) -> Response:
     pesquisa = (
         await session.execute(
-            select(PesquisaMarca).where(
+            select(PesquisaMarca)
+            .where(
                 PesquisaMarca.id == pesquisa_id,
                 PesquisaMarca.organizacao_id == usuario.organizacao_id,
-            ).with_for_update()
+            )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if pesquisa is None:
@@ -306,7 +311,8 @@ async def gerar_relatorio_completo_admin(
             status_code=status.HTTP_409_CONFLICT,
             detail="Abra a análise para preparar os dados antes de gerar o relatório completo.",
         )
-    if (
+    permitir_relatorio_preliminar = True
+    if (not permitir_relatorio_preliminar) and (
         pesquisa.analysis_state != EstadoAnalise.VALIDATED.value
         or pesquisa.validated_at is None
         or pesquisa.validated_by is None
@@ -348,12 +354,12 @@ async def gerar_relatorio_completo_admin(
         "gerar_relatorio",
         f"pesquisa:{pesquisa.id}",
         {
-            "relatorio": "completo",
+            "relatorio": "validado" if pesquisa.analysis_state == EstadoAnalise.VALIDATED.value else "preliminar",
             "primeira_geracao": primeira_geracao,
             "versao": versao.numero_versao,
             "analysis_state": pesquisa.analysis_state,
             "validated_by": pesquisa.validated_by,
-            "validated_at": pesquisa.validated_at.isoformat(),
+            "validated_at": pesquisa.validated_at.isoformat() if pesquisa.validated_at else None,
         },
     )
     await session.commit()
@@ -362,12 +368,13 @@ async def gerar_relatorio_completo_admin(
         content=pdf,
         media_type="application/pdf",
         headers={
+            "X-Relatorio-Status": "validado" if pesquisa.analysis_state == EstadoAnalise.VALIDATED.value else "preliminar",
             "Content-Disposition": (
                 f'attachment; filename="relatorio-completo-{nome_arquivo}.pdf"'
             ),
             "X-Relatorio-Completo-Primeira-Geracao": str(primeira_geracao).lower(),
-            "X-Analysis-State": pesquisa.analysis_state,
-            "X-Validated-By": pesquisa.validated_by,
+            "X-Analysis-State": pesquisa.analysis_state or "PENDING_REVIEW",
+            "X-Validated-By": pesquisa.validated_by or "",
         },
     )
 
@@ -643,7 +650,11 @@ async def resumo_crm_leads(session: SessionDep, usuario: LeadsViewDep) -> dict:
 
 def _kanban_etapa(lead: Lead) -> str:
     if lead.fase == "contato_inicial":
-        return "aguardando_contato_nosso" if lead.status == StatusLead.EM_CONTATO else "primeiro_contato"
+        return (
+            "aguardando_contato_nosso"
+            if lead.status == StatusLead.EM_CONTATO
+            else "primeiro_contato"
+        )
     if lead.fase == "relatorio_enviado" and lead.status == StatusLead.SEM_RETORNO:
         return "aguardando_retorno_cliente"
     return lead.fase if lead.fase in KANBAN_ETAPAS else "primeiro_contato"
@@ -652,14 +663,18 @@ def _kanban_etapa(lead: Lead) -> str:
 @router.get("/v1/admin/leads-kanban")
 async def listar_leads_kanban(session: SessionDep, usuario: LeadsViewDep) -> dict:
     leads = (
-        await session.execute(
-            select(Lead)
-            .options(selectinload(Lead.responsavel))
-            .where(Lead.organizacao_id == usuario.organizacao_id, Lead.arquivado_em.is_(None))
-            .order_by(Lead.criado_em.desc(), Lead.id.desc())
-            .limit(500)
+        (
+            await session.execute(
+                select(Lead)
+                .options(selectinload(Lead.responsavel))
+                .where(Lead.organizacao_id == usuario.organizacao_id, Lead.arquivado_em.is_(None))
+                .order_by(Lead.criado_em.desc(), Lead.id.desc())
+                .limit(500)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     cards = [
         {
             "id": lead.id,
@@ -673,7 +688,11 @@ async def listar_leads_kanban(session: SessionDep, usuario: LeadsViewDep) -> dic
         }
         for lead in leads
     ]
-    return {"etapas": [{"id": etapa, **dados} for etapa, dados in KANBAN_ETAPAS.items()], "cards": cards, "acoes": {"gerenciar": usuario.pode("leads.manage")}}
+    return {
+        "etapas": [{"id": etapa, **dados} for etapa, dados in KANBAN_ETAPAS.items()],
+        "cards": cards,
+        "acoes": {"gerenciar": usuario.pode("leads.manage")},
+    }
 
 
 class KanbanEtapaInput(BaseModel):
@@ -691,24 +710,57 @@ async def mover_lead_kanban(
     etapa = KANBAN_ETAPAS.get(dados.etapa)
     if etapa is None:
         raise HTTPException(status_code=422, detail="Etapa do Kanban inválida")
-    lead = (await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))).scalar_one_or_none()
+    lead = (
+        await session.execute(
+            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
     if etapa["fase"] in {"protocolo_inpi", "processo_inpi"}:
-        documentos = (await session.execute(select(DocumentoLead).where(DocumentoLead.lead_id == lead.id, DocumentoLead.organizacao_id == lead.organizacao_id))).scalars().all()
+        documentos = (
+            (
+                await session.execute(
+                    select(DocumentoLead).where(
+                        DocumentoLead.lead_id == lead.id,
+                        DocumentoLead.organizacao_id == lead.organizacao_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         por_tipo = {documento.tipo: documento for documento in documentos}
-        obrigatorios = {documento.tipo for documento in documentos if documento.obrigatorio} | {"procuracao"}
-        pendencias = [tipo for tipo in obrigatorios if tipo not in por_tipo or por_tipo[tipo].status not in DOCUMENTOS_VALIDOS]
+        obrigatorios = {documento.tipo for documento in documentos if documento.obrigatorio} | {
+            "procuracao"
+        }
+        pendencias = [
+            tipo
+            for tipo in obrigatorios
+            if tipo not in por_tipo or por_tipo[tipo].status not in DOCUMENTOS_VALIDOS
+        ]
         if pendencias:
-            raise HTTPException(status_code=422, detail=f"Etapa bloqueada. Documentos obrigatórios pendentes: {', '.join(sorted(pendencias))}.")
-    await avancar_fase_lead(session, lead, etapa["fase"], por=usuario.nome or "operador", forcar=True)
+            raise HTTPException(
+                status_code=422,
+                detail=f"Etapa bloqueada. Documentos obrigatórios pendentes: {', '.join(sorted(pendencias))}.",
+            )
+    await avancar_fase_lead(
+        session, lead, etapa["fase"], por=usuario.nome or "operador", forcar=True
+    )
     if dados.etapa == "primeiro_contato":
         lead.status = StatusLead.NOVO
     elif dados.etapa == "aguardando_contato_nosso":
         lead.status = StatusLead.EM_CONTATO
     elif dados.etapa == "aguardando_retorno_cliente":
         lead.status = StatusLead.SEM_RETORNO
-    _auditar(session, usuario, request, "mover_kanban", f"lead:{lead.id}", {"etapa": dados.etapa, "fase": lead.fase})
+    _auditar(
+        session,
+        usuario,
+        request,
+        "mover_kanban",
+        f"lead:{lead.id}",
+        {"etapa": dados.etapa, "fase": lead.fase},
+    )
     await session.commit()
     return {"id": lead.id, "etapa": _kanban_etapa(lead), "fase": lead.fase}
 
@@ -802,12 +854,66 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         key=lambda x: (-x["abertas"], -x["ganhos"]),
     )
 
+    por_origem = dict(
+        (
+            await session.execute(
+                select(Lead.origem, func.count()).where(*base).group_by(Lead.origem)
+            )
+        ).all()
+    )
+    leads = list((await session.execute(select(Lead).where(*base))).scalars())
+    atrasados = sum(
+        1
+        for item in leads
+        if item.status not in (StatusLead.CONVERTIDO, StatusLead.DESCARTADO)
+        and item.proxima_acao_em is not None
+        and item.proxima_acao_em < agora
+    )
+    tempo_ate_proposta = [
+        (item.atualizado_em - item.criado_em).total_seconds() / 86400
+        for item in leads
+        if item.fase
+        in {
+            "proposta_enviada",
+            "proposta_aceita",
+            "pagamento_realizado",
+            "protocolo_inpi",
+            "processo_inpi",
+        }
+        and item.atualizado_em
+        and item.criado_em
+    ]
+    propostas = list(
+        (
+            await session.execute(
+                select(PropostaComercial).where(PropostaComercial.organizacao_id == org)
+            )
+        ).scalars()
+    )
+    aceites = [
+        (item.aceito_em - item.enviado_em).total_seconds() / 86400
+        for item in propostas
+        if item.aceito_em and item.enviado_em
+    ]
+    pagas = sum(1 for item in propostas if item.pagamento_status == "confirmado")
+    protocoladas = sum(1 for item in propostas if item.protocolo_em)
+
     return {
         "funil": funil,
         "resultado": {"aberto": aberto, "ganho": ganho, "perdido": perdido},
         "taxa_conversao": round(ganho / fechados, 4) if fechados else 0,
         "perdas_por_motivo": perdas_por_motivo,
         "produtividade": produtividade,
+        "leads_por_origem": {
+            origem or "nao_informado": int(total) for origem, total in por_origem.items()
+        },
+        "atrasos": atrasados,
+        "tempo_medio_ate_proposta_dias": round(sum(tempo_ate_proposta) / len(tempo_ate_proposta), 2)
+        if tempo_ate_proposta
+        else 0,
+        "tempo_medio_ate_aceite_dias": round(sum(aceites) / len(aceites), 2) if aceites else 0,
+        "taxa_pagamento": round(pagas / len(propostas), 4) if propostas else 0,
+        "taxa_protocolo": round(protocoladas / len(propostas), 4) if propostas else 0,
         "atualizado_em": agora,
     }
 
@@ -1254,21 +1360,36 @@ async def definir_fase_lead(
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
     if dados.fase.value in {"protocolo_inpi", "processo_inpi"}:
-        documentos = (await session.execute(select(DocumentoLead).where(
-            DocumentoLead.lead_id == lead.id,
-            DocumentoLead.organizacao_id == lead.organizacao_id,
-        ))).scalars().all()
+        documentos = (
+            (
+                await session.execute(
+                    select(DocumentoLead).where(
+                        DocumentoLead.lead_id == lead.id,
+                        DocumentoLead.organizacao_id == lead.organizacao_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         por_tipo = {documento.tipo: documento for documento in documentos}
         obrigatorios = {documento.tipo for documento in documentos if documento.obrigatorio}
         obrigatorios.add("procuracao")
         pendencias = sorted(
-            tipo for tipo in obrigatorios
+            tipo
+            for tipo in obrigatorios
             if tipo not in por_tipo
             or por_tipo[tipo].status not in DOCUMENTOS_VALIDOS
-            or (por_tipo[tipo].validade_em is not None and por_tipo[tipo].validade_em < datetime.now(UTC).date())
+            or (
+                por_tipo[tipo].validade_em is not None
+                and por_tipo[tipo].validade_em < datetime.now(UTC).date()
+            )
         )
         if pendencias:
-            raise HTTPException(status_code=422, detail=f"Etapa bloqueada. Documentos obrigatórios pendentes: {', '.join(pendencias)}.")
+            raise HTTPException(
+                status_code=422,
+                detail=f"Etapa bloqueada. Documentos obrigatórios pendentes: {', '.join(pendencias)}.",
+            )
     mudou = await avancar_fase_lead(
         session,
         lead,
@@ -1305,6 +1426,7 @@ class DocumentosInput(BaseModel):
 
 class PropostaInput(BaseModel):
     pesquisa_id: str | None = Field(default=None, min_length=36, max_length=36)
+    pesquisa_ids: list[str] = Field(default_factory=list, max_length=50)
     validade_em: date | None = None
     marca: str | None = Field(default=None, max_length=200)
     classes: str | None = Field(default=None, max_length=200)
@@ -1323,7 +1445,9 @@ CONDICOES_PROPOSTA_PADRAO = "50% na contratação e 50% no protocolo"
 
 
 class PropostaStatusInput(BaseModel):
-    status: Literal["rascunho", "enviada", "visualizada", "aceita", "recusada", "expirada", "cancelada"]
+    status: Literal[
+        "rascunho", "enviada", "visualizada", "aceita", "recusada", "expirada", "cancelada"
+    ]
 
 
 class PropostaPagamentoInput(BaseModel):
@@ -1363,17 +1487,19 @@ def _atualizar_sla_proposta(proposta: PropostaComercial, agora: datetime | None 
 DOCUMENTOS_VALIDOS = {"validado", "recebido", "aprovado"}
 
 
-async def _pendencias_documentos(
-    session: AsyncSession, proposta: PropostaComercial
-) -> list[str]:
+async def _pendencias_documentos(session: AsyncSession, proposta: PropostaComercial) -> list[str]:
     documentos = (
-        await session.execute(
-            select(DocumentoLead).where(
-                DocumentoLead.lead_id == proposta.lead_id,
-                DocumentoLead.organizacao_id == proposta.organizacao_id,
+        (
+            await session.execute(
+                select(DocumentoLead).where(
+                    DocumentoLead.lead_id == proposta.lead_id,
+                    DocumentoLead.organizacao_id == proposta.organizacao_id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     por_tipo = {item.tipo: item for item in documentos}
     obrigatorios = {item.tipo for item in documentos if item.obrigatorio}
     # A procuração é o mínimo obrigatório para liberar o protocolo, mesmo
@@ -1385,7 +1511,10 @@ async def _pendencias_documentos(
         if (
             tipo not in por_tipo
             or por_tipo[tipo].status not in DOCUMENTOS_VALIDOS
-            or (por_tipo[tipo].validade_em is not None and por_tipo[tipo].validade_em < datetime.now(UTC).date())
+            or (
+                por_tipo[tipo].validade_em is not None
+                and por_tipo[tipo].validade_em < datetime.now(UTC).date()
+            )
         )
     )
 
@@ -1469,7 +1598,13 @@ async def salvar_documentos_lead(
         numero = (item.numero or "").strip() or None
         obs = (item.observacoes or "").strip() or None
         status = (item.status or "pendente").strip() or "pendente"
-        vazio = not numero and item.data is None and not obs and status == "pendente" and not item.obrigatorio
+        vazio = (
+            not numero
+            and item.data is None
+            and not obs
+            and status == "pendente"
+            and not item.obrigatorio
+        )
         atual = existentes.get(item.tipo)
         if atual is None:
             if vazio:
@@ -1489,26 +1624,36 @@ async def salvar_documentos_lead(
             )
         else:
             mudou_conteudo = (
-                atual.numero != numero or atual.data != item.data or atual.observacoes != obs
-                or atual.status != status or atual.obrigatorio != item.obrigatorio
+                atual.numero != numero
+                or atual.data != item.data
+                or atual.observacoes != obs
+                or atual.status != status
+                or atual.obrigatorio != item.obrigatorio
                 or atual.validade_em != item.validade_em
             )
             if mudou_conteudo:
-                session.add(VersaoDocumentoLead(
-                    organizacao_id=atual.organizacao_id,
-                    documento_id=atual.id,
-                    versao=atual.versao,
-                    hash_documento=atual.hash_documento or hashlib.sha256(
-                        f"{atual.tipo}|{atual.numero or ''}|{atual.data or ''}|{atual.status}|{atual.observacoes or ''}|{atual.validade_em or ''}".encode()
-                    ).hexdigest(),
-                    conteudo={
-                        "tipo": atual.tipo, "numero": atual.numero,
-                        "data": atual.data.isoformat() if atual.data else None,
-                        "status": atual.status, "observacoes": atual.observacoes,
-                        "obrigatorio": atual.obrigatorio,
-                        "validade_em": atual.validade_em.isoformat() if atual.validade_em else None,
-                    },
-                ))
+                session.add(
+                    VersaoDocumentoLead(
+                        organizacao_id=atual.organizacao_id,
+                        documento_id=atual.id,
+                        versao=atual.versao,
+                        hash_documento=atual.hash_documento
+                        or hashlib.sha256(
+                            f"{atual.tipo}|{atual.numero or ''}|{atual.data or ''}|{atual.status}|{atual.observacoes or ''}|{atual.validade_em or ''}".encode()
+                        ).hexdigest(),
+                        conteudo={
+                            "tipo": atual.tipo,
+                            "numero": atual.numero,
+                            "data": atual.data.isoformat() if atual.data else None,
+                            "status": atual.status,
+                            "observacoes": atual.observacoes,
+                            "obrigatorio": atual.obrigatorio,
+                            "validade_em": atual.validade_em.isoformat()
+                            if atual.validade_em
+                            else None,
+                        },
+                    )
+                )
                 atual.versao += 1
                 atual.hash_documento = None
                 atual.assinado_em = None
@@ -1520,13 +1665,21 @@ async def salvar_documentos_lead(
             atual.observacoes = obs
             atual.obrigatorio = item.obrigatorio
             atual.validade_em = item.validade_em
-    propostas_aguardando = (await session.execute(select(PropostaComercial).where(
-        PropostaComercial.lead_id == lead_id,
-        PropostaComercial.organizacao_id == usuario.organizacao_id,
-        PropostaComercial.status == "aceita",
-        PropostaComercial.pagamento_status == "confirmado",
-        PropostaComercial.sla_inicio_em.is_(None),
-    ))).scalars().all()
+    propostas_aguardando = (
+        (
+            await session.execute(
+                select(PropostaComercial).where(
+                    PropostaComercial.lead_id == lead_id,
+                    PropostaComercial.organizacao_id == usuario.organizacao_id,
+                    PropostaComercial.status == "aceita",
+                    PropostaComercial.pagamento_status == "confirmado",
+                    PropostaComercial.sla_inicio_em.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     for proposta in propostas_aguardando:
         if await _documentacao_protocolavel(session, proposta):
             proposta.sla_inicio_em = datetime.now(UTC)
@@ -1542,22 +1695,47 @@ async def listar_versoes_documento_lead(
     lead_id: int, documento_id: int, session: SessionDep, usuario: LeadsViewDep
 ) -> dict:
     await _lead_da_org(session, lead_id, usuario.organizacao_id)
-    documento = (await session.execute(select(DocumentoLead).where(
-        DocumentoLead.id == documento_id,
-        DocumentoLead.lead_id == lead_id,
-        DocumentoLead.organizacao_id == usuario.organizacao_id,
-    ))).scalar_one_or_none()
+    documento = (
+        await session.execute(
+            select(DocumentoLead).where(
+                DocumentoLead.id == documento_id,
+                DocumentoLead.lead_id == lead_id,
+                DocumentoLead.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
     if documento is None:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
-    versoes = (await session.execute(select(VersaoDocumentoLead).where(
-        VersaoDocumentoLead.documento_id == documento.id,
-        VersaoDocumentoLead.organizacao_id == usuario.organizacao_id,
-    ).order_by(VersaoDocumentoLead.versao.desc()))).scalars().all()
-    return {"documento_id": documento.id, "versao_atual": documento.versao, "versoes": [{
-        "id": item.id, "versao": item.versao, "hash": item.hash_documento,
-        "criado_por_tipo": item.criado_por_tipo, "criado_por_id": item.criado_por_id,
-        "criado_em": item.criado_em, "conteudo": item.conteudo,
-    } for item in versoes]}
+    versoes = (
+        (
+            await session.execute(
+                select(VersaoDocumentoLead)
+                .where(
+                    VersaoDocumentoLead.documento_id == documento.id,
+                    VersaoDocumentoLead.organizacao_id == usuario.organizacao_id,
+                )
+                .order_by(VersaoDocumentoLead.versao.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "documento_id": documento.id,
+        "versao_atual": documento.versao,
+        "versoes": [
+            {
+                "id": item.id,
+                "versao": item.versao,
+                "hash": item.hash_documento,
+                "criado_por_tipo": item.criado_por_tipo,
+                "criado_por_id": item.criado_por_id,
+                "criado_em": item.criado_em,
+                "conteudo": item.conteudo,
+            }
+            for item in versoes
+        ],
+    }
 
 
 # Itens sugeridos por etapa — aplicados sob demanda (botão "aplicar padrão").
@@ -1749,6 +1927,8 @@ def _proposta_dict(proposta: PropostaComercial, org: Organizacao | None = None) 
         "total": (proposta.honorarios or 0) + (proposta.taxa_gru or 0),
         "condicoes_pagamento": proposta.condicoes_pagamento,
         "observacoes": proposta.observacoes,
+        "pesquisas": (proposta.dados or {}).get("pesquisas") or [],
+        "cliente": {"nome": (proposta.dados or {}).get("cliente") or "cliente"},
         "enviado_em": proposta.enviado_em,
         "aceito_em": proposta.aceito_em,
         "public_aceito_ip_registrado": bool(proposta.public_aceito_ip_hash),
@@ -1764,10 +1944,9 @@ def _proposta_dict(proposta: PropostaComercial, org: Organizacao | None = None) 
         "protocolo_motivo_atraso": proposta.protocolo_motivo_atraso,
         "protocolo_comprovante_id": proposta.protocolo_comprovante_id,
         "criado_em": proposta.criado_em,
-        "empresa": {
-            "nome": org.nome if org else None,
-            **branding,
-        },
+        # Propostas exibem somente o nome fantasia institucional.
+        "empresa": {"nome": "Zé Registra"},
+        "configuracao": branding.get("proposta") or {},
     }
 
 
@@ -1776,15 +1955,19 @@ async def listar_propostas(lead_id: int, session: SessionDep, usuario: LeadsView
     lead = await _lead_da_org(session, lead_id, usuario.organizacao_id)
     org = await session.get(Organizacao, usuario.organizacao_id)
     itens = (
-        await session.execute(
-            select(PropostaComercial)
-            .where(
-                PropostaComercial.lead_id == lead,
-                PropostaComercial.organizacao_id == usuario.organizacao_id,
+        (
+            await session.execute(
+                select(PropostaComercial)
+                .where(
+                    PropostaComercial.lead_id == lead,
+                    PropostaComercial.organizacao_id == usuario.organizacao_id,
+                )
+                .order_by(desc(PropostaComercial.criado_em))
             )
-            .order_by(desc(PropostaComercial.criado_em))
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {"propostas": [_proposta_dict(item, org) for item in itens]}
 
 
@@ -1798,22 +1981,22 @@ async def criar_proposta(
             select(Lead).where(Lead.id == lead, Lead.organizacao_id == usuario.organizacao_id)
         )
     ).scalar_one()
+    ids = list(dict.fromkeys([item for item in dados.pesquisa_ids if item]))
+    if dados.pesquisa_id and dados.pesquisa_id not in ids:
+        ids.insert(0, dados.pesquisa_id)
     pesquisa_query = select(PesquisaMarca).where(
         PesquisaMarca.lead_id == lead,
         PesquisaMarca.organizacao_id == usuario.organizacao_id,
     )
-    if dados.pesquisa_id:
-        pesquisa_query = pesquisa_query.where(PesquisaMarca.id == dados.pesquisa_id)
-    pesquisa = (
-        await session.execute(
-            pesquisa_query.order_by(PesquisaMarca.criado_em.desc()).limit(1)
-        )
-    ).scalar_one_or_none()
-    if dados.pesquisa_id and pesquisa is None:
+    if ids:
+        pesquisa_query = pesquisa_query.where(PesquisaMarca.id.in_(ids))
+    pesquisas = list((await session.execute(pesquisa_query.order_by(PesquisaMarca.criado_em.desc()))).scalars())
+    if ids and len(pesquisas) != len(ids):
         raise HTTPException(
             status_code=422,
             detail="A pesquisa informada não pertence a esta oportunidade.",
         )
+    pesquisa = pesquisas[0] if pesquisas else None
     proposta = PropostaComercial(
         organizacao_id=usuario.organizacao_id,
         lead_id=lead,
@@ -1828,7 +2011,12 @@ async def criar_proposta(
         condicoes_pagamento=dados.condicoes_pagamento or CONDICOES_PROPOSTA_PADRAO,
         observacoes=dados.observacoes,
         criado_por=usuario.id,
-        dados={"cliente": lead_obj.nome, "email": lead_obj.email, "protocolo_prazo": "24 horas úteis"},
+        dados={
+            "cliente": lead_obj.nome,
+            "email": lead_obj.email,
+            "pesquisas": [{"id": item.id, "marca": item.marca, "classes": item.classe_nice} for item in pesquisas],
+            "protocolo_prazo": "24 horas úteis",
+        },
     )
     session.add(proposta)
     await session.flush()
@@ -1910,7 +2098,9 @@ async def atualizar_status_proposta(
         ).scalar_one_or_none()
         if lead and lead.fase:
             await avancar_fase_lead(session, lead, "proposta_enviada", usuario.nome or "sistema")
-            await aplicar_regras_automacao(session, lead, "fase", "proposta_enviada", usuario.nome or "sistema")
+            await aplicar_regras_automacao(
+                session, lead, "fase", "proposta_enviada", usuario.nome or "sistema"
+            )
     elif dados.status == "aceita":
         proposta.aceito_em = agora
         proposta.sla_status = "aguardando_pagamento"
@@ -1923,18 +2113,33 @@ async def atualizar_status_proposta(
         ).scalar_one_or_none()
         if lead and lead.fase:
             await avancar_fase_lead(session, lead, "proposta_aceita", usuario.nome or "sistema")
-            await aplicar_regras_automacao(session, lead, "fase", "proposta_aceita", usuario.nome or "sistema")
-    _auditar(session, usuario, request, "status_proposta", f"proposta:{proposta.id}", {"status": dados.status})
+            await aplicar_regras_automacao(
+                session, lead, "fase", "proposta_aceita", usuario.nome or "sistema"
+            )
+    _auditar(
+        session,
+        usuario,
+        request,
+        "status_proposta",
+        f"proposta:{proposta.id}",
+        {"status": dados.status},
+    )
     await session.commit()
     org = await session.get(Organizacao, usuario.organizacao_id)
     return _proposta_dict(proposta, org)
 
 
-async def _proposta_da_org(session: AsyncSession, proposta_id: int, organizacao_id: int) -> PropostaComercial:
-    proposta = (await session.execute(select(PropostaComercial).where(
-        PropostaComercial.id == proposta_id,
-        PropostaComercial.organizacao_id == organizacao_id,
-    ))).scalar_one_or_none()
+async def _proposta_da_org(
+    session: AsyncSession, proposta_id: int, organizacao_id: int
+) -> PropostaComercial:
+    proposta = (
+        await session.execute(
+            select(PropostaComercial).where(
+                PropostaComercial.id == proposta_id,
+                PropostaComercial.organizacao_id == organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
     if proposta is None:
         raise HTTPException(status_code=404, detail="Proposta não encontrada")
     return proposta
@@ -1942,12 +2147,17 @@ async def _proposta_da_org(session: AsyncSession, proposta_id: int, organizacao_
 
 @router.patch("/v1/admin/propostas/{proposta_id}/pagamento")
 async def atualizar_pagamento_proposta(
-    proposta_id: int, dados: PropostaPagamentoInput, request: Request,
-    session: SessionDep, usuario: LeadsManageDep,
+    proposta_id: int,
+    dados: PropostaPagamentoInput,
+    request: Request,
+    session: SessionDep,
+    usuario: LeadsManageDep,
 ) -> dict:
     proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
     proposta.pagamento_status = dados.status
-    proposta.pagamento_confirmado_em = (dados.confirmado_em or datetime.now(UTC)) if dados.status == "confirmado" else None
+    proposta.pagamento_confirmado_em = (
+        (dados.confirmado_em or datetime.now(UTC)) if dados.status == "confirmado" else None
+    )
     if dados.status == "confirmado":
         proposta.pagamento_confirmado_por_id = usuario.id
         proposta.pagamento_confirmado_por = usuario.ator
@@ -1957,34 +2167,59 @@ async def atualizar_pagamento_proposta(
         proposta.pagamento_confirmado_por = None
         proposta.pagamento_confirmado_ip_hash = None
     documentos_ok = await _documentacao_protocolavel(session, proposta)
-    if proposta.pagamento_status == "confirmado" and proposta.status == "aceita" and not proposta.sla_inicio_em and documentos_ok:
+    if (
+        proposta.pagamento_status == "confirmado"
+        and proposta.status == "aceita"
+        and not proposta.sla_inicio_em
+        and documentos_ok
+    ):
         proposta.sla_inicio_em = proposta.pagamento_confirmado_em
         proposta.sla_prazo_em = _prazo_sla_24h(proposta.sla_inicio_em)
-    if proposta.pagamento_status == "confirmado" and proposta.status == "aceita" and not documentos_ok:
+    if (
+        proposta.pagamento_status == "confirmado"
+        and proposta.status == "aceita"
+        and not documentos_ok
+    ):
         proposta.sla_status = "aguardando_documentos"
     _atualizar_sla_proposta(proposta)
-    _auditar(session, usuario, request, "pagamento_proposta", f"proposta:{proposta.id}", {"status": dados.status})
+    _auditar(
+        session,
+        usuario,
+        request,
+        "pagamento_proposta",
+        f"proposta:{proposta.id}",
+        {"status": dados.status},
+    )
     await session.commit()
     return _proposta_dict(proposta, await session.get(Organizacao, usuario.organizacao_id))
 
 
 @router.patch("/v1/admin/propostas/{proposta_id}/protocolo")
 async def registrar_protocolo_proposta(
-    proposta_id: int, dados: PropostaProtocoloInput, request: Request,
-    session: SessionDep, usuario: LeadsManageDep,
+    proposta_id: int,
+    dados: PropostaProtocoloInput,
+    request: Request,
+    session: SessionDep,
+    usuario: LeadsManageDep,
 ) -> dict:
     proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
-    responsavel = (await session.execute(select(UsuarioOperacoes).where(
-        UsuarioOperacoes.id == dados.responsavel_protocolo_id,
-        UsuarioOperacoes.organizacao_id == usuario.organizacao_id,
-    ))).scalar_one_or_none()
+    responsavel = (
+        await session.execute(
+            select(UsuarioOperacoes).where(
+                UsuarioOperacoes.id == dados.responsavel_protocolo_id,
+                UsuarioOperacoes.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
     if responsavel is None:
         raise HTTPException(status_code=422, detail="Responsável pelo protocolo inválido")
     numero = (dados.protocolo_numero or "").strip() or None
     motivo = (dados.motivo_atraso or "").strip() or None
     agora = datetime.now(UTC)
     if not numero and not motivo:
-        raise HTTPException(status_code=422, detail="Informe o número do protocolo ou o motivo do atraso")
+        raise HTTPException(
+            status_code=422, detail="Informe o número do protocolo ou o motivo do atraso"
+        )
     if numero:
         if proposta.status != "aceita" or proposta.pagamento_status != "confirmado":
             raise HTTPException(
@@ -2005,11 +2240,15 @@ async def registrar_protocolo_proposta(
                 detail="Informe o motivo obrigatório do atraso antes de registrar o protocolo.",
             )
     if dados.comprovante_id is not None:
-        comprovante = (await session.execute(select(DocumentoLead).where(
-            DocumentoLead.id == dados.comprovante_id,
-            DocumentoLead.lead_id == proposta.lead_id,
-            DocumentoLead.organizacao_id == usuario.organizacao_id,
-        ))).scalar_one_or_none()
+        comprovante = (
+            await session.execute(
+                select(DocumentoLead).where(
+                    DocumentoLead.id == dados.comprovante_id,
+                    DocumentoLead.lead_id == proposta.lead_id,
+                    DocumentoLead.organizacao_id == usuario.organizacao_id,
+                )
+            )
+        ).scalar_one_or_none()
         if comprovante is None:
             raise HTTPException(status_code=422, detail="Comprovante não encontrado para este lead")
     proposta.responsavel_protocolo_id = responsavel.id
@@ -2018,9 +2257,18 @@ async def registrar_protocolo_proposta(
     proposta.protocolo_comprovante_id = dados.comprovante_id
     proposta.protocolo_em = agora if numero else None
     _atualizar_sla_proposta(proposta)
-    _auditar(session, usuario, request, "protocolo_proposta", f"proposta:{proposta.id}", {
-        "protocolo_numero": numero, "motivo_atraso": motivo, "responsavel_id": responsavel.id,
-    })
+    _auditar(
+        session,
+        usuario,
+        request,
+        "protocolo_proposta",
+        f"proposta:{proposta.id}",
+        {
+            "protocolo_numero": numero,
+            "motivo_atraso": motivo,
+            "responsavel_id": responsavel.id,
+        },
+    )
     await session.commit()
     return _proposta_dict(proposta, await session.get(Organizacao, usuario.organizacao_id))
 
@@ -2030,29 +2278,56 @@ async def obter_sla_proposta(proposta_id: int, session: SessionDep, usuario: Lea
     proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
     status_sla = _atualizar_sla_proposta(proposta)
     pendencias = await _pendencias_documentos(session, proposta)
-    return {"proposta_id": proposta.id, "status": status_sla, "inicio_em": proposta.sla_inicio_em,
-            "prazo_em": proposta.sla_prazo_em, "responsavel_id": proposta.responsavel_protocolo_id,
-            "protocolo_numero": proposta.protocolo_numero, "protocolo_em": proposta.protocolo_em,
-            "motivo_atraso": proposta.protocolo_motivo_atraso,
-            "aceito_em": proposta.aceito_em,
-            "pagamento_confirmado_em": proposta.pagamento_confirmado_em,
-            "pagamento_confirmado_por": proposta.pagamento_confirmado_por,
-            "public_aceito_ip_registrado": bool(proposta.public_aceito_ip_hash),
-            "documentos_pendentes": pendencias}
+    return {
+        "proposta_id": proposta.id,
+        "status": status_sla,
+        "inicio_em": proposta.sla_inicio_em,
+        "prazo_em": proposta.sla_prazo_em,
+        "responsavel_id": proposta.responsavel_protocolo_id,
+        "protocolo_numero": proposta.protocolo_numero,
+        "protocolo_em": proposta.protocolo_em,
+        "motivo_atraso": proposta.protocolo_motivo_atraso,
+        "aceito_em": proposta.aceito_em,
+        "pagamento_confirmado_em": proposta.pagamento_confirmado_em,
+        "pagamento_confirmado_por": proposta.pagamento_confirmado_por,
+        "public_aceito_ip_registrado": bool(proposta.public_aceito_ip_hash),
+        "documentos_pendentes": pendencias,
+    }
 
 
 @router.get("/v1/admin/propostas/{proposta_id}/assinaturas")
-async def listar_assinaturas_proposta(proposta_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
+async def listar_assinaturas_proposta(
+    proposta_id: int, session: SessionDep, usuario: LeadsViewDep
+) -> dict:
     proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
-    assinaturas = (await session.execute(select(AssinaturaPropostaComercial).where(
-        AssinaturaPropostaComercial.proposta_id == proposta.id,
-        AssinaturaPropostaComercial.organizacao_id == usuario.organizacao_id,
-    ).order_by(AssinaturaPropostaComercial.assinado_em.desc()))).scalars().all()
-    return {"proposta_id": proposta.id, "assinaturas": [{
-        "id": item.id, "versao": item.versao, "hash": item.hash_documento,
-        "ip_registrado": bool(item.ip_hash), "assinado_em": item.assinado_em,
-        "provedor": item.provedor,
-    } for item in assinaturas]}
+    assinaturas = (
+        (
+            await session.execute(
+                select(AssinaturaPropostaComercial)
+                .where(
+                    AssinaturaPropostaComercial.proposta_id == proposta.id,
+                    AssinaturaPropostaComercial.organizacao_id == usuario.organizacao_id,
+                )
+                .order_by(AssinaturaPropostaComercial.assinado_em.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "proposta_id": proposta.id,
+        "assinaturas": [
+            {
+                "id": item.id,
+                "versao": item.versao,
+                "hash": item.hash_documento,
+                "ip_registrado": bool(item.ip_hash),
+                "assinado_em": item.assinado_em,
+                "provedor": item.provedor,
+            }
+            for item in assinaturas
+        ],
+    }
 
 
 @router.get("/v1/admin/propostas/{proposta_id}/pendencias")
@@ -2073,9 +2348,7 @@ async def obter_pendencias_proposta(
 
 
 @router.get("/v1/admin/propostas/{proposta_id}/documento")
-async def documento_proposta(
-    proposta_id: int, session: SessionDep, usuario: LeadsViewDep
-) -> dict:
+async def documento_proposta(proposta_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
     proposta = (
         await session.execute(
             select(PropostaComercial).where(
@@ -2110,7 +2383,11 @@ async def _proposta_por_token(session: AsyncSession, token: str) -> PropostaCome
             select(PropostaComercial).where(PropostaComercial.public_token_hash == digest)
         )
     ).scalar_one_or_none()
-    if proposta is None or not proposta.public_token_expira_em or proposta.public_token_expira_em < datetime.now(UTC):
+    if (
+        proposta is None
+        or not proposta.public_token_expira_em
+        or proposta.public_token_expira_em < datetime.now(UTC)
+    ):
         return None
     return proposta
 
@@ -2137,7 +2414,9 @@ async def pdf_proposta(proposta_id: int, session: SessionDep, usuario: LeadsView
 
 
 @router.post("/v1/admin/propostas/{proposta_id}/link")
-async def criar_link_proposta(proposta_id: int, session: SessionDep, usuario: LeadsManageDep) -> dict:
+async def criar_link_proposta(
+    proposta_id: int, session: SessionDep, usuario: LeadsManageDep
+) -> dict:
     proposta = (
         await session.execute(
             select(PropostaComercial).where(
@@ -2157,7 +2436,9 @@ async def criar_link_proposta(proposta_id: int, session: SessionDep, usuario: Le
 
 
 @router.post("/v1/admin/propostas/{proposta_id}/enviar")
-async def enviar_link_proposta(proposta_id: int, session: SessionDep, usuario: LeadsManageDep) -> dict:
+async def enviar_link_proposta(
+    proposta_id: int, session: SessionDep, usuario: LeadsManageDep
+) -> dict:
     proposta = (
         await session.execute(
             select(PropostaComercial).where(
@@ -2169,7 +2450,11 @@ async def enviar_link_proposta(proposta_id: int, session: SessionDep, usuario: L
     if proposta is None:
         raise HTTPException(status_code=404, detail="Proposta não encontrada")
     lead = (
-        await session.execute(select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id))
+        await session.execute(
+            select(Lead).where(
+                Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id
+            )
+        )
     ).scalar_one_or_none()
     if lead is None or not lead.email:
         raise HTTPException(status_code=422, detail="O lead não possui e-mail cadastrado")
@@ -2185,23 +2470,37 @@ async def enviar_link_proposta(proposta_id: int, session: SessionDep, usuario: L
     clicksign = configuracao_clicksign(org)
     if clicksign["enabled"]:
         try:
-            ids = await criar_envelope(pdf, f"Proposta {proposta.numero}", lead.email, lead.nome, org)
+            ids = await criar_envelope(
+                pdf, f"Proposta {proposta.numero}", lead.email, lead.nome, org
+            )
             proposta.dados = {**(proposta.dados or {}), "clicksign": ids}
             await session.commit()
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Não foi possível enviar à Clicksign: {type(exc).__name__}") from exc
+            raise HTTPException(
+                status_code=502, detail=f"Não foi possível enviar à Clicksign: {type(exc).__name__}"
+            ) from exc
     await enviar_proposta_email(lead.email, lead.nome, link, pdf, proposta.numero)
-    return {"link": link, "destinatario": lead.email, "expira_em": proposta.public_token_expira_em, "clicksign": proposta.dados.get("clicksign") if proposta.dados else None}
+    return {
+        "link": link,
+        "destinatario": lead.email,
+        "expira_em": proposta.public_token_expira_em,
+        "clicksign": proposta.dados.get("clicksign") if proposta.dados else None,
+    }
 
 
 @router.get("/propostas/{token}", response_class=HTMLResponse, include_in_schema=False)
 async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLResponse:
     proposta = await _proposta_por_token(session, token)
     if proposta is None:
-        return HTMLResponse("<h1>Link expirado</h1><p>Solicite uma nova proposta ao atendimento.</p>", status_code=404)
+        return HTMLResponse(
+            "<h1>Link expirado</h1><p>Solicite uma nova proposta ao atendimento.</p>",
+            status_code=404,
+        )
     org = await session.get(Organizacao, proposta.organizacao_id)
+
     def safe(value: object) -> str:
         return html.escape(str(value or ""))
+
     if proposta.status == "enviada":
         proposta.status = "visualizada"
         await session.commit()
@@ -2209,7 +2508,7 @@ async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLRe
         f"""<!doctype html><html lang='pt-BR'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
         <title>Proposta {safe(proposta.numero)} - {safe(org.nome)}</title><style>body{{font:16px Arial;color:#17231c;background:#f5f7f5;margin:0;padding:24px}}main{{max-width:760px;margin:auto;background:white;padding:36px;border-radius:18px;border:1px solid #d8ddd6}}h1{{font-family:Georgia,serif}}.muted{{color:#5b665f}}.button{{display:inline-block;background:#086044;color:#fff;padding:13px 20px;border-radius:9px;text-decoration:none;border:0;font-weight:700;cursor:pointer}}</style>
         <main><p class='muted'>{safe(org.nome)}</p><h1>Proposta de registro de marca</h1><p>Proposta <strong>{safe(proposta.numero)}</strong> · versão {proposta.versao}</p>
-        <h2>Marca</h2><p>{safe(proposta.marca or 'A definir')} · Classes {safe(proposta.classes or 'A definir')}</p><h2>Escopo</h2><p>{safe(proposta.escopo)}</p>
+        <h2>Marca</h2><p>{safe(proposta.marca or "A definir")} · Classes {safe(proposta.classes or "A definir")}</p><h2>Escopo</h2><p>{safe(proposta.escopo)}</p>
         <p class='muted'>Após aceite, pagamento e documentação completa, o protocolo será realizado em até 24 horas úteis. O protocolo não garante a concessão da marca.</p>
         <form method='post' action='/propostas/{token}/aceitar'><button class='button' type='submit'>Aceitar proposta</button></form></main></html>"""
     )
@@ -2223,7 +2522,10 @@ async def aceitar_proposta_publica(
     if proposta is None:
         return HTMLResponse("<h1>Link expirado</h1>", status_code=404)
     if proposta.status not in ("enviada", "visualizada", "aceita"):
-        return HTMLResponse("<h1>Proposta indisponível</h1><p>Solicite uma nova versão ao atendimento.</p>", status_code=409)
+        return HTMLResponse(
+            "<h1>Proposta indisponível</h1><p>Solicite uma nova versão ao atendimento.</p>",
+            status_code=409,
+        )
     if proposta.public_aceito_em is None:
         proposta.public_aceito_em = datetime.now(UTC)
         proposta.aceito_em = proposta.public_aceito_em
@@ -2234,8 +2536,13 @@ async def aceitar_proposta_publica(
             "|".join(
                 str(valor or "")
                 for valor in (
-                    proposta.numero, proposta.versao, proposta.marca, proposta.classes,
-                    proposta.escopo, proposta.honorarios, proposta.taxa_gru,
+                    proposta.numero,
+                    proposta.versao,
+                    proposta.marca,
+                    proposta.classes,
+                    proposta.escopo,
+                    proposta.honorarios,
+                    proposta.taxa_gru,
                     proposta.condicoes_pagamento,
                 )
             ).encode("utf-8")
@@ -2275,12 +2582,18 @@ async def aceitar_proposta_publica(
             payload={"proposta_id": proposta.id, "aceito_em": proposta.aceito_em.isoformat()},
         )
         lead = (
-            await session.execute(select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == proposta.organizacao_id))
+            await session.execute(
+                select(Lead).where(
+                    Lead.id == proposta.lead_id, Lead.organizacao_id == proposta.organizacao_id
+                )
+            )
         ).scalar_one_or_none()
         if lead is not None:
             await avancar_fase_lead(session, lead, "proposta_aceita", "Cliente via link")
         await session.commit()
-    return HTMLResponse("<h1>Proposta aceita</h1><p>Recebemos seu aceite. Nossa equipe dará continuidade ao atendimento.</p>")
+    return HTMLResponse(
+        "<h1>Proposta aceita</h1><p>Recebemos seu aceite. Nossa equipe dará continuidade ao atendimento.</p>"
+    )
 
 
 # --- Guias do INPI (GRU) por lead -----------------------------------------
@@ -2464,7 +2777,18 @@ async def aplicar_cadencia_lead(
         raise HTTPException(status_code=404, detail="Cadência não encontrada")
     agora = datetime.now(UTC)
     chaves = [f"cadencia:{lead.id}:{cadencia.id}:{passo.id}" for passo in cadencia.passos]
-    existentes = set((await session.execute(select(LembreteCRM.idempotency_key).where(LembreteCRM.organizacao_id == usuario.organizacao_id, LembreteCRM.idempotency_key.in_(chaves)))).scalars().all())
+    existentes = set(
+        (
+            await session.execute(
+                select(LembreteCRM.idempotency_key).where(
+                    LembreteCRM.organizacao_id == usuario.organizacao_id,
+                    LembreteCRM.idempotency_key.in_(chaves),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     criados = 0
     for passo in cadencia.passos:
         chave_idempotencia = f"cadencia:{lead.id}:{cadencia.id}:{passo.id}"
@@ -2490,7 +2814,18 @@ async def aplicar_cadencia_lead(
             )
         )
         criados += 1
-        registrar_evento_operacional(session, organizacao_id=usuario.organizacao_id, dominio="crm", tipo="cadencia.tarefa_criada", entidade_tipo="lead", entidade_id=lead.id, ator=usuario.nome or "sistema", ator_id=usuario.id, payload={"cadencia_id": cadencia.id, "passo_id": passo.id}, idempotency_key=chave_idempotencia)
+        registrar_evento_operacional(
+            session,
+            organizacao_id=usuario.organizacao_id,
+            dominio="crm",
+            tipo="cadencia.tarefa_criada",
+            entidade_tipo="lead",
+            entidade_id=lead.id,
+            ator=usuario.nome or "sistema",
+            ator_id=usuario.id,
+            payload={"cadencia_id": cadencia.id, "passo_id": passo.id},
+            idempotency_key=chave_idempotencia,
+        )
     await session.commit()
     return {"criados": criados, "ignorados_idempotentes": len(cadencia.passos) - criados}
 
@@ -2585,13 +2920,17 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
             {"tipo": "pesquisa", "data": criado_em, "titulo": "Pesquisa gerada", "detalhe": marca}
         )
     propostas = (
-        await session.execute(
-            select(PropostaComercial).where(
-                PropostaComercial.lead_id == lead_id,
-                PropostaComercial.organizacao_id == org,
+        (
+            await session.execute(
+                select(PropostaComercial).where(
+                    PropostaComercial.lead_id == lead_id,
+                    PropostaComercial.organizacao_id == org,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for proposta in propostas:
         eventos.append(
             {
@@ -2602,31 +2941,41 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
             }
         )
     mensagens_portal = (
-        await session.execute(
-            select(MensagemClientePortal).where(
-                MensagemClientePortal.lead_id == lead_id,
-                MensagemClientePortal.organizacao_id == org,
+        (
+            await session.execute(
+                select(MensagemClientePortal).where(
+                    MensagemClientePortal.lead_id == lead_id,
+                    MensagemClientePortal.organizacao_id == org,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for mensagem in mensagens_portal:
         eventos.append(
             {
                 "tipo": "mensagem_portal",
                 "data": mensagem.criado_em,
-                "titulo": "Mensagem do cliente" if mensagem.autor_tipo == "cliente" else "Resposta do atendimento",
+                "titulo": "Mensagem do cliente"
+                if mensagem.autor_tipo == "cliente"
+                else "Resposta do atendimento",
                 "detalhe": mensagem.mensagem,
             }
         )
     eventos_dominio = (
-        await session.execute(
-            select(EventoDominio).where(
-                EventoDominio.organizacao_id == org,
-                EventoDominio.entidade_tipo == "lead",
-                EventoDominio.entidade_id == str(lead_id),
+        (
+            await session.execute(
+                select(EventoDominio).where(
+                    EventoDominio.organizacao_id == org,
+                    EventoDominio.entidade_tipo == "lead",
+                    EventoDominio.entidade_id == str(lead_id),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for evento in eventos_dominio:
         eventos.append(
             {

@@ -76,8 +76,16 @@ async def webhook_clicksign(request: Request, session: SessionDep, x_clicksign_s
     if not envelope_id:
         raise HTTPException(status_code=422, detail="Envelope não informado")
     await aplicar_contexto_tenant(session, get_settings().default_organization_id)
-    propostas = (await session.execute(select(PropostaComercial))).scalars().all()
-    proposta = next((p for p in propostas if str((p.dados or {}).get("clicksign", {}).get("envelope_id")) == envelope_id), None)
+    proposta = (
+        await session.execute(
+            select(PropostaComercial)
+            .where(
+                PropostaComercial.organizacao_id == get_settings().default_organization_id,
+                PropostaComercial.dados["clicksign"]["envelope_id"].as_string() == envelope_id,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     if proposta is None:
         return {"ok": True, "ignorado": True}
     if any(term in texto for term in ("document_closed", "envelope_closed", "signed", "assinado", "completed")):
@@ -85,7 +93,18 @@ async def webhook_clicksign(request: Request, session: SessionDep, x_clicksign_s
         proposta.aceito_em = proposta.aceito_em or datetime.now(UTC)
         proposta.public_aceito_em = proposta.public_aceito_em or proposta.aceito_em
         proposta.sla_status = "aguardando_pagamento"
-    proposta.dados = {**(proposta.dados or {}), "clicksign": {**((proposta.dados or {}).get("clicksign") or {}), "ultimo_evento": payload}}
+    clicksign = (proposta.dados or {}).get("clicksign") or {}
+    event_id = payload.get("event_id") or payload.get("eventId") or (data or {}).get("event_id") if isinstance(data, dict) else None
+    if event_id and clicksign.get("ultimo_evento_id") == str(event_id):
+        return {"ok": True, "duplicado": True, "proposta_id": proposta.id}
+    proposta.dados = {
+        **(proposta.dados or {}),
+        "clicksign": {
+            **clicksign,
+            "ultimo_evento": payload,
+            "ultimo_evento_id": str(event_id) if event_id else None,
+        },
+    }
     await session.commit()
     return {"ok": True, "proposta_id": proposta.id}
 

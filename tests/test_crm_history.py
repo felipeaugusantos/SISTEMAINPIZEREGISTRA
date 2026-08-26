@@ -49,7 +49,7 @@ def test_historico_crm_lista_interacao_e_respeita_pii() -> None:
         FakeResult(itens=[(contato, lead, "ACME", "Empresa CRM")]),
     )
     app.dependency_overrides[obter_usuario_atual] = auth_override(
-        usuario_teste("operador", {"leads.view"})
+        usuario_teste("operador", {"crm.view"})
     )
     try:
         resposta = TestClient(app).get("/v1/admin/crm/historico")
@@ -130,7 +130,7 @@ def test_listar_lembretes_expoe_alertas_prazos_e_cadastros_antigos() -> None:
         FakeResult(scalar=1),
         FakeResult(itens=[(lead.id, lead.nome, lead.empresa, lead.atualizado_em)]),
     )
-    usuario = usuario_teste("operador", {"leads.view", "leads.manage"})
+    usuario = usuario_teste("operador", {"crm.view", "crm.manage"})
     object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
     app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
     try:
@@ -153,7 +153,7 @@ def test_listar_lembretes_expoe_alertas_prazos_e_cadastros_antigos() -> None:
 def test_criar_lembrete_vincula_cliente_e_audita() -> None:
     _, lead = _registros()
     app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead))
-    usuario = usuario_teste("operador", {"leads.view", "leads.manage"})
+    usuario = usuario_teste("operador", {"crm.view", "crm.manage"})
     object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
     app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
     try:

@@ -18,6 +18,7 @@ from app.auth import (
     exigir_csrf,
     hash_senha,
     hash_token,
+    normalizar_modulos_plano,
     verificar_senha,
 )
 from app.database import aplicar_contexto_autenticacao, get_session
@@ -95,6 +96,7 @@ def _resposta_usuario(usuario: UsuarioOperacoes) -> dict:
         "nome": usuario.nome,
         "usuario": usuario.usuario,
         "email": usuario.email,
+        "departamento": usuario.departamento,
         "perfil": usuario.perfil,
         "permissoes": sorted(permissoes),
         "destino": destino_inicial(usuario.perfil, permissoes),
@@ -106,7 +108,7 @@ def _resposta_usuario(usuario: UsuarioOperacoes) -> dict:
             "nome": usuario.organizacao.nome,
             "slug": usuario.organizacao.slug,
             "plano": usuario.organizacao.plano.nome,
-            "modulos": usuario.organizacao.plano.modulos,
+            "modulos": sorted(normalizar_modulos_plano(usuario.organizacao.plano.modulos)),
         },
     }
 

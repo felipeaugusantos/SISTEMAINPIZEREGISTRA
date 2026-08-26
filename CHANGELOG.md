@@ -1,5 +1,34 @@
 # Changelog
 
+## Hardening e isolamento de produção — 2026-08-26
+
+- Tenant desconhecido não cai mais na organização padrão em produção.
+- Health checks detalhados e métricas protegidos por `X-Health-Key`.
+- Webhook Clicksign otimizado por envelope e idempotente por evento.
+- CORS atualizado para clientes que utilizam proteção CSRF e monitoramento autenticado.
+- Teste da versão do asset de análise corrigido.
+
+## Isolamento por empresa e módulos operacionais — 2026-08-18
+
+- CRM passou a ter permissões próprias, separadas de Leads.
+- Planos podem habilitar individualmente Leads, CRM, Processos Monitorados e Operação Jurídica.
+- Processos e operação jurídica deixaram de herdar o módulo Leads; aliases antigos são normalizados.
+- Migration idempotente atualiza planos existentes sem duplicar entradas.
+
+## Recursos para escritórios jurídicos — 2026-08-18
+
+- Departamentos, centros de custo, fornecedores e contratos vinculados ao tenant.
+- Custos para custas INPI, honorários e despesas, com múltiplos responsáveis e idempotência.
+- Relatório executivo, exportação segura, webhook HMAC, logs de tentativas e reprocessamento.
+- Testes de permissão, tenant, duplicidade, assinatura de webhook e exposição mínima na exportação.
+
+## Jornada comercial — 2026-08-18
+
+- Landing page de busca gratuita em `/buscar-gratuita` com captura automática de leads e origem `landing`.
+- Dashboard comercial ampliado com origens, tempos médios, taxas de pagamento/protocolo e atrasos.
+- Fluxo existente de Kanban, qualificação, responsável, próxima ação, proposta versionada, aceite,
+  pagamento, documentos, SLA e protocolo mantido integrado.
+
 ## Portfólio completo de propriedade intelectual — 2026-08-18
 
 - Ativos para marcas, patentes, modelos de utilidade, desenhos industriais, contratos,

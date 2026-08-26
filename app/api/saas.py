@@ -3,17 +3,24 @@ import hashlib
 import re
 import secrets
 import string
+import unicodedata
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auditing import criar_evento_auditoria
-from app.auth import UsuarioAtualDep, UsuarioAutenticado, exigir_csrf, hash_senha
+from app.auth import (
+    UsuarioAtualDep,
+    UsuarioAutenticado,
+    exigir_csrf,
+    hash_senha,
+    normalizar_modulos_plano,
+)
 from app.database import get_session
 from app.models import (
     AlertaSistema,
@@ -25,6 +32,7 @@ from app.models import (
     Organizacao,
     PesquisaMarca,
     PlanoSaas,
+    SessaoOperacoes,
     UsuarioOperacoes,
 )
 from app.schemas import BrandingConfig
@@ -60,11 +68,20 @@ class OrganizacaoInput(BaseModel):
     telefone_contato: str | None = Field(default=None, max_length=30)
     administrador_nome: str = Field(min_length=2, max_length=150)
     administrador_usuario: str = Field(pattern=r"^[a-zA-Z0-9._-]{2,80}$")
+    modulos_liberados: list[str] | None = None
 
     @field_validator("email_contato")
     @classmethod
     def email_minusculo(cls, valor: str) -> str:
         return valor.strip().lower()
+
+    @field_validator("slug", mode="before")
+    @classmethod
+    def normalizar_slug(cls, valor: str) -> str:
+        texto = unicodedata.normalize("NFKD", str(valor or ""))
+        texto = "".join(char for char in texto if not unicodedata.combining(char))
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", texto).strip("-").lower()
+        return slug[:80]
 
 
 class OrganizacaoUpdate(BaseModel):
@@ -76,6 +93,7 @@ class OrganizacaoUpdate(BaseModel):
     email_contato: str | None = Field(default=None, max_length=254)
     telefone_contato: str | None = Field(default=None, max_length=30)
     branding: BrandingConfig | None = None
+    modulos_liberados: list[str] | None = None
 
 
 class DominioInput(BaseModel):
@@ -132,6 +150,7 @@ def _org_json(org: Organizacao, usuarios: int = 0, leads: int = 0, pesquisas: in
         "assinatura_status": org.assinatura_status,
         "email_contato": org.email_contato,
         "telefone_contato": org.telefone_contato,
+        "modulos_liberados": sorted(normalizar_modulos_plano(org.modulos_liberados)) if org.modulos_liberados is not None else None,
         "branding": org.branding or {},
         "criado_em": org.criado_em,
         "trial_ate": org.trial_ate,
@@ -141,7 +160,7 @@ def _org_json(org: Organizacao, usuarios: int = 0, leads: int = 0, pesquisas: in
             "id": org.plano.id,
             "nome": org.plano.nome,
             "codigo": org.plano.codigo,
-            "modulos": org.plano.modulos,
+            "modulos": sorted(normalizar_modulos_plano(org.plano.modulos)),
             "limites": org.plano.limites,
         },
         "uso": {"usuarios": usuarios, "leads": leads, "pesquisas": pesquisas},
@@ -209,7 +228,7 @@ async def painel(session: SessionDep, _: SuperAdminDep) -> dict:
                 "nome": p.nome,
                 "codigo": p.codigo,
                 "descricao": p.descricao,
-                "modulos": p.modulos,
+                "modulos": sorted(normalizar_modulos_plano(p.modulos)),
                 "limites": p.limites,
                 "ativo": p.ativo,
             }
@@ -270,6 +289,7 @@ async def criar_organizacao(
         plano_id=dados.plano_id,
         email_contato=dados.email_contato,
         telefone_contato=dados.telefone_contato,
+        modulos_liberados=dados.modulos_liberados,
         status="ativa",
         assinatura_status="manual",
     )
@@ -332,6 +352,55 @@ async def atualizar_organizacao(
     )
     await session.commit()
     return {"status": "ok"}
+
+
+@router.post("/organizacoes/{organizacao_id}/acesso")
+async def gerar_acesso_administrador(
+    organizacao_id: int, session: SessionDep, ator: SuperAdminDep
+) -> dict:
+    """Regenera o acesso do administrador de uma organização cadastrada."""
+    org = await session.get(Organizacao, organizacao_id)
+    if not org:
+        raise HTTPException(404, "Organizacao nao encontrada")
+    administrador = (
+        await session.execute(
+            select(UsuarioOperacoes)
+            .where(
+                UsuarioOperacoes.organizacao_id == organizacao_id,
+                UsuarioOperacoes.perfil == "administrador",
+                UsuarioOperacoes.ativo.is_(True),
+            )
+            .order_by(UsuarioOperacoes.id)
+        )
+    ).scalars().first()
+    if not administrador:
+        raise HTTPException(404, "Administrador ativo nao encontrado")
+    senha = _senha_temporaria()
+    administrador.senha_hash = hash_senha(senha)
+    administrador.alterar_senha = True
+    await session.execute(
+        update(SessaoOperacoes)
+        .where(
+            SessaoOperacoes.usuario_id == administrador.id,
+            SessaoOperacoes.revogada_em.is_(None),
+        )
+        .values(revogada_em=datetime.now(UTC), motivo_revogacao="acesso_regenerado_superadmin")
+    )
+    await _auditar(
+        session,
+        ator,
+        "REGERAR_ACESSO",
+        f"organizacao:{organizacao_id}",
+        {"usuario_id": administrador.id},
+    )
+    await session.commit()
+    return {
+        "organizacao_id": organizacao_id,
+        "usuario": administrador.usuario,
+        "email": administrador.email,
+        "senha_temporaria": senha,
+        "login_path": "/login",
+    }
 
 
 @router.post("/organizacoes/{organizacao_id}/dominios", status_code=201)

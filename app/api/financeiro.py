@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
-from app.crm import registrar_evento_operacional
+from app.crm import normalizar_empresa, registrar_evento_operacional
 from app.database import get_session
 from app.models import (
     CategoriaFinanceira,
@@ -78,6 +78,15 @@ class LancamentoCreate(BaseModel):
     categoria_id: int | None = None
     forma_pagamento_id: int | None = None
     observacoes: str | None = Field(default=None, max_length=4000)
+
+
+class EmpresaFinanceiraCreate(BaseModel):
+    nome: str = Field(min_length=2, max_length=200)
+    documento: str | None = Field(default=None, max_length=18)
+    email: str | None = Field(default=None, max_length=254)
+    telefone: str | None = Field(default=None, max_length=30)
+    segmento: str | None = Field(default=None, max_length=80)
+    observacoes: str | None = Field(default=None, max_length=2000)
 
 
 class LancamentoUpdate(BaseModel):
@@ -237,9 +246,7 @@ async def _validar_referencias(
         if tipo == "receber":
             filtros_empresa.append(_empresa_cliente(usuario))
         cliente_elegivel = (
-            await session.execute(
-                select(EmpresaCRM.id).where(*filtros_empresa)
-            )
+            await session.execute(select(EmpresaCRM.id).where(*filtros_empresa))
         ).scalar_one_or_none()
         if not cliente_elegivel:
             detalhe = (
@@ -416,9 +423,7 @@ async def listar(
                 parcela.valor_pago
             )
     return {
-        "resumo": {
-            k: int(v) if k.startswith("parcelas_") else float(v) for k, v in resumo.items()
-        },
+        "resumo": {k: int(v) if k.startswith("parcelas_") else float(v) for k, v in resumo.items()},
         "itens": [_serializar(x) for x in itens],
         "total": len(itens),
     }
@@ -488,6 +493,65 @@ async def referencias(
             for x in formas
         ],
     }
+
+
+@router.get("/empresas")
+async def listar_empresas_financeiras(session: SessionDep, usuario: ViewDep) -> dict:
+    empresas = (
+        (
+            await session.execute(
+                select(EmpresaCRM)
+                .where(EmpresaCRM.organizacao_id == usuario.organizacao_id)
+                .order_by(EmpresaCRM.nome)
+                .limit(500)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "empresas": [
+            {
+                "id": item.id,
+                "nome": item.nome,
+                "documento": item.documento,
+                "email": item.email,
+                "telefone": item.telefone,
+            }
+            for item in empresas
+        ]
+    }
+
+
+@router.post("/empresas", status_code=201)
+async def criar_empresa_financeira(
+    dados: EmpresaFinanceiraCreate, session: SessionDep, usuario: ManageDep
+) -> dict:
+    nome = dados.nome.strip()
+    normalizado = normalizar_empresa(nome)
+    existente = (
+        await session.execute(
+            select(EmpresaCRM).where(
+                EmpresaCRM.organizacao_id == usuario.organizacao_id,
+                EmpresaCRM.nome_normalizado == normalizado,
+            )
+        )
+    ).scalar_one_or_none()
+    if existente:
+        return {"id": existente.id, "nome": existente.nome, "idempotente": True}
+    empresa = EmpresaCRM(
+        organizacao_id=usuario.organizacao_id,
+        nome=nome,
+        nome_normalizado=normalizado,
+        documento=dados.documento,
+        email=dados.email,
+        telefone=dados.telefone,
+        segmento=dados.segmento,
+        observacoes=dados.observacoes,
+    )
+    session.add(empresa)
+    await session.commit()
+    return {"id": empresa.id, "nome": empresa.nome, "idempotente": False}
 
 
 @router.get("/formas-pagamento")
@@ -620,9 +684,7 @@ async def listar_retribuicoes(session: SessionDep, usuario: ViewDep) -> dict:
     itens = (
         (
             await session.execute(
-                select(RetribuicaoInpi).order_by(
-                    RetribuicaoInpi.ordem, RetribuicaoInpi.descricao
-                )
+                select(RetribuicaoInpi).order_by(RetribuicaoInpi.ordem, RetribuicaoInpi.descricao)
             )
         )
         .scalars()
@@ -740,9 +802,7 @@ async def criar_categoria(
 async def criar_lancamento(
     dados: LancamentoCreate, request: Request, session: SessionDep, usuario: ManageDep
 ) -> dict:
-    await _validar_referencias(
-        session, usuario, dados.tipo, dados.empresa_id, dados.categoria_id
-    )
+    await _validar_referencias(session, usuario, dados.tipo, dados.empresa_id, dados.categoria_id)
     forma = await _forma_pagamento(session, usuario, dados.forma_pagamento_id)
     _validar_parcelamento(forma, dados.quantidade_parcelas)
     lancamento = LancamentoFinanceiro(
@@ -1077,9 +1137,7 @@ async def cancelar(
 
 
 @router.get("/lancamentos/{lancamento_id}/historico")
-async def historico_lancamento(
-    lancamento_id: int, session: SessionDep, usuario: ViewDep
-) -> dict:
+async def historico_lancamento(lancamento_id: int, session: SessionDep, usuario: ViewDep) -> dict:
     existe = (
         await session.execute(
             select(LancamentoFinanceiro.id).where(

@@ -1233,6 +1233,7 @@ function formatCurrency(value) {
 async function criarProposta(lead, box) {
   const payload = {
     pesquisa_id: lead.pesquisas?.[0]?.id || null,
+    pesquisa_ids: (lead.pesquisas || []).map(item => item.id),
     validade_em: null,
     marca: lead.pesquisas?.[0]?.marca || null,
     classes: lead.pesquisas?.[0]?.classe_nice || null,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -16,6 +17,42 @@ class AnomaliaImportacao:
     mensagem: str
 
 
+_REFERENCIA_XML = re.compile(rb"&#(?:x([0-9a-fA-F]+)|([0-9]+));")
+
+
+def sanitizar_referencias_xml(caminho: Path) -> int:
+    """Remove referencias numericas fora do intervalo permitido pelo XML 1.0.
+
+    Algumas edicoes oficiais publicam controles como ``&#x13;`` em descricoes.
+    O conteudo e irrecuperavel como caractere XML, mas a remocao controlada
+    permite importar o registro sem alterar os demais dados. O checksum passa a
+    refletir o payload normalizado armazenado localmente.
+    """
+    dados = caminho.read_bytes()
+    removidas = 0
+
+    def substituir(match: re.Match[bytes]) -> bytes:
+        nonlocal removidas
+        valor = int(match.group(1) or match.group(2), 16 if match.group(1) else 10)
+        valido = (
+            valor in {0x9, 0xA, 0xD}
+            or 0x20 <= valor <= 0xD7FF
+            or 0xE000 <= valor <= 0xFFFD
+            or 0x10000 <= valor <= 0x10FFFF
+        )
+        if valido:
+            return match.group(0)
+        removidas += 1
+        return b""
+
+    normalizado = _REFERENCIA_XML.sub(substituir, dados)
+    if removidas:
+        temporario = caminho.with_suffix(caminho.suffix + ".sanitized")
+        temporario.write_bytes(normalizado)
+        temporario.replace(caminho)
+    return removidas
+
+
 def calcular_integridade_arquivo(caminho: Path) -> tuple[str, int]:
     digest = sha256()
     tamanho = 0
@@ -30,13 +67,18 @@ def validar_arquivo_rpi(caminho: Path, tipo: TipoProcesso) -> int:
     """Valida o XML inteiro antes de iniciar qualquer gravação no banco."""
     if not caminho.is_file() or caminho.stat().st_size == 0:
         raise ValueError("Arquivo da RPI ausente ou vazio")
+    sanitizar_referencias_xml(caminho)
     tag = "processo" if tipo is TipoProcesso.MARCA else "despacho"
     quantidade = 0
     try:
         contexto = iterparse(caminho, events=("start", "end"))
         _, raiz = next(contexto)
         atributo_data = "data" if tipo is TipoProcesso.MARCA else "dataPublicacao"
-        if raiz.tag != "revista" or not raiz.attrib.get("numero") or not raiz.attrib.get(atributo_data):
+        if (
+            raiz.tag != "revista"
+            or not raiz.attrib.get("numero")
+            or not raiz.attrib.get(atributo_data)
+        ):
             raise ValueError("Cabeçalho de RPI inválido")
         for evento, elemento in contexto:
             if evento == "end" and elemento.tag == tag:

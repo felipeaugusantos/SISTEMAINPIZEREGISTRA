@@ -39,6 +39,7 @@ class UsuarioInput(BaseModel):
     usuario: str = Field(pattern=r"^[a-zA-Z0-9._-]{2,80}$")
     email: str = Field(min_length=5, max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     cargo: str | None = Field(default=None, max_length=150)
+    departamento: str | None = Field(default=None, max_length=80)
     perfil: str = "operador"
     permissoes: list[str] = []
 
@@ -52,6 +53,7 @@ class UsuarioUpdate(BaseModel):
     nome: str | None = Field(default=None, min_length=2, max_length=150)
     email: str | None = Field(default=None, min_length=5, max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     cargo: str | None = Field(default=None, max_length=150)
+    departamento: str | None = Field(default=None, max_length=80)
     perfil: str | None = None
     ativo: bool | None = None
     permissoes: list[str] | None = None
@@ -94,7 +96,7 @@ async def _objetos(session: AsyncSession, chaves: set[str]) -> list[PermissaoOpe
 
 
 def _serializar(u: UsuarioOperacoes, sessoes: int = 0) -> dict:
-    return {"id": u.id, "nome": u.nome, "usuario": u.usuario, "email": u.email, "cargo": u.cargo,
+    return {"id": u.id, "nome": u.nome, "usuario": u.usuario, "email": u.email, "cargo": u.cargo, "departamento": u.departamento,
             "perfil": u.perfil, "ativo": u.ativo, "alterar_senha": u.alterar_senha,
             "bloqueado_ate": u.bloqueado_ate, "ultimo_login_em": u.ultimo_login_em,
             "permissoes": sorted(p.chave for p in u.permissoes), "sessoes_ativas": sessoes,
@@ -133,7 +135,7 @@ async def criar(dados: UsuarioInput, session: SessionDep, ator: ManageDep) -> di
         raise HTTPException(409, "Usuario ou email ja cadastrado")
     chaves = _validar(dados.perfil, dados.permissoes)
     senha = _temporaria()
-    usuario = UsuarioOperacoes(nome=dados.nome.strip(), usuario=dados.usuario.lower(), email=str(dados.email).lower(), cargo=dados.cargo,
+    usuario = UsuarioOperacoes(nome=dados.nome.strip(), usuario=dados.usuario.lower(), email=str(dados.email).lower(), cargo=dados.cargo, departamento=dados.departamento,
         organizacao_id=ator.organizacao_id, perfil=dados.perfil, senha_hash=hash_senha(senha), alterar_senha=True, criado_por=ator.email,
         permissoes=await _objetos(session, chaves))
     session.add(usuario)
@@ -175,7 +177,7 @@ async def atualizar(usuario_id: int, dados: UsuarioUpdate, session: SessionDep, 
         duplicado = (await session.execute(select(UsuarioOperacoes.id).where(UsuarioOperacoes.email == str(dados.email).lower(), UsuarioOperacoes.id != alvo.id))).scalar_one_or_none()
         if duplicado:
             raise HTTPException(409, "Email ja cadastrado")
-    for campo in ("nome", "email", "cargo", "perfil", "ativo"):
+    for campo in ("nome", "email", "cargo", "departamento", "perfil", "ativo"):
         valor = getattr(dados, campo)
         if valor is not None:
             setattr(alvo, campo, str(valor).lower() if campo == "email" else valor)

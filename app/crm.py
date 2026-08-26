@@ -9,6 +9,7 @@ from app.models import (
     ORDEM_FASE_LEAD,
     EmpresaCRM,
     EventoDominio,
+    EventoOutbox,
     HistoricoFaseLead,
     Lead,
     LembreteCRM,
@@ -44,6 +45,15 @@ def registrar_evento_operacional(
         idempotency_key=idempotency_key,
     )
     session.add(evento)
+    session.add(
+        EventoOutbox(
+            organizacao_id=organizacao_id,
+            evento=evento,
+            topico=f"{dominio}.{tipo}",
+            payload=payload or {},
+            idempotency_key=idempotency_key,
+        )
+    )
     return evento
 
 

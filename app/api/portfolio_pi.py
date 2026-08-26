@@ -2,7 +2,6 @@ import base64
 import hashlib
 import re
 from datetime import date
-from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -24,6 +23,7 @@ from app.models import (
     TipoAtivoPI,
     Titular,
 )
+from app.storage import StorageError, save_bytes
 
 router = APIRouter(prefix="/v1/admin/portfolio", tags=["portfolio de propriedade intelectual"])
 portal_router = APIRouter(tags=["portal-cliente"])
@@ -294,17 +294,20 @@ async def adicionar_documento(
         await session.execute(select(func.max(DocumentoAtivoPI.versao)).where(DocumentoAtivoPI.ativo_id == ativo.id))
     ).scalar_one() or 0
     versao = int(ultima) + 1
-    pasta = Path("data") / "portfolio_pi" / str(usuario.organizacao_id) / str(ativo.id)
-    pasta.mkdir(parents=True, exist_ok=True)
-    caminho = pasta / f"{versao}-{_slug(dados.nome)}"
-    caminho.write_bytes(conteudo)
+    try:
+        caminho = save_bytes(
+            f"portfolio_pi/{usuario.organizacao_id}/{ativo.id}/{versao}-{_slug(dados.nome)}",
+            conteudo,
+        )
+    except StorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     documento = DocumentoAtivoPI(
         organizacao_id=usuario.organizacao_id,
         ativo_id=ativo.id,
         nome=dados.nome,
         versao=versao,
         hash_documento=digest,
-        caminho=str(caminho),
+        caminho=caminho,
         content_type=dados.content_type,
         criado_por=usuario.ator,
     )

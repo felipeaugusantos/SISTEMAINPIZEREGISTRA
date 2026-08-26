@@ -18,6 +18,22 @@ test("uma área administrativa exige autenticação", async ({ request }) => {
   expect(response.headers().location).toMatch(/^\/login\?next=/);
 });
 
+test("o portal do cliente exige autenticação própria", async ({ page }) => {
+  await page.goto("/portal");
+  await expect(page).toHaveURL(/\/portal/);
+  await expect(page.getByRole("heading", { name: /Seu atendimento, sempre perto/i })).toBeVisible();
+  await expect(page.locator("#portal-login, form").first()).toBeVisible();
+});
+
+test("telas principais geram captura visual", async ({ page }) => {
+  await page.goto("/login");
+  const imagem = await page.screenshot({ fullPage: true });
+  expect(imagem.length).toBeGreaterThan(5000);
+  await expect(page).toHaveScreenshot("login.png", { animations: "disabled" });
+  await page.goto("/portal");
+  await expect(page).toHaveScreenshot("portal-login.png", { animations: "disabled" });
+});
+
 test("o administrador entra pelo formulário e acessa a visão geral", async ({ page }) => {
   test.skip(!process.env.E2E_ADMIN_PASSWORD, "Credenciais E2E não configuradas.");
 

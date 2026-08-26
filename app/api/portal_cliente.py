@@ -17,7 +17,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +47,7 @@ from app.models import (
 )
 from app.proxy import requisicao_https
 from app.settings import get_settings
+from app.storage import StorageError, read_bytes, save_bytes
 from app.tenancy import aplicar_contexto_tenant
 
 router = APIRouter(tags=["portal-cliente"])
@@ -988,21 +989,21 @@ async def enviar_arquivo_portal(
 ) -> dict:
     if arquivo.size and arquivo.size > 15 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
-    base = Path("data") / "portal" / str(cliente.organizacao_id) / str(cliente.id)
-    base.mkdir(parents=True, exist_ok=True)
     nome = f"{secrets.token_hex(12)}-{Path(arquivo.filename or 'arquivo').name}"
-    destino = base / nome
     conteudo = await arquivo.read()
     if len(conteudo) > 15 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
-    destino.write_bytes(conteudo)
+    try:
+        caminho = save_bytes(f"portal/{cliente.organizacao_id}/{cliente.id}/{nome}", conteudo)
+    except StorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     arquivo_hash = hashlib.sha256(conteudo).hexdigest()
     item = ArquivoClientePortal(
         organizacao_id=cliente.organizacao_id,
         lead_id=cliente.lead_id,
         cliente_id=cliente.id,
         nome=arquivo.filename or nome,
-        caminho=str(destino),
+        caminho=caminho,
         content_type=arquivo.content_type,
         tamanho=len(conteudo),
         arquivo_hash=arquivo_hash,
@@ -1063,6 +1064,18 @@ async def baixar_arquivo_portal(
     ).scalar_one_or_none()
     if item is None:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    if item.caminho.startswith("s3://"):
+        try:
+            conteudo = read_bytes(item.caminho)
+        except (StorageError, OSError) as exc:
+            raise HTTPException(status_code=404, detail="Arquivo não encontrado") from exc
+        _auditar_cliente(session, cliente, request, "baixar_arquivo", f"arquivo:{item.id}")
+        await session.commit()
+        return StreamingResponse(
+            iter([conteudo]),
+            media_type=item.content_type or "application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{item.nome}"'},
+        )
     caminho = Path(item.caminho).resolve()
     base = (Path("data") / "portal" / str(cliente.organizacao_id) / str(cliente.id)).resolve()
     if not caminho.is_file() or base not in caminho.parents:

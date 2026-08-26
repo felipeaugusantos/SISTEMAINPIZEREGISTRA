@@ -667,3 +667,7 @@ tentativas e reprocessamento autenticado.
 - `uv run ruff check app tests` deve retornar `All checks passed!`.
 - `uv run ruff format --check app tests` valida a formatação.
 - `uv run pytest -q` executa a suíte completa de testes.
+- O Playwright executa smoke tests do portal e captura visual das telas principais.
+- Documentação de compatibilidade e versionamento está em `docs/api-versioning.md`.
+- Documentos podem usar armazenamento local ou S3/MinIO via `app/storage.py`.
+- Para executar todos os gates localmente, use `.\\scripts\\aplicar-p2.ps1 -AplicarMigrations -ExecutarE2E`.

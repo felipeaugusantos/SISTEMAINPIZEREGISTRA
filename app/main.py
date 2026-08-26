@@ -1,3 +1,4 @@
+import os
 import secrets
 from datetime import UTC, datetime
 from pathlib import Path
@@ -85,6 +86,21 @@ app = FastAPI(
     redoc_url=None if settings.app_env.lower() == "production" else "/redoc",
     openapi_url=None if settings.app_env.lower() == "production" else "/openapi.json",
 )
+if os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
+    try:
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+        _provider = TracerProvider(resource=Resource.create({"service.name": "ze-registra-api"}))
+        _provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+        trace.set_tracer_provider(_provider)
+        FastAPIInstrumentor.instrument_app(app)
+    except ImportError:
+        pass
 if settings.admin_force_https:
     app.add_middleware(HTTPSRedirectMiddleware)
 app.add_middleware(
@@ -201,6 +217,15 @@ async def painel_administrativo() -> FileResponse:
 )
 async def painel_configuracao_clicksign() -> FileResponse:
     return FileResponse(web_dir / "admin-clicksign.html")
+
+
+@app.get(
+    "/admin/configuracao/onboarding",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("dashboard.view"))],
+)
+async def painel_configuracao_onboarding() -> FileResponse:
+    return FileResponse(web_dir / "admin-onboarding.html")
 
 
 @app.get(

@@ -1,5 +1,21 @@
 # Changelog
 
+## P2 concluído — 2026-08-26
+
+- Uploads do portal e documentos de ativos usam a camada de storage configurável, com suporte a S3/MinIO e fallback local.
+- OpenTelemetry opcional integrado à API via `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- Snapshots visuais versionados e E2E do portal adicionados ao Playwright.
+- Outbox transacional de eventos criado com migration `ac74e9f0b125`.
+- Dependência `httpx` fixada em versão compatível; aviso residual pertence ao TestClient do Starlette e está documentado para migração futura.
+
+## Escala e qualidade — 2026-08-26
+
+- Ampliados smoke tests E2E para o portal do cliente.
+- Adicionada captura visual automatizada das telas principais.
+- Criada camada de armazenamento local/S3 compatível em `app/storage.py`.
+- Documentadas regras formais de versionamento da API em `docs/api-versioning.md`.
+- Criado script operacional `scripts/aplicar-p2.ps1` para migrations, lint, testes e E2E.
+
 ## Qualidade de código e lint — 2026-08-26
 
 - Reformatados módulos Python e testes com Ruff.

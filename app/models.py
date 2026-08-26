@@ -1754,6 +1754,24 @@ class EventoDominio(Base):
     ocorrido_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class EventoOutbox(Base):
+    """Evento a publicar de forma assíncrona após o commit da transação."""
+
+    __tablename__ = "eventos_outbox"
+    __table_args__ = (UniqueConstraint("organizacao_id", "idempotency_key", name="uq_outbox_idempotencia"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    evento_id: Mapped[int | None] = mapped_column(ForeignKey("eventos_dominio.id", ondelete="SET NULL"), nullable=True)
+    topico: Mapped[str] = mapped_column(String(120), index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    idempotency_key: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    publicado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    tentativas: Mapped[int] = mapped_column(Integer, default=0)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    evento: Mapped["EventoDominio | None"] = relationship(lazy="joined")
+
+
 class PesquisaMarca(Base):
     __tablename__ = "pesquisas_marca"
 

@@ -342,6 +342,50 @@ async def atualizar_organizacao(
     return {"status": "ok"}
 
 
+@router.get("/organizacoes/{organizacao_id}/onboarding")
+async def status_onboarding(organizacao_id: int, session: SessionDep, ator: SuperAdminDep) -> dict:
+    """Checklist operacional para ativacao de uma nova empresa SaaS."""
+    org = (
+        await session.execute(
+            select(Organizacao).options(selectinload(Organizacao.plano)).where(Organizacao.id == organizacao_id)
+        )
+    ).scalar_one_or_none()
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organizacao nao encontrada")
+    usuarios = await session.scalar(
+        select(func.count())
+        .select_from(UsuarioOperacoes)
+        .where(
+            UsuarioOperacoes.organizacao_id == organizacao_id,
+            UsuarioOperacoes.ativo.is_(True),
+        )
+    )
+    dominios = await session.scalar(
+        select(func.count())
+        .select_from(DominioOrganizacao)
+        .where(
+            DominioOrganizacao.organizacao_id == organizacao_id,
+            DominioOrganizacao.ativo.is_(True),
+        )
+    )
+    itens = {
+        "cadastro": bool(org.nome and org.email_contato),
+        "plano": org.plano_id is not None,
+        "modulos": bool(org.modulos_liberados or (org.plano and org.plano.modulos)),
+        "administrador": bool(usuarios),
+        "dominio": bool(dominios),
+        "branding": bool(org.branding),
+    }
+    concluidos = sum(itens.values())
+    return {
+        "organizacao_id": organizacao_id,
+        "status": "concluido" if concluidos == len(itens) else "pendente",
+        "progresso": {"concluidos": concluidos, "total": len(itens)},
+        "itens": itens,
+        "proximo_passo": next((nome for nome, ok in itens.items() if not ok), None),
+    }
+
+
 @router.post("/organizacoes/{organizacao_id}/acesso")
 async def gerar_acesso_administrador(organizacao_id: int, session: SessionDep, ator: SuperAdminDep) -> dict:
     """Regenera o acesso do administrador de uma organização cadastrada."""

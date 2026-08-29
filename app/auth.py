@@ -5,7 +5,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
-from urllib.parse import quote
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
@@ -119,8 +118,7 @@ def gerar_credenciais_sessao() -> tuple[str, str]:
 
 def _erro_nao_autenticado(request: Request) -> HTTPException:
     if request.url.path.startswith("/admin"):
-        destino = quote(request.url.path, safe="/")
-        return HTTPException(status_code=303, headers={"Location": f"/login?next={destino}"})
+        return HTTPException(status_code=303, headers={"Location": "/login"})
     return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticacao necessaria")
 
 

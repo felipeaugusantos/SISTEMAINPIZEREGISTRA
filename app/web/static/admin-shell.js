@@ -31,7 +31,7 @@ window.fetch = async (input, init = {}) => {
   const method = (init.method || "GET").toUpperCase();
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) init.headers = { ...(init.headers || {}), "X-CSRF-Token": readCookie("zr_csrf") };
   let response = await originalFetch(input, init);
-  if (response.status === 401) { location.href = `/login?next=${encodeURIComponent(location.pathname)}`; return response; }
+  if (response.status === 401) { location.href = "/login"; return response; }
   if (response.status === 403 && !["GET", "HEAD", "OPTIONS"].includes(method)) {
     const error = await response.clone().json().catch(() => ({}));
     if (String(error.detail || "").toLowerCase().includes("csrf")) {
@@ -141,7 +141,7 @@ function createAdminShell() {
 createAdminShell();
 
 originalFetch("/v1/auth/me").then(async response => {
-  if (!response.ok) { location.href = `/login?next=${encodeURIComponent(location.pathname)}`; return; }
+  if (!response.ok) { location.href = "/login"; return; }
   const user = await response.json();
   document.querySelector("#admin-current-user").textContent = `${user.nome} · ${user.organizacao?.nome || user.perfil}`;
   document.querySelectorAll(".admin-sidebar-brand, .admin-mobile-header .brand").forEach(link => {

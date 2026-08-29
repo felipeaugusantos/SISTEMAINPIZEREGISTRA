@@ -294,12 +294,14 @@ docker compose logs -f worker
 
 ## Atualização automática da RPI
 
-O serviço `rpi-sync` consulta periodicamente novas edições e importa somente a Seção V — Marcas. O intervalo padrão é de seis horas.
+O serviço `rpi-sync` verifica novas edições e importa somente a Seção V — Marcas. A verificação
+roda em uma agenda semanal fixa: toda terça-feira às 10h (horário de Brasília). Se essa execução
+falhar, uma nova tentativa ocorre às 12h e, se ainda assim falhar, às 15h do mesmo dia; esgotadas
+as tentativas do dia, a próxima verificação volta para a terça-feira seguinte às 10h.
 
 Configurações disponíveis no `.env`:
 
 ```dotenv
-RPI_SYNC_INTERVAL_SECONDS=21600
 RPI_SYNC_START_NUMBER=2900
 RPI_SYNC_POLL_SECONDS=10
 RPI_STALE_HOURS=12

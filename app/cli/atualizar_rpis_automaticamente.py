@@ -4,6 +4,7 @@ import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import asyncpg
 
@@ -11,9 +12,43 @@ from app.request_context import novo_request_id
 from app.rpi.latest import consultar_ultima_rpi
 from app.settings import get_settings
 
-INTERVALO_PADRAO_SEGUNDOS = 6 * 60 * 60
 POLL_PADRAO_SEGUNDOS = 10
 RPI_INICIAL_PADRAO = 2900
+
+# Agenda semanal da sincronizacao automatica: terca-feira as 10h (horario de
+# Brasilia), com novas tentativas as 12h e 15h no mesmo dia caso a execucao
+# anterior tenha falhado. Apos a tentativa das 15h (ou em caso de sucesso), a
+# proxima verificacao volta para a terca-feira seguinte as 10h.
+FUSO_AGENDA_RPI = ZoneInfo("America/Sao_Paulo")
+DIA_SEMANA_AGENDA_RPI = 1  # segunda=0, terca=1, ... (datetime.weekday())
+HORARIOS_AGENDA_RPI = (10, 12, 15)
+
+
+def _proxima_terca_no_horario(referencia_local: datetime, hora: int) -> datetime:
+    dias_ate_terca = (DIA_SEMANA_AGENDA_RPI - referencia_local.weekday()) % 7
+    candidato = (referencia_local + timedelta(days=dias_ate_terca)).replace(
+        hour=hora, minute=0, second=0, microsecond=0
+    )
+    if candidato <= referencia_local:
+        candidato += timedelta(days=7)
+    return candidato
+
+
+def calcular_proxima_verificacao(agora_utc: datetime, sucesso: bool) -> datetime:
+    """Calcula a proxima verificacao segundo a agenda semanal de terca-feira.
+
+    Em caso de falha ocorrida numa terca-feira, agenda a proxima tentativa
+    para o proximo horario do dia (12h ou 15h); esgotados os horarios do dia
+    (ou em caso de sucesso, ou de falha fora de terca-feira), agenda para a
+    terca-feira seguinte as 10h.
+    """
+    agora_local = agora_utc.astimezone(FUSO_AGENDA_RPI)
+    if not sucesso and agora_local.weekday() == DIA_SEMANA_AGENDA_RPI:
+        for hora in HORARIOS_AGENDA_RPI[1:]:
+            candidato_local = agora_local.replace(hour=hora, minute=0, second=0, microsecond=0)
+            if candidato_local > agora_local:
+                return candidato_local.astimezone(UTC)
+    return _proxima_terca_no_horario(agora_local, HORARIOS_AGENDA_RPI[0]).astimezone(UTC)
 
 
 def argumentos() -> argparse.Namespace:
@@ -170,7 +205,6 @@ async def _processar_execucao(
     database_url: str,
     execucao_id: int,
     diretorio: Path,
-    intervalo_segundos: int,
     inicio_minimo: int,
 ) -> None:
     try:
@@ -206,7 +240,7 @@ async def _processar_execucao(
             )
 
             if not pendentes:
-                proxima = datetime.now(UTC) + timedelta(seconds=intervalo_segundos)
+                proxima = calcular_proxima_verificacao(datetime.now(UTC), sucesso=True)
                 await conexao.execute(
                     """
                     UPDATE rpi_sync_execucoes
@@ -306,7 +340,7 @@ async def _processar_execucao(
             ultima_local_depois = await conexao.fetchval(
                 "SELECT max(numero_rpi) FROM rpi_importacoes WHERE tipo='marca'"
             )
-            proxima = datetime.now(UTC) + timedelta(seconds=intervalo_segundos)
+            proxima = calcular_proxima_verificacao(datetime.now(UTC), sucesso=True)
             await conexao.execute(
                 """
                 UPDATE rpi_sync_execucoes
@@ -338,7 +372,7 @@ async def _processar_execucao(
         mensagem = str(erro)[:4000]
         conexao = await asyncpg.connect(dsn=_dsn(database_url))
         try:
-            proxima = datetime.now(UTC) + timedelta(seconds=intervalo_segundos)
+            proxima = calcular_proxima_verificacao(datetime.now(UTC), sucesso=False)
             await conexao.execute(
                 """
                 UPDATE rpi_sync_execucoes
@@ -369,7 +403,6 @@ async def _processar_execucao(
 async def executar() -> None:
     args = argumentos()
     settings = get_settings()
-    intervalo = _inteiro_ambiente("RPI_SYNC_INTERVAL_SECONDS", INTERVALO_PADRAO_SEGUNDOS, 300)
     poll = _inteiro_ambiente("RPI_SYNC_POLL_SECONDS", POLL_PADRAO_SEGUNDOS, 5)
     inicio_minimo = _inteiro_ambiente("RPI_SYNC_START_NUMBER", RPI_INICIAL_PADRAO, 2404)
 
@@ -384,7 +417,6 @@ async def executar() -> None:
                 settings.database_url,
                 execucao_id,
                 args.diretorio,
-                intervalo,
                 inicio_minimo,
             )
         else:

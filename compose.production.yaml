@@ -3,6 +3,12 @@ services:
     environment:
       APP_ENV: production
       BOOTSTRAP_ADMIN: "false"
+      # Endereco do gateway da rede Docker (unico "peer" que efetivamente
+      # alcanca a porta 8000, via Nginx -> docker-proxy em 127.0.0.1:8000).
+      # NAO usar '*': isso deixaria qualquer requisicao externa falsificar
+      # request.client.host via X-Forwarded-For, derrubando o rate limit de
+      # login/recuperacao de senha (ambos chaveados por cliente_ip()).
+      UVICORN_FORWARDED_ALLOW_IPS: ${UVICORN_FORWARDED_ALLOW_IPS:?configure UVICORN_FORWARDED_ALLOW_IPS com o gateway da rede docker}
       ADMIN_FORCE_HTTPS: "true"
       INTEGRATION_AUTH_ENABLED: "true"
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?configure CORS_ALLOWED_ORIGINS}
@@ -16,15 +22,38 @@ services:
       - /tmp
     security_opt:
       - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - "import urllib.request; req = urllib.request.Request('http://localhost:8000/health', headers={'X-Forwarded-Proto': 'https', 'X-Forwarded-For': '127.0.0.1'}); urllib.request.urlopen(req, timeout=5)"
+      interval: 10s
+      timeout: 6s
+      retries: 6
 
   worker:
     environment:
       APP_ENV: production
       BOOTSTRAP_ADMIN: "false"
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?configure ADMIN_PASSWORD}
+      AUDIT_IP_SALT: ${AUDIT_IP_SALT:?configure AUDIT_IP_SALT}
+      SECURITY_MASTER_KEY: ${SECURITY_MASTER_KEY:?configure SECURITY_MASTER_KEY}
+      ADMIN_FORCE_HTTPS: "true"
+      INTEGRATION_AUTH_ENABLED: "true"
+      INPI_INTEGRATION_TOKEN: ${INPI_INTEGRATION_TOKEN:?configure INPI_INTEGRATION_TOKEN}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?configure CORS_ALLOWED_ORIGINS}
     restart: unless-stopped
 
   rpi-sync:
     environment:
       APP_ENV: production
       BOOTSTRAP_ADMIN: "false"
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?configure ADMIN_PASSWORD}
+      AUDIT_IP_SALT: ${AUDIT_IP_SALT:?configure AUDIT_IP_SALT}
+      SECURITY_MASTER_KEY: ${SECURITY_MASTER_KEY:?configure SECURITY_MASTER_KEY}
+      ADMIN_FORCE_HTTPS: "true"
+      INTEGRATION_AUTH_ENABLED: "true"
+      INPI_INTEGRATION_TOKEN: ${INPI_INTEGRATION_TOKEN:?configure INPI_INTEGRATION_TOKEN}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?configure CORS_ALLOWED_ORIGINS}
     restart: unless-stopped

@@ -1,0 +1,51 @@
+# Configuracao de referencia do Nginx como proxy reverso em frente a API
+# (que escuta em 127.0.0.1:8000, conforme compose.yaml). Ajuste server_name
+# e os caminhos de certificado para o dominio real antes de usar; os blocos
+# marcados "managed by Certbot" sao gerados automaticamente por
+# `certbot --nginx -d SEU_DOMINIO`.
+#
+# Requisitos de seguranca ao adaptar este arquivo:
+# - X-Forwarded-For deve ser SOBRESCRITO ($remote_addr), nunca anexado
+#   ($proxy_add_x_forwarded_for), para impedir que um cliente externo
+#   injete um IP falso que a aplicacao (uvicorn --forwarded-allow-ips)
+#   passaria a confiar. Ver docker-entrypoint.sh.
+server {
+    server_name app.zeregistra.com.br 2.25.79.231;
+
+    client_max_body_size 25m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        # Sobrescreve (nao anexa) X-Forwarded-For: um cliente nao pode
+        # injetar um IP falso na frente do valor real observado aqui.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    listen [::]:443 ssl ipv6only=on; # managed by Certbot
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/app.zeregistra.com.br/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/app.zeregistra.com.br/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+}
+server {
+    if ($host = app.zeregistra.com.br) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    listen 80;
+    listen [::]:80;
+    server_name app.zeregistra.com.br 2.25.79.231;
+    return 404; # managed by Certbot
+
+
+}

@@ -4474,6 +4474,58 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
   color: var(--muted);
   font-size: 0.88rem;
 }
+.notif-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.notif-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+.notif-filter input {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+}
+.notif-list-page {
+  max-height: none;
+  overflow: visible;
+}
+.notif-list-page > li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.notif-list-page > li > a {
+  flex: 1;
+  min-width: 0;
+}
+.notif-list-page > li > .notif-toggle {
+  flex: none;
+  white-space: nowrap;
+}
+.notif-list-page > li.notif-lida {
+  opacity: 0.62;
+}
+.notif-panel-footer {
+  border-top: 1px solid var(--line);
+  padding: 10px 18px;
+  text-align: center;
+}
+.notif-panel-footer a {
+  color: var(--forest);
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.notif-panel-footer a:hover {
+  text-decoration: underline;
+}
 .exec-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

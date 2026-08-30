@@ -436,6 +436,15 @@ async def painel_usuarios() -> FileResponse:
     return FileResponse(web_dir / "admin-usuarios.html")
 
 
+@app.get(
+    "/admin/notificacoes",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("dashboard.view"))],
+)
+async def painel_notificacoes() -> FileResponse:
+    return FileResponse(web_dir / "admin-notificacoes.html")
+
+
 @app.get("/admin/saas", include_in_schema=False, dependencies=[Depends(exigir_superadmin)])
 async def painel_saas() -> FileResponse:
     return FileResponse(web_dir / "admin-saas.html")

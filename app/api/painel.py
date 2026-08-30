@@ -210,27 +210,39 @@ async def painel_executivo(session: SessionDep, usuario: DashboardDep) -> dict:
 
 
 @router.get("/notificacoes")
-async def listar_notificacoes(session: SessionDep, usuario: DashboardDep) -> dict:
-    """Notificações pendentes do sistema, unificando jurídico e alertas gerais."""
+async def listar_notificacoes(
+    session: SessionDep,
+    usuario: DashboardDep,
+    todas: bool = False,
+    limite: int = 50,
+) -> dict:
+    """Notificações do sistema, unificando jurídico e alertas gerais.
+
+    Por padrão retorna apenas as pendentes (uso do sino no topo do painel);
+    com `todas=true` inclui também as já lidas/resolvidas, para a central
+    completa em `/admin/notificacoes`.
+    """
     organizacao_id = getattr(usuario, "organizacao_id", 1)
     itens: list[dict] = []
 
     if usuario.pode("legal.view"):
+        filtros = [
+            NotificacaoJuridica.organizacao_id == organizacao_id,
+            NotificacaoJuridica.status != "arquivada",
+            or_(
+                NotificacaoJuridica.destinatario_id.is_(None),
+                NotificacaoJuridica.destinatario_id == usuario.id,
+            ),
+        ]
+        if not todas:
+            filtros.append(NotificacaoJuridica.lida_em.is_(None))
         juridicas = (
             (
                 await session.execute(
                     select(NotificacaoJuridica)
-                    .where(
-                        NotificacaoJuridica.organizacao_id == organizacao_id,
-                        NotificacaoJuridica.lida_em.is_(None),
-                        NotificacaoJuridica.status != "arquivada",
-                        or_(
-                            NotificacaoJuridica.destinatario_id.is_(None),
-                            NotificacaoJuridica.destinatario_id == usuario.id,
-                        ),
-                    )
+                    .where(*filtros)
                     .order_by(NotificacaoJuridica.criado_em.desc())
-                    .limit(50)
+                    .limit(limite)
                 )
             )
             .scalars()
@@ -245,21 +257,22 @@ async def listar_notificacoes(session: SessionDep, usuario: DashboardDep) -> dic
                     "titulo": item.titulo,
                     "mensagem": item.mensagem,
                     "criado_em": item.criado_em,
+                    "lida": item.lida_em is not None,
                     "url": "/admin/operacao-juridica",
                 }
             )
 
     if usuario.pode("production.manage"):
+        filtros_sistema = [AlertaSistema.organizacao_id == organizacao_id]
+        if not todas:
+            filtros_sistema.append(AlertaSistema.resolvido_em.is_(None))
         alertas = (
             (
                 await session.execute(
                     select(AlertaSistema)
-                    .where(
-                        AlertaSistema.organizacao_id == organizacao_id,
-                        AlertaSistema.resolvido_em.is_(None),
-                    )
+                    .where(*filtros_sistema)
                     .order_by(AlertaSistema.criado_em.desc())
-                    .limit(50)
+                    .limit(limite)
                 )
             )
             .scalars()
@@ -274,12 +287,14 @@ async def listar_notificacoes(session: SessionDep, usuario: DashboardDep) -> dic
                     "titulo": item.codigo.replace("_", " ").capitalize(),
                     "mensagem": item.mensagem,
                     "criado_em": item.criado_em,
+                    "lida": item.resolvido_em is not None,
                     "url": _DESTINO_ALERTA.get(item.codigo, "/admin/producao"),
                 }
             )
 
     itens.sort(key=lambda x: x["criado_em"] or datetime.min.replace(tzinfo=UTC), reverse=True)
-    return {"total": len(itens), "itens": itens}
+    pendentes = sum(1 for item in itens if not item["lida"])
+    return {"total": pendentes, "total_itens": len(itens), "itens": itens}
 
 
 @router.post("/notificacoes/{fonte}/{item_id}/lida")
@@ -321,3 +336,90 @@ async def marcar_notificacao_lida(fonte: str, item_id: int, session: SessionDep,
         raise HTTPException(404, "Notificação não encontrada")
     await session.commit()
     return {"lida": True}
+
+
+@router.post("/notificacoes/{fonte}/{item_id}/nao-lida")
+async def marcar_notificacao_nao_lida(fonte: str, item_id: int, session: SessionDep, usuario: DashboardDep) -> dict:
+    """Reverte uma notificação da central para o estado não lida."""
+    organizacao_id = getattr(usuario, "organizacao_id", 1)
+    if fonte == "juridico" and usuario.pode("legal.view"):
+        item = (
+            await session.execute(
+                select(NotificacaoJuridica).where(
+                    NotificacaoJuridica.id == item_id,
+                    NotificacaoJuridica.organizacao_id == organizacao_id,
+                    or_(
+                        NotificacaoJuridica.destinatario_id.is_(None),
+                        NotificacaoJuridica.destinatario_id == usuario.id,
+                    ),
+                )
+            )
+        ).scalar_one_or_none()
+        if item is None:
+            raise HTTPException(404, "Notificação não encontrada")
+        item.status = "nova"
+        item.lida_em = None
+        item.lida_por = None
+    elif fonte == "sistema" and usuario.pode("production.manage"):
+        item = (
+            await session.execute(
+                select(AlertaSistema).where(
+                    AlertaSistema.id == item_id,
+                    AlertaSistema.organizacao_id == organizacao_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if item is None:
+            raise HTTPException(404, "Notificação não encontrada")
+        item.resolvido_em = None
+    else:
+        raise HTTPException(404, "Notificação não encontrada")
+    await session.commit()
+    return {"lida": False}
+
+
+@router.post("/notificacoes/marcar-todas")
+async def marcar_todas_notificacoes(
+    session: SessionDep,
+    usuario: DashboardDep,
+    lida: bool,
+) -> dict:
+    """Marca ou reverte em lote todas as notificações visíveis ao usuário."""
+    organizacao_id = getattr(usuario, "organizacao_id", 1)
+    agora = datetime.now(UTC)
+    afetadas = 0
+
+    if usuario.pode("legal.view"):
+        filtros = [
+            NotificacaoJuridica.organizacao_id == organizacao_id,
+            NotificacaoJuridica.status != "arquivada",
+            or_(
+                NotificacaoJuridica.destinatario_id.is_(None),
+                NotificacaoJuridica.destinatario_id == usuario.id,
+            ),
+            NotificacaoJuridica.lida_em.is_(None) if lida else NotificacaoJuridica.lida_em.is_not(None),
+        ]
+        juridicas = (await session.execute(select(NotificacaoJuridica).where(*filtros))).scalars().all()
+        for item in juridicas:
+            item.status = "lida" if lida else "nova"
+            item.lida_em = agora if lida else None
+            item.lida_por = usuario.ator if lida else None
+            afetadas += 1
+
+    if usuario.pode("production.manage"):
+        filtro_sistema = AlertaSistema.resolvido_em.is_(None) if lida else AlertaSistema.resolvido_em.is_not(None)
+        alertas = (
+            (
+                await session.execute(
+                    select(AlertaSistema).where(AlertaSistema.organizacao_id == organizacao_id, filtro_sistema)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for item in alertas:
+            item.resolvido_em = agora if lida else None
+            afetadas += 1
+
+    await session.commit()
+    return {"afetadas": afetadas, "lida": lida}

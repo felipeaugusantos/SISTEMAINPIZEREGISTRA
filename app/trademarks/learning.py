@@ -27,6 +27,7 @@ from app.models import (
     RotuloHistoricoMarca,
     TipoProcesso,
     VersaoRelatorioMarca,
+    processo_titulares,
 )
 from app.normalization import normalizar_numero_processo
 from app.search import normalizar_texto
@@ -58,6 +59,8 @@ ATRIBUTOS_MODELO = (
     "classe_identica",
     "afinidade_conhecida",
     "candidato_ativo",
+    "antiguidade_candidata_norm",
+    "portfolio_titular_candidata_norm",
     "similaridade_top3_media",
     "conflitos_fortes_norm",
     "conflitos_ativos_norm",
@@ -79,6 +82,8 @@ ROTULOS_ATRIBUTOS = {
     "classe_identica": "classe de Nice idêntica",
     "afinidade_conhecida": "afinidade entre atividades",
     "candidato_ativo": "situação ativa da anterioridade",
+    "antiguidade_candidata_norm": "antiguidade da anterioridade",
+    "portfolio_titular_candidata_norm": "porte do portfólio do titular da anterioridade",
     "similaridade_top3_media": "média dos três conflitos principais",
     "conflitos_fortes_norm": "quantidade de conflitos fortes",
     "conflitos_ativos_norm": "quantidade de anterioridades ativas",
@@ -353,6 +358,42 @@ def extrair_rotulo(movimentacoes: list[Movimentacao]) -> RotuloExtraido | None:
     return None
 
 
+# Anos de antiguidade em que uma anterioridade satura como "consolidada" (art. 124/126
+# LPI: quanto mais tempo em vigor sem contestação, maior a presunção de validade que o
+# exame do INPI tende a reconhecer). Além disso o sinal já não discrimina mais.
+_ESCALA_ANTIGUIDADE_ANOS = 20.0
+
+
+def antiguidade_norm(data_candidata: date | None, data_referencia: date | None) -> float:
+    if data_candidata is None or data_referencia is None:
+        return 0.0
+    anos = (data_referencia - data_candidata).days / 365.25
+    return min(1.0, max(0.0, anos / _ESCALA_ANTIGUIDADE_ANOS))
+
+
+# Nº de marcas no portfólio de um titular a partir do qual ele satura como "titular
+# de portfólio grande" (empresa com marca consolidada, mais provável de gerar
+# oposição/indeferimento por conflito real do que uma coincidência isolada de nome).
+_ESCALA_PORTFOLIO_TITULAR = 20.0
+
+
+async def contar_marcas_por_titular(session: AsyncSession, titular_ids: list[int]) -> dict[int, int]:
+    """Nº de processos de marca distintos ligados a cada titular_id informado."""
+    if not titular_ids:
+        return {}
+    linhas = await session.execute(
+        select(processo_titulares.c.titular_id, func.count(func.distinct(processo_titulares.c.processo_id)))
+        .where(processo_titulares.c.titular_id.in_(titular_ids))
+        .group_by(processo_titulares.c.titular_id)
+    )
+    return dict(linhas.all())
+
+
+def portfolio_titular_norm(contagens: dict[int, int], titular_ids: list[int]) -> float:
+    maior = max((contagens.get(tid, 0) for tid in titular_ids), default=0)
+    return min(1.0, maior / _ESCALA_PORTFOLIO_TITULAR)
+
+
 def extrair_atributos_par(
     marca: str,
     candidata: str,
@@ -361,6 +402,8 @@ def extrair_atributos_par(
     *,
     afinidade_conhecida: bool,
     candidata_ativa: bool,
+    antiguidade_candidata_norm: float = 0.0,
+    portfolio_titular_candidata_norm: float = 0.0,
 ) -> dict[str, float]:
     marca_norm = normalizar_texto(marca)
     candidata_norm = normalizar_texto(candidata)
@@ -384,6 +427,8 @@ def extrair_atributos_par(
         "classe_identica": float(bool(set(classes_marca) & set(classes_candidata))),
         "afinidade_conhecida": float(afinidade_conhecida),
         "candidato_ativo": float(candidata_ativa),
+        "antiguidade_candidata_norm": antiguidade_candidata_norm,
+        "portfolio_titular_candidata_norm": portfolio_titular_candidata_norm,
     }
 
 
@@ -502,6 +547,9 @@ async def construir_dataset_historico(
     afinidades = _pares_afinidade(list(matriz))
     rotulos_processados = 0
     pares_processados = 0
+    # Cache de portfólio por titular acumulado ao longo de toda a construção do dataset:
+    # titulares se repetem muito entre candidatos de alvos diferentes, então evita reconsultar.
+    cache_portfolio_titular: dict[int, int] = {}
 
     for processo in processos:
         extraido = extrair_rotulo(processo.movimentacoes)
@@ -529,6 +577,18 @@ async def construir_dataset_historico(
             rotulo.motivo_inelegibilidade = extraido.motivo_inelegibilidade
             rotulo.classificador_versao = VERSAO_CLASSIFICADOR_ROTULO
             rotulo.evidencias_classificacao = list(extraido.evidencias)
+        # Recalculado sempre (mesmo para rotulos ja enriquecidos via despacho oficial,
+        # que pulam o bloco acima): indeferimentos cujo motivo real nao e colidencia com
+        # marca anterior (falta de distintividade, outra proibicao, ou motivo ainda nao
+        # identificado) nao tem relacao causal com as features de similaridade nominativa
+        # usadas pelo modelo. Treinar com eles ensina uma associacao espuria entre "alta
+        # similaridade com algum candidato" e "indeferida", derrubando a especificidade.
+        if rotulo.rotulo == "indeferida" and rotulo.fundamento != "conflito_anterior":
+            rotulo.elegivel_treinamento = False
+            rotulo.motivo_inelegibilidade = f"indeferimento_sem_relacao_com_similaridade:{rotulo.fundamento}"
+        elif rotulo.status_revisao in {"aprovada", "documental"}:
+            rotulo.elegivel_treinamento = True
+            rotulo.motivo_inelegibilidade = None
         await session.flush()
         rotulos_processados += 1
 
@@ -551,7 +611,7 @@ async def construir_dataset_historico(
                     .options(
                         selectinload(Processo.movimentacoes),
                         selectinload(Processo.classificacoes),
-                        noload(Processo.titulares),
+                        selectinload(Processo.titulares),
                     )
                     .order_by(
                         func.similarity(
@@ -568,6 +628,16 @@ async def construir_dataset_historico(
         )
         await session.execute(delete(ParTreinamentoMarca).where(ParTreinamentoMarca.rotulo_id == rotulo.id))
         classes_alvo = _classes(processo)
+        titular_ids_faltantes = {
+            titular.id
+            for candidata in candidatos
+            for titular in candidata.titulares
+            if titular.id not in cache_portfolio_titular
+        }
+        if titular_ids_faltantes:
+            cache_portfolio_titular.update(
+                await contar_marcas_por_titular(session, list(titular_ids_faltantes))
+            )
         for candidata in candidatos:
             classes_candidata = _classes(candidata)
             afinidade = any(
@@ -582,6 +652,10 @@ async def construir_dataset_historico(
                 classes_candidata,
                 afinidade_conhecida=afinidade,
                 candidata_ativa=_candidata_ativa_na_data(candidata, processo.data_deposito),
+                antiguidade_candidata_norm=antiguidade_norm(candidata.data_deposito, processo.data_deposito),
+                portfolio_titular_candidata_norm=portfolio_titular_norm(
+                    cache_portfolio_titular, [titular.id for titular in candidata.titulares]
+                ),
             )
             session.add(
                 ParTreinamentoMarca(
@@ -1220,6 +1294,7 @@ def _pares_de_relatorio(payload: dict[str, Any]) -> list[dict[str, float]]:
             for classe in item.get("classificacoes") or []
             if classe.get("sistema") == "nice" and classe.get("codigo")
         ]
+        data_deposito_item = item.get("data_deposito")
         pares.append(
             extrair_atributos_par(
                 str(payload.get("marca") or ""),
@@ -1228,6 +1303,10 @@ def _pares_de_relatorio(payload: dict[str, Any]) -> list[dict[str, float]]:
                 classes_processo,
                 afinidade_conhecida=afinidade.get("nivel") in {"identica", "alta", "moderada"},
                 candidata_ativa=item.get("relevancia_situacao") == "ativa",
+                antiguidade_candidata_norm=antiguidade_norm(
+                    date.fromisoformat(data_deposito_item) if data_deposito_item else None,
+                    datetime.now(UTC).date(),
+                ),
             )
         )
     return pares

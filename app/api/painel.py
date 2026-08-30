@@ -45,7 +45,11 @@ _DESTINO_ALERTA = {
     "MODELO_APRENDIZADO_BLOQUEADO": "/admin/aprendizado",
     # Compatibilidade com alertas persistidos antes da nomenclatura formal da Fase 5.
     "MODELO_APRENDIZADO_REPROVADO": "/admin/aprendizado",
+    "NOVA_PESQUISA": "/admin/pesquisas",
 }
+# Códigos de alerta visíveis à equipe comercial (leads.view), não apenas a quem tem
+# production.manage — para não misturar ruído de produção na central de quem atende.
+_CODIGOS_ALERTA_COMERCIAL = frozenset({"NOVA_PESQUISA"})
 
 
 async def _bloco_financeiro(session: AsyncSession, organizacao_id: int) -> dict:
@@ -262,8 +266,14 @@ async def listar_notificacoes(
                 }
             )
 
-    if usuario.pode("production.manage"):
+    pode_producao = usuario.pode("production.manage")
+    pode_comercial_alertas = usuario.pode("leads.view")
+    if pode_producao or pode_comercial_alertas:
         filtros_sistema = [AlertaSistema.organizacao_id == organizacao_id]
+        if pode_producao and not pode_comercial_alertas:
+            filtros_sistema.append(AlertaSistema.codigo.not_in(_CODIGOS_ALERTA_COMERCIAL))
+        elif pode_comercial_alertas and not pode_producao:
+            filtros_sistema.append(AlertaSistema.codigo.in_(_CODIGOS_ALERTA_COMERCIAL))
         if not todas:
             filtros_sistema.append(AlertaSistema.resolvido_em.is_(None))
         alertas = (
@@ -320,15 +330,11 @@ async def marcar_notificacao_lida(fonte: str, item_id: int, session: SessionDep,
         item.status = "lida"
         item.lida_em = agora
         item.lida_por = usuario.ator
-    elif fonte == "sistema" and usuario.pode("production.manage"):
-        item = (
-            await session.execute(
-                select(AlertaSistema).where(
-                    AlertaSistema.id == item_id,
-                    AlertaSistema.organizacao_id == organizacao_id,
-                )
-            )
-        ).scalar_one_or_none()
+    elif fonte == "sistema" and (usuario.pode("production.manage") or usuario.pode("leads.view")):
+        filtros_item = [AlertaSistema.id == item_id, AlertaSistema.organizacao_id == organizacao_id]
+        if not usuario.pode("production.manage"):
+            filtros_item.append(AlertaSistema.codigo.in_(_CODIGOS_ALERTA_COMERCIAL))
+        item = (await session.execute(select(AlertaSistema).where(*filtros_item))).scalar_one_or_none()
         if item is None:
             raise HTTPException(404, "Notificação não encontrada")
         item.resolvido_em = agora
@@ -360,15 +366,11 @@ async def marcar_notificacao_nao_lida(fonte: str, item_id: int, session: Session
         item.status = "nova"
         item.lida_em = None
         item.lida_por = None
-    elif fonte == "sistema" and usuario.pode("production.manage"):
-        item = (
-            await session.execute(
-                select(AlertaSistema).where(
-                    AlertaSistema.id == item_id,
-                    AlertaSistema.organizacao_id == organizacao_id,
-                )
-            )
-        ).scalar_one_or_none()
+    elif fonte == "sistema" and (usuario.pode("production.manage") or usuario.pode("leads.view")):
+        filtros_item = [AlertaSistema.id == item_id, AlertaSistema.organizacao_id == organizacao_id]
+        if not usuario.pode("production.manage"):
+            filtros_item.append(AlertaSistema.codigo.in_(_CODIGOS_ALERTA_COMERCIAL))
+        item = (await session.execute(select(AlertaSistema).where(*filtros_item))).scalar_one_or_none()
         if item is None:
             raise HTTPException(404, "Notificação não encontrada")
         item.resolvido_em = None
@@ -406,17 +408,18 @@ async def marcar_todas_notificacoes(
             item.lida_por = usuario.ator if lida else None
             afetadas += 1
 
-    if usuario.pode("production.manage"):
-        filtro_sistema = AlertaSistema.resolvido_em.is_(None) if lida else AlertaSistema.resolvido_em.is_not(None)
-        alertas = (
-            (
-                await session.execute(
-                    select(AlertaSistema).where(AlertaSistema.organizacao_id == organizacao_id, filtro_sistema)
-                )
-            )
-            .scalars()
-            .all()
-        )
+    pode_producao = usuario.pode("production.manage")
+    pode_comercial_alertas = usuario.pode("leads.view")
+    if pode_producao or pode_comercial_alertas:
+        filtros_sistema = [
+            AlertaSistema.organizacao_id == organizacao_id,
+            AlertaSistema.resolvido_em.is_(None) if lida else AlertaSistema.resolvido_em.is_not(None),
+        ]
+        if pode_producao and not pode_comercial_alertas:
+            filtros_sistema.append(AlertaSistema.codigo.not_in(_CODIGOS_ALERTA_COMERCIAL))
+        elif pode_comercial_alertas and not pode_producao:
+            filtros_sistema.append(AlertaSistema.codigo.in_(_CODIGOS_ALERTA_COMERCIAL))
+        alertas = (await session.execute(select(AlertaSistema).where(*filtros_sistema))).scalars().all()
         for item in alertas:
             item.resolvido_em = agora if lida else None
             afetadas += 1

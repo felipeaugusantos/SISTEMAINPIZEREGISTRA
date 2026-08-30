@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Annotated
 
@@ -12,8 +13,10 @@ from app.crm import (
     obter_ou_criar_empresa,
 )
 from app.database import get_session
+from app.emailing import enviar_alerta_nova_pesquisa
 from app.models import (
     AfinidadeClasse,
+    AlertaSistema,
     AvaliacaoRiscoMarca,
     Contato,
     Lead,
@@ -51,7 +54,13 @@ from app.search_ranking import adicionar_contexto_score
 from app.tenancy import OrganizacaoPublicaDep, validar_limite_pesquisas
 from app.trademarks.affinity import avaliar_afinidade
 from app.trademarks.agent import registrar_execucao_agente
-from app.trademarks.learning import extrair_atributos_par, registrar_previsao_sombra
+from app.trademarks.learning import (
+    antiguidade_norm,
+    contar_marcas_por_titular,
+    extrair_atributos_par,
+    portfolio_titular_norm,
+    registrar_previsao_sombra,
+)
 from app.trademarks.model_status import normalizar_status_modelo
 from app.trademarks.nice import mapear_atividade
 from app.trademarks.quality import avaliar_qualidade_base
@@ -175,8 +184,18 @@ async def criar_pesquisa(
     session.add(pesquisa)
     # Funil do lead: gerar o relatório avança para "relatório enviado" (só avança).
     await avancar_fase_lead(session, lead, "relatorio_enviado", por="sistema")
+    session.add(
+        AlertaSistema(
+            organizacao_id=organizacao.id,
+            severidade="info",
+            codigo="NOVA_PESQUISA",
+            mensagem=f"{dados.nome} pesquisou a marca “{dados.marca}”" + (f" ({dados.empresa})" if dados.empresa else ""),
+            detalhes={"pesquisa_id": pesquisa.id, "lead_id": lead.id, "marca": dados.marca},
+        )
+    )
     await session.commit()
     await session.refresh(pesquisa)
+    await enviar_alerta_nova_pesquisa(dados.marca, dados.nome, dados.empresa)
     return PesquisaMarcaCriada(
         id=pesquisa.id,
         relatorio_url=f"/relatorios/{pesquisa.id}",
@@ -251,8 +270,10 @@ async def gerar_resumo_pesquisa(session: AsyncSession, pesquisa: PesquisaMarca) 
     alto_renome = {item.numero_processo_normalizado for item in registros_alto_renome}
     nomes_alto_renome = {normalizar_texto(item.marca) for item in registros_alto_renome if item.marca}
     itens = []
+    titular_ids_por_processo: dict[str, list[int]] = {}
     for ocorrencia in ocorrencias:
         processo = ocorrencia.processo
+        titular_ids_por_processo[processo.numero] = [titular.id for titular in processo.titulares]
         criterios = ocorrencia.criterios
         ultima_movimentacao = processo.movimentacoes[0] if processo.movimentacoes else None
         situacao = normalizar_despacho(
@@ -385,6 +406,8 @@ async def gerar_resumo_pesquisa(session: AsyncSession, pesquisa: PesquisaMarca) 
         )
     )
     await session.execute(comando_risco)
+    todos_titular_ids = {tid for ids in titular_ids_por_processo.values() for tid in ids}
+    portfolio_por_titular = await contar_marcas_por_titular(session, list(todos_titular_ids))
     pares_aprendizado = [
         extrair_atributos_par(
             pesquisa.marca,
@@ -395,6 +418,10 @@ async def gerar_resumo_pesquisa(session: AsyncSession, pesquisa: PesquisaMarca) 
                 item.afinidade_classes and item.afinidade_classes.nivel in {"identica", "alta", "moderada"}
             ),
             candidata_ativa=item.relevancia_situacao == "ativa",
+            antiguidade_candidata_norm=antiguidade_norm(item.data_deposito, datetime.now(UTC).date()),
+            portfolio_titular_candidata_norm=portfolio_titular_norm(
+                portfolio_por_titular, titular_ids_por_processo.get(item.numero, [])
+            ),
         )
         for item in itens
     ]

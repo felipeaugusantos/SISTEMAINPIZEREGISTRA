@@ -50,11 +50,15 @@ class Settings(BaseSettings):
     email_enabled: bool = False
     email_from_address: str = "nao-responda@zeregistra.local"
     email_from_name: str = "Zé Registra"
+    # Destino do alerta de nova pesquisa recebida (equipe de atendimento). Vazio = desativado.
+    equipe_atendimento_email: str = ""
     smtp_host: str = "localhost"
     smtp_port: int = 1025
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_starttls: bool = False
+    # SSL implícito (ex.: porta 465, como Titan Email), em vez de STARTTLS (ex.: porta 587).
+    smtp_ssl: bool = False
     smtp_timeout_seconds: float = 10.0
     smtp_max_attempts: int = 3
     oauth_attempt_minutes: int = 10

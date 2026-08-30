@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import html
+import logging
 import smtplib
 import ssl
 from email.message import EmailMessage
 from urllib.parse import quote
 
 from app.settings import Settings, get_settings
+
+logger = logging.getLogger("ze_registra.emailing")
 
 
 def _link_recuperacao(settings: Settings, token: str) -> str:
@@ -62,6 +65,17 @@ def _mensagem_recuperacao(destinatario: str, nome: str, token: str, settings: Se
 
 
 def _enviar_smtp(mensagem: EmailMessage, settings: Settings) -> None:
+    if settings.smtp_ssl:
+        with smtplib.SMTP_SSL(
+            settings.smtp_host,
+            settings.smtp_port,
+            timeout=settings.smtp_timeout_seconds,
+            context=ssl.create_default_context(),
+        ) as smtp:
+            if settings.smtp_username:
+                smtp.login(settings.smtp_username, settings.smtp_password)
+            smtp.send_message(mensagem)
+        return
     with smtplib.SMTP(
         settings.smtp_host,
         settings.smtp_port,
@@ -106,6 +120,34 @@ async def enviar_recuperacao_portal(destinatario: str, nome: str, token: str) ->
         f"Olá, {nome or 'cliente'}.\n\nAcesse o portal para redefinir seu acesso:\n{link}\n\nO link expira em 30 minutos e pode ser usado uma única vez."
     )
     await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+
+
+async def enviar_alerta_nova_pesquisa(marca: str, nome_lead: str, empresa: str | None) -> None:
+    """Avisa a equipe de atendimento por e-mail quando uma nova pesquisa chega.
+
+    Silencioso se e-mail ou o destinatário não estiverem configurados: este alerta é um
+    reforço da central de notificações do painel, não o único canal.
+    """
+    settings = get_settings()
+    if not settings.email_enabled or not settings.equipe_atendimento_email:
+        return
+    mensagem = EmailMessage()
+    mensagem["Subject"] = f"Nova pesquisa recebida: {marca}"
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = settings.equipe_atendimento_email
+    linha_empresa = f" ({empresa})" if empresa else ""
+    mensagem.set_content(
+        f"Uma nova pesquisa de marca acabou de ser recebida.\n\n"
+        f"Marca: {marca}\n"
+        f"Contato: {nome_lead}{linha_empresa}\n\n"
+        "Acesse o Centro de Operações para acompanhar o lead."
+    )
+    try:
+        await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+    except Exception:
+        # Falha de e-mail não deve impedir a criação da pesquisa nem derrubar a
+        # requisição do cliente; a central de notificações do painel já cobre o alerta.
+        logger.exception("Falha ao enviar alerta de nova pesquisa por e-mail")
 
 
 async def enviar_proposta_email(destinatario: str, nome: str, link: str, pdf_bytes: bytes, numero: str) -> None:

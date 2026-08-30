@@ -59,10 +59,14 @@ function createAdminShell() {
       <img class="brand-avatar" src="/static/assets/personagem.png" alt="" />
       <span><strong class="brand-wordmark">Zé Registra<sup>®</sup></strong><small>Centro de operações</small></span>
     </a>
+    <button id="admin-sidebar-toggle" class="admin-sidebar-toggle" type="button" aria-controls="admin-sidebar" aria-expanded="true" title="Recolher menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+      <b class="visually-hidden">Recolher menu lateral</b>
+    </button>
     <nav class="admin-sidebar-nav" aria-label="Navegação administrativa">
       <p>Operação</p>
       ${adminSections.map((section) => {
-        const link = `<a href="${section.href}" data-permission="${section.permission}" ${section.parent ? `data-submenu-parent="${section.parent}"` : ""} class="${section.parent ? "admin-nav-subitem " : ""}${section.id === activeSection ? "active" : ""}" ${section.id === activeSection ? 'aria-current="page"' : ""}>
+        const link = `<a href="${section.href}" data-permission="${section.permission}" title="${section.label}" ${section.parent ? `data-submenu-parent="${section.parent}"` : ""} class="${section.parent ? "admin-nav-subitem " : ""}${section.id === activeSection ? "active" : ""}" ${section.id === activeSection ? 'aria-current="page"' : ""}>
           <span class="admin-nav-symbol" aria-hidden="true">${section.symbol}</span>
           <span>${section.label}</span>
         </a>`;
@@ -122,6 +126,20 @@ function createAdminShell() {
     toggle?.querySelector("b")?.replaceChildren(document.createTextNode(`${expanded ? "Recolher" : "Expandir"} submenu ${label}`));
     children.forEach(link => { link.hidden = !expanded; });
   }
+
+  function setCollapsed(collapsed) {
+    document.body.classList.toggle("admin-sidebar-collapsed", collapsed);
+    const toggle = sidebar.querySelector("#admin-sidebar-toggle");
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.title = collapsed ? "Expandir menu" : "Recolher menu";
+    toggle.querySelector("b").textContent = collapsed ? "Expandir menu lateral" : "Recolher menu lateral";
+  }
+  sidebar.querySelector("#admin-sidebar-toggle").addEventListener("click", () => {
+    const collapsed = !document.body.classList.contains("admin-sidebar-collapsed");
+    setCollapsed(collapsed);
+    localStorage.setItem("zr_admin_sidebar_collapsed", collapsed ? "1" : "0");
+  });
+  setCollapsed(localStorage.getItem("zr_admin_sidebar_collapsed") === "1");
 
   const financeHasActiveChild = ["finance-payable", "finance-receivable", "finance-payment-methods"].includes(activeSection);
   const financePreference = localStorage.getItem("zr_admin_submenu_finance");

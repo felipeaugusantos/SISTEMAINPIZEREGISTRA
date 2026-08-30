@@ -668,6 +668,11 @@ async def construir_dataset_historico(
                 )
             )
             pares_processados += 1
+        # Commit periodico em vez de uma unica transacao gigante: da visibilidade real de
+        # progresso a quem acompanha de fora (o total de pares so aparece no banco apos o
+        # commit) e limita o retrabalho perdido se a execucao cair no meio do caminho.
+        if rotulos_processados % 100 == 0:
+            await session.commit()
     await session.commit()
     return rotulos_processados, pares_processados
 

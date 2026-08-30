@@ -1843,7 +1843,13 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
 
 .admin-dashboard {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 48px;
+}
+
+.admin-dashboard,
+.admin-dashboard * {
+  min-width: 0;
 }
 
 .admin-overview-hero {
@@ -1934,7 +1940,12 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
 
 .overview-section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
+}
+
+.overview-section > * {
+  min-width: 0;
 }
 
 .overview-section > header {
@@ -2378,6 +2389,10 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
   .overview-section > header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .admin-body .admin-main .admin-overview-hero {
+    flex-wrap: nowrap;
   }
 
   .admin-system-state {

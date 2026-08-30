@@ -15,7 +15,7 @@ test("uma área administrativa exige autenticação", async ({ request }) => {
   const response = await request.get("/admin", { maxRedirects: 0 });
 
   expect(response.status()).toBe(303);
-  expect(response.headers().location).toMatch(/^\/login\?next=/);
+  expect(response.headers().location).toBe("/login");
 });
 
 test("o portal do cliente exige autenticação própria", async ({ page }) => {

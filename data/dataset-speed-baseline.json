@@ -1,0 +1,9 @@
+{
+  "limite": 300,
+  "candidatos_por_processo": 12,
+  "rotulos_processados": 300,
+  "pares_processados": 3202,
+  "duracao_s": 213.934,
+  "ms_por_rotulo": 713.114,
+  "ms_por_par": 66.813
+}

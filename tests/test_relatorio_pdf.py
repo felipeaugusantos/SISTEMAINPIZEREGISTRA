@@ -112,6 +112,18 @@ def _relatorio_exemplo(*, com_itens: bool = True, com_prognostico: bool = False)
         ),
         risco_pontuacao=69,
         risco_nivel="alto",
+        principais_conflitos_risco=[
+            {
+                "numero": "943906024",
+                "titulo": "CAVALINHO FEROZ",
+                "pontuacao": 69,
+                "nivel": "alto",
+                "fatores": [
+                    {"regra": "Nome idêntico", "pontos": 40, "evidencia": {}},
+                    {"regra": "Situação ativa", "pontos": 20, "evidencia": {}},
+                ],
+            }
+        ],
     )
 
 
@@ -128,6 +140,8 @@ def test_gera_pdf_valido() -> None:
     # Sem prognóstico, a seção não aparece (a estimativa de ML foi aposentada do relatório).
     assert "Triagem determinística de registrabilidade" not in texto
     assert "Score de busca 89/100" in texto
+    assert "Composição do risco" in texto
+    assert "Nome idêntico: +40 pontos" in texto
 
 
 def test_gera_pdf_sem_ocorrencias() -> None:
@@ -159,6 +173,7 @@ def test_resumo_cliente_tem_uma_pagina_e_nao_expoe_ocorrencias() -> None:
     assert "AnÃ¡lise" not in texto
     assert "Ocorrências encontradas" not in texto
     assert "943906024" not in texto
+    assert "Composição do risco" not in texto
 
 
 def test_endpoint_pdf_retorna_documento() -> None:

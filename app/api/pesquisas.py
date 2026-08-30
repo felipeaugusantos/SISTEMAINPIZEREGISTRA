@@ -439,6 +439,7 @@ async def gerar_resumo_pesquisa(session: AsyncSession, pesquisa: PesquisaMarca) 
         ),
         risco_pontuacao=avaliacao.pontuacao,
         risco_nivel=avaliacao.nivel,
+        principais_conflitos_risco=[conflito_para_json(conflito) for conflito in avaliacao.principais_conflitos],
         estimativa_status=(
             "disponivel"
             if (previsao is not None and modelo_previsao is not None and previsao.elegivel_cliente)

@@ -890,6 +890,34 @@ def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencia
         )
         story.append(conclusao)
 
+    if incluir_ocorrencias and relatorio.principais_conflitos_risco:
+        story.append(Paragraph("Composição do risco", estilos["secao"]))
+        story.append(
+            Paragraph(
+                "Detalhamento das regras que compuseram a pontuação de risco, por processo "
+                "conflitante — uso interno para embasar a conversa comercial e técnica.",
+                estilos["celula_menor"],
+            )
+        )
+        for conflito in relatorio.principais_conflitos_risco[:8]:
+            numero = _texto(conflito.get("numero"))
+            titulo = _texto(conflito.get("titulo"), "Sem título")
+            pontuacao = conflito.get("pontuacao")
+            nivel = _texto(str(conflito.get("nivel") or "").replace("_", " "))
+            fatores = conflito.get("fatores") or []
+            linhas_fatores = "".join(
+                f"• <b>{_texto(fator.get('regra'))}:</b> "
+                f"{'+' if (fator.get('pontos') or 0) >= 0 else ''}{fator.get('pontos')} pontos<br/>"
+                for fator in fatores
+            )
+            story.append(
+                Paragraph(
+                    f"<b>{numero} — {titulo}</b> ({pontuacao} pontos · risco {nivel})<br/>{linhas_fatores}",
+                    estilos["celula"],
+                )
+            )
+            story.append(Spacer(1, 4))
+
     if relatorio.prognostico_registrabilidade:
         prognostico = relatorio.prognostico_registrabilidade
         rotulos = {

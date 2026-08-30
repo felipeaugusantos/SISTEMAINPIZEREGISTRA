@@ -444,6 +444,7 @@ class RelatorioMarcaResponse(BaseModel):
     conclusao: ConclusaoIndicativaResponse | None = None
     risco_pontuacao: int | None = Field(default=None, ge=0, le=100)
     risco_nivel: str | None = None
+    principais_conflitos_risco: list[dict] = Field(default_factory=list)
     estimativa_status: Literal["disponivel", "validacao_interna", "indisponivel"] = "validacao_interna"
     estimativa_mensagem: str = (
         "O modelo estatístico permanece em validação interna. Nenhum indicador histórico é "

@@ -61,6 +61,13 @@ def classificar_termo(token: str) -> str:
     Base para descontar o peso de conflitos disparados apenas por termo de uso
     comum na classe/nicho (ex.: "PLUS", "PREMIUM", "TECH"), em vez de tratá-lo
     com o mesmo peso de um radical raro/fantasioso.
+
+    NOTA: duas tentativas de estender isto para radicais truncados ambíguos (ex.:
+    "SINA" -> "SINAFRESP") foram avaliadas e descartadas por não bater com os dados
+    reais do léxico (nem colisão de truncamento nem contagem de prefixo capturam o
+    problema -- o léxico simplesmente não tem cobertura densa o suficiente para
+    esses radicais curtos). O sinal real parece ser o COMPRIMENTO do radical, não
+    sua frequência no corpus; ver discussão de sessão antes de tentar de novo.
     """
     if token in STOPWORDS_FREQUENCIA:
         return "comum"

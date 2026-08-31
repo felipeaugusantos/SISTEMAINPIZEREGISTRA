@@ -51,6 +51,9 @@ class ParecerConsolidadoInput(BaseModel):
     nivel_humano: Literal["baixo", "moderado", "alto", "critico"]
     observacoes_humanas: str = Field(min_length=3, max_length=4000)
     versao_relatorio: int = Field(ge=1)
+    diretriz_acao_humana: (
+        Literal["deposito_imediato", "ajuste_especificacao", "adequacao_mista", "inviavel_rebranding"] | None
+    ) = Field(default=None, description="Sobrescreve a sugestão automática de estratégia de depósito.")
 
 
 def _modulo_liberado(usuario: UsuarioAutenticado, modulo: str, permissao: str) -> bool:
@@ -224,6 +227,7 @@ async def registrar_parecer_consolidado(
         "avaliador_nome": usuario.nome,
         "avaliado_em": agora.isoformat(),
         "versao_revisada": dados.versao_relatorio,
+        "diretriz_acao_humana": dados.diretriz_acao_humana,
     }
     try:
         relatorio = await atualizar_snapshot_analise(

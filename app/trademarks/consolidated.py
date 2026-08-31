@@ -7,8 +7,69 @@ from copy import deepcopy
 
 from app.trademarks.agent import analisar_registrabilidade, resultado_para_dict
 from app.trademarks.registrability import construir_matriz_registrabilidade
+from app.trademarks.risk import nivel_por_pontuacao
 
 VERSAO_ANALISE = "analise-unificada-1.0"
+
+# Pontuação representativa (ponto médio da faixa) de cada nível categórico do
+# motor de risco -- usada só para blender o parecer humano com o score da IA,
+# nunca para substituir a pontuação determinística de risk.py.
+_SCORE_POR_NIVEL = {"baixo": 12, "moderado": 37, "alto": 62, "critico": 87}
+PESO_SCORE_IA = 0.5
+PESO_SCORE_HUMANO = 0.5
+
+DISCLAIMERS_ESTRATEGICOS = (
+    {
+        "codigo": "soberania_inpi",
+        "titulo": "Soberania do INPI",
+        "texto": (
+            "Esta análise reflete probabilidade técnica e mercadológica com base nos dados "
+            "disponíveis; a decisão final sobre o registro cabe exclusivamente ao examinador "
+            "do INPI, que pode considerar elementos não antecipáveis por este sistema."
+        ),
+    },
+    {
+        "codigo": "termos_comuns",
+        "titulo": "Marcas mistas e termos de uso comum",
+        "texto": (
+            "Termos de uso comum, genéricos ou evocativos do segmento presentes na marca não "
+            "conferem exclusividade isolada -- a proteção recai sobre o conjunto nominativo e, "
+            "quando houver, sobre o conjunto gráfico-nominativo (trade dress)."
+        ),
+    },
+    {
+        "codigo": "oposicao_terceiros",
+        "titulo": "Risco prático de oposição",
+        "texto": (
+            "Mesmo quando a viabilidade legal é aceitável, concorrentes do setor podem oferecer "
+            "oposição administrativa por razões estratégicas -- o risco de litígio prático deve "
+            "ser avaliado separadamente da viabilidade técnica de registro."
+        ),
+    },
+)
+
+_ROTULOS_DIRETRIZ = {
+    "deposito_imediato": "Depósito imediato",
+    "ajuste_especificacao": "Ajuste de especificação",
+    "adequacao_mista": "Adequação de logotipo/mista",
+    "inviavel_rebranding": "Inviável — sugerir rebranding",
+}
+
+
+def _diretriz_acao_automatica(decisao: str, nivel_risco: str | None, forma_apresentacao: str | None) -> str:
+    """Sugestão estratégica de depósito. Puramente indicativa -- o parecer humano tem
+    poder de override total sobre esta sugestão (ver `diretriz_acao_humana` no parecer)."""
+    if decisao == "cenario_favoravel":
+        return "deposito_imediato"
+    if decisao == "cenario_intermediario":
+        return "ajuste_especificacao"
+    if decisao == "cenario_desfavoravel":
+        if forma_apresentacao == "mista":
+            # Já tentou reforçar distintividade pelo conjunto gráfico-nominativo e
+            # ainda assim o cenário é desfavorável -- pouco resta a ajustar no sinal.
+            return "inviavel_rebranding"
+        return "adequacao_mista"
+    return "ajuste_especificacao"
 
 
 def apresentacao_analise(analise: dict) -> dict:
@@ -80,7 +141,9 @@ def apresentacao_analise(analise: dict) -> dict:
     }
 
 
-def construir_analise_consolidada(relatorio: dict, dados_complementares: dict | None = None) -> dict:
+def construir_analise_consolidada(
+    relatorio: dict, dados_complementares: dict | None = None, *, parecer_humano_novo: dict | None = None
+) -> dict:
     dados = deepcopy(dados_complementares or {})
     entrada = {
         chave: valor
@@ -138,7 +201,27 @@ def construir_analise_consolidada(relatorio: dict, dados_complementares: dict | 
         if regra.get("status") == "nao_analisado"
     ]
     anterior = relatorio.get("analise_consolidada") or {}
-    parecer = deepcopy(anterior.get("parecer_humano")) if anterior.get("entrada_hash") == assinatura else None
+    if parecer_humano_novo is not None:
+        parecer = parecer_humano_novo
+    elif anterior.get("entrada_hash") == assinatura:
+        parecer = deepcopy(anterior.get("parecer_humano"))
+    else:
+        parecer = None
+
+    score_ia = relatorio.get("risco_pontuacao")
+    score_final = None
+    nivel_final = None
+    if parecer and parecer.get("nivel") and score_ia is not None:
+        score_humano = _SCORE_POR_NIVEL[parecer["nivel"]]
+        score_final = round(score_ia * PESO_SCORE_IA + score_humano * PESO_SCORE_HUMANO)
+        nivel_final = nivel_por_pontuacao(score_final)
+
+    codigo_diretriz = _diretriz_acao_automatica(resultado.decisao, relatorio.get("risco_nivel"), dados.get("forma_apresentacao"))
+    diretriz_origem = "automatica"
+    if parecer and parecer.get("diretriz_acao_humana"):
+        codigo_diretriz = parecer["diretriz_acao_humana"]
+        diretriz_origem = "humana"
+
     return {
         "versao_motor": VERSAO_ANALISE,
         "entrada_hash": assinatura,
@@ -182,6 +265,24 @@ def construir_analise_consolidada(relatorio: dict, dados_complementares: dict | 
         "fontes": {"ultima_rpi": relatorio.get("ultima_rpi"), "qualidade_base": relatorio.get("qualidade_base")},
         "dados_complementares": dados,
         "parecer_humano": parecer,
+        "score_composto": {
+            "score_ia": score_ia,
+            "score_humano": _SCORE_POR_NIVEL.get(parecer["nivel"]) if parecer and parecer.get("nivel") else None,
+            "score_final": score_final,
+            "nivel_final": nivel_final,
+            "peso_ia": PESO_SCORE_IA,
+            "peso_humano": PESO_SCORE_HUMANO,
+            "explicacao": (
+                "Combina a pontuação determinística da IA com o nível atribuído pelo especialista "
+                "em partes iguais; só é calculado depois que o parecer humano é registrado."
+            ),
+        },
+        "diretriz_acao": {
+            "codigo": codigo_diretriz,
+            "rotulo": _ROTULOS_DIRETRIZ[codigo_diretriz],
+            "origem": diretriz_origem,
+        },
+        "disclaimers": list(DISCLAIMERS_ESTRATEGICOS),
     }
 
 

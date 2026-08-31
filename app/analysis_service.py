@@ -26,7 +26,6 @@ async def atualizar_snapshot_analise(session, pesquisa, *, parecer=None, versao_
     relatorio.analise_consolidada = construir_analise_consolidada(
         relatorio.model_dump(mode="json"),
         pesquisa.dados_complementares_registrabilidade or {},
+        parecer_humano_novo=parecer,
     )
-    if parecer is not None:
-        relatorio.analise_consolidada["parecer_humano"] = parecer
     return await versionar_relatorio(session, relatorio)

@@ -865,8 +865,14 @@ def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencia
         estado = "VALIDADO POR ESPECIALISTA" if incluir_ocorrencias and revisao.get("validada") else "PRELIMINAR — REVISÃO HUMANA NECESSÁRIA"
         story.append(Paragraph("Análise de registrabilidade", estilos["secao"]))
         story.append(Paragraph(_texto(estado), estilos["celula"]))
+        _cor_situacao = {
+            "favoravel": "#176a3a",
+            "desfavoravel": "#8d2923",
+            "inconclusiva": "#775512",
+        }.get(apresentacao["situacao"]["codigo"], "#31483c")
         story.append(Paragraph(
-            f"Situação da análise automática: {_texto(apresentacao['situacao']['rotulo'])}",
+            f'Situação da análise automática: <font color="{_cor_situacao}">'
+            f'{_texto(apresentacao["situacao"]["rotulo"])}</font>',
             estilos["marca"],
         ))
         story.append(Paragraph(_texto(apresentacao["situacao"]["explicacao"]), estilos["celula"]))

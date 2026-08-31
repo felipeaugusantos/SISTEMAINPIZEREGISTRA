@@ -8,15 +8,29 @@ from app.models import Lead, PesquisaMarca
 
 
 def test_consulta_interna_aceita_atividade_ausente() -> None:
-    dados = ConsultaOperadorInput.model_validate({"marca": "NORTE STUDIO"})
+    dados = ConsultaOperadorInput.model_validate(
+        {"marca": "NORTE STUDIO", "nome": "Cliente Teste", "email": "cliente@example.com"}
+    )
 
     assert dados.atividade is None
 
 
 def test_consulta_interna_normaliza_atividade_vazia() -> None:
-    dados = ConsultaOperadorInput.model_validate({"marca": "NORTE STUDIO", "atividade": "   "})
+    dados = ConsultaOperadorInput.model_validate(
+        {
+            "marca": "NORTE STUDIO",
+            "atividade": "   ",
+            "nome": "Cliente Teste",
+            "email": "cliente@example.com",
+        }
+    )
 
     assert dados.atividade is None
+
+
+def test_consulta_interna_exige_nome_e_email() -> None:
+    with pytest.raises(ValueError):
+        ConsultaOperadorInput.model_validate({"marca": "NORTE STUDIO"})
 
 
 def test_formulario_admin_nao_exige_atividade() -> None:
@@ -28,18 +42,19 @@ def test_formulario_admin_nao_exige_atividade() -> None:
 
 
 @pytest.mark.asyncio
-async def test_consulta_sem_email_nao_cria_lead_vazio() -> None:
+async def test_consulta_sempre_cria_lead_para_o_comercial() -> None:
     class SessaoConsulta(FakeSession):
         async def refresh(self, obj: object) -> None:
             if isinstance(obj, PesquisaMarca):
-                obj.id = "pesquisa-sem-lead"
+                obj.id = "pesquisa-com-lead"
 
     session = SessaoConsulta()
 
-    resposta = await criar_consulta(ConsultaOperadorInput(marca="NORTE STUDIO"), session, usuario_teste())
+    dados = ConsultaOperadorInput(marca="NORTE STUDIO", nome="Cliente Teste", email="cliente@example.com")
+    await criar_consulta(dados, session, usuario_teste())
 
-    assert resposta.lead_id is None
-    assert not any(isinstance(item, Lead) for item in session.adicionados)
+    lead = next(item for item in session.adicionados if isinstance(item, Lead))
+    assert lead.email == "cliente@example.com"
+    assert lead.nome == "Cliente Teste"
     pesquisa = next(item for item in session.adicionados if isinstance(item, PesquisaMarca))
-    assert pesquisa.atividade is None
-    assert pesquisa.lead_id is None
+    assert pesquisa.lead_id == lead.id

@@ -35,11 +35,11 @@
           </div>
         </fieldset>
         <fieldset>
-          <legend>Cliente (opcional — registra um lead do operador)</legend>
+          <legend>Cliente — toda consulta gera um lead para o comercial</legend>
           <div class="user-fields">
-            <label>Nome<input name="nome" maxlength="150" placeholder="Consulta operacional"></label>
+            <label>Nome<input name="nome" required minlength="2" maxlength="150" placeholder="Nome do cliente"></label>
             <label>Empresa<input name="empresa" maxlength="200"></label>
-            <label>E-mail<input name="email" type="email" maxlength="254"></label>
+            <label>E-mail<input name="email" type="email" required maxlength="254"></label>
             <label>Telefone<input name="telefone" maxlength="30"></label>
           </div>
         </fieldset>

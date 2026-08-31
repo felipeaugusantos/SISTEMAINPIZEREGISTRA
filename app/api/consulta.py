@@ -27,12 +27,14 @@ OperadorDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view
 class ConsultaOperadorInput(BaseModel):
     marca: str = Field(min_length=2, max_length=200)
     atividade: str | None = Field(default=None, max_length=500)
-    nome: str = Field(default="Consulta operacional", max_length=150)
+    # Nome e e-mail sao obrigatorios: toda consulta interna vira lead, para o
+    # comercial poder dar sequencia (ver app.api.consulta.criar_consulta).
+    nome: str = Field(min_length=2, max_length=150)
     empresa: str | None = Field(default=None, max_length=200)
-    email: str = Field(default="", max_length=254)
+    email: str = Field(min_length=5, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
     telefone: str = Field(default="", max_length=30)
 
-    @field_validator("marca")
+    @field_validator("marca", "nome")
     @classmethod
     def limpar_marca(cls, valor: str) -> str:
         return valor.strip()
@@ -63,11 +65,11 @@ async def criar_consulta(
             ).scalar_one_or_none()
         if contato_valido is None:
             lead.contato_id = None
-    if email and lead is None:
+    if lead is None:
         lead = Lead(
             organizacao_id=operador.organizacao_id,
             empresa_id=empresa.id if empresa else None,
-            nome=dados.nome.strip() or "Consulta operacional",
+            nome=dados.nome,
             empresa=empresa.nome if empresa else None,
             email=email,
             telefone=dados.telefone.strip(),

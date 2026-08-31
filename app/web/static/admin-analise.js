@@ -1,4 +1,11 @@
 const pesquisaId = location.pathname.split("/").filter(Boolean).pop();
+// A pagina publica do relatorio (/relatorios/{id}) exige a chave de integracao
+// do tenant padrao via query string, mesmo para quem ja esta autenticado como
+// operador -- e' o mesmo gate que protege o formulario publico de pesquisa.
+const chaveIntegracaoPromise = fetch("/v1/tenant/branding")
+  .then((response) => (response.ok ? response.json() : {}))
+  .then((tenant) => tenant.chave_integracao || null)
+  .catch(() => null);
 const sections = document.querySelector("#analysis-sections");
 const progress = document.querySelector("#analysis-progress");
 const message = document.querySelector("#analysis-message");
@@ -72,7 +79,11 @@ function renderSummary(data) {
   const lead = data.lead;
   document.querySelector("#analysis-brand").textContent = data.pesquisa.marca;
   document.querySelector("#analysis-subtitle").textContent = data.pesquisa.atividade || "Atividade não informada";
-  document.querySelector("#analysis-public-report").href = `/relatorios/${encodeURIComponent(data.pesquisa.id)}`;
+  const linkRelatorioPublico = document.querySelector("#analysis-public-report");
+  linkRelatorioPublico.href = `/relatorios/${encodeURIComponent(data.pesquisa.id)}`;
+  chaveIntegracaoPromise.then((chave) => {
+    if (chave) linkRelatorioPublico.href += `?chave_integracao=${encodeURIComponent(chave)}`;
+  });
   document.querySelector("#analysis-summary").innerHTML = `
     <div><span>Cliente</span><strong title="${escapeHtml(lead?.nome || "Sem vínculo")}">${escapeHtml(lead?.nome || "Sem vínculo")}</strong></div>
     <div><span>Empresa</span><strong title="${escapeHtml(lead?.empresa || "Não informada")}">${escapeHtml(lead?.empresa || "Não informada")}</strong></div>

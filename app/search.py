@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 from difflib import SequenceMatcher
 
-from sqlalchemy import case, exists, func, or_, select
+from sqlalchemy import case, exists, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -146,6 +146,14 @@ def identificar_criterios(titulo: str | None, marca: str) -> list[str]:
         criterios.append("Nome idêntico")
     elif marca_normalizada and marca_normalizada in titulo_normalizado:
         criterios.append("Expressão completa")
+    elif titulo_normalizado in palavras:
+        # A marca candidata inteira e' uma das palavras distintivas da busca (ex.:
+        # candidata "DHF" para a busca "INSTITUTO DHF"). Sinal de conflito real,
+        # mesmo quando a similaridade de trigrama da frase inteira e' baixa --
+        # sem esse criterio, marcas compostas cujo elemento distintivo e curto
+        # perdem para radicais genericos (tipo "INSTITU") que aparecem em
+        # centenas de marcas nao relacionadas.
+        criterios.append("Elemento nominativo isolado")
 
     if any(palavra in titulo_normalizado for palavra in palavras):
         criterios.append("Elemento do nome")
@@ -186,6 +194,18 @@ async def buscar_marcas(
     variacoes = gerar_variacoes(marca_limpa)
     termos_ampliados = list(dict.fromkeys([*radicais, *variacoes]))
     filtros_ampliados = [titulo_normalizado.ilike(func.immutable_unaccent(f"%{termo}%")) for termo in termos_ampliados]
+
+    # Uma marca cujo titulo inteiro e' identico a uma das palavras distintivas da
+    # busca (ex.: candidata "DHF" para a busca "INSTITUTO DHF") e' um sinal muito
+    # mais forte de conflito real do que a similaridade de trigrama da frase inteira
+    # sugere -- e nao sofre o falso-positivo de radicais genericos/curtos (tipo
+    # "INSTITU") que aparecem em milhares de marcas nao relacionadas.
+    palavras_busca = [palavra for palavra in extrair_palavras(marca_limpa) if len(palavra) >= 3]
+    filtro_token_exato = (
+        or_(*[func.lower(titulo_normalizado) == palavra.lower() for palavra in palavras_busca])
+        if palavras_busca
+        else literal(False)
+    )
 
     estrategia = estrategia.lower().strip()
     if estrategia not in {
@@ -279,7 +299,14 @@ async def buscar_marcas(
             case(
                 (filtro_identico, 0),
                 (filtro_frase, 1),
-                else_=2,
+                # Titulo inteiro da candidata == uma palavra distintiva da busca (ex.:
+                # "DHF" para "INSTITUTO DHF") precisa furar a fila antes do corte do
+                # LIMIT: e' um sinal de conflito muito mais forte que a similaridade
+                # de trigrama da frase inteira sugere, sem o falso-positivo de
+                # radicais genericos curtos que aparecem em milhares de marcas.
+                (filtro_token_exato, 2),
+                (filtro_radical, 3),
+                else_=4,
             ),
             similaridade_sql.desc(),
             Processo.atualizado_em.desc(),

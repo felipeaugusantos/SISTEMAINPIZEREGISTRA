@@ -9,6 +9,10 @@ SCORE_MAXIMO = 100.0
 PESOS_NOMINATIVOS = {
     "Nome idêntico": 55.0,
     "Expressão completa": 40.0,
+    # Candidata inteira == uma palavra distintiva da busca (ex.: "DHF" para
+    # "INSTITUTO DHF"). Mais forte que radical/elemento genericos: nao sofre o
+    # falso-positivo de prefixos comuns que aparecem em centenas de marcas.
+    "Elemento nominativo isolado": 30.0,
     "Elemento do nome": 8.0,
     "Radical semelhante": 6.0,
     "Variação ortográfica ou fonética": 7.0,
@@ -17,6 +21,7 @@ PESOS_NOMINATIVOS = {
 REGRAS_NOMINATIVAS = {
     "Nome idêntico": "NOME_IDENTICO",
     "Expressão completa": "EXPRESSAO_COMPLETA",
+    "Elemento nominativo isolado": "ELEMENTO_NOMINATIVO_ISOLADO",
     "Elemento do nome": "ELEMENTO_NOMINATIVO",
     "Radical semelhante": "RADICAL_SEMELHANTE",
     "Variação ortográfica ou fonética": "VARIACAO_ORTOGRAFICA_FONETICA",

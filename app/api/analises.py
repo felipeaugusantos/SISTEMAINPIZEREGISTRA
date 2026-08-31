@@ -33,7 +33,7 @@ from app.trademarks.analysis_workflow import (
     proximo_estado_analise,
     revisao_obrigatoria_pendente,
 )
-from app.trademarks.consolidated import analise_para_exibicao
+from app.trademarks.consolidated import analise_para_exibicao, apresentacao_analise
 from app.trademarks.model_status import normalizar_status_modelo
 from app.trademarks.registrability import (
     construir_indicador_deterministico,
@@ -394,6 +394,7 @@ async def obter_central_analise(
         for chave in ("probabilidade_deferimento", "probabilidade_inferior", "probabilidade_superior", "confianca"):
             consolidada["conclusao_preliminar"][chave] = None
         consolidada["conclusao_preliminar"]["fatores_principais"] = []
+        consolidada["apresentacao"] = apresentacao_analise(consolidada)
 
     return {
         "analise_consolidada": consolidada,

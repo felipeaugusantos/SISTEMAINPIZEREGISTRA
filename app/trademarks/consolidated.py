@@ -2,12 +2,82 @@
 
 import hashlib
 import json
+import re
 from copy import deepcopy
 
 from app.trademarks.agent import analisar_registrabilidade, resultado_para_dict
 from app.trademarks.registrability import construir_matriz_registrabilidade
 
 VERSAO_ANALISE = "analise-unificada-1.0"
+
+
+def apresentacao_analise(analise: dict) -> dict:
+    """Detalha o snapshot existente sem recalcular sua decisão nem alterar a aprovação."""
+    resultado = analise.get("conclusao_preliminar") or {}
+    regras = (analise.get("matriz") or {}).get("regras") or []
+
+    def detalhar(status):
+        return [
+            {
+                "criterio": regra.get("criterio") or regra.get("codigo") or "Critério não identificado",
+                "justificativa": regra.get("conclusao") or "Requer avaliação profissional.",
+                "evidencia": regra.get("evidencia") or "",
+                "referencia": regra.get("referencia") or "",
+            }
+            for regra in regras
+            if regra.get("status") == status
+        ]
+
+    impedimentos = detalhar("possivel_impedimento")
+    alertas = detalhar("alerta")
+    fundamentos = []
+    for motivo in resultado.get("motivos") or []:
+        normalizado = motivo.strip().lower()
+        if normalizado.startswith(("modelo estatístico", "estimativa estatística")):
+            continue
+        if impedimentos and re.fullmatch(r"\d+ possível\(is\) impedimento\(s\) nas regras do inpi", normalizado):
+            continue
+        if alertas and re.fullmatch(r"\d+ ponto\(s\) de atenção", normalizado):
+            continue
+        fundamentos.append(motivo)
+    if resultado.get("nivel_risco") in {"alto", "critico"}:
+        fundamentos.append("Risco técnico elevado: revise as anterioridades e a composição do risco.")
+    situacoes = {
+        "cenario_favoravel": ("favoravel", "Favorável", "Cenário técnico favorável, sujeito à revisão profissional."),
+        "cenario_desfavoravel": (
+            "desfavoravel",
+            "Desfavorável",
+            "Riscos relevantes exigem revisão antes de prosseguir.",
+        ),
+        "cenario_intermediario": (
+            "inconclusiva",
+            "Inconclusiva - requer revisão",
+            "Os pontos de atenção impedem uma conclusão favorável ou desfavorável neste momento.",
+        ),
+        "dados_insuficientes": (
+            "inconclusiva",
+            "Inconclusiva - dados insuficientes",
+            "Complete as informações pendentes antes de concluir a análise.",
+        ),
+    }
+    decisao = resultado.get("decisao")
+    if resultado.get("abstencao") and decisao != "cenario_desfavoravel":
+        decisao = "dados_insuficientes"
+    codigo, rotulo, explicacao = situacoes.get(decisao, situacoes["dados_insuficientes"])
+    estatistica = analise.get("estatistica") or {}
+    mensagem = estatistica.get("mensagem") or ""
+    if not estatistica.get("disponivel") and "restrito" not in mensagem.lower():
+        mensagem = (
+            "Análise realizada com os critérios técnicos disponíveis, sem apoio estatístico. "
+            "A indisponibilidade desse apoio não é um impedimento da marca."
+        )
+    return {
+        "situacao": {"codigo": codigo, "rotulo": rotulo, "explicacao": explicacao, "origem": "analise_automatica"},
+        "impedimentos": impedimentos,
+        "pontos_atencao": alertas,
+        "fundamentos_tecnicos": fundamentos,
+        "mensagem_apoio": mensagem,
+    }
 
 
 def construir_analise_consolidada(relatorio: dict, dados_complementares: dict | None = None) -> dict:
@@ -128,4 +198,5 @@ def analise_para_exibicao(relatorio: dict, *, versao: int, validado_por=None, va
         "validado_por": validado_por if validada else None,
         "validado_em": validado_em.isoformat() if validada and hasattr(validado_em, "isoformat") else None,
     }
+    analise["apresentacao"] = apresentacao_analise(analise)
     return analise

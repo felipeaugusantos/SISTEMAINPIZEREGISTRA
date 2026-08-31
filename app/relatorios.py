@@ -28,6 +28,7 @@ from reportlab.platypus import (
 )
 
 from app.schemas import MarcaRelatorioItem, RelatorioMarcaResponse
+from app.trademarks.consolidated import apresentacao_analise
 
 _COR_TINTA = colors.HexColor("#17231C")
 _COR_SUAVE = colors.HexColor("#5B665F")
@@ -859,14 +860,34 @@ def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencia
 
     if relatorio.analise_consolidada:
         analise = relatorio.analise_consolidada
+        apresentacao = apresentacao_analise(analise)
         revisao = analise.get("revisao") or {}
         estado = "VALIDADO POR ESPECIALISTA" if incluir_ocorrencias and revisao.get("validada") else "PRELIMINAR — REVISÃO HUMANA NECESSÁRIA"
         story.append(Paragraph("Análise de registrabilidade", estilos["secao"]))
         story.append(Paragraph(_texto(estado), estilos["celula"]))
+        story.append(Paragraph(
+            f"Situação da análise automática: {_texto(apresentacao['situacao']['rotulo'])}",
+            estilos["marca"],
+        ))
+        story.append(Paragraph(_texto(apresentacao["situacao"]["explicacao"]), estilos["celula"]))
         story.append(Paragraph(_texto(analise.get("titulo")), estilos["marca"]))
         story.append(Paragraph(_texto(analise.get("recomendacao")), estilos["celula"]))
         resultado = analise.get("conclusao_preliminar") or {}
-        for motivo in resultado.get("motivos", []):
+        for titulo, chave in (("Possíveis impedimentos", "impedimentos"), ("Pontos de atenção", "pontos_atencao")):
+            achados = apresentacao[chave]
+            if achados:
+                story.append(Paragraph(f"{titulo} ({len(achados)})", estilos["secao"]))
+                for achado in achados:
+                    story.append(Paragraph(
+                        f"<b>{_texto(achado['criterio'])}:</b> {_texto(achado['justificativa'])}",
+                        estilos["celula"],
+                    ))
+                    if incluir_ocorrencias:
+                        if achado["evidencia"]:
+                            story.append(Paragraph(f"Evidência: {_texto(achado['evidencia'])}", estilos["celula_menor"]))
+                        if achado["referencia"]:
+                            story.append(Paragraph(f"Referência: {_texto(achado['referencia'])}", estilos["celula_menor"]))
+        for motivo in apresentacao["fundamentos_tecnicos"]:
             story.append(Paragraph(f"• {_texto(motivo)}", estilos["celula"]))
         story.append(Paragraph(_texto(resultado.get("aviso")), estilos["celula_menor"]))
         if incluir_ocorrencias:
@@ -876,7 +897,8 @@ def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencia
                     estilos["celula"],
                 ))
             estatistica = analise.get("estatistica") or {}
-            story.append(Paragraph(_texto(estatistica.get("mensagem")), estilos["celula_menor"]))
+            story.append(Paragraph("Apoio estatístico (informação do sistema)", estilos["secao"]))
+            story.append(Paragraph(_texto(apresentacao["mensagem_apoio"]), estilos["celula_menor"]))
             estimativa = estatistica.get("estimativa") or {}
             if estatistica.get("disponivel") and estimativa.get("probabilidade_deferimento") is not None:
                 story.append(Paragraph(

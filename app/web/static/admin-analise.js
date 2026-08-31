@@ -98,23 +98,30 @@ function renderUnified(data) {
   if (denied) return step({ id: "unified", number: 1, title: "Análise de registrabilidade", subtitle: "Conclusão única baseada nas evidências", ...denied });
   if (!item) return step({ id: "unified", number: 1, title: "Análise de registrabilidade", subtitle: "Conclusão única baseada nas evidências", state: "pending", stateLabel: "Aguardando pesquisa", body: '<p class="analysis-empty">Abra o resultado automático para preparar as evidências desta pesquisa.</p>', open: true });
   const result = item.conclusao_preliminar;
+  const presentation = item.apresentacao || {};
+  const findings = (items) => (items || []).map(f => `<li><strong>${escapeHtml(f.criterio)}</strong><p>${escapeHtml(f.justificativa)}</p>${f.evidencia ? `<p><small>Evidência: ${escapeHtml(f.evidencia)}</small></p>` : ""}${f.referencia ? `<small>Referência: ${escapeHtml(f.referencia)}</small>` : ""}</li>`).join("");
+  const impediments = findings(presentation.impedimentos);
+  const attention = findings(presentation.pontos_atencao);
   const pending = (item.pendencias || []).map(p => `<li><strong>${escapeHtml(p.criterio)}</strong> — ${escapeHtml(p.descricao)}</li>`).join("");
-  const reasons = (result.motivos || []).map(reason => `<li>${escapeHtml(reason)}</li>`).join("");
+  const reasons = (presentation.fundamentos_tecnicos || []).map(reason => `<li>${escapeHtml(reason)}</li>`).join("");
   const conflicts = (item.anterioridades || []).map(c => `<tr><td>${escapeHtml(c.numero)}</td><td>${escapeHtml(c.titulo || "Sem título")}</td><td>${escapeHtml(c.situacao || "Não informada")}</td><td>${escapeHtml(c.relevancia_rotulo || "Não informada")}</td></tr>`).join("");
   const estimate = item.estatistica?.estimativa;
   const stats = item.estatistica?.disponivel && estimate ? `<p>Indicador histórico: <strong>${percent(estimate.probabilidade_deferimento)}</strong> · faixa ${percent(estimate.probabilidade_inferior)} a ${percent(estimate.probabilidade_superior)}.</p>` : "";
   const refresh = data.permissoes.validacao_revisar ? '<button id="consolidate-analysis" class="secondary-button" type="button">Atualizar análise consolidada</button>' : "";
   return step({ id: "unified", number: 1, title: "Análise de registrabilidade", subtitle: `Versão ${item.versao_relatorio} · ${item.versao_motor}`, state: item.revisao.validada ? "completed" : "attention", stateLabel: item.revisao.validada ? "Validada por especialista" : "Preliminar", open: true, body: `
-    <section class="unified-conclusion"><p class="eyebrow">Conclusão automática preliminar</p><h3>${escapeHtml(item.titulo)}</h3><p>${escapeHtml(item.recomendacao)}</p>
+    <section class="unified-conclusion"><p class="eyebrow">Conclusão automática preliminar</p><h3>Situação: ${escapeHtml(presentation.situacao?.rotulo || "Inconclusiva - requer revisão")}</h3><p>${escapeHtml(presentation.situacao?.explicacao)}</p><p>${escapeHtml(item.titulo)}</p><p>${escapeHtml(item.recomendacao)}</p>
     <div class="analysis-grid"><div class="analysis-stat"><span>Risco técnico</span><strong>${escapeHtml(label(result.nivel_risco || "não calculado"))}</strong></div><div class="analysis-stat"><span>Cobertura dos critérios</span><strong>${percent(result.cobertura)}</strong></div><div class="analysis-stat"><span>Pendências</span><strong>${item.pendencias.length}</strong></div></div>
-    ${reasons ? `<h3>Fundamentos</h3><ul class="analysis-alerts">${reasons}</ul>` : ""}<p class="analysis-empty">${escapeHtml(result.aviso)}</p></section>
+    ${impediments ? `<h3>Possíveis impedimentos (${presentation.impedimentos.length})</h3><ul class="analysis-alerts">${impediments}</ul>` : ""}
+    ${attention ? `<h3>Pontos de atenção (${presentation.pontos_atencao.length})</h3><ul class="analysis-alerts">${attention}</ul>` : ""}
+    ${reasons ? `<h3>Outros fundamentos técnicos</h3><ul class="analysis-alerts">${reasons}</ul>` : ""}<p class="analysis-empty">${escapeHtml(result.aviso)}</p></section>
+    <section class="analysis-stat"><h3>Apoio estatístico (informação do sistema)</h3>${stats}<p>${escapeHtml(presentation.mensagem_apoio)}</p></section>
     ${item.legado ? '<p class="analysis-empty">Pesquisa histórica: esta leitura é preliminar. Atualize a análise e registre um novo parecer para validar a versão consolidada.</p>' : ""}
     <h3>Marca e contexto</h3><p><strong>${escapeHtml(item.analise_conjunto.marca)}</strong> · ${escapeHtml(item.analise_conjunto.atividade || "Atividade não informada")}</p><p>${escapeHtml(item.analise_conjunto.aviso)}</p>
     ${pending ? `<h3>Informações pendentes</h3><ul class="analysis-alerts">${pending}</ul>` : ""}
     <details class="unified-technical"><summary>Evidências e critérios técnicos</summary>
     ${officialMatrix(item.matriz, data.permissoes.validacao_revisar)}
     <h3>Anterioridades encontradas</h3><div class="analysis-table-scroll"><table class="analysis-conflicts"><thead><tr><th>Processo</th><th>Marca</th><th>Situação</th><th>Relevância</th></tr></thead><tbody>${conflicts || '<tr><td colspan="4">Nenhuma anterioridade exibida.</td></tr>'}</tbody></table></div>
-    <h3>Apoio estatístico</h3>${stats}<p>${escapeHtml(item.estatistica?.mensagem)}</p><p>Base: RPI ${escapeHtml(item.fontes.ultima_rpi || "não informada")}.</p></details>
+    <p>Base: RPI ${escapeHtml(item.fontes.ultima_rpi || "não informada")}.</p></details>
     <div class="analysis-action-row">${refresh}</div>` });
 }
 

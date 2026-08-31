@@ -21,6 +21,11 @@ PESOS_AFINIDADE = {
     ("moderada", "pendente"): 6,
 }
 PESO_ALTO_RENOME = 30
+# Desconto aplicado ao fator de semelhança de nome quando o(s) único(s) termo(s)
+# responsável(is) pelo match são de uso comum/evocativo na classe (ex.: "PLUS",
+# "TECH"), e não um radical raro/fantasioso -- evita tratar "[COMUM]+A" vs.
+# "[COMUM]+B" com o mesmo peso de uma colidência real no elemento distintivo.
+DESCONTO_TERMO_COMUM = 0.4
 LIMITES = (
     (75, "critico"),
     (50, "alto"),
@@ -47,6 +52,11 @@ class ConflitoEntrada:
     afinidade_revisao: str | None
     classes_processo: tuple[str, ...]
     alto_renome: bool
+    # Preenchido pelo chamador SOMENTE quando todo(s) o(s) termo(s) que dispararam o
+    # match nominativo (via app.search.tokens_correspondentes) são de uso comum na
+    # classe (app.trademarks.lexico.classificar_termo == "comum"). Vazio => nenhum
+    # desconto aplicado, comportamento idêntico ao anterior.
+    termos_comuns_no_match: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,17 +93,16 @@ def pontuar_conflito(entrada: ConflitoEntrada) -> ConflitoPontuado:
     ]
     if correspondencias:
         pontos, criterio = max(correspondencias)
-        fatores.append(
-            FatorRisco(
-                "semelhanca_nome",
-                pontos,
-                {
-                    "criterio": criterio,
-                    "processo": entrada.numero,
-                    "titulo": entrada.titulo or "",
-                },
-            )
-        )
+        evidencia: dict[str, object] = {
+            "criterio": criterio,
+            "processo": entrada.numero,
+            "titulo": entrada.titulo or "",
+        }
+        if entrada.termos_comuns_no_match:
+            pontos = round(pontos * DESCONTO_TERMO_COMUM)
+            evidencia["desconto_termo_comum"] = True
+            evidencia["termos"] = list(entrada.termos_comuns_no_match)
+        fatores.append(FatorRisco("semelhanca_nome", pontos, evidencia))
 
     relevancia = entrada.relevancia_situacao or "incerta"
     pontos_situacao = PESOS_SITUACAO.get(relevancia, PESOS_SITUACAO["incerta"])
@@ -185,6 +194,7 @@ def regras_para_json() -> dict:
         "pesos_situacao": PESOS_SITUACAO,
         "pesos_afinidade": {f"{nivel}:{revisao}": peso for (nivel, revisao), peso in PESOS_AFINIDADE.items()},
         "peso_alto_renome": PESO_ALTO_RENOME,
+        "desconto_termo_comum": DESCONTO_TERMO_COMUM,
         "limites": {nivel: limite for limite, nivel in LIMITES},
         "agregacao": "maior pontuacao entre os conflitos encontrados",
     }

@@ -1,5 +1,4 @@
 import hashlib
-import json
 import math
 import random
 import re
@@ -7,8 +6,6 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from difflib import SequenceMatcher
-from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import delete, func, or_, select, text, update
@@ -31,6 +28,7 @@ from app.models import (
 )
 from app.normalization import normalizar_numero_processo
 from app.search import normalizar_texto
+from app.trademarks.lexico import ESCALA_FREQUENCIA_TOKEN, STOPWORDS_FREQUENCIA, frequencias_tokens
 from app.trademarks.model_status import StatusModelo, normalizar_status_modelo
 
 VERSAO_ATRIBUTOS = "atributos-marcarios-1.1"
@@ -151,51 +149,6 @@ def _trigramas(valor: str) -> set[str]:
     return {texto[indice : indice + 3] for indice in range(max(0, len(texto) - 2))}
 
 
-_CAMINHO_LEXICO = Path(__file__).resolve().parent / "data" / "frequencia_tokens.json"
-# Frequência (em nº de marcas) na qual um token satura como "muito comum/descritivo".
-_ESCALA_FREQUENCIA_TOKEN = 20000.0
-# Palavras funcionais ignoradas na frequência: elas aparecem em quase toda marca
-# multivocabular e saturariam o sinal de descritividade sem informar distintividade.
-_STOPWORDS_FREQUENCIA = frozenset(
-    {
-        "DE",
-        "DO",
-        "DA",
-        "DOS",
-        "DAS",
-        "E",
-        "O",
-        "A",
-        "OS",
-        "AS",
-        "EM",
-        "NO",
-        "NA",
-        "COM",
-        "PARA",
-        "POR",
-        "UM",
-        "UMA",
-        "AO",
-        "THE",
-        "OF",
-        "AND",
-    }
-)
-
-
-@lru_cache(maxsize=1)
-def _frequencias_tokens() -> dict[str, int]:
-    """Léxico token -> nº de marcas que o contêm, gerado por app.cli.gerar_lexico_frequencia.
-
-    Ausente/vazio => a feature de frequência fica neutra (0), sem quebrar treino/serviço.
-    """
-    try:
-        return json.loads(_CAMINHO_LEXICO.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-
-
 def distintividade_marca(marca: str) -> dict[str, float]:
     """Sinais intrínsecos de distintividade da marca-alvo, derivados do texto.
 
@@ -209,18 +162,18 @@ def distintividade_marca(marca: str) -> dict[str, float]:
     norm = normalizar_texto(marca)
     tokens = norm.split()
     comprimento = len(norm.replace(" ", ""))
-    frequencias = _frequencias_tokens()
+    frequencias = frequencias_tokens()
     # O termo (não funcional) mais comum dirige a descritividade: se QUALQUER termo é
     # genérico, a marca tende ao descritivo. Termo raro/inventado => frequência baixa.
     frequencia_max = max(
-        (frequencias.get(token, 0) for token in tokens if token not in _STOPWORDS_FREQUENCIA),
+        (frequencias.get(token, 0) for token in tokens if token not in STOPWORDS_FREQUENCIA),
         default=0,
     )
     return {
         "marca_token_unico": float(len(tokens) <= 1),
         "marca_num_tokens_norm": min(1.0, len(tokens) / 5.0),
         "marca_comprimento_norm": min(1.0, comprimento / 20.0),
-        "marca_frequencia_max_norm": min(1.0, frequencia_max / _ESCALA_FREQUENCIA_TOKEN),
+        "marca_frequencia_max_norm": min(1.0, frequencia_max / ESCALA_FREQUENCIA_TOKEN),
     }
 
 
@@ -690,7 +643,7 @@ def _ajustar_logistica(
     *,
     epocas: int = 1200,
     taxa: float = 0.08,
-    regularizacao: float = 0.002,
+    regularizacao: float = 0.05,
 ) -> dict[str, Any]:
     """Regressão logística ponderada. Cada linha é (atributos, alvo, peso_confianca).
 

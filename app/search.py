@@ -68,15 +68,16 @@ def extrair_palavras(marca: str) -> list[str]:
 
 
 def extrair_radicais(marca: str) -> list[str]:
+    # Segue a mesma convencao de sugestao de radical do BuscaWeb do INPI (ex.:
+    # "CAVALINHO FEROZ" -> radicais CAVALIN e FERO). Um radical curto pode colidir
+    # por acaso com siglas nao relacionadas (SINAL -> SINA bate em SINAFRESP), mas
+    # e' assim que a pesquisa oficial por radical tambem funciona -- o motor de
+    # risco, nao a extracao do radical, e' quem deve descontar por isso.
     radicais: list[str] = []
     for palavra in extrair_palavras(marca):
-        # O truncamento nunca deixa o radical com menos de 5 letras: um radical de
-        # 4 letras (ex.: "SINAL" -> "SINA") colide por acaso com siglas e palavras
-        # nao relacionadas (SINAFRESP, SINAP, SINAIT...), gerando falso positivo de
-        # conflito tanto na busca quanto no motor de risco que reusa esse criterio.
-        if len(palavra) >= 8:
+        if len(palavra) >= 7:
             radical = palavra[:-2]
-        elif len(palavra) >= 6:
+        elif len(palavra) >= 5:
             radical = palavra[:-1]
         else:
             radical = palavra
@@ -159,11 +160,17 @@ def identificar_criterios(titulo: str | None, marca: str) -> list[str]:
         # centenas de marcas nao relacionadas.
         criterios.append("Elemento nominativo isolado")
 
-    if any(palavra in titulo_normalizado for palavra in palavras):
+    # Correspondencia por token inteiro, nao por substring bruta: uma palavra ou
+    # radical da busca so conta como correspondencia se for o INICIO de algum
+    # token do titulo candidato -- assim "FATO" bate em "FATO ANALYTICS" mas nao
+    # em "ARTEFATO" (onde "fato" aparece por acaso no meio de outra palavra),
+    # evitando falso positivo em marcas sem nenhuma relacao nominativa real.
+    tokens_titulo = titulo_normalizado.split()
+    if any(token.startswith(palavra) for palavra in palavras for token in tokens_titulo):
         criterios.append("Elemento do nome")
-    if any(radical in titulo_normalizado for radical in radicais):
+    if any(token.startswith(radical) for radical in radicais for token in tokens_titulo):
         criterios.append("Radical semelhante")
-    if any(variacao in titulo_normalizado for variacao in variacoes):
+    if any(token.startswith(variacao) for variacao in variacoes for token in tokens_titulo):
         criterios.append("Variação ortográfica ou fonética")
     if SequenceMatcher(None, titulo_normalizado, marca_normalizada).ratio() >= 0.55:
         criterios.append("Semelhança global do nome")

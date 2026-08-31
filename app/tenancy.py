@@ -62,6 +62,11 @@ def _token_requisicao(request: Request) -> str | None:
     authorization = request.headers.get("Authorization", "")
     if authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
+    # Navegação direta do navegador (redirecionamento para o relatório/PDF após
+    # a pesquisa) não consegue enviar cabeçalhos customizados -- só query string.
+    token = request.query_params.get("chave_integracao")
+    if token:
+        return token.strip()
     return None
 
 

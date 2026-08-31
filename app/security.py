@@ -24,6 +24,10 @@ def exigir_token_integracao(
     token = request.headers.get("X-Integration-Key")
     if not token and credenciais is not None and credenciais.scheme.lower() == "bearer":
         token = credenciais.credentials
+    if not token:
+        # Navegação direta do navegador (redirecionamento para o relatório/PDF
+        # após a pesquisa) não consegue enviar cabeçalhos customizados.
+        token = request.query_params.get("chave_integracao")
     if token and secrets.compare_digest(token, settings.inpi_integration_token):
         request.state.global_integration_token = True
         return

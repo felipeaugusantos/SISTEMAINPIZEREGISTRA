@@ -2,7 +2,11 @@ const reportId = location.pathname.split("/").filter(Boolean).pop();
 const loading = document.querySelector("#report-loading");
 const content = document.querySelector("#report-content");
 const errorSection = document.querySelector("#report-error");
-const pdfUrl = `/v1/pesquisas-marca/${encodeURIComponent(reportId)}/relatorio.pdf`;
+// Repassada pela busca (app.js) via query string, já que o redirecionamento
+// para esta página é navegação direta e não carrega cabeçalhos customizados.
+const chaveIntegracao = new URLSearchParams(location.search).get("chave_integracao");
+const chaveQuery = chaveIntegracao ? `?chave_integracao=${encodeURIComponent(chaveIntegracao)}` : "";
+const pdfUrl = `/v1/pesquisas-marca/${encodeURIComponent(reportId)}/relatorio.pdf${chaveQuery}`;
 
 function escapeHtml(value) {
   const element = document.createElement("span");
@@ -39,7 +43,8 @@ function itemCard(item) {
 
 async function loadReport() {
   try {
-    const response = await fetch(`/v1/pesquisas-marca/${encodeURIComponent(reportId)}/relatorio`);
+    const headers = chaveIntegracao ? { "X-Integration-Key": chaveIntegracao } : {};
+    const response = await fetch(`/v1/pesquisas-marca/${encodeURIComponent(reportId)}/relatorio`, { headers });
     if (!response.ok) throw new Error();
     const data = await response.json();
     document.title = `Relatório Zé Registra — ${data.marca}`;

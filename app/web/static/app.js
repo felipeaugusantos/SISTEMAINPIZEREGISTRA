@@ -2,6 +2,14 @@ const form = document.querySelector("#research-form");
 const statusMessage = document.querySelector("#form-status");
 const submitButton = form.querySelector("button[type='submit']");
 
+// Identifica este site publico como o tenant padrao junto ao backend (mesmo
+// mecanismo usado por /static/tenant-branding.js). Sem isso, a pesquisa recebe
+// 401 do gate de integracao antes mesmo de tentar resolver a organizacao.
+const chaveIntegracaoPromise = fetch("/v1/tenant/branding")
+  .then((response) => (response.ok ? response.json() : {}))
+  .then((tenant) => tenant.chave_integracao || null)
+  .catch(() => null);
+
 function errorMessage(data) {
   if (!Array.isArray(data?.detail)) return data?.detail || "Não foi possível gerar o relatório.";
   return data.detail.map((item) => item.msg.replace(/^Value error, /, "")).join(" ");
@@ -26,14 +34,18 @@ form.addEventListener("submit", async (event) => {
   };
 
   try {
+    const chaveIntegracao = await chaveIntegracaoPromise;
+    const headers = { "Content-Type": "application/json" };
+    if (chaveIntegracao) headers["X-Integration-Key"] = chaveIntegracao;
     const response = await fetch("/v1/pesquisas-marca", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(payload),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(errorMessage(data));
-    location.assign(`${data.relatorio_url}?download=1`);
+    const chaveParam = chaveIntegracao ? `&chave_integracao=${encodeURIComponent(chaveIntegracao)}` : "";
+    location.assign(`${data.relatorio_url}?download=1${chaveParam}`);
   } catch (error) {
     statusMessage.className = "status-message error";
     statusMessage.textContent = error.message;

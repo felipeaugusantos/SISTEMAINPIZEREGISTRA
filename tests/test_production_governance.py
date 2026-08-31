@@ -31,7 +31,7 @@ async def test_primeiro_snapshot_cria_versao_imutavel() -> None:
     resultado = await versionar_relatorio(session, relatorio())
 
     assert resultado.versao == 1
-    assert resultado.schema_versao == "relatorio-marca-4.3"
+    assert resultado.schema_versao == "relatorio-marca-4.4"
     assert len(resultado.conteudo_hash) == 64
     assert resultado.gerado_em is not None
     assert session.adicionados[0].payload["conteudo_hash"] == resultado.conteudo_hash

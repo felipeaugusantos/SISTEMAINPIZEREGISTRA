@@ -92,99 +92,45 @@ function renderSummary(data) {
     <div><span>Relatório completo</span><strong>${data.relatorio_completo.gerado ? `Gerado em ${formatDate(data.relatorio_completo.gerado_em)}` : "Não gerado"}</strong></div>`;
 }
 
-function renderValidation(data) {
-  const denied = permissionState(data.permissoes.validacao_visualizar);
-  if (denied) return step({ id: "validation", number: 1, title: "Validação técnica", subtitle: "Situações, classes, afinidade e alto renome", ...denied });
-  const item = data.validacao;
-  if (!item?.disponivel) return step({ id: "validation", number: 1, title: "Validação técnica", subtitle: "Situações, classes, afinidade e alto renome", state: "pending", stateLabel: "Aguardando dados", body: `<p class="analysis-empty">Abra o resultado automático para preparar o snapshot técnico desta pesquisa.</p>`, open: true });
-  const alerts = item.qualidade?.avisos || [];
-  const conflicts = (item.conflitos || []).map(conflict => `<tr><td>${escapeHtml(conflict.numero)}</td><td><strong>${escapeHtml(conflict.titulo || "Sem título")}</strong><br><small>${escapeHtml(conflict.relevancia_rotulo || label(conflict.relevancia))}</small></td><td>${escapeHtml(conflict.situacao || "Não informada")}</td><td>${escapeHtml((conflict.classes || []).join(", ") || "—")}</td><td>${conflict.alto_renome ? "Sim" : escapeHtml(conflict.afinidade?.rotulo || "Não")}</td></tr>`).join("");
-  const attention = alerts.length > 0 || item.matriz_afinidade_status !== "validada";
-  return step({ id: "validation", number: 1, title: "Validação técnica", subtitle: "Situações, classes, afinidade e alto renome", state: stateFrom(true, attention), stateLabel: attention ? "Requer atenção" : "Concluída", open: true, body: `
-    <div class="analysis-grid"><div class="analysis-stat"><span>Base</span><strong>RPI ${escapeHtml(item.ultima_rpi || "—")}</strong></div><div class="analysis-stat"><span>Ocorrências</span><strong>${item.total_ocorrencias}</strong></div><div class="analysis-stat"><span>Matriz de afinidade</span><strong>${escapeHtml(label(item.matriz_afinidade_status))}</strong></div></div>
-    ${officialMatrix(item.matriz_registrabilidade, data.permissoes.validacao_revisar)}
-    ${alerts.length ? `<ul class="analysis-alerts">${alerts.map(alert => `<li>${escapeHtml(alert)}</li>`).join("")}</ul>` : ""}
-    <table class="analysis-conflicts"><thead><tr><th>Processo</th><th>Marca e relevância</th><th>Situação</th><th>Classes</th><th>Afinidade / alto renome</th></tr></thead><tbody>${conflicts || `<tr><td colspan="5">Nenhum conflito exibido.</td></tr>`}</tbody></table>` });
-}
-
-function renderRisk(data) {
-  const denied = permissionState(data.permissoes.risco_visualizar);
-  if (denied) return step({ id: "risk", number: 2, title: "Motor determinístico de risco", subtitle: "Pontuação auditável baseada em regras", ...denied });
-  const item = data.risco;
-  if (!item) return step({ id: "risk", number: 2, title: "Motor determinístico de risco", subtitle: "Pontuação auditável baseada em regras", state: "pending", stateLabel: "Não calculado", body: `<p class="analysis-empty">O risco será calculado quando o snapshot técnico for atualizado.</p>` });
-  const conflicts = (item.principais_conflitos || []).slice(0, 6).map(conflict => `<li><strong>${escapeHtml(conflict.numero || "Processo")}</strong> — ${escapeHtml(conflict.titulo || "Sem título")}</li>`).join("");
-  const review = data.permissoes.risco_revisar ? `<form id="risk-review-form" class="analysis-action-form" data-id="${item.id}"><label>Nível do parecer<select name="nivel_humano" required>${["baixo","moderado","alto","critico"].map(value => `<option value="${value}" ${item.nivel_humano === value ? "selected" : ""}>${label(value)}</option>`).join("")}</select></label><label>Avaliador<input name="avaliador" minlength="2" value="${escapeHtml(item.avaliador || data.usuario.nome)}" required></label><label class="wide">Justificativa<textarea name="observacoes_humanas" minlength="3" rows="4" required>${escapeHtml(item.observacoes_humanas || "")}</textarea></label><button class="primary-button" type="submit">Salvar parecer de risco</button></form>` : "";
-  return step({ id: "risk", number: 2, title: "Motor determinístico de risco", subtitle: `Versão ${item.versao_motor} · ${item.modo}`, state: item.avaliado_em ? "completed" : "attention", stateLabel: item.avaliado_em ? "Parecer registrado" : "Aguardando parecer", body: `<div class="analysis-grid"><div class="analysis-stat"><span>Pontuação de risco</span><strong>${item.pontuacao} pontos</strong></div><div class="analysis-stat"><span>Nível calculado</span><strong>${escapeHtml(label(item.nivel))}</strong></div><div class="analysis-stat"><span>Avaliação humana</span><strong>${escapeHtml(label(item.nivel_humano || "pendente"))}</strong></div></div>${riskLegend(item)}${conflicts ? `<h3>Principais conflitos</h3><ul class="analysis-alerts">${conflicts}</ul>` : ""}${review}` });
-}
-
-function renderDeterministicLearning(data) {
-  const indicator = data.validacao?.indicador_deterministico;
-  const risk = data.risco;
-  const matrix = data.validacao?.matriz_registrabilidade;
-  const candidate = ["SHADOW", "VALIDATION"].includes(data.aprendizado?.modelo_status) ? data.aprendizado : null;
-  const candidateReview = candidate && data.permissoes.aprendizado_revisar ? `
-    <section class="analysis-opinion">
-      <h3>Indicador histórico ${escapeHtml(candidate.modelo_status)} · somente uso interno</h3>
-      <div class="analysis-probability"><strong>${percent(candidate.probabilidade)}</strong><span>indicador histórico de registrabilidade<br>faixa ${percent(candidate.probabilidade_inferior)} a ${percent(candidate.probabilidade_superior)}</span></div>
-      <p>Estimativa baseada em casos históricos semelhantes. Não representa previsão ou garantia de decisão do INPI.</p>
-      <form id="learning-review-form" class="analysis-action-form" data-id="${candidate.id}"><label>Leitura humana<select name="nivel_humano" required>${["favoravel","atencao","alto_risco","critico"].map(value => `<option value="${value}" ${candidate.nivel_humano === value ? "selected" : ""}>${label(value)}</option>`).join("")}</select></label><label>Avaliador<input name="avaliador" minlength="2" value="${escapeHtml(candidate.avaliador || data.usuario.nome)}" required></label><label class="wide">Observações<textarea name="observacoes_humanas" minlength="3" rows="4" required>${escapeHtml(candidate.observacoes_humanas || "")}</textarea></label><button class="primary-button" type="submit">Salvar leitura supervisionada</button></form>
-    </section>` : "";
-  const body = indicator ? `
-    <div class="analysis-probability deterministic"><strong>${indicator.indice}%</strong><span>índice indicativo de viabilidade<br>faixa técnica ${indicator.faixa_inferior}% a ${indicator.faixa_superior}%</span></div>
-    <div class="analysis-grid">
-      <div class="analysis-stat"><span>Motor de risco</span><strong>${risk ? `${risk.pontuacao} pontos · ${escapeHtml(label(risk.nivel))}` : "Aguardando cálculo"}</strong></div>
-      <div class="analysis-stat"><span>Matriz INPI</span><strong>${indicator.cobertura_percentual}% de cobertura</strong></div>
-      <div class="analysis-stat"><span>Leitura determinística</span><strong>${escapeHtml(indicator.titulo)}</strong></div>
-      <div class="analysis-stat"><span>Critérios pendentes</span><strong>${indicator.pendencias.length}</strong></div>
-    </div>
-    <p>${escapeHtml(indicator.resumo)}</p>
-    ${matrix ? `<div class="official-summary"><span class="atendido">${matrix.contagens.atendido || 0} atendidos</span><span class="alerta">${matrix.contagens.alerta || 0} alertas</span><span class="possivel_impedimento">${matrix.contagens.possivel_impedimento || 0} possíveis impedimentos</span><span class="nao_analisado">${matrix.contagens.nao_analisado || 0} não analisados</span></div>` : ""}
-    <p class="analysis-empty"><strong>Modelo supervisionado em validação.</strong> ${escapeHtml(indicator.aviso)}</p>${candidateReview}` : `
-    <p class="analysis-empty"><strong>Modelo supervisionado em validação.</strong> A análise determinística será apresentada assim que o snapshot técnico e o motor de risco forem calculados.</p>${candidateReview}`;
-  return step({ id: "learning", number: 3, title: "Aprendizado supervisionado", subtitle: "Indicador histórico e incerteza", state: "attention", stateLabel: "Modelo em validação", body });
-}
-
-function renderLearning(data) {
-  const denied = permissionState(data.permissoes.aprendizado_visualizar);
-  if (denied) return step({ id: "learning", number: 3, title: "Aprendizado supervisionado", subtitle: "Indicador histórico e incerteza", ...denied });
-  const item = data.aprendizado;
-  if (!item || item.modelo_status !== "ACTIVE") return renderDeterministicLearning(data);
-  const alerts = item.alertas_qualidade || [];
-  const review = data.permissoes.aprendizado_revisar ? `<form id="learning-review-form" class="analysis-action-form" data-id="${item.id}"><label>Leitura humana<select name="nivel_humano" required>${["favoravel","atencao","alto_risco","critico"].map(value => `<option value="${value}" ${item.nivel_humano === value ? "selected" : ""}>${label(value)}</option>`).join("")}</select></label><label>Avaliador<input name="avaliador" minlength="2" value="${escapeHtml(item.avaliador || data.usuario.nome)}" required></label><label class="wide">Observações<textarea name="observacoes_humanas" minlength="3" rows="4" required>${escapeHtml(item.observacoes_humanas || "")}</textarea></label><button class="primary-button" type="submit">Salvar leitura supervisionada</button></form>` : "";
-  const reviewed = Boolean(item.avaliado_em);
-  const state = reviewed ? "completed" : alerts.length ? "attention" : "pending";
-  const stateLabel = reviewed ? "Leitura registrada" : alerts.length ? "Aguardando leitura" : "Pendente";
-  return step({ id: "learning", number: 3, title: "Aprendizado supervisionado", subtitle: `Modelo ${item.modelo} · ACTIVE`, state, stateLabel, body: `<div class="analysis-probability"><strong>${percent(item.probabilidade)}</strong><span>indicador histórico de registrabilidade<br>faixa ${percent(item.probabilidade_inferior)} a ${percent(item.probabilidade_superior)}</span></div><div class="analysis-grid"><div class="analysis-stat"><span>Confiança</span><strong>${escapeHtml(item.confianca_rotulo)} · ${percent(item.confianca)}</strong></div><div class="analysis-stat"><span>Cobertura</span><strong>${percent(item.cobertura)}</strong></div><div class="analysis-stat"><span>Leitura humana</span><strong>${escapeHtml(label(item.nivel_humano || "pendente"))}</strong></div>${reviewed ? `<div class="analysis-stat"><span>Registrada em</span><strong>${formatDate(item.avaliado_em)}</strong></div>` : ""}</div>${alerts.length ? `<ul class="analysis-alerts">${alerts.map(alert => `<li>${escapeHtml(alert)}</li>`).join("")}</ul>` : ""}<p class="analysis-empty">Estimativa baseada em casos históricos semelhantes. Não representa previsão ou garantia de decisão do INPI.</p>${review}` });
-}
-
-function renderAgent(data) {
-  const item = data.agente_registrabilidade;
-  if (!item) return step({ id: "agent", number: 4, title: "Agente de Registrabilidade", subtitle: "Consolidação auditável de regras, risco e histórico", state: data.agente_erro ? "attention" : "pending", stateLabel: data.agente_erro ? "Execução indisponível" : "Aguardando dados", body: `<p class="analysis-empty">${escapeHtml(data.agente_erro || "Gere ou atualize o resultado da pesquisa para preparar o snapshot técnico.")}</p>` });
-  const state = item.abstencao ? "attention" : item.status === "concluida" ? "completed" : "attention";
-  const probability = item.probabilidade_deferimento === null ? "Não calculada" : percent(item.probabilidade_deferimento);
-  const interval = item.probabilidade_inferior === null ? "—" : `${percent(item.probabilidade_inferior)} a ${percent(item.probabilidade_superior)}`;
-  const reasons = (item.motivos || []).map(reason => `<li>${escapeHtml(reason)}</li>`).join("");
-  const outcome = item.resultado_real
-    ? `<div class="analysis-stat"><span>Resultado real no INPI</span><strong>${escapeHtml(label(item.resultado_real))}</strong><small>RPI ${escapeHtml(item.resultado_numero_rpi || "—")}</small></div>`
-    : `<div class="analysis-stat"><span>Aprendizado futuro</span><strong>${item.numero_pedido ? "Aguardando decisão do INPI" : "Pedido ainda não vinculado"}</strong></div>`;
-  const reconcile = item.numero_pedido && !item.resultado_real && data.permissoes.validacao_revisar
-    ? `<button id="reconcile-agent-outcome" class="secondary-button" type="button">Verificar decisão real na RPI</button>`
-    : "";
-  return step({ id: "agent", number: 4, title: "Agente de Registrabilidade", subtitle: `Versão ${item.versao_agente} · decisão baseada em evidências`, state, stateLabel: item.abstencao ? "Dados insuficientes" : label(item.decisao), body: `
-    <div class="analysis-grid"><div class="analysis-stat"><span>Cenário consolidado</span><strong>${escapeHtml(label(item.decisao))}</strong></div><div class="analysis-stat"><span>Indicador histórico de registrabilidade</span><strong>${escapeHtml(probability)}</strong><small>Faixa ${escapeHtml(interval)}</small></div><div class="analysis-stat"><span>Cobertura conjunta</span><strong>${percent(item.cobertura)}</strong></div>${outcome}</div>
-    ${reasons ? `<h3>Fundamentos da decisão</h3><ul class="analysis-alerts">${reasons}</ul>` : ""}
-    <p class="analysis-empty">${escapeHtml(item.aviso)}</p><div class="analysis-action-row">${reconcile}</div>` });
+function renderUnified(data) {
+  const item = data.analise_consolidada;
+  const denied = permissionState(data.permissoes.validacao_visualizar && data.permissoes.risco_visualizar);
+  if (denied) return step({ id: "unified", number: 1, title: "Análise de registrabilidade", subtitle: "Conclusão única baseada nas evidências", ...denied });
+  if (!item) return step({ id: "unified", number: 1, title: "Análise de registrabilidade", subtitle: "Conclusão única baseada nas evidências", state: "pending", stateLabel: "Aguardando pesquisa", body: '<p class="analysis-empty">Abra o resultado automático para preparar as evidências desta pesquisa.</p>', open: true });
+  const result = item.conclusao_preliminar;
+  const pending = (item.pendencias || []).map(p => `<li><strong>${escapeHtml(p.criterio)}</strong> — ${escapeHtml(p.descricao)}</li>`).join("");
+  const reasons = (result.motivos || []).map(reason => `<li>${escapeHtml(reason)}</li>`).join("");
+  const conflicts = (item.anterioridades || []).map(c => `<tr><td>${escapeHtml(c.numero)}</td><td>${escapeHtml(c.titulo || "Sem título")}</td><td>${escapeHtml(c.situacao || "Não informada")}</td><td>${escapeHtml(c.relevancia_rotulo || "Não informada")}</td></tr>`).join("");
+  const estimate = item.estatistica?.estimativa;
+  const stats = item.estatistica?.disponivel && estimate ? `<p>Indicador histórico: <strong>${percent(estimate.probabilidade_deferimento)}</strong> · faixa ${percent(estimate.probabilidade_inferior)} a ${percent(estimate.probabilidade_superior)}.</p>` : "";
+  const refresh = data.permissoes.validacao_revisar ? '<button id="consolidate-analysis" class="secondary-button" type="button">Atualizar análise consolidada</button>' : "";
+  return step({ id: "unified", number: 1, title: "Análise de registrabilidade", subtitle: `Versão ${item.versao_relatorio} · ${item.versao_motor}`, state: item.revisao.validada ? "completed" : "attention", stateLabel: item.revisao.validada ? "Validada por especialista" : "Preliminar", open: true, body: `
+    <section class="unified-conclusion"><p class="eyebrow">Conclusão automática preliminar</p><h3>${escapeHtml(item.titulo)}</h3><p>${escapeHtml(item.recomendacao)}</p>
+    <div class="analysis-grid"><div class="analysis-stat"><span>Risco técnico</span><strong>${escapeHtml(label(result.nivel_risco || "não calculado"))}</strong></div><div class="analysis-stat"><span>Cobertura dos critérios</span><strong>${percent(result.cobertura)}</strong></div><div class="analysis-stat"><span>Pendências</span><strong>${item.pendencias.length}</strong></div></div>
+    ${reasons ? `<h3>Fundamentos</h3><ul class="analysis-alerts">${reasons}</ul>` : ""}<p class="analysis-empty">${escapeHtml(result.aviso)}</p></section>
+    ${item.legado ? '<p class="analysis-empty">Pesquisa histórica: esta leitura é preliminar. Atualize a análise e registre um novo parecer para validar a versão consolidada.</p>' : ""}
+    <h3>Marca e contexto</h3><p><strong>${escapeHtml(item.analise_conjunto.marca)}</strong> · ${escapeHtml(item.analise_conjunto.atividade || "Atividade não informada")}</p><p>${escapeHtml(item.analise_conjunto.aviso)}</p>
+    ${pending ? `<h3>Informações pendentes</h3><ul class="analysis-alerts">${pending}</ul>` : ""}
+    <details class="unified-technical"><summary>Evidências e critérios técnicos</summary>
+    ${officialMatrix(item.matriz, data.permissoes.validacao_revisar)}
+    <h3>Anterioridades encontradas</h3><div class="analysis-table-scroll"><table class="analysis-conflicts"><thead><tr><th>Processo</th><th>Marca</th><th>Situação</th><th>Relevância</th></tr></thead><tbody>${conflicts || '<tr><td colspan="4">Nenhuma anterioridade exibida.</td></tr>'}</tbody></table></div>
+    <h3>Apoio estatístico</h3>${stats}<p>${escapeHtml(item.estatistica?.mensagem)}</p><p>Base: RPI ${escapeHtml(item.fontes.ultima_rpi || "não informada")}.</p></details>
+    <div class="analysis-action-row">${refresh}</div>` });
 }
 
 function renderOpinion(data) {
-  const reviewed = Boolean(data.risco?.avaliado_em);
-  return step({ id: "opinion", number: 4, title: "Parecer humano", subtitle: "Síntese profissional e justificativa", state: reviewed ? "completed" : "pending", stateLabel: reviewed ? "Registrado" : "Pendente", body: reviewed ? `<div class="analysis-grid"><div class="analysis-stat"><span>Classificação</span><strong>${escapeHtml(label(data.risco.nivel_humano))}</strong></div><div class="analysis-stat"><span>Avaliador</span><strong>${escapeHtml(data.risco.avaliador)}</strong></div><div class="analysis-stat"><span>Data</span><strong>${formatDate(data.risco.avaliado_em)}</strong></div></div><div class="analysis-opinion">${escapeHtml(data.risco.observacoes_humanas)}</div>` : `<p class="analysis-empty">Registre o parecer na etapa “Motor determinístico de risco”. Ele será consolidado aqui e ficará disponível para o relatório completo.</p>` });
+  const item = data.analise_consolidada;
+  const opinion = item?.parecer_humano;
+  const reviewed = Boolean(opinion);
+  const saved = opinion ? `<div class="analysis-grid"><div class="analysis-stat"><span>Classificação humana</span><strong>${escapeHtml(label(opinion.nivel))}</strong></div><div class="analysis-stat"><span>Avaliador</span><strong>${escapeHtml(opinion.avaliador_nome || opinion.avaliador)}</strong></div><div class="analysis-stat"><span>Data</span><strong>${formatDate(opinion.avaliado_em)}</strong></div></div><div class="analysis-opinion">${escapeHtml(opinion.observacoes)}</div>` : '<p class="analysis-empty">Revise as evidências e registre um único parecer para esta análise. A classificação humana não altera o resultado automático.</p>';
+  const form = item && data.permissoes.risco_revisar && data.permissoes.validacao_visualizar ? `<form id="consolidated-review-form" class="analysis-action-form"><label>Classificação humana<select name="nivel_humano" required><option value="">Selecione</option>${["baixo","moderado","alto","critico"].map(value => `<option value="${value}" ${opinion?.nivel === value ? "selected" : ""}>${label(value)}</option>`).join("")}</select></label><p>Avaliador: ${escapeHtml(data.usuario.nome)}</p><label class="wide">Parecer e justificativa<textarea name="observacoes_humanas" minlength="3" maxlength="4000" rows="5" required>${escapeHtml(opinion?.observacoes || "")}</textarea></label><p class="wide">Salvar cria uma nova versão e exige validação formal novamente.</p><button class="primary-button" type="submit">Salvar parecer único</button></form>` : "";
+  return step({ id: "opinion", number: 2, title: "Parecer humano", subtitle: "Síntese profissional vinculada à versão", state: reviewed ? "completed" : "pending", stateLabel: reviewed ? "Registrado" : "Pendente", body: saved + form });
 }
 
 function renderReport(data) {
   const report = data.relatorio_completo;
   const workflow = data.workflow;
-  const validated = workflow.state === "VALIDATED";
+  const validated = Boolean(data.analise_consolidada?.revisao.validada);
   const action = data.permissoes.relatorio_gerar && report.base_disponivel && validated ? `<button id="generate-full-report" class="primary-button" type="button">${report.gerado ? "Baixar completo novamente" : "Gerar relatório validado"}</button>` : "";
   const transitions = {
     PENDING_REVIEW: [["START_REVIEW", "Iniciar revisão"]],
@@ -195,18 +141,17 @@ function renderReport(data) {
   const allowedTransitions = transitions.filter(([key]) => key !== "VALIDATE" || data.permissoes.workflow_validar);
   const workflowForm = data.permissoes.workflow_revisar && allowedTransitions.length ? `<form id="workflow-form" class="analysis-action-form"><label>Ação<select name="action" required>${allowedTransitions.map(([value, text]) => `<option value="${value}">${text}</option>`).join("")}</select></label><label class="wide">Notas da revisão<textarea name="notes" minlength="3" maxlength="4000" rows="3" placeholder="Registre a justificativa da transição"></textarea></label><button class="primary-button" type="submit">Atualizar workflow</button></form>` : "";
   const history = (workflow.history || []).map(item => `<li><strong>${escapeHtml(item.after?.state || item.details?.action || "Tentativa")}</strong> · ${escapeHtml(item.actor)} · ${formatDate(item.created_at)}${item.success ? "" : ` · bloqueada: ${escapeHtml(item.details?.reason || "regra do workflow")}`}</li>`).join("");
-  const reportState = report.gerado ? "completed" : workflow.review_required ? "attention" : "pending";
-  const stateLabel = report.gerado ? "Relatório validado" : workflow.review_required ? "Revisão pendente" : "Pronto para emissão";
-  return step({ id: "report", number: 5, title: "Workflow humano e relatório", subtitle: "Validação formal vinculada à versão atual", state: reportState, stateLabel, body: `<div class="analysis-grid"><div class="analysis-stat"><span>Estado da análise</span><strong>${escapeHtml(label(workflow.state))}</strong></div><div class="analysis-stat"><span>Versão em revisão</span><strong>${escapeHtml(workflow.report_version || "—")}</strong></div><div class="analysis-stat"><span>Validado por</span><strong>${escapeHtml(workflow.validated_by || "Pendente")}</strong></div><div class="analysis-stat"><span>Validado em</span><strong>${formatDate(workflow.validated_at)}</strong></div></div>${workflow.notes ? `<div class="analysis-opinion">${escapeHtml(workflow.notes)}</div>` : ""}<p class="analysis-empty">Enquanto a revisão obrigatória estiver pendente, o documento não pode ser emitido como relatório completo validado.</p>${workflowForm}${history ? `<h3>Histórico do workflow</h3><ul class="analysis-alerts">${history}</ul>` : ""}<div class="analysis-action-row">${action}</div>` });
+  const reportState = validated ? "completed" : "attention";
+  const stateLabel = validated ? "Versão validada" : "Revisão pendente";
+  return step({ id: "report", number: 3, title: "Workflow humano e relatório", subtitle: "Validação formal vinculada à versão atual", state: reportState, stateLabel, body: `<div class="analysis-grid"><div class="analysis-stat"><span>Estado da análise</span><strong>${escapeHtml(label(workflow.state))}</strong></div><div class="analysis-stat"><span>Versão em revisão</span><strong>${escapeHtml(workflow.report_version || "—")}</strong></div><div class="analysis-stat"><span>Validado por</span><strong>${escapeHtml(workflow.validated_by || "Pendente")}</strong></div><div class="analysis-stat"><span>Validado em</span><strong>${formatDate(workflow.validated_at)}</strong></div></div>${workflow.notes ? `<div class="analysis-opinion">${escapeHtml(workflow.notes)}</div>` : ""}<p class="analysis-empty">Enquanto a revisão obrigatória estiver pendente, o documento não pode ser emitido como relatório completo validado.</p>${workflowForm}${history ? `<h3>Histórico do workflow</h3><ul class="analysis-alerts">${history}</ul>` : ""}<div class="analysis-action-row">${action}</div>` });
 }
 
 function renderProgress(data) {
+  const item = data.analise_consolidada;
   const steps = [
-    ["validation", "Validação técnica", data.permissoes.validacao_visualizar ? (data.validacao?.disponivel ? ((data.validacao.qualidade?.avisos || []).length ? "attention" : "completed") : "pending") : "restricted"],
-    ["risk", "Motor de risco", data.permissoes.risco_visualizar ? (data.risco ? (data.risco.avaliado_em ? "completed" : "attention") : "pending") : "restricted"],
-    ["learning", "Aprendizado", data.permissoes.aprendizado_visualizar ? (data.aprendizado ? (data.aprendizado.avaliado_em ? "completed" : ((data.aprendizado.alertas_qualidade || []).length ? "attention" : "pending")) : "pending") : "restricted"],
-    ["opinion", "Parecer humano", data.risco?.avaliado_em ? "completed" : "pending"],
-    ["report", "Workflow e relatório", data.relatorio_completo.gerado ? "completed" : (data.workflow.review_required ? "attention" : "pending")],
+    ["unified", "Análise única", item ? (item.revisao.validada ? "completed" : "attention") : "pending"],
+    ["opinion", "Parecer humano", item?.parecer_humano ? "completed" : "pending"],
+    ["report", "Validação e relatório", item?.revisao.validada ? "completed" : "pending"],
   ];
   progress.innerHTML = steps.map(([id, title, state], index) => `<li class="${state}"><a href="#step-${id}"><i>${state === "completed" ? "✓" : index + 1}</i><span>${escapeHtml(title)}</span></a></li>`).join("");
 }
@@ -215,13 +160,13 @@ function render(data) {
   analysis = data;
   renderSummary(data);
   renderProgress(data);
-  sections.innerHTML = [renderValidation(data), renderRisk(data), renderLearning(data), renderAgent(data), renderOpinion(data), renderReport(data)].join("");
+  sections.innerHTML = [renderUnified(data), renderOpinion(data), renderReport(data)].join("");
   if (data.permissoes.relatorio_gerar && data.relatorio_completo.base_disponivel && !sections.querySelector("#generate-full-report")) {
     const actions = sections.querySelector("#step-report .analysis-action-row");
     if (actions) actions.innerHTML = '<button id="generate-full-report" class="primary-button" type="button">Gerar relatório preliminar</button>';
   }
   const reportNotice = sections.querySelector("#step-report .analysis-empty");
-  if (reportNotice && data.workflow.state !== "VALIDATED") reportNotice.textContent = "A revisão humana continua pendente, mas o relatório preliminar pode ser gerado agora. A versão preliminar é indicativa e não constitui parecer jurídico validado.";
+  if (reportNotice && !data.analise_consolidada?.revisao.validada) reportNotice.textContent = "A revisão humana continua pendente, mas o relatório preliminar pode ser gerado agora. A versão preliminar é indicativa e não constitui parecer jurídico validado.";
 }
 
 async function load() {
@@ -229,15 +174,8 @@ async function load() {
   const response = await fetch(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}`);
   if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.detail || "Não foi possível carregar a análise."); }
   const data = await response.json();
-  if (data.permissoes.validacao_visualizar && data.validacao?.disponivel) {
-    try {
-      data.agente_registrabilidade = await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/executar-agente`, { method: "POST" });
-    } catch (error) {
-      data.agente_erro = error.message;
-    }
-  }
   render(data);
-  showMessage(data.agente_erro ? `Agente de Registrabilidade: ${data.agente_erro}` : "", data.agente_erro ? "error" : "");
+  showMessage("");
 }
 async function sendJson(url, options) {
   const response = await fetch(url, options);
@@ -306,9 +244,8 @@ sections.addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.target; const values = new FormData(form); const button = form.querySelector("button[type=submit]"); button.disabled = true;
   try {
-    if (form.id === "risk-review-form") await sendJson(`/v1/admin/fase3/avaliacoes/${form.dataset.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nivel_humano: values.get("nivel_humano"), avaliador: values.get("avaliador"), observacoes_humanas: values.get("observacoes_humanas") }) });
-    if (form.id === "learning-review-form") await sendJson(`/v1/admin/aprendizado/previsoes/${form.dataset.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nivel_humano: values.get("nivel_humano"), avaliador: values.get("avaliador"), observacoes: values.get("observacoes_humanas") }) });
-    if (form.id === "workflow-form") await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/workflow`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: values.get("action"), notes: values.get("notes")?.trim() || null }) });
+    if (form.id === "consolidated-review-form") await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/parecer`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nivel_humano: values.get("nivel_humano"), observacoes_humanas: values.get("observacoes_humanas"), versao_relatorio: analysis.analise_consolidada.versao_relatorio }) });
+    if (form.id === "workflow-form") await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/workflow`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: values.get("action"), notes: values.get("notes")?.trim() || null, versao_relatorio: analysis.workflow.report_version }) });
     showMessage("Etapa atualizada com sucesso.", "success"); await load();
   } catch (error) { showMessage(error.message, "error"); button.disabled = false; }
 });
@@ -316,6 +253,15 @@ sections.addEventListener("click", async event => {
   const help = event.target.closest(".context-help");
   if (help) { helpDrawer.showModal(); const target = document.querySelector(`#help-${help.dataset.help}`); if (target) { target.open = true; target.scrollIntoView({ block: "start" }); } return; }
   if (event.target.closest("#complete-official-analysis")) { openRegistrabilityForm(); return; }
+  const consolidate = event.target.closest("#consolidate-analysis");
+  if (consolidate) {
+    consolidate.disabled = true;
+    try {
+      await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/consolidar`, { method: "POST" });
+      await load();
+    } catch (error) { showMessage(error.message, "error"); consolidate.disabled = false; }
+    return;
+  }
   const reconcile = event.target.closest("#reconcile-agent-outcome");
   if (reconcile) {
     reconcile.disabled = true;

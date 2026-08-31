@@ -54,6 +54,7 @@ from app.search_ranking import adicionar_contexto_score
 from app.tenancy import OrganizacaoPublicaDep, validar_limite_pesquisas
 from app.trademarks.affinity import avaliar_afinidade
 from app.trademarks.agent import registrar_execucao_agente
+from app.trademarks.consolidated import construir_analise_consolidada
 from app.trademarks.learning import (
     antiguidade_norm,
     contar_marcas_por_titular,
@@ -547,6 +548,9 @@ async def gerar_resumo_pesquisa(session: AsyncSession, pesquisa: PesquisaMarca) 
     prognostico = construir_prognostico_registrabilidade(matriz_registrabilidade)
     relatorio = relatorio.model_copy(
         update={"prognostico_registrabilidade": PrognosticoRegistrabilidadeResponse.model_validate(prognostico)}
+    )
+    relatorio.analise_consolidada = construir_analise_consolidada(
+        relatorio.model_dump(mode="json"), pesquisa.dados_complementares_registrabilidade or {},
     )
     relatorio_versionado = await versionar_relatorio(session, relatorio)
     await session.commit()

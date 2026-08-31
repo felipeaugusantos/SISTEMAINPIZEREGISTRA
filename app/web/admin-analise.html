@@ -6,9 +6,9 @@
     <meta name="robots" content="noindex,nofollow" />
     <title>Central de análise — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=47" />
-    <link rel="stylesheet" href="/static/admin-analise.css?v=5" />
+    <link rel="stylesheet" href="/static/admin-analise.css?v=6" />
     <script src="/static/admin-shell.js?v=39" defer></script>
-    <script src="/static/admin-analise.js?v=11" defer></script>
+    <script src="/static/admin-analise.js?v=12" defer></script>
   </head>
   <body class="admin-body" data-admin-section="leads">
     <header class="topbar"><span>Central de análise</span></header>
@@ -49,12 +49,9 @@
       </header>
       <div class="analysis-help-content">
         <p class="help-intro">Use as etapas na ordem apresentada. O sistema calcula os indicadores; o analista interpreta as evidências e registra o parecer.</p>
-        <details id="help-overview" open><summary>1. Confira o contexto</summary><p>Valide a marca, a atividade informada, o cliente e a atualização da base antes de interpretar qualquer indicador.</p></details>
-        <details id="help-validation"><summary>2. Validação técnica e matriz oficial</summary><p>Confira situações, classes de Nice, afinidade, alto renome e a Matriz de Registrabilidade INPI. “Não analisado” significa que faltam dados ou avaliação profissional; nunca deve ser interpretado como favorável.</p></details>
-        <details id="help-risk"><summary>3. Motor de risco</summary><p>A pontuação é determinística e auditável. Ela mede conflitos encontrados; não é a mesma coisa que a probabilidade estatística de deferimento.</p></details>
-        <details id="help-learning"><summary>4. Aprendizado supervisionado</summary><p>O indicador usa decisões históricas. Leia junto a faixa de incerteza, confiança, cobertura e alertas de qualidade. Ele não prevê nem garante a decisão do INPI.</p></details>
-        <details id="help-opinion"><summary>6. Parecer humano</summary><p>Registre sua classificação e justificativa com base nos conflitos relevantes. O parecer fica versionado e alimenta a comparação entre máquina e especialista.</p></details>
-        <details id="help-report"><summary>7. Workflow e relatório completo</summary><p>Inicie a revisão, registre o parecer humano e valide formalmente a versão atual. O relatório completo permanece bloqueado enquanto o estado não for VALIDATED; uma nova versão exige nova validação.</p></details>
+        <details id="help-unified" open><summary>1. Análise de registrabilidade</summary><p>Confira a conclusão preliminar, as anterioridades e as informações pendentes. A matriz técnica e o indicador histórico são ferramentas internas da mesma análise. Sem modelo estatístico elegível, a análise usa as evidências disponíveis e não inventa uma probabilidade.</p></details>
+        <details id="help-opinion"><summary>2. Parecer humano</summary><p>Registre uma única classificação e justificativa profissional. O parecer é vinculado à versão analisada; novas informações exigem nova revisão.</p></details>
+        <details id="help-report"><summary>3. Validação e relatório</summary><p>Após registrar o parecer, valide formalmente a versão atual. Antes disso, o PDF é identificado como preliminar. A tela e o relatório completo usam a mesma análise versionada.</p></details>
         <section class="help-glossary"><h3>Indicadores essenciais</h3><dl><dt>Risco determinístico</dt><dd>Pontuação auditável por regras de conflito.</dd><dt>Indicador histórico</dt><dd>Frequência calibrada observada em casos semelhantes; não é previsão jurídica.</dd><dt>Confiança</dt><dd>Estabilidade estatística do indicador.</dd><dt>Cobertura</dt><dd>Quanto a pesquisa se parece com os exemplos conhecidos pelo modelo.</dd></dl></section>
       </div>
     </dialog>

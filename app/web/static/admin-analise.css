@@ -149,3 +149,10 @@
 @media(max-width:1100px){.analysis-summary{grid-template-columns:repeat(3,minmax(0,1fr))}.analysis-workspace{grid-template-columns:1fr}.analysis-progress-card{position:static}.analysis-progress-card ol{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:700px){.analysis-heading{flex-direction:column}.analysis-heading-actions{width:100%;flex-wrap:wrap}.analysis-summary,.analysis-grid,.analysis-action-form{grid-template-columns:1fr}.analysis-progress-card ol{grid-template-columns:1fr}.analysis-step>summary{align-items:flex-start}.analysis-conflicts{display:block;overflow-x:auto}.analysis-help-drawer{width:100vw}.analysis-action-form .wide,.analysis-action-form button{grid-column:auto}.risk-legend>header,.official-matrix>header{align-items:flex-start;flex-direction:column}.risk-scale{grid-template-columns:1fr 1fr}.official-rules,.registrability-fields{grid-template-columns:1fr}.official-matrix>footer{grid-template-columns:1fr}.official-matrix>footer small{grid-column:auto}.official-footer-actions{align-items:flex-start;flex-direction:column}.registrability-fields fieldset{grid-template-columns:1fr}.registrability-fields label.wide{grid-column:auto}.registrability-dialog form>footer{align-items:stretch;flex-direction:column}.registrability-dialog form>footer span{margin-right:0}}
 @media(max-width:440px){.risk-scale{grid-template-columns:1fr}}
+
+.unified-conclusion { padding: 20px; border: 1px solid #b8d4c6; border-radius: 14px; background: #f0f7f2; }
+.unified-conclusion h3 { margin-top: 8px; }
+.unified-technical { margin: 20px 0; border-top: 1px solid #d8dfd9; padding-top: 16px; }
+.unified-technical > summary { cursor: pointer; color: #087252; font-weight: 700; }
+.analysis-table-scroll { overflow-x: auto; }
+.analysis-opinion { white-space: pre-wrap; overflow-wrap: anywhere; }

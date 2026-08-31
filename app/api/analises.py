@@ -1,11 +1,13 @@
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.analysis_service import atualizar_snapshot_analise
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import get_session
 from app.models import (
@@ -31,6 +33,7 @@ from app.trademarks.analysis_workflow import (
     proximo_estado_analise,
     revisao_obrigatoria_pendente,
 )
+from app.trademarks.consolidated import analise_para_exibicao
 from app.trademarks.model_status import normalizar_status_modelo
 from app.trademarks.registrability import (
     construir_indicador_deterministico,
@@ -41,6 +44,13 @@ router = APIRouter(prefix="/v1/admin/analises", tags=["central de análise"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 AnalysisDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
 AnalysisWriteDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("validation.review"))]
+RiskWriteDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("risk.review"))]
+
+
+class ParecerConsolidadoInput(BaseModel):
+    nivel_humano: Literal["baixo", "moderado", "alto", "critico"]
+    observacoes_humanas: str = Field(min_length=3, max_length=4000)
+    versao_relatorio: int = Field(ge=1)
 
 
 def _modulo_liberado(usuario: UsuarioAutenticado, modulo: str, permissao: str) -> bool:
@@ -83,10 +93,12 @@ async def atualizar_dados_complementares(
 ) -> dict:
     pesquisa = (
         await session.execute(
-            select(PesquisaMarca).where(
+            select(PesquisaMarca)
+            .where(
                 PesquisaMarca.id == pesquisa_id,
                 PesquisaMarca.organizacao_id == usuario.organizacao_id,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if pesquisa is None:
@@ -130,8 +142,115 @@ async def atualizar_dados_complementares(
             },
         )
     )
+    try:
+        await atualizar_snapshot_analise(session, pesquisa)
+    except ValueError as exc:
+        # Complementos também podem ser cadastrados antes do primeiro relatório.
+        if str(exc) != "Gere o resultado da pesquisa antes de analisar a marca.":
+            raise HTTPException(409, str(exc)) from exc
     await session.commit()
-    return {"status": "ok", "mensagem": "Dados complementares registrados"}
+    return {"status": "ok", "mensagem": "Dados complementares registrados; alterações exigem nova revisão"}
+
+
+@router.post("/{pesquisa_id}/consolidar")
+async def consolidar_analise(
+    pesquisa_id: str, request: Request, session: SessionDep, usuario: AnalysisWriteDep
+) -> dict:
+    if not _modulo_liberado(usuario, "risco", "risk.view"):
+        raise HTTPException(403, "A análise consolidada exige acesso ao risco")
+    pesquisa = (
+        await session.execute(
+            select(PesquisaMarca)
+            .where(
+                PesquisaMarca.id == pesquisa_id,
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if pesquisa is None:
+        raise HTTPException(404, "Pesquisa não encontrada")
+    try:
+        relatorio = await atualizar_snapshot_analise(session, pesquisa)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
+            ator=usuario.ator,
+            acao="consolidar_analise",
+            recurso=f"pesquisa:{pesquisa.id}",
+            sucesso=True,
+            status_http=200,
+            ip_hash=hash_ip(cliente_ip(request)),
+            detalhes={"versao": relatorio.versao},
+        )
+    )
+    await session.commit()
+    return {"status": "ok", "versao": relatorio.versao}
+
+
+@router.post("/{pesquisa_id}/parecer")
+async def registrar_parecer_consolidado(
+    pesquisa_id: str,
+    dados: ParecerConsolidadoInput,
+    request: Request,
+    session: SessionDep,
+    usuario: RiskWriteDep,
+) -> dict:
+    if not _modulo_liberado(usuario, "validacao", "validation.view"):
+        raise HTTPException(403, "O parecer exige acesso à análise técnica")
+    observacoes = dados.observacoes_humanas.strip()
+    if len(observacoes) < 3:
+        raise HTTPException(422, "Informe uma justificativa com ao menos três caracteres")
+    pesquisa = (
+        await session.execute(
+            select(PesquisaMarca)
+            .where(
+                PesquisaMarca.id == pesquisa_id,
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if pesquisa is None:
+        raise HTTPException(404, "Pesquisa não encontrada")
+    agora = datetime.now(UTC)
+    parecer = {
+        "nivel": dados.nivel_humano,
+        "observacoes": observacoes,
+        "avaliador": usuario.ator,
+        "avaliador_nome": usuario.nome,
+        "avaliado_em": agora.isoformat(),
+        "versao_revisada": dados.versao_relatorio,
+    }
+    try:
+        relatorio = await atualizar_snapshot_analise(
+            session,
+            pesquisa,
+            parecer=parecer,
+            versao_esperada=dados.versao_relatorio,
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    # A revisão fica no snapshot. A aprovação é um passo separado, com permissões próprias.
+    pesquisa.analysis_state = EstadoAnalise.IN_REVIEW.value
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
+            ator=usuario.ator,
+            acao="parecer_consolidado",
+            recurso=f"pesquisa:{pesquisa.id}",
+            sucesso=True,
+            status_http=200,
+            ip_hash=hash_ip(cliente_ip(request)),
+            detalhes={"versao": relatorio.versao, **parecer},
+        )
+    )
+    await session.commit()
+    return {"status": "ok", "versao": relatorio.versao}
 
 
 @router.get("/{pesquisa_id}")
@@ -256,7 +375,28 @@ async def obter_central_analise(
         else None
     )
 
+    consolidada = (
+        analise_para_exibicao(
+            relatorio,
+            versao=versao.numero_versao,
+            validado_por=versao.validated_by if estado_analise == EstadoAnalise.VALIDATED.value else None,
+            validado_em=versao.validated_at if estado_analise == EstadoAnalise.VALIDATED.value else None,
+        )
+        if versao is not None and validacao_visivel and risco_visivel
+        else None
+    )
+    if consolidada and not aprendizado_visivel:
+        consolidada["estatistica"] = {
+            "disponivel": False,
+            "mensagem": "Indicador estatístico restrito ao seu perfil.",
+            "estimativa": None,
+        }
+        for chave in ("probabilidade_deferimento", "probabilidade_inferior", "probabilidade_superior", "confianca"):
+            consolidada["conclusao_preliminar"][chave] = None
+        consolidada["conclusao_preliminar"]["fatores_principais"] = []
+
     return {
+        "analise_consolidada": consolidada,
         "pesquisa": {
             "id": pesquisa.id,
             "marca": pesquisa.marca,
@@ -419,6 +559,10 @@ async def atualizar_workflow_analise(
         destino = proximo_estado_analise(estado_anterior, dados.action)
         if versao is None:
             raise ValueError("A análise ainda não possui uma versão de relatório")
+        if dados.versao_relatorio is not None and dados.versao_relatorio != versao.numero_versao:
+            raise ValueError("A análise mudou. Recarregue a página antes de atualizar a revisão.")
+        if (versao.payload or {}).get("analise_consolidada") and dados.versao_relatorio is None:
+            raise ValueError("Informe a versão da análise que está sendo revisada.")
         if (
             dados.action
             in {
@@ -432,7 +576,11 @@ async def atualizar_workflow_analise(
         if dados.action is AcaoWorkflowAnalise.VALIDATE:
             if not _modulo_liberado(usuario, "risco", "risk.review"):
                 raise PermissionError("A validação final também exige a permissão risk.review")
-            if avaliacao is None or avaliacao.avaliado_em is None or not avaliacao.observacoes_humanas:
+            consolidada = (versao.payload or {}).get("analise_consolidada")
+            if consolidada is not None:
+                if not (consolidada.get("parecer_humano") or {}).get("observacoes"):
+                    raise ValueError("Registre o parecer humano desta versão antes da validação final")
+            elif avaliacao is None or avaliacao.avaliado_em is None or not avaliacao.observacoes_humanas:
                 raise ValueError("Registre o parecer humano de risco antes da validação final")
     except PermissionError as exc:
         status_erro = 403

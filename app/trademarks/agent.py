@@ -22,7 +22,7 @@ from app.normalization import normalizar_numero_processo
 from app.trademarks.learning import extrair_rotulo
 from app.trademarks.registrability import construir_matriz_registrabilidade
 
-VERSAO_AGENTE = "registrabilidade-1.0"
+VERSAO_AGENTE = "registrabilidade-2.0"
 COBERTURA_MINIMA = 0.60
 
 
@@ -62,7 +62,8 @@ def analisar_registrabilidade(
     """Consolida regras e estatistica sem permitir que a previsao sobreponha impedimentos."""
     cobertura_matriz = float(matriz.get("cobertura_percentual") or 0) / 100
     cobertura_modelo = float(_valor(previsao, "cobertura_entrada", 0) or 0)
-    cobertura = round(min(cobertura_matriz, cobertura_modelo), 4) if previsao else 0.0
+    # A ausência de estatística não elimina a cobertura das evidências técnicas.
+    cobertura = round(cobertura_matriz, 4)
     probabilidade = _valor(previsao, "probabilidade_deferimento")
     inferior = _valor(previsao, "probabilidade_inferior")
     superior = _valor(previsao, "probabilidade_superior")
@@ -82,16 +83,27 @@ def analisar_registrabilidade(
         motivos.append(f"{pendentes} critério(s) ainda não analisado(s)")
     if previsao is None:
         motivos.append("modelo estatístico indisponível")
-    elif cobertura < COBERTURA_MINIMA:
-        motivos.append(f"cobertura conjunta de {round(cobertura * 100)}% abaixo do mínimo de 60%")
+    elif cobertura_modelo < COBERTURA_MINIMA:
+        motivos.append("estimativa estatística sem cobertura suficiente; indicador omitido")
+        probabilidade = inferior = superior = confianca = None
+        fatores = []
+    if cobertura < COBERTURA_MINIMA:
+        motivos.append(f"cobertura técnica de {round(cobertura * 100)}% abaixo do mínimo de 60%")
 
-    abstencao = previsao is None or cobertura < COBERTURA_MINIMA
-    if abstencao:
-        decisao = "dados_insuficientes"
-        status = "revisao_humana"
-    elif impedimentos or nivel_risco in {"alto", "critico"}:
+    abstencao = cobertura < COBERTURA_MINIMA or pontuacao_risco is None or nivel_risco is None
+    if impedimentos or nivel_risco in {"alto", "critico"}:
+        # Pendências não escondem riscos já demonstrados.
         decisao = "cenario_desfavoravel"
         status = "revisao_humana"
+    elif abstencao:
+        decisao = "dados_insuficientes"
+        status = "revisao_humana"
+    elif alertas or pendentes or nivel_risco == "moderado":
+        decisao = "cenario_intermediario"
+        status = "revisao_humana"
+    elif probabilidade is None:
+        decisao = "cenario_favoravel"
+        status = "concluida"
     elif probabilidade is not None and probabilidade >= 0.70:
         decisao = "cenario_favoravel"
         status = "concluida"
@@ -155,6 +167,15 @@ async def registrar_execucao_agente(
         "modelo": modelo_versao,
         "versao_matriz": matriz.get("versao"),
         "versao_agente": VERSAO_AGENTE,
+        "matriz_snapshot": matriz,
+        "relatorio_snapshot": relatorio,
+        "risco_snapshot": {"pontuacao": pontuacao_risco, "nivel": nivel_risco},
+        "previsao_snapshot": {
+            chave: _valor(previsao, chave) for chave in (
+                "id", "probabilidade_deferimento", "probabilidade_inferior", "probabilidade_superior",
+                "cobertura_entrada", "confianca", "elegivel_cliente",
+            )
+        },
     }
     hash_entrada = _hash_snapshot(entrada)
     existente = (

@@ -192,7 +192,7 @@ def test_central_executa_e_persiste_agente_com_snapshot_atual() -> None:
 
     assert resposta.status_code == 200, resposta.text
     assert resposta.json()["decisao"] == "dados_insuficientes"
-    assert resposta.json()["motivos"][-1] == "modelo estatístico indisponível"
+    assert "modelo estatístico indisponível" in resposta.json()["motivos"]
     assert any(isinstance(item, ExecucaoAgenteRegistrabilidade) for item in sessao.adicionados)
     assert sessao.commits == 1
 

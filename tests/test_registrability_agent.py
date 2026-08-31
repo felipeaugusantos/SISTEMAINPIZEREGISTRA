@@ -75,7 +75,9 @@ def test_agente_nao_inventa_probabilidade_sem_modelo() -> None:
     )
 
     assert resultado.probabilidade_deferimento is None
-    assert resultado.decisao == "dados_insuficientes"
+    assert resultado.decisao == "cenario_favoravel"
+    assert resultado.abstencao is False
+    assert resultado.cobertura == 1.0
     assert "modelo estatístico indisponível" in resultado.motivos
 
 

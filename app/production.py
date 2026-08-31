@@ -9,7 +9,7 @@ from app.models import PesquisaMarca, VersaoRelatorioMarca
 from app.schemas import RelatorioMarcaResponse
 from app.trademarks.analysis_workflow import EstadoAnalise
 
-SCHEMA_RELATORIO = "relatorio-marca-4.3"
+SCHEMA_RELATORIO = "relatorio-marca-4.4"
 
 
 def _hash_conteudo(relatorio: RelatorioMarcaResponse) -> str:

@@ -857,7 +857,55 @@ def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencia
             )
         )
 
-    if relatorio.conclusao:
+    if relatorio.analise_consolidada:
+        analise = relatorio.analise_consolidada
+        revisao = analise.get("revisao") or {}
+        estado = "VALIDADO POR ESPECIALISTA" if incluir_ocorrencias and revisao.get("validada") else "PRELIMINAR — REVISÃO HUMANA NECESSÁRIA"
+        story.append(Paragraph("Análise de registrabilidade", estilos["secao"]))
+        story.append(Paragraph(_texto(estado), estilos["celula"]))
+        story.append(Paragraph(_texto(analise.get("titulo")), estilos["marca"]))
+        story.append(Paragraph(_texto(analise.get("recomendacao")), estilos["celula"]))
+        resultado = analise.get("conclusao_preliminar") or {}
+        for motivo in resultado.get("motivos", []):
+            story.append(Paragraph(f"• {_texto(motivo)}", estilos["celula"]))
+        story.append(Paragraph(_texto(resultado.get("aviso")), estilos["celula_menor"]))
+        if incluir_ocorrencias:
+            for pendencia in analise.get("pendencias", []):
+                story.append(Paragraph(
+                    f"<b>{_texto(pendencia.get('criterio'))}:</b> {_texto(pendencia.get('descricao'))}",
+                    estilos["celula"],
+                ))
+            estatistica = analise.get("estatistica") or {}
+            story.append(Paragraph(_texto(estatistica.get("mensagem")), estilos["celula_menor"]))
+            estimativa = estatistica.get("estimativa") or {}
+            if estatistica.get("disponivel") and estimativa.get("probabilidade_deferimento") is not None:
+                story.append(Paragraph(
+                    f"Indicador histórico: {estimativa['probabilidade_deferimento']:.0%}.",
+                    estilos["celula"],
+                ))
+            parecer = analise.get("parecer_humano") or {}
+            story.append(Paragraph("Parecer humano", estilos["secao"]))
+            if parecer:
+                story.append(Paragraph(
+                    f"<b>Classificação:</b> {_texto(parecer.get('nivel'))}<br/>"
+                    f"<b>Avaliador:</b> {_texto(parecer.get('avaliador_nome') or parecer.get('avaliador'))}<br/>"
+                    f"<b>Registrado em:</b> {_texto(parecer.get('avaliado_em'))}<br/>"
+                    f"{_texto(parecer.get('observacoes'))}",
+                    estilos["celula"],
+                ))
+            else:
+                story.append(Paragraph("Parecer ainda não registrado.", estilos["celula"]))
+            if revisao.get("validada"):
+                story.append(Paragraph(
+                    f"Validado por {_texto(revisao.get('validado_por'))} em {_texto(revisao.get('validado_em'))}.",
+                    estilos["celula_menor"],
+                ))
+        story.append(Paragraph(
+            f"Análise {_texto(analise.get('versao_motor'))} · versão do relatório {relatorio.versao}.",
+            estilos["celula_menor"],
+        ))
+
+    if relatorio.conclusao and not relatorio.analise_consolidada:
         story.append(Paragraph("Conclusão indicativa", estilos["secao"]))
         conclusao = Table(
             [
@@ -918,7 +966,7 @@ def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencia
             )
             story.append(Spacer(1, 4))
 
-    if relatorio.prognostico_registrabilidade:
+    if relatorio.prognostico_registrabilidade and not relatorio.analise_consolidada:
         prognostico = relatorio.prognostico_registrabilidade
         rotulos = {
             "favoravel": "Favorável",

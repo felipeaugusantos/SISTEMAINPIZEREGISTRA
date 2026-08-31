@@ -192,15 +192,18 @@ def test_leads_exibe_status_e_acao_do_relatorio_completo() -> None:
     assert ".chk-actions > .chk-padrao" in styles
 
 
-def test_dossie_envia_e_exibe_leitura_supervisionada() -> None:
+def test_dossie_envia_e_exibe_parecer_unico() -> None:
     page = (web_dir / "admin-analise.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-analise.js").read_text(encoding="utf-8")
 
     assert "admin-analise.js?v=" in page
-    assert "admin-analise.css?v=5" in page
-    assert 'observacoes: values.get("observacoes_humanas")' in script
-    assert "Boolean(item.avaliado_em)" in script
-    assert "Leitura registrada" in script
+    assert "admin-analise.css?v=6" in page
+    assert 'observacoes_humanas: values.get("observacoes_humanas")' in script
+    assert "consolidated-review-form" in script
+    assert "executar-agente" not in script
+    assert "learning-review-form" not in script
+    assert "risk-review-form" not in script
+    assert "Salvar parecer único" in script
 
 
 def test_dossie_exibe_legenda_da_pontuacao_de_risco() -> None:
@@ -222,11 +225,11 @@ def test_dossie_exibe_matriz_oficial_de_registrabilidade() -> None:
     script = (web_dir / "static" / "admin-analise.js").read_text(encoding="utf-8")
     styles = (web_dir / "static" / "admin-analise.css").read_text(encoding="utf-8")
 
-    assert "Validação técnica e matriz oficial" in page
+    assert "Análise de registrabilidade" in page
     assert "Matriz de Registrabilidade INPI" in script
     assert "Não analisado" in script
     assert "Consultar Manual de Marcas do INPI" in script
-    assert "officialMatrix(item.matriz_registrabilidade, data.permissoes.validacao_revisar)" in script
+    assert "officialMatrix(item.matriz, data.permissoes.validacao_revisar)" in script
     assert ".official-rule.possivel_impedimento" in styles
     assert "Completar análise oficial" in script
     assert 'id="registrability-form"' in page
@@ -291,11 +294,9 @@ def test_central_de_analise_unifica_etapas_e_ajuda_contextual() -> None:
     script = client.get("/static/admin-analise.js")
     assert script.status_code == 200
     for etapa in (
-        "Validação técnica",
-        "Motor determinístico de risco",
-        "Aprendizado supervisionado",
+        "Análise de registrabilidade",
         "Parecer humano",
-        "Relatório completo",
+        "Workflow humano e relatório",
     ):
         assert etapa in script.text
     shell = client.get("/static/admin-shell.js").text

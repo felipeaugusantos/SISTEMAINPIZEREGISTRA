@@ -45,6 +45,7 @@ class DadosComplementaresRegistrabilidadeUpdate(BaseModel):
 
 class WorkflowAnaliseUpdate(BaseModel):
     action: AcaoWorkflowAnalise
+    versao_relatorio: int | None = Field(default=None, ge=1)
     notes: str | None = Field(default=None, min_length=3, max_length=4000)
 
     @field_validator("notes")
@@ -424,7 +425,7 @@ class MarcaRelatorioItem(ProcessoResumo):
 class RelatorioMarcaResponse(BaseModel):
     id: str
     versao: int = 1
-    schema_versao: str = "relatorio-marca-4.3"
+    schema_versao: str = "relatorio-marca-4.4"
     gerado_em: datetime | None = None
     conteudo_hash: str = ""
     marca: str
@@ -453,6 +454,7 @@ class RelatorioMarcaResponse(BaseModel):
     )
     estimativa_registrabilidade: EstimativaRegistrabilidadeResponse | None = None
     prognostico_registrabilidade: PrognosticoRegistrabilidadeResponse | None = None
+    analise_consolidada: dict | None = None
 
 
 class ResumoPublicoMarcaResponse(BaseModel):

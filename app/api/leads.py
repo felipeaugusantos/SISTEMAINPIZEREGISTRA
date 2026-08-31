@@ -73,6 +73,7 @@ from app.schemas import (
 from app.settings import get_settings
 from app.tenancy import OrganizacaoPublicaDep
 from app.trademarks.analysis_workflow import EstadoAnalise, revisao_obrigatoria_pendente
+from app.trademarks.consolidated import analise_para_exibicao
 
 router = APIRouter(tags=["leads"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -340,6 +341,13 @@ async def gerar_relatorio_completo_admin(
         )
 
     relatorio = RelatorioMarcaResponse.model_validate(versao.payload)
+    relatorio.analise_consolidada = analise_para_exibicao(
+        versao.payload,
+        versao=versao.numero_versao,
+        validado_por=versao.validated_by if pesquisa.analysis_state == EstadoAnalise.VALIDATED.value else None,
+        validado_em=versao.validated_at if pesquisa.analysis_state == EstadoAnalise.VALIDATED.value else None,
+    )
+    validado = relatorio.analise_consolidada["revisao"]["validada"]
     pdf = gerar_pdf_relatorio(relatorio)
     primeira_geracao = pesquisa.relatorio_completo_gerado_em is None
     if primeira_geracao:
@@ -352,7 +360,7 @@ async def gerar_relatorio_completo_admin(
         "gerar_relatorio",
         f"pesquisa:{pesquisa.id}",
         {
-            "relatorio": "validado" if pesquisa.analysis_state == EstadoAnalise.VALIDATED.value else "preliminar",
+            "relatorio": "validado" if validado else "preliminar",
             "primeira_geracao": primeira_geracao,
             "versao": versao.numero_versao,
             "analysis_state": pesquisa.analysis_state,
@@ -367,7 +375,7 @@ async def gerar_relatorio_completo_admin(
         media_type="application/pdf",
         headers={
             "X-Relatorio-Status": "validado"
-            if pesquisa.analysis_state == EstadoAnalise.VALIDATED.value
+            if validado
             else "preliminar",
             "Content-Disposition": (f'attachment; filename="relatorio-completo-{nome_arquivo}.pdf"'),
             "X-Relatorio-Completo-Primeira-Geracao": str(primeira_geracao).lower(),

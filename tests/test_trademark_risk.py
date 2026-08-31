@@ -88,6 +88,26 @@ def test_regras_registram_versao_e_modo_sombra() -> None:
     assert "não é probabilidade" in regras["interpretacao"]
 
 
+def test_termo_comum_no_match_reduz_pontuacao_do_fator_nominativo() -> None:
+    identico = pontuar_conflito(conflito())
+    via_termo_comum = pontuar_conflito(conflito(termos_comuns_no_match=("PLUS",)))
+
+    fator_identico = next(f for f in identico.fatores if f.regra == "semelhanca_nome")
+    fator_comum = next(f for f in via_termo_comum.fatores if f.regra == "semelhanca_nome")
+
+    assert fator_comum.pontos < fator_identico.pontos
+    assert fator_comum.evidencia["desconto_termo_comum"] is True
+    assert fator_comum.evidencia["termos"] == ["PLUS"]
+    assert "desconto_termo_comum" not in fator_identico.evidencia
+
+
+def test_sem_termo_comum_comportamento_e_identico_ao_anterior() -> None:
+    resultado = pontuar_conflito(conflito())
+
+    assert resultado.pontuacao == 85
+    assert resultado.nivel == "critico"
+
+
 def test_risco_nao_faz_parte_do_relatorio_do_cliente() -> None:
     campos = RelatorioMarcaResponse.model_fields
 

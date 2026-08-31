@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.models import ClassificacaoMarca, Processo, TipoProcesso, Titular
 from app.search_model import resultado_busca_exige_revisao_humana
 from app.search_ranking import ScoreBusca, calcular_score_nominativo, configuracao_ranking
+from app.trademarks.lexico import classificar_termo
 
 PALAVRAS_IGNORADAS = {
     "A",
@@ -176,6 +177,47 @@ def identificar_criterios(titulo: str | None, marca: str) -> list[str]:
         criterios.append("Semelhança global do nome")
 
     return criterios[:3] or ["Aproximação nominativa"]
+
+
+def tokens_correspondentes(titulo: str | None, marca: str) -> set[str]:
+    """Palavras da marca pesquisada que efetivamente dispararam algum critério em
+    identificar_criterios() contra este título candidato (mesma lógica de match).
+
+    Usado para saber, caso a caso, se um conflito nasceu de um termo raro/fantasioso
+    ou de uma palavra de uso comum -- ver app.trademarks.lexico.classificar_termo.
+    """
+    if not titulo:
+        return set()
+
+    titulo_normalizado = normalizar_texto(titulo)
+    palavras = extrair_palavras(marca)
+    radicais = extrair_radicais(marca)
+    variacoes = gerar_variacoes(marca)
+    tokens_titulo = titulo_normalizado.split()
+
+    encontrados: set[str] = set()
+    for palavra in palavras:
+        if any(token.startswith(palavra) for token in tokens_titulo):
+            encontrados.add(palavra)
+    for radical in radicais:
+        if any(token.startswith(radical) for token in tokens_titulo):
+            encontrados.add(radical)
+    for variacao in variacoes:
+        if any(token.startswith(variacao) for token in tokens_titulo):
+            encontrados.add(variacao)
+    return encontrados
+
+
+def termos_comuns_do_match(titulo: str | None, marca: str) -> tuple[str, ...]:
+    """Tokens que dispararam o match E são de uso comum na classe (não devolve nada
+    se algum token distintivo/evocativo também contribuiu -- nesse caso o conflito é
+    real e não deve levar desconto de "elemento preponderante")."""
+    tokens = tokens_correspondentes(titulo, marca)
+    if not tokens:
+        return ()
+    if any(classificar_termo(token) != "comum" for token in tokens):
+        return ()
+    return tuple(sorted(tokens))
 
 
 async def buscar_marcas(
@@ -351,6 +393,7 @@ async def buscar_marcas(
             titulo=processo.titulo,
             mesma_classe=classe_nice if classe_nice in classes_nice else None,
             situacao_ativa=processo.relevancia_situacao in {"alta", "ativa"},
+            termos_comuns=termos_comuns_do_match(processo.titulo, marca_limpa),
         )
         ocorrencias.append(OcorrenciaBusca(processo=processo, criterios=criterios, score=score))
     ocorrencias.sort(key=lambda item: (-item.score.total, item.processo.numero))

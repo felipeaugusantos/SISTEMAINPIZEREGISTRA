@@ -1,5 +1,5 @@
 from app.schemas import PesquisaMarcaCreate
-from app.search import extrair_radicais, gerar_variacoes, identificar_criterios
+from app.search import extrair_radicais, gerar_variacoes, identificar_criterios, termos_comuns_do_match
 
 
 def payload() -> dict[str, object]:
@@ -24,6 +24,22 @@ def test_gera_variacoes_ortograficas_e_foneticas_recomendadas() -> None:
     variacoes = gerar_variacoes("CAVALINHO FEROZ")
 
     assert {"CAVALO", "KAVAL", "PHERO", "FHERO"} <= set(variacoes)
+
+
+def test_termos_comuns_do_match_so_dispara_quando_todo_o_match_e_termo_comum(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.search.classificar_termo",
+        lambda token: "comum" if token == "PLUS" else "distintivo",
+    )
+
+    # So "PLUS" bate (ALFA nao aparece no titulo) -> match 100% por termo comum.
+    assert termos_comuns_do_match("PLUS BETA", "PLUS ALFA") == ("PLUS",)
+
+    # "PLUS" e "ZANTREX" batem, mas ZANTREX e distintivo -> nao aplica desconto.
+    assert termos_comuns_do_match("PLUS ZANTREX BETA", "PLUS ZANTREX") == ()
+
+    # Nenhum token bate -> nada a descontar.
+    assert termos_comuns_do_match("OUTRA MARCA", "PLUS ALFA") == ()
 
 
 def test_explica_por_que_ocorrencia_foi_encontrada() -> None:

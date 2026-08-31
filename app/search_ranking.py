@@ -36,6 +36,11 @@ PESOS_CONTEXTO = {
     "ALTO_RENOME": 10.0,
 }
 PESOS_COMBINADOS = {"nominativo": 0.45, "visual": 0.25, "ocr": 0.10, "nice": 0.10, "viena": 0.10}
+# Mesmo racional e mesmo fator de app.trademarks.risk.DESCONTO_TERMO_COMUM: aplicado
+# apenas quando o chamador informa que todo o match nominativo veio de termo(s) de
+# uso comum na classe. Default vazio preserva o comportamento anterior byte a byte
+# (ver tests/test_search_ranking.py::test_contrato_versionado_bloqueia_mudanca_acidental_dos_pesos).
+DESCONTO_TERMO_COMUM = 0.4
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +78,7 @@ def calcular_score_nominativo(
     titulo: str | None,
     mesma_classe: str | None = None,
     situacao_ativa: bool = False,
+    termos_comuns: tuple[str, ...] = (),
 ) -> ScoreBusca:
     fatores: list[FatorScoreBusca] = []
     criterios_aplicados = set(criterios)
@@ -80,12 +86,12 @@ def calcular_score_nominativo(
     # Identidade e expressão completa são mutuamente exclusivas no detector.
     for criterio, peso in PESOS_NOMINATIVOS.items():
         if criterio in criterios_aplicados:
-            _adicionar_fator(
-                fatores,
-                REGRAS_NOMINATIVAS[criterio],
-                peso,
-                {"criterio": criterio, "titulo": titulo or "", "processo": processo},
-            )
+            evidencia: dict[str, object] = {"criterio": criterio, "titulo": titulo or "", "processo": processo}
+            if termos_comuns:
+                peso = peso * DESCONTO_TERMO_COMUM
+                evidencia["desconto_termo_comum"] = True
+                evidencia["termos"] = list(termos_comuns)
+            _adicionar_fator(fatores, REGRAS_NOMINATIVAS[criterio], peso, evidencia)
 
     similaridade_limitada = min(1.0, max(0.0, similaridade))
     _adicionar_fator(

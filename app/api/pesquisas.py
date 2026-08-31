@@ -49,7 +49,7 @@ from app.schemas import (
     ResumoPublicoMarcaResponse,
     TitularResponse,
 )
-from app.search import buscar_marcas, normalizar_texto
+from app.search import buscar_marcas, normalizar_texto, termos_comuns_do_match
 from app.search_ranking import adicionar_contexto_score
 from app.tenancy import OrganizacaoPublicaDep, validar_limite_pesquisas
 from app.trademarks.affinity import avaliar_afinidade
@@ -377,6 +377,7 @@ async def gerar_resumo_pesquisa(session: AsyncSession, pesquisa: PesquisaMarca) 
                 afinidade_revisao=(item.afinidade_classes.revisao if item.afinidade_classes else None),
                 classes_processo=tuple(item.afinidade_classes.classes_processo if item.afinidade_classes else ()),
                 alto_renome=item.alto_renome,
+                termos_comuns_no_match=termos_comuns_do_match(item.titulo, pesquisa.marca),
             )
             for item in itens
         ]

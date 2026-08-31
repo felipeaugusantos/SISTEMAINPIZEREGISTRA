@@ -1,0 +1,2938 @@
+{
+  "dataset_version": "acervo-inpi-conflitos-oficiais-v1",
+  "revisao": {
+    "status": "pendente_revisao_especialista",
+    "revisado_por": null,
+    "papel": null,
+    "revisado_em": null,
+    "observacoes": "200 casos gerados automaticamente a partir de despachos oficiais do INPI com indeferimento por conflito anterior (confiança >= 0,95). Cada caso tem link rastreável ao despacho original em 'justificativa'. Pendente de revisão jurídica antes de virar baseline aprovada."
+  },
+  "casos": [
+    {
+      "id": "inpi-conflito-938209191",
+      "marca": "É Seu Personalizado",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920231497"
+      ],
+      "processos_criticos": [
+        "920231497"
+      ],
+      "justificativa": "Processo 938209191 indeferido por conflito anterior; despacho oficial do INPI cita 920231497 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6105933 (hash 57f7dce54191...)."
+    },
+    {
+      "id": "inpi-conflito-938223488",
+      "marca": "INSTITUTO DHF",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "825332737"
+      ],
+      "processos_criticos": [
+        "825332737"
+      ],
+      "justificativa": "Processo 938223488 indeferido por conflito anterior; despacho oficial do INPI cita 825332737 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6120690 (hash 9f33d294664b...)."
+    },
+    {
+      "id": "inpi-conflito-938222856",
+      "marca": "MOKA 2020 STEAK BURG",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "812496612"
+      ],
+      "processos_criticos": [
+        "812496612"
+      ],
+      "justificativa": "Processo 938222856 indeferido por conflito anterior; despacho oficial do INPI cita 812496612 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103495 (hash dbcc92b52ef3...)."
+    },
+    {
+      "id": "inpi-conflito-938218530",
+      "marca": "Thank U Studio criativo",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "827468911",
+        "827468938",
+        "827468962",
+        "830547690",
+        "908833946"
+      ],
+      "processos_criticos": [
+        "827468911",
+        "827468938",
+        "827468962",
+        "830547690",
+        "908833946"
+      ],
+      "justificativa": "Processo 938218530 indeferido por conflito anterior; despacho oficial do INPI cita 827468911, 827468938, 827468962, 830547690, 908833946 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104023 (hash 7f344db6712a...)."
+    },
+    {
+      "id": "inpi-conflito-938211374",
+      "marca": "MC",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "831059737"
+      ],
+      "processos_criticos": [
+        "831059737"
+      ],
+      "justificativa": "Processo 938211374 indeferido por conflito anterior; despacho oficial do INPI cita 831059737 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104838 (hash d54686939c85...)."
+    },
+    {
+      "id": "inpi-conflito-938225715",
+      "marca": "BCK BRANDING",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "910606129",
+        "910623015"
+      ],
+      "processos_criticos": [
+        "910606129",
+        "910623015"
+      ],
+      "justificativa": "Processo 938225715 indeferido por conflito anterior; despacho oficial do INPI cita 910606129, 910623015 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102917 (hash df8061fb46ae...)."
+    },
+    {
+      "id": "inpi-conflito-938223810",
+      "marca": "PROGRAMA MADE IN PIAUÍ",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "921883943"
+      ],
+      "processos_criticos": [
+        "921883943"
+      ],
+      "justificativa": "Processo 938223810 indeferido por conflito anterior; despacho oficial do INPI cita 921883943 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103325 (hash 9a76dc96d232...)."
+    },
+    {
+      "id": "inpi-conflito-938222198",
+      "marca": "aMais",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920208576",
+        "920208584"
+      ],
+      "processos_criticos": [
+        "920208576",
+        "920208584"
+      ],
+      "justificativa": "Processo 938222198 indeferido por conflito anterior; despacho oficial do INPI cita 920208576, 920208584 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103011 (hash 2e07e4d49942...)."
+    },
+    {
+      "id": "inpi-conflito-938219421",
+      "marca": "TIVAH",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "930068149",
+        "936755814"
+      ],
+      "processos_criticos": [
+        "930068149",
+        "936755814"
+      ],
+      "justificativa": "Processo 938219421 indeferido por conflito anterior; despacho oficial do INPI cita 930068149, 936755814 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6118935 (hash 6bed859e27a7...)."
+    },
+    {
+      "id": "inpi-conflito-938218549",
+      "marca": "REALIZE MARCENARIA MÓVEIS PLANEJADOS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "924930829"
+      ],
+      "processos_criticos": [
+        "924930829"
+      ],
+      "justificativa": "Processo 938218549 indeferido por conflito anterior; despacho oficial do INPI cita 924930829 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103677 (hash 4aecaa8710c3...)."
+    },
+    {
+      "id": "inpi-conflito-938209752",
+      "marca": "Selectt",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "916292800",
+        "917119002",
+        "926898442",
+        "936423757"
+      ],
+      "processos_criticos": [
+        "916292800",
+        "917119002",
+        "926898442",
+        "936423757"
+      ],
+      "justificativa": "Processo 938209752 indeferido por conflito anterior; despacho oficial do INPI cita 916292800, 917119002, 926898442, 936423757 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6118524 (hash dbfdc03cfbc9...)."
+    },
+    {
+      "id": "inpi-conflito-938225618",
+      "marca": "GAMA CONTÁBIL",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "933324537"
+      ],
+      "processos_criticos": [
+        "933324537"
+      ],
+      "justificativa": "Processo 938225618 indeferido por conflito anterior; despacho oficial do INPI cita 933324537 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101562 (hash 6e27c8d88f38...)."
+    },
+    {
+      "id": "inpi-conflito-938223437",
+      "marca": "HOLY VEÍCULOS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "914751719"
+      ],
+      "processos_criticos": [
+        "914751719"
+      ],
+      "justificativa": "Processo 938223437 indeferido por conflito anterior; despacho oficial do INPI cita 914751719 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101085 (hash 36fa62d3b3d3...)."
+    },
+    {
+      "id": "inpi-conflito-938246836",
+      "marca": "HOPPY",
+      "classe_nice": "42",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "914483439",
+        "920646549"
+      ],
+      "processos_criticos": [
+        "914483439",
+        "920646549"
+      ],
+      "justificativa": "Processo 938246836 indeferido por conflito anterior; despacho oficial do INPI cita 914483439, 920646549 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6131186 (hash 2fbd67c548eb...)."
+    },
+    {
+      "id": "inpi-conflito-938284029",
+      "marca": "DIAGNÓSTICO VSD",
+      "classe_nice": "41",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "935784934",
+        "935785094"
+      ],
+      "processos_criticos": [
+        "935784934",
+        "935785094"
+      ],
+      "justificativa": "Processo 938284029 indeferido por conflito anterior; despacho oficial do INPI cita 935784934, 935785094 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6110212 (hash c2eec66ac0ed...)."
+    },
+    {
+      "id": "inpi-conflito-938194038",
+      "marca": "GDC GLÁUCIO TRANSPORTES",
+      "classe_nice": "39",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "921427433"
+      ],
+      "processos_criticos": [
+        "921427433"
+      ],
+      "justificativa": "Processo 938194038 indeferido por conflito anterior; despacho oficial do INPI cita 921427433 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107172 (hash e420384046e5...)."
+    },
+    {
+      "id": "inpi-conflito-938221639",
+      "marca": "SALÃO INFANTIL JOÃO D' MARIA BEAUTY AND PARTY",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "930721772"
+      ],
+      "processos_criticos": [
+        "930721772"
+      ],
+      "justificativa": "Processo 938221639 indeferido por conflito anterior; despacho oficial do INPI cita 930721772 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102128 (hash df7a1433736d...)."
+    },
+    {
+      "id": "inpi-conflito-938252836",
+      "marca": "Duni Fisioterapia Infantil",
+      "classe_nice": "44",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "919126197"
+      ],
+      "processos_criticos": [
+        "919126197"
+      ],
+      "justificativa": "Processo 938252836 indeferido por conflito anterior; despacho oficial do INPI cita 919126197 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6114972 (hash 1eb85f62488f...)."
+    },
+    {
+      "id": "inpi-conflito-938254677",
+      "marca": "RESIDENCIAL VIVENDA DO IDOSO",
+      "classe_nice": "43",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "932349854"
+      ],
+      "processos_criticos": [
+        "932349854"
+      ],
+      "justificativa": "Processo 938254677 indeferido por conflito anterior; despacho oficial do INPI cita 932349854 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6131893 (hash 0eae27cc6e71...)."
+    },
+    {
+      "id": "inpi-conflito-938247042",
+      "marca": "Lume Studio",
+      "classe_nice": "42",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "935493638",
+        "938245856"
+      ],
+      "processos_criticos": [
+        "935493638",
+        "938245856"
+      ],
+      "justificativa": "Processo 938247042 indeferido por conflito anterior; despacho oficial do INPI cita 935493638, 938245856 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6126508 (hash 81cd4227c093...)."
+    },
+    {
+      "id": "inpi-conflito-938283685",
+      "marca": "PROTOCOLO VSD",
+      "classe_nice": "41",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "935784934",
+        "935785094"
+      ],
+      "processos_criticos": [
+        "935784934",
+        "935785094"
+      ],
+      "justificativa": "Processo 938283685 indeferido por conflito anterior; despacho oficial do INPI cita 935784934, 935785094 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6111012 (hash c2eec66ac0ed...)."
+    },
+    {
+      "id": "inpi-conflito-938250710",
+      "marca": "SEMOG AMOR EM CONSTRUIR",
+      "classe_nice": "37",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "929885473"
+      ],
+      "processos_criticos": [
+        "929885473"
+      ],
+      "justificativa": "Processo 938250710 indeferido por conflito anterior; despacho oficial do INPI cita 929885473 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6110936 (hash 648b556e716c...)."
+    },
+    {
+      "id": "inpi-conflito-938289160",
+      "marca": "PACE MARKETING",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "935575715"
+      ],
+      "processos_criticos": [
+        "935575715"
+      ],
+      "justificativa": "Processo 938289160 indeferido por conflito anterior; despacho oficial do INPI cita 935575715 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6130542 (hash 9aab312cf20e...)."
+    },
+    {
+      "id": "inpi-conflito-938258117",
+      "marca": "Clínica Veterinária K9",
+      "classe_nice": "44",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "923023372"
+      ],
+      "processos_criticos": [
+        "923023372"
+      ],
+      "justificativa": "Processo 938258117 indeferido por conflito anterior; despacho oficial do INPI cita 923023372 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6114926 (hash ea2ec5c02cf6...)."
+    },
+    {
+      "id": "inpi-conflito-938251988",
+      "marca": "AÇAÍ ORIGEM",
+      "classe_nice": "43",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "910654980",
+        "917007417",
+        "923794735",
+        "923972846",
+        "924842725",
+        "925681172",
+        "929343328",
+        "932609651",
+        "934070253"
+      ],
+      "processos_criticos": [
+        "910654980",
+        "917007417",
+        "923794735",
+        "923972846",
+        "924842725",
+        "925681172",
+        "929343328",
+        "932609651",
+        "934070253"
+      ],
+      "justificativa": "Processo 938251988 indeferido por conflito anterior; despacho oficial do INPI cita 910654980, 917007417, 923794735, 923972846, 924842725, 925681172, 929343328, 932609651, 934070253 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6131164 (hash 3e18c9986c8e...)."
+    },
+    {
+      "id": "inpi-conflito-938236954",
+      "marca": "ALLUME DESIGNER",
+      "classe_nice": "42",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "903604825"
+      ],
+      "processos_criticos": [
+        "903604825"
+      ],
+      "justificativa": "Processo 938236954 indeferido por conflito anterior; despacho oficial do INPI cita 903604825 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6116041 (hash 90ccd8e11f8a...)."
+    },
+    {
+      "id": "inpi-conflito-938283367",
+      "marca": "Nó na Madeira",
+      "classe_nice": "41",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "912480777",
+        "926981412"
+      ],
+      "processos_criticos": [
+        "912480777",
+        "926981412"
+      ],
+      "justificativa": "Processo 938283367 indeferido por conflito anterior; despacho oficial do INPI cita 912480777, 926981412 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6110569 (hash 879923a7a78b...)."
+    },
+    {
+      "id": "inpi-conflito-938200429",
+      "marca": "REGIS TURISMO",
+      "classe_nice": "39",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "934149003",
+        "934931372",
+        "935546553"
+      ],
+      "processos_criticos": [
+        "934149003",
+        "934931372",
+        "935546553"
+      ],
+      "justificativa": "Processo 938200429 indeferido por conflito anterior; despacho oficial do INPI cita 934149003, 934931372, 935546553 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104220 (hash 223236cf7d04...)."
+    },
+    {
+      "id": "inpi-conflito-938264516",
+      "marca": "SELETA ENGENHARIA",
+      "classe_nice": "37",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "927226952"
+      ],
+      "processos_criticos": [
+        "927226952"
+      ],
+      "justificativa": "Processo 938264516 indeferido por conflito anterior; despacho oficial do INPI cita 927226952 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6117728 (hash 52482ac00bbc...)."
+    },
+    {
+      "id": "inpi-conflito-938198157",
+      "marca": "CLAREIRA CONDOMÍNIOS",
+      "classe_nice": "36",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "925906212"
+      ],
+      "processos_criticos": [
+        "925906212"
+      ],
+      "justificativa": "Processo 938198157 indeferido por conflito anterior; despacho oficial do INPI cita 925906212 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6117759 (hash 51f1a0c575c7...)."
+    },
+    {
+      "id": "inpi-conflito-938288768",
+      "marca": "STAMPAR MED",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920869696"
+      ],
+      "processos_criticos": [
+        "920869696"
+      ],
+      "justificativa": "Processo 938288768 indeferido por conflito anterior; despacho oficial do INPI cita 920869696 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6113480 (hash 1d6725854fcf...)."
+    },
+    {
+      "id": "inpi-conflito-938224212",
+      "marca": "Apiário Albuquerque",
+      "classe_nice": "30",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "840060980",
+        "910410330"
+      ],
+      "processos_criticos": [
+        "840060980",
+        "910410330"
+      ],
+      "justificativa": "Processo 938224212 indeferido por conflito anterior; despacho oficial do INPI cita 840060980, 910410330 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102979 (hash 337a91f47da1...)."
+    },
+    {
+      "id": "inpi-conflito-938248529",
+      "marca": "STYLE REIS",
+      "classe_nice": "25",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "915123908"
+      ],
+      "processos_criticos": [
+        "915123908"
+      ],
+      "justificativa": "Processo 938248529 indeferido por conflito anterior; despacho oficial do INPI cita 915123908 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6113696 (hash 5f1029c5cff7...)."
+    },
+    {
+      "id": "inpi-conflito-938277952",
+      "marca": "CAF Comunidade Acolhedora Fraternal",
+      "classe_nice": "45",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "826384021"
+      ],
+      "processos_criticos": [
+        "826384021"
+      ],
+      "justificativa": "Processo 938277952 indeferido por conflito anterior; despacho oficial do INPI cita 826384021 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6110009 (hash c804a54932eb...)."
+    },
+    {
+      "id": "inpi-conflito-938290789",
+      "marca": "VITAL SAFE",
+      "classe_nice": "44",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "933154925"
+      ],
+      "processos_criticos": [
+        "933154925"
+      ],
+      "justificativa": "Processo 938290789 indeferido por conflito anterior; despacho oficial do INPI cita 933154925 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6125317 (hash 0b8aec9fde55...)."
+    },
+    {
+      "id": "inpi-conflito-938286714",
+      "marca": "HB HOTÉIS BY HOTELARIA BRASIL",
+      "classe_nice": "43",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "825389062"
+      ],
+      "processos_criticos": [
+        "825389062"
+      ],
+      "justificativa": "Processo 938286714 indeferido por conflito anterior; despacho oficial do INPI cita 825389062 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6110360 (hash 2269c2acf399...)."
+    },
+    {
+      "id": "inpi-conflito-938294652",
+      "marca": "APS AGRO AMBIENTAL",
+      "classe_nice": "42",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "827955600",
+        "830018794",
+        "920308945"
+      ],
+      "processos_criticos": [
+        "827955600",
+        "830018794",
+        "920308945"
+      ],
+      "justificativa": "Processo 938294652 indeferido por conflito anterior; despacho oficial do INPI cita 827955600, 830018794, 920308945 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6117583 (hash 4c9017116763...)."
+    },
+    {
+      "id": "inpi-conflito-938267108",
+      "marca": "A ALPHA PLANEJADOS",
+      "classe_nice": "40",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "916103790",
+        "934802688"
+      ],
+      "processos_criticos": [
+        "916103790",
+        "934802688"
+      ],
+      "justificativa": "Processo 938267108 indeferido por conflito anterior; despacho oficial do INPI cita 916103790, 934802688 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6109331 (hash 0945de9b3294...)."
+    },
+    {
+      "id": "inpi-conflito-938261894",
+      "marca": "QUERO CONSTRUTORA ADVANCE",
+      "classe_nice": "37",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "924917059"
+      ],
+      "processos_criticos": [
+        "924917059"
+      ],
+      "justificativa": "Processo 938261894 indeferido por conflito anterior; despacho oficial do INPI cita 924917059 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6109038 (hash 2607bc289b6c...)."
+    },
+    {
+      "id": "inpi-conflito-938192078",
+      "marca": "CONSORTI PRECATÓRIOS",
+      "classe_nice": "36",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "822997177",
+        "937918156"
+      ],
+      "processos_criticos": [
+        "822997177",
+        "937918156"
+      ],
+      "justificativa": "Processo 938192078 indeferido por conflito anterior; despacho oficial do INPI cita 822997177, 937918156 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102182 (hash c59e33ea952d...)."
+    },
+    {
+      "id": "inpi-conflito-938288539",
+      "marca": "ODE BRASILIS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "922536473",
+        "935700889"
+      ],
+      "processos_criticos": [
+        "922536473",
+        "935700889"
+      ],
+      "justificativa": "Processo 938288539 indeferido por conflito anterior; despacho oficial do INPI cita 922536473, 935700889 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6131390 (hash acf6209c45f8...)."
+    },
+    {
+      "id": "inpi-conflito-938225626",
+      "marca": "LAS' PALETAS BRASIL",
+      "classe_nice": "30",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "910609217"
+      ],
+      "processos_criticos": [
+        "910609217"
+      ],
+      "justificativa": "Processo 938225626 indeferido por conflito anterior; despacho oficial do INPI cita 910609217 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6100577 (hash ec56bfe1238d...)."
+    },
+    {
+      "id": "inpi-conflito-938178466",
+      "marca": "Mojubá",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "925402478"
+      ],
+      "processos_criticos": [
+        "925402478"
+      ],
+      "justificativa": "Processo 938178466 indeferido por conflito anterior; despacho oficial do INPI cita 925402478 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104429 (hash c8e45dbf10c5...)."
+    },
+    {
+      "id": "inpi-conflito-938178407",
+      "marca": "PETRA CONCEITO SPORTS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "826437206",
+        "831161213"
+      ],
+      "processos_criticos": [
+        "826437206",
+        "831161213"
+      ],
+      "justificativa": "Processo 938178407 indeferido por conflito anterior; despacho oficial do INPI cita 826437206, 831161213 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103821 (hash 32c944c62000...)."
+    },
+    {
+      "id": "inpi-conflito-938178156",
+      "marca": "XWORLD",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920607942"
+      ],
+      "processos_criticos": [
+        "920607942"
+      ],
+      "justificativa": "Processo 938178156 indeferido por conflito anterior; despacho oficial do INPI cita 920607942 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6120625 (hash 497f28445dab...)."
+    },
+    {
+      "id": "inpi-conflito-938177125",
+      "marca": "TM INFINITY",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "930491777",
+        "931049857",
+        "931259568",
+        "935586393"
+      ],
+      "processos_criticos": [
+        "930491777",
+        "931049857",
+        "931259568",
+        "935586393"
+      ],
+      "justificativa": "Processo 938177125 indeferido por conflito anterior; despacho oficial do INPI cita 930491777, 931049857, 931259568, 935586393 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6119955 (hash 4aa4f835b0b9...)."
+    },
+    {
+      "id": "inpi-conflito-938176560",
+      "marca": "N CLUBE NENÊ FELIZ",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "826706363",
+        "911708677"
+      ],
+      "processos_criticos": [
+        "826706363",
+        "911708677"
+      ],
+      "justificativa": "Processo 938176560 indeferido por conflito anterior; despacho oficial do INPI cita 826706363, 911708677 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104758 (hash 46332a701f1d...)."
+    },
+    {
+      "id": "inpi-conflito-938175602",
+      "marca": "GD VEÍCULOS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "918593190",
+        "927417650",
+        "937755591"
+      ],
+      "processos_criticos": [
+        "918593190",
+        "927417650",
+        "937755591"
+      ],
+      "justificativa": "Processo 938175602 indeferido por conflito anterior; despacho oficial do INPI cita 918593190, 927417650, 937755591 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104367 (hash 035f034ee5c7...)."
+    },
+    {
+      "id": "inpi-conflito-938175009",
+      "marca": "MALANA CREAM",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "932349137"
+      ],
+      "processos_criticos": [
+        "932349137"
+      ],
+      "justificativa": "Processo 938175009 indeferido por conflito anterior; despacho oficial do INPI cita 932349137 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6105546 (hash c1d148866bae...)."
+    },
+    {
+      "id": "inpi-conflito-938174878",
+      "marca": "UZE PRATAS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "931852145"
+      ],
+      "processos_criticos": [
+        "931852145"
+      ],
+      "justificativa": "Processo 938174878 indeferido por conflito anterior; despacho oficial do INPI cita 931852145 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103485 (hash 2f8a9a46e521...)."
+    },
+    {
+      "id": "inpi-conflito-938174754",
+      "marca": "TAPITEX",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "819758590"
+      ],
+      "processos_criticos": [
+        "819758590"
+      ],
+      "justificativa": "Processo 938174754 indeferido por conflito anterior; despacho oficial do INPI cita 819758590 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104012 (hash 27fbcc4cd58e...)."
+    },
+    {
+      "id": "inpi-conflito-938173413",
+      "marca": "SANTO PÃO GOURMET",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920709214"
+      ],
+      "processos_criticos": [
+        "920709214"
+      ],
+      "justificativa": "Processo 938173413 indeferido por conflito anterior; despacho oficial do INPI cita 920709214 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6105549 (hash 2de7768a4e60...)."
+    },
+    {
+      "id": "inpi-conflito-938190334",
+      "marca": "PAPELEZ STORE",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "912875518",
+        "916428931"
+      ],
+      "processos_criticos": [
+        "912875518",
+        "916428931"
+      ],
+      "justificativa": "Processo 938190334 indeferido por conflito anterior; despacho oficial do INPI cita 912875518, 916428931 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101842 (hash 5e6afdd5411d...)."
+    },
+    {
+      "id": "inpi-conflito-938183761",
+      "marca": "ideabank",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "900687479",
+        "901150550",
+        "919199461"
+      ],
+      "processos_criticos": [
+        "900687479",
+        "901150550",
+        "919199461"
+      ],
+      "justificativa": "Processo 938183761 indeferido por conflito anterior; despacho oficial do INPI cita 900687479, 901150550, 919199461 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102384 (hash ff8cf391d538...)."
+    },
+    {
+      "id": "inpi-conflito-938183419",
+      "marca": "DOMMIS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "822465582",
+        "927934515",
+        "929184297",
+        "931084814"
+      ],
+      "processos_criticos": [
+        "822465582",
+        "927934515",
+        "929184297",
+        "931084814"
+      ],
+      "justificativa": "Processo 938183419 indeferido por conflito anterior; despacho oficial do INPI cita 822465582, 927934515, 929184297, 931084814 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101979 (hash 8f7694b760fe...)."
+    },
+    {
+      "id": "inpi-conflito-938181513",
+      "marca": "OTRO BRECHÓ",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "914288806"
+      ],
+      "processos_criticos": [
+        "914288806"
+      ],
+      "justificativa": "Processo 938181513 indeferido por conflito anterior; despacho oficial do INPI cita 914288806 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101786 (hash a057324cf16c...)."
+    },
+    {
+      "id": "inpi-conflito-938180584",
+      "marca": "MEDIX&CO",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "829794700"
+      ],
+      "processos_criticos": [
+        "829794700"
+      ],
+      "justificativa": "Processo 938180584 indeferido por conflito anterior; despacho oficial do INPI cita 829794700 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101880 (hash 90bce5331d1e...)."
+    },
+    {
+      "id": "inpi-conflito-938180134",
+      "marca": "FINCONTROLL SOLUÇÕES FINANCEIRAS INTELIGENTES",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "934320411"
+      ],
+      "processos_criticos": [
+        "934320411"
+      ],
+      "justificativa": "Processo 938180134 indeferido por conflito anterior; despacho oficial do INPI cita 934320411 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6100643 (hash 3e1dae105751...)."
+    },
+    {
+      "id": "inpi-conflito-938178067",
+      "marca": "CONDOMINIUM Assessoria Contábil",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "923997318"
+      ],
+      "processos_criticos": [
+        "923997318"
+      ],
+      "justificativa": "Processo 938178067 indeferido por conflito anterior; despacho oficial do INPI cita 923997318 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102815 (hash db9bc270f6ee...)."
+    },
+    {
+      "id": "inpi-conflito-938176927",
+      "marca": "DANS materiais elétricos",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "904749134"
+      ],
+      "processos_criticos": [
+        "904749134"
+      ],
+      "justificativa": "Processo 938176927 indeferido por conflito anterior; despacho oficial do INPI cita 904749134 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102290 (hash 64d26e166b97...)."
+    },
+    {
+      "id": "inpi-conflito-938176579",
+      "marca": "PB Store",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "501770962",
+        "826558127",
+        "900345128",
+        "935881930"
+      ],
+      "processos_criticos": [
+        "501770962",
+        "826558127",
+        "900345128",
+        "935881930"
+      ],
+      "justificativa": "Processo 938176579 indeferido por conflito anterior; despacho oficial do INPI cita 501770962, 826558127, 900345128, 935881930 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6100625 (hash 175b3ad3cfc4...)."
+    },
+    {
+      "id": "inpi-conflito-938176048",
+      "marca": "LB",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "907840990",
+        "920425194",
+        "924738618",
+        "934175691",
+        "935877398"
+      ],
+      "processos_criticos": [
+        "907840990",
+        "920425194",
+        "924738618",
+        "934175691",
+        "935877398"
+      ],
+      "justificativa": "Processo 938176048 indeferido por conflito anterior; despacho oficial do INPI cita 907840990, 920425194, 924738618, 934175691, 935877398 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102630 (hash 35c02bb28bbd...)."
+    },
+    {
+      "id": "inpi-conflito-938175971",
+      "marca": "MM MARINO MULTIMARCAS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "825306728",
+        "924010606",
+        "926083252"
+      ],
+      "processos_criticos": [
+        "825306728",
+        "924010606",
+        "926083252"
+      ],
+      "justificativa": "Processo 938175971 indeferido por conflito anterior; despacho oficial do INPI cita 825306728, 924010606, 926083252 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101069 (hash bca28ea67e95...)."
+    },
+    {
+      "id": "inpi-conflito-938175548",
+      "marca": "PEA PARCERIAS ESTRATÉGICAS DE ADVOGADOS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "919667309"
+      ],
+      "processos_criticos": [
+        "919667309"
+      ],
+      "justificativa": "Processo 938175548 indeferido por conflito anterior; despacho oficial do INPI cita 919667309 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6118173 (hash fa296ff01c20...)."
+    },
+    {
+      "id": "inpi-conflito-938175530",
+      "marca": "CRT - CHINA REAL TIME",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "925667340",
+        "932950701"
+      ],
+      "processos_criticos": [
+        "925667340",
+        "932950701"
+      ],
+      "justificativa": "Processo 938175530 indeferido por conflito anterior; despacho oficial do INPI cita 925667340, 932950701 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6117157 (hash e0c46d398f99...)."
+    },
+    {
+      "id": "inpi-conflito-938171186",
+      "marca": "MAIS GESTÃO CONDOMINIAL",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "907045359",
+        "934179298"
+      ],
+      "processos_criticos": [
+        "907045359",
+        "934179298"
+      ],
+      "justificativa": "Processo 938171186 indeferido por conflito anterior; despacho oficial do INPI cita 907045359, 934179298 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6117440 (hash ea1fc8bacb8e...)."
+    },
+    {
+      "id": "inpi-conflito-938199579",
+      "marca": "GHS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "913284700"
+      ],
+      "processos_criticos": [
+        "913284700"
+      ],
+      "justificativa": "Processo 938199579 indeferido por conflito anterior; despacho oficial do INPI cita 913284700 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6106917 (hash 864bea4209c6...)."
+    },
+    {
+      "id": "inpi-conflito-938203150",
+      "marca": "EURO MENSWEAR",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "931169348"
+      ],
+      "processos_criticos": [
+        "931169348"
+      ],
+      "justificativa": "Processo 938203150 indeferido por conflito anterior; despacho oficial do INPI cita 931169348 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107752 (hash a915da158e62...)."
+    },
+    {
+      "id": "inpi-conflito-938196111",
+      "marca": "PRIME DISTRIBUIDORA E CONVENIÊNCIA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920466745"
+      ],
+      "processos_criticos": [
+        "920466745"
+      ],
+      "justificativa": "Processo 938196111 indeferido por conflito anterior; despacho oficial do INPI cita 920466745 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6106409 (hash 369e66868e7b...)."
+    },
+    {
+      "id": "inpi-conflito-938204092",
+      "marca": "Basicores o conforto do básico com um toque colorido",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "926400436"
+      ],
+      "processos_criticos": [
+        "926400436"
+      ],
+      "justificativa": "Processo 938204092 indeferido por conflito anterior; despacho oficial do INPI cita 926400436 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103471 (hash 207246e9a459...)."
+    },
+    {
+      "id": "inpi-conflito-938200461",
+      "marca": "MIS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920003800"
+      ],
+      "processos_criticos": [
+        "920003800"
+      ],
+      "justificativa": "Processo 938200461 indeferido por conflito anterior; despacho oficial do INPI cita 920003800 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103634 (hash 7e1bf8733d51...)."
+    },
+    {
+      "id": "inpi-conflito-938191268",
+      "marca": "Pet Latino",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "918205522"
+      ],
+      "processos_criticos": [
+        "918205522"
+      ],
+      "justificativa": "Processo 938191268 indeferido por conflito anterior; despacho oficial do INPI cita 918205522 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6120875 (hash 949013016510...)."
+    },
+    {
+      "id": "inpi-conflito-938203991",
+      "marca": "LA SAPORE BRASIL",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "913382191"
+      ],
+      "processos_criticos": [
+        "913382191"
+      ],
+      "justificativa": "Processo 938203991 indeferido por conflito anterior; despacho oficial do INPI cita 913382191 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6118845 (hash 27f75c82d30d...)."
+    },
+    {
+      "id": "inpi-conflito-938203401",
+      "marca": "Lírios Beauty Care",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "921895089"
+      ],
+      "processos_criticos": [
+        "921895089"
+      ],
+      "justificativa": "Processo 938203401 indeferido por conflito anterior; despacho oficial do INPI cita 921895089 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6110746 (hash 436539c06b82...)."
+    },
+    {
+      "id": "inpi-conflito-938203266",
+      "marca": "MANÁ CHINELARIA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "909910839",
+        "932826970",
+        "935733574"
+      ],
+      "processos_criticos": [
+        "909910839",
+        "932826970",
+        "935733574"
+      ],
+      "justificativa": "Processo 938203266 indeferido por conflito anterior; despacho oficial do INPI cita 909910839, 932826970, 935733574 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6118889 (hash c9d400b7e3fc...)."
+    },
+    {
+      "id": "inpi-conflito-938202812",
+      "marca": "PADARIA BOM JESUS SÃO CARLOS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "932561926",
+        "937394947"
+      ],
+      "processos_criticos": [
+        "932561926",
+        "937394947"
+      ],
+      "justificativa": "Processo 938202812 indeferido por conflito anterior; despacho oficial do INPI cita 932561926, 937394947 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102673 (hash 08a5525a0648...)."
+    },
+    {
+      "id": "inpi-conflito-938192779",
+      "marca": "Nexos Estratégia Empresarial",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "927029421"
+      ],
+      "processos_criticos": [
+        "927029421"
+      ],
+      "justificativa": "Processo 938192779 indeferido por conflito anterior; despacho oficial do INPI cita 927029421 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102728 (hash a40936dc9a5c...)."
+    },
+    {
+      "id": "inpi-conflito-938191276",
+      "marca": "Meraki Gestão Empresarial",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "913986291",
+        "931548624"
+      ],
+      "processos_criticos": [
+        "913986291",
+        "931548624"
+      ],
+      "justificativa": "Processo 938191276 indeferido por conflito anterior; despacho oficial do INPI cita 913986291, 931548624 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6110395 (hash e2b37caea37e...)."
+    },
+    {
+      "id": "inpi-conflito-938201948",
+      "marca": "POINT AÇAITERIA P.A",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "929671210",
+        "933524900"
+      ],
+      "processos_criticos": [
+        "929671210",
+        "933524900"
+      ],
+      "justificativa": "Processo 938201948 indeferido por conflito anterior; despacho oficial do INPI cita 929671210, 933524900 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101245 (hash 047dfb5e88cc...)."
+    },
+    {
+      "id": "inpi-conflito-938201522",
+      "marca": "SX Seix Parts",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "823731634"
+      ],
+      "processos_criticos": [
+        "823731634"
+      ],
+      "justificativa": "Processo 938201522 indeferido por conflito anterior; despacho oficial do INPI cita 823731634 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101032 (hash 8e0875bdaebe...)."
+    },
+    {
+      "id": "inpi-conflito-938200615",
+      "marca": "MIS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920003800"
+      ],
+      "processos_criticos": [
+        "920003800"
+      ],
+      "justificativa": "Processo 938200615 indeferido por conflito anterior; despacho oficial do INPI cita 920003800 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6116734 (hash 7e1bf8733d51...)."
+    },
+    {
+      "id": "inpi-conflito-938192825",
+      "marca": "PandaGás",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "904637859"
+      ],
+      "processos_criticos": [
+        "904637859"
+      ],
+      "justificativa": "Processo 938192825 indeferido por conflito anterior; despacho oficial do INPI cita 904637859 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101807 (hash 9df94ecba744...)."
+    },
+    {
+      "id": "inpi-conflito-938191349",
+      "marca": "aetherea",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "923033297",
+        "934591725",
+        "934591903"
+      ],
+      "processos_criticos": [
+        "923033297",
+        "934591725",
+        "934591903"
+      ],
+      "justificativa": "Processo 938191349 indeferido por conflito anterior; despacho oficial do INPI cita 923033297, 934591725, 934591903 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101684 (hash 780a6461579a...)."
+    },
+    {
+      "id": "inpi-conflito-938208756",
+      "marca": "BRAGA COMPRA E VENDA DE VEÍCULOS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "908865589",
+        "932542247"
+      ],
+      "processos_criticos": [
+        "908865589",
+        "932542247"
+      ],
+      "justificativa": "Processo 938208756 indeferido por conflito anterior; despacho oficial do INPI cita 908865589, 932542247 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6123395 (hash 65a042f9ab15...)."
+    },
+    {
+      "id": "inpi-conflito-938208713",
+      "marca": "Strong Man",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "926815768"
+      ],
+      "processos_criticos": [
+        "926815768"
+      ],
+      "justificativa": "Processo 938208713 indeferido por conflito anterior; despacho oficial do INPI cita 926815768 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107555 (hash efd4a14d35a4...)."
+    },
+    {
+      "id": "inpi-conflito-938205129",
+      "marca": "Olíz",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "908022948"
+      ],
+      "processos_criticos": [
+        "908022948"
+      ],
+      "justificativa": "Processo 938205129 indeferido por conflito anterior; despacho oficial do INPI cita 908022948 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6121957 (hash 2667db1ff20b...)."
+    },
+    {
+      "id": "inpi-conflito-938204602",
+      "marca": "MONO SOLUTIONS Importação e Exportação",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "924526637"
+      ],
+      "processos_criticos": [
+        "924526637"
+      ],
+      "justificativa": "Processo 938204602 indeferido por conflito anterior; despacho oficial do INPI cita 924526637 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6106044 (hash 37ca4c00b409...)."
+    },
+    {
+      "id": "inpi-conflito-938201174",
+      "marca": "dheo consultoria",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "917338235"
+      ],
+      "processos_criticos": [
+        "917338235"
+      ],
+      "justificativa": "Processo 938201174 indeferido por conflito anterior; despacho oficial do INPI cita 917338235 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107188 (hash f62e0e58d01c...)."
+    },
+    {
+      "id": "inpi-conflito-938200364",
+      "marca": "FORGES LIVE MARKETING",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "932359019",
+        "932380654"
+      ],
+      "processos_criticos": [
+        "932359019",
+        "932380654"
+      ],
+      "justificativa": "Processo 938200364 indeferido por conflito anterior; despacho oficial do INPI cita 932359019, 932380654 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107032 (hash 128ae3be9714...)."
+    },
+    {
+      "id": "inpi-conflito-938197134",
+      "marca": "ERGO AR CONDICIONADO",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "932331068",
+        "936867060",
+        "937260797"
+      ],
+      "processos_criticos": [
+        "932331068",
+        "936867060",
+        "937260797"
+      ],
+      "justificativa": "Processo 938197134 indeferido por conflito anterior; despacho oficial do INPI cita 932331068, 936867060, 937260797 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107445 (hash 93163cbdd606...)."
+    },
+    {
+      "id": "inpi-conflito-938195395",
+      "marca": "NOBAR",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "933735472"
+      ],
+      "processos_criticos": [
+        "933735472"
+      ],
+      "justificativa": "Processo 938195395 indeferido por conflito anterior; despacho oficial do INPI cita 933735472 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6122878 (hash f32e7e8a800a...)."
+    },
+    {
+      "id": "inpi-conflito-938193767",
+      "marca": "FÁBRICA DE CRIATIVIDADE",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "928487202"
+      ],
+      "processos_criticos": [
+        "928487202"
+      ],
+      "justificativa": "Processo 938193767 indeferido por conflito anterior; despacho oficial do INPI cita 928487202 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6106116 (hash e6588798baca...)."
+    },
+    {
+      "id": "inpi-conflito-938192957",
+      "marca": "IM.MASTER",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "911481362"
+      ],
+      "processos_criticos": [
+        "911481362"
+      ],
+      "justificativa": "Processo 938192957 indeferido por conflito anterior; despacho oficial do INPI cita 911481362 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107653 (hash 75832a5dc818...)."
+    },
+    {
+      "id": "inpi-conflito-938192230",
+      "marca": "TK CALÇADOS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "921118708",
+        "924760125",
+        "926058711",
+        "934832633",
+        "935984992",
+        "937925420"
+      ],
+      "processos_criticos": [
+        "921118708",
+        "924760125",
+        "926058711",
+        "934832633",
+        "935984992",
+        "937925420"
+      ],
+      "justificativa": "Processo 938192230 indeferido por conflito anterior; despacho oficial do INPI cita 921118708, 924760125, 926058711, 934832633, 935984992, 937925420 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107679 (hash b931e9be59c2...)."
+    },
+    {
+      "id": "inpi-conflito-938192043",
+      "marca": "AMMU",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "935094385"
+      ],
+      "processos_criticos": [
+        "935094385"
+      ],
+      "justificativa": "Processo 938192043 indeferido por conflito anterior; despacho oficial do INPI cita 935094385 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6123052 (hash c5e4763ef815...)."
+    },
+    {
+      "id": "inpi-conflito-938190660",
+      "marca": "Love Baby Kids",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "913160741"
+      ],
+      "processos_criticos": [
+        "913160741"
+      ],
+      "justificativa": "Processo 938190660 indeferido por conflito anterior; despacho oficial do INPI cita 913160741 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6121807 (hash d9f253055d90...)."
+    },
+    {
+      "id": "inpi-conflito-938208004",
+      "marca": "CONVICTA ADMINISTRAÇÃO DE IMÓVEIS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "914228749"
+      ],
+      "processos_criticos": [
+        "914228749"
+      ],
+      "justificativa": "Processo 938208004 indeferido por conflito anterior; despacho oficial do INPI cita 914228749 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104919 (hash 291e92c027ab...)."
+    },
+    {
+      "id": "inpi-conflito-938206419",
+      "marca": "SONHO DE CRIANÇA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "928385191",
+        "934162980",
+        "937672114"
+      ],
+      "processos_criticos": [
+        "928385191",
+        "934162980",
+        "937672114"
+      ],
+      "justificativa": "Processo 938206419 indeferido por conflito anterior; despacho oficial do INPI cita 928385191, 934162980, 937672114 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6105059 (hash c668be51cf3d...)."
+    },
+    {
+      "id": "inpi-conflito-938206060",
+      "marca": "innata",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "910105251"
+      ],
+      "processos_criticos": [
+        "910105251"
+      ],
+      "justificativa": "Processo 938206060 indeferido por conflito anterior; despacho oficial do INPI cita 910105251 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102895 (hash 3da9bf9382c4...)."
+    },
+    {
+      "id": "inpi-conflito-938205803",
+      "marca": "BENN AUTO PARTS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "937286893"
+      ],
+      "processos_criticos": [
+        "937286893"
+      ],
+      "justificativa": "Processo 938205803 indeferido por conflito anterior; despacho oficial do INPI cita 937286893 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104727 (hash 0e3fb9219fba...)."
+    },
+    {
+      "id": "inpi-conflito-938205765",
+      "marca": "BAR J CONVENIÊNCIA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920885225"
+      ],
+      "processos_criticos": [
+        "920885225"
+      ],
+      "justificativa": "Processo 938205765 indeferido por conflito anterior; despacho oficial do INPI cita 920885225 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6119022 (hash cc43b05bc393...)."
+    },
+    {
+      "id": "inpi-conflito-938205145",
+      "marca": "PENÉLOPE CABELOS NATURAIS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "908059469",
+        "920720064"
+      ],
+      "processos_criticos": [
+        "908059469",
+        "920720064"
+      ],
+      "justificativa": "Processo 938205145 indeferido por conflito anterior; despacho oficial do INPI cita 908059469, 920720064 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102584 (hash d4150e3a3b10...)."
+    },
+    {
+      "id": "inpi-conflito-938204254",
+      "marca": "SILMARA DA NOSSA FAMÍLIA PRA SUA FAMÍLIA!",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "904488063"
+      ],
+      "processos_criticos": [
+        "904488063"
+      ],
+      "justificativa": "Processo 938204254 indeferido por conflito anterior; despacho oficial do INPI cita 904488063 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104676 (hash 742f5eebab15...)."
+    },
+    {
+      "id": "inpi-conflito-938202022",
+      "marca": "CRIART FOLHADOS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "823029999"
+      ],
+      "processos_criticos": [
+        "823029999"
+      ],
+      "justificativa": "Processo 938202022 indeferido por conflito anterior; despacho oficial do INPI cita 823029999 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6119966 (hash acae1015f441...)."
+    },
+    {
+      "id": "inpi-conflito-938201921",
+      "marca": "Growing",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "912528222"
+      ],
+      "processos_criticos": [
+        "912528222"
+      ],
+      "justificativa": "Processo 938201921 indeferido por conflito anterior; despacho oficial do INPI cita 912528222 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102514 (hash 756b1536142f...)."
+    },
+    {
+      "id": "inpi-conflito-938201638",
+      "marca": "GMC GESTÃO ENERGÉTICA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "827875819"
+      ],
+      "processos_criticos": [
+        "827875819"
+      ],
+      "justificativa": "Processo 938201638 indeferido por conflito anterior; despacho oficial do INPI cita 827875819 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6120901 (hash 56c4c1f44d26...)."
+    },
+    {
+      "id": "inpi-conflito-938201590",
+      "marca": "BERNARDI SC ESQUADRIAS DE ALUMÍNIO E VIDROS TEMPERADOS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "917731620"
+      ],
+      "processos_criticos": [
+        "917731620"
+      ],
+      "justificativa": "Processo 938201590 indeferido por conflito anterior; despacho oficial do INPI cita 917731620 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104530 (hash b4190e1d3430...)."
+    },
+    {
+      "id": "inpi-conflito-938198696",
+      "marca": "HUMA GESTÃO DE PESSOAS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "923998888",
+        "923998900"
+      ],
+      "processos_criticos": [
+        "923998888",
+        "923998900"
+      ],
+      "justificativa": "Processo 938198696 indeferido por conflito anterior; despacho oficial do INPI cita 923998888, 923998900 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6111290 (hash d4c92049c9d6...)."
+    },
+    {
+      "id": "inpi-conflito-938198491",
+      "marca": "Grupo Farol",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "914033727",
+        "919565727",
+        "929333039",
+        "930138902",
+        "935785957"
+      ],
+      "processos_criticos": [
+        "914033727",
+        "919565727",
+        "929333039",
+        "930138902",
+        "935785957"
+      ],
+      "justificativa": "Processo 938198491 indeferido por conflito anterior; despacho oficial do INPI cita 914033727, 919565727, 929333039, 930138902, 935785957 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6110144 (hash a275ea86ed0a...)."
+    },
+    {
+      "id": "inpi-conflito-938195808",
+      "marca": "Gil Motos PEÇAS E ACESSORIOS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "913185639",
+        "937195413"
+      ],
+      "processos_criticos": [
+        "913185639",
+        "937195413"
+      ],
+      "justificativa": "Processo 938195808 indeferido por conflito anterior; despacho oficial do INPI cita 913185639, 937195413 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103881 (hash 57bf06c33cc2...)."
+    },
+    {
+      "id": "inpi-conflito-938195123",
+      "marca": "ANTI SOCIAL SOCIAL CLUB",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "916374246"
+      ],
+      "processos_criticos": [
+        "916374246"
+      ],
+      "justificativa": "Processo 938195123 indeferido por conflito anterior; despacho oficial do INPI cita 916374246 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104110 (hash ba46777c5351...)."
+    },
+    {
+      "id": "inpi-conflito-938194763",
+      "marca": "Tregu",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "924113650"
+      ],
+      "processos_criticos": [
+        "924113650"
+      ],
+      "justificativa": "Processo 938194763 indeferido por conflito anterior; despacho oficial do INPI cita 924113650 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6120940 (hash 219259f093b8...)."
+    },
+    {
+      "id": "inpi-conflito-938194097",
+      "marca": "SB SUELY BARROS CASA DE COSTURA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "828080976",
+        "926189930",
+        "926275461",
+        "937761591"
+      ],
+      "processos_criticos": [
+        "828080976",
+        "926189930",
+        "926275461",
+        "937761591"
+      ],
+      "justificativa": "Processo 938194097 indeferido por conflito anterior; despacho oficial do INPI cita 828080976, 926189930, 926275461, 937761591 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6105025 (hash e5313e451d86...)."
+    },
+    {
+      "id": "inpi-conflito-938193821",
+      "marca": "SUPERMERCADO TOP PREMIUM",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "908175000",
+        "924164417"
+      ],
+      "processos_criticos": [
+        "908175000",
+        "924164417"
+      ],
+      "justificativa": "Processo 938193821 indeferido por conflito anterior; despacho oficial do INPI cita 908175000, 924164417 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6118794 (hash ab1411f6d23a...)."
+    },
+    {
+      "id": "inpi-conflito-938192027",
+      "marca": "ELO",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "913595950",
+        "920067506",
+        "933997175",
+        "933997736"
+      ],
+      "processos_criticos": [
+        "913595950",
+        "920067506",
+        "933997175",
+        "933997736"
+      ],
+      "justificativa": "Processo 938192027 indeferido por conflito anterior; despacho oficial do INPI cita 913595950, 920067506, 933997175, 933997736 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103454 (hash d385e05c0f0b...)."
+    },
+    {
+      "id": "inpi-conflito-938206095",
+      "marca": "GRUPO UAI",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "917582527",
+        "935434119"
+      ],
+      "processos_criticos": [
+        "917582527",
+        "935434119"
+      ],
+      "justificativa": "Processo 938206095 indeferido por conflito anterior; despacho oficial do INPI cita 917582527, 935434119 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102804 (hash e575900cb4d8...)."
+    },
+    {
+      "id": "inpi-conflito-938205102",
+      "marca": "InClube",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "914749641"
+      ],
+      "processos_criticos": [
+        "914749641"
+      ],
+      "justificativa": "Processo 938205102 indeferido por conflito anterior; despacho oficial do INPI cita 914749641 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101933 (hash 8910ce076db0...)."
+    },
+    {
+      "id": "inpi-conflito-938203290",
+      "marca": "Cambinda Aromas",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "931585155"
+      ],
+      "processos_criticos": [
+        "931585155"
+      ],
+      "justificativa": "Processo 938203290 indeferido por conflito anterior; despacho oficial do INPI cita 931585155 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101211 (hash 9dd7a7b55a49...)."
+    },
+    {
+      "id": "inpi-conflito-938202103",
+      "marca": "R BRAGA VAREJISTA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920828043"
+      ],
+      "processos_criticos": [
+        "920828043"
+      ],
+      "justificativa": "Processo 938202103 indeferido por conflito anterior; despacho oficial do INPI cita 920828043 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101989 (hash a08871125a8e...)."
+    },
+    {
+      "id": "inpi-conflito-938200763",
+      "marca": "Dinâmica Fit Academia",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "932720439"
+      ],
+      "processos_criticos": [
+        "932720439"
+      ],
+      "justificativa": "Processo 938200763 indeferido por conflito anterior; despacho oficial do INPI cita 932720439 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103231 (hash 3066d34877b7...)."
+    },
+    {
+      "id": "inpi-conflito-938199471",
+      "marca": "PASSARELA ALUMÍNIOS E VIDROS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "829062793",
+        "933713088",
+        "933766823"
+      ],
+      "processos_criticos": [
+        "829062793",
+        "933713088",
+        "933766823"
+      ],
+      "justificativa": "Processo 938199471 indeferido por conflito anterior; despacho oficial do INPI cita 829062793, 933713088, 933766823 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102283 (hash 501a5721cc74...)."
+    },
+    {
+      "id": "inpi-conflito-938199137",
+      "marca": "IMPACT SOUND Som e Acessórios",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "919824668"
+      ],
+      "processos_criticos": [
+        "919824668"
+      ],
+      "justificativa": "Processo 938199137 indeferido por conflito anterior; despacho oficial do INPI cita 919824668 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6100757 (hash 9f466ab9f069...)."
+    },
+    {
+      "id": "inpi-conflito-938198980",
+      "marca": "VK SHOP",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "828756090",
+        "913759767",
+        "914551183",
+        "919299016"
+      ],
+      "processos_criticos": [
+        "828756090",
+        "913759767",
+        "914551183",
+        "919299016"
+      ],
+      "justificativa": "Processo 938198980 indeferido por conflito anterior; despacho oficial do INPI cita 828756090, 913759767, 914551183, 919299016 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103166 (hash 7462b7223f3a...)."
+    },
+    {
+      "id": "inpi-conflito-938198254",
+      "marca": "Grupo Farol",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "914033727",
+        "919565727",
+        "929333039",
+        "930138902",
+        "935785957"
+      ],
+      "processos_criticos": [
+        "914033727",
+        "919565727",
+        "929333039",
+        "930138902",
+        "935785957"
+      ],
+      "justificativa": "Processo 938198254 indeferido por conflito anterior; despacho oficial do INPI cita 914033727, 919565727, 929333039, 930138902, 935785957 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6118768 (hash a275ea86ed0a...)."
+    },
+    {
+      "id": "inpi-conflito-938196693",
+      "marca": "Ns Candle e Co",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "901815489",
+        "923856048"
+      ],
+      "processos_criticos": [
+        "901815489",
+        "923856048"
+      ],
+      "justificativa": "Processo 938196693 indeferido por conflito anterior; despacho oficial do INPI cita 901815489, 923856048 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101124 (hash 20d756b64bc4...)."
+    },
+    {
+      "id": "inpi-conflito-938195751",
+      "marca": "PR ÁUDIO",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "902420658"
+      ],
+      "processos_criticos": [
+        "902420658"
+      ],
+      "justificativa": "Processo 938195751 indeferido por conflito anterior; despacho oficial do INPI cita 902420658 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102225 (hash 69db0be9dca5...)."
+    },
+    {
+      "id": "inpi-conflito-938192574",
+      "marca": "AMMU",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "912508779",
+        "935094385"
+      ],
+      "processos_criticos": [
+        "912508779",
+        "935094385"
+      ],
+      "justificativa": "Processo 938192574 indeferido por conflito anterior; despacho oficial do INPI cita 912508779, 935094385 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102273 (hash 9d49e326a714...)."
+    },
+    {
+      "id": "inpi-conflito-938224751",
+      "marca": "BARON CLUB",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "913678864",
+        "919351930",
+        "922071004"
+      ],
+      "processos_criticos": [
+        "913678864",
+        "919351930",
+        "922071004"
+      ],
+      "justificativa": "Processo 938224751 indeferido por conflito anterior; despacho oficial do INPI cita 913678864, 919351930, 922071004 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6106577 (hash d52904605658...)."
+    },
+    {
+      "id": "inpi-conflito-938224522",
+      "marca": "ALLORA SORRISO E FACE",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "929149963",
+        "932548903"
+      ],
+      "processos_criticos": [
+        "929149963",
+        "932548903"
+      ],
+      "justificativa": "Processo 938224522 indeferido por conflito anterior; despacho oficial do INPI cita 929149963, 932548903 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107051 (hash 87b1fd1420bf...)."
+    },
+    {
+      "id": "inpi-conflito-938223356",
+      "marca": "Dora Scarlat",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "937210714"
+      ],
+      "processos_criticos": [
+        "937210714"
+      ],
+      "justificativa": "Processo 938223356 indeferido por conflito anterior; despacho oficial do INPI cita 937210714 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6122422 (hash 1b09c9eaf7a4...)."
+    },
+    {
+      "id": "inpi-conflito-938222872",
+      "marca": "IMEDIATO NEXWAY",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "923220771"
+      ],
+      "processos_criticos": [
+        "923220771"
+      ],
+      "justificativa": "Processo 938222872 indeferido por conflito anterior; despacho oficial do INPI cita 923220771 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6122494 (hash 1a875591c06d...)."
+    },
+    {
+      "id": "inpi-conflito-938216651",
+      "marca": "EKXUS Marketing e Inovação",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "910514399"
+      ],
+      "processos_criticos": [
+        "910514399"
+      ],
+      "justificativa": "Processo 938216651 indeferido por conflito anterior; despacho oficial do INPI cita 910514399 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6106107 (hash 8018aebd0a00...)."
+    },
+    {
+      "id": "inpi-conflito-938219022",
+      "marca": "PANCADA FIGHT",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "916658392",
+        "937185426"
+      ],
+      "processos_criticos": [
+        "916658392",
+        "937185426"
+      ],
+      "justificativa": "Processo 938219022 indeferido por conflito anterior; despacho oficial do INPI cita 916658392, 937185426 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6100630 (hash 3bf5f272da36...)."
+    },
+    {
+      "id": "inpi-conflito-938218395",
+      "marca": "MULLER MMD MULLER MULTI DISTRIBUIDORA MMD",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "901511137",
+        "904632393"
+      ],
+      "processos_criticos": [
+        "901511137",
+        "904632393"
+      ],
+      "justificativa": "Processo 938218395 indeferido por conflito anterior; despacho oficial do INPI cita 901511137, 904632393 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6100606 (hash d25072c5da45...)."
+    },
+    {
+      "id": "inpi-conflito-938212540",
+      "marca": "www.agenciaadora.com.br",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920760139"
+      ],
+      "processos_criticos": [
+        "920760139"
+      ],
+      "justificativa": "Processo 938212540 indeferido por conflito anterior; despacho oficial do INPI cita 920760139 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6116556 (hash 0c920c4a29cc...)."
+    },
+    {
+      "id": "inpi-conflito-938209612",
+      "marca": "L'VITTÁ",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "924068469"
+      ],
+      "processos_criticos": [
+        "924068469"
+      ],
+      "justificativa": "Processo 938209612 indeferido por conflito anterior; despacho oficial do INPI cita 924068469 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102366 (hash 41d8c03aad4d...)."
+    },
+    {
+      "id": "inpi-conflito-938213210",
+      "marca": "LIBERTY AUTOMAÇÃO INDUSTRIAL",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "914182250",
+        "920569102"
+      ],
+      "processos_criticos": [
+        "914182250",
+        "920569102"
+      ],
+      "justificativa": "Processo 938213210 indeferido por conflito anterior; despacho oficial do INPI cita 914182250, 920569102 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107097 (hash 771b7ffb3f52...)."
+    },
+    {
+      "id": "inpi-conflito-938221930",
+      "marca": "HUG GLASSES",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "907391001"
+      ],
+      "processos_criticos": [
+        "907391001"
+      ],
+      "justificativa": "Processo 938221930 indeferido por conflito anterior; despacho oficial do INPI cita 907391001 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6105362 (hash b56b4b8bff44...)."
+    },
+    {
+      "id": "inpi-conflito-938221680",
+      "marca": "GESTUS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "901978930"
+      ],
+      "processos_criticos": [
+        "901978930"
+      ],
+      "justificativa": "Processo 938221680 indeferido por conflito anterior; despacho oficial do INPI cita 901978930 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6106484 (hash d2ca7d5cbb7f...)."
+    },
+    {
+      "id": "inpi-conflito-938215876",
+      "marca": "A e P Master Contabilidade e Consultora",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "905280881",
+        "931950899"
+      ],
+      "processos_criticos": [
+        "905280881",
+        "931950899"
+      ],
+      "justificativa": "Processo 938215876 indeferido por conflito anterior; despacho oficial do INPI cita 905280881, 931950899 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6106060 (hash 5c5603ee9896...)."
+    },
+    {
+      "id": "inpi-conflito-938214691",
+      "marca": "ME MODAS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "918074509",
+        "920403018",
+        "921338090",
+        "921338520"
+      ],
+      "processos_criticos": [
+        "918074509",
+        "920403018",
+        "921338090",
+        "921338520"
+      ],
+      "justificativa": "Processo 938214691 indeferido por conflito anterior; despacho oficial do INPI cita 918074509, 920403018, 921338090, 921338520 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6106702 (hash 84a53abcf349...)."
+    },
+    {
+      "id": "inpi-conflito-938213237",
+      "marca": "AFS VENDAS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "927670798",
+        "932560750",
+        "937840653"
+      ],
+      "processos_criticos": [
+        "927670798",
+        "932560750",
+        "937840653"
+      ],
+      "justificativa": "Processo 938213237 indeferido por conflito anterior; despacho oficial do INPI cita 927670798, 932560750, 937840653 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107339 (hash 7653e6ad0a5a...)."
+    },
+    {
+      "id": "inpi-conflito-938213199",
+      "marca": "DONA LIA DESCARTÁVEIS E FOOD SERVICE",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "933796250"
+      ],
+      "processos_criticos": [
+        "933796250"
+      ],
+      "justificativa": "Processo 938213199 indeferido por conflito anterior; despacho oficial do INPI cita 933796250 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6106106 (hash 9f5d864bd0d2...)."
+    },
+    {
+      "id": "inpi-conflito-938212834",
+      "marca": "ORIGEM AÇOS E METAIS SOB MEDIDA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "921865945",
+        "922068836",
+        "929148231",
+        "929237463"
+      ],
+      "processos_criticos": [
+        "921865945",
+        "922068836",
+        "929148231",
+        "929237463"
+      ],
+      "justificativa": "Processo 938212834 indeferido por conflito anterior; despacho oficial do INPI cita 921865945, 922068836, 929148231, 929237463 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107251 (hash 933463274a78...)."
+    },
+    {
+      "id": "inpi-conflito-938209400",
+      "marca": "LINUS NO CAMINHO DO BEM",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920712703",
+        "932031250"
+      ],
+      "processos_criticos": [
+        "920712703",
+        "932031250"
+      ],
+      "justificativa": "Processo 938209400 indeferido por conflito anterior; despacho oficial do INPI cita 920712703, 932031250 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6106335 (hash c17c008bfa70...)."
+    },
+    {
+      "id": "inpi-conflito-938225340",
+      "marca": "ARPE",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "903594277"
+      ],
+      "processos_criticos": [
+        "903594277"
+      ],
+      "justificativa": "Processo 938225340 indeferido por conflito anterior; despacho oficial do INPI cita 903594277 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103503 (hash 5033c7a79dbe...)."
+    },
+    {
+      "id": "inpi-conflito-938223003",
+      "marca": "LPF",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "925338532"
+      ],
+      "processos_criticos": [
+        "925338532"
+      ],
+      "justificativa": "Processo 938223003 indeferido por conflito anterior; despacho oficial do INPI cita 925338532 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6122018 (hash 9e9185befe03...)."
+    },
+    {
+      "id": "inpi-conflito-938220624",
+      "marca": "Use Framboesa",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "900731834"
+      ],
+      "processos_criticos": [
+        "900731834"
+      ],
+      "justificativa": "Processo 938220624 indeferido por conflito anterior; despacho oficial do INPI cita 900731834 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6121424 (hash 403f90b77554...)."
+    },
+    {
+      "id": "inpi-conflito-938218220",
+      "marca": "IMEDIATO",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "828826579",
+        "916285588",
+        "924989939"
+      ],
+      "processos_criticos": [
+        "828826579",
+        "916285588",
+        "924989939"
+      ],
+      "justificativa": "Processo 938218220 indeferido por conflito anterior; despacho oficial do INPI cita 828826579, 916285588, 924989939 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6120654 (hash 8307987b5259...)."
+    },
+    {
+      "id": "inpi-conflito-938212249",
+      "marca": "REDE ZÉ DA OBRA CONSTRUÇÃO ELÉTRICA E HIDRÁULICA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "919969623"
+      ],
+      "processos_criticos": [
+        "919969623"
+      ],
+      "justificativa": "Processo 938212249 indeferido por conflito anterior; despacho oficial do INPI cita 919969623 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104000 (hash 3c6dba8256db...)."
+    },
+    {
+      "id": "inpi-conflito-938210769",
+      "marca": "FÊNIX Floricultura e Paisagismo",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "907967914",
+        "931973252",
+        "936884665",
+        "938138960"
+      ],
+      "processos_criticos": [
+        "907967914",
+        "931973252",
+        "936884665",
+        "938138960"
+      ],
+      "justificativa": "Processo 938210769 indeferido por conflito anterior; despacho oficial do INPI cita 907967914, 931973252, 936884665, 938138960 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103559 (hash 94fdf44da583...)."
+    },
+    {
+      "id": "inpi-conflito-938209108",
+      "marca": "Sign Tech Xixiro",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "840460546"
+      ],
+      "processos_criticos": [
+        "840460546"
+      ],
+      "justificativa": "Processo 938209108 indeferido por conflito anterior; despacho oficial do INPI cita 840460546 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103785 (hash 9b4f30e33f3b...)."
+    },
+    {
+      "id": "inpi-conflito-938221906",
+      "marca": "IGLU",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "911709630",
+        "926391631"
+      ],
+      "processos_criticos": [
+        "911709630",
+        "926391631"
+      ],
+      "justificativa": "Processo 938221906 indeferido por conflito anterior; despacho oficial do INPI cita 911709630, 926391631 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101802 (hash a4fb9ca8e8a5...)."
+    },
+    {
+      "id": "inpi-conflito-938217534",
+      "marca": "Divina Aruanda Artigos Religiosos e Místicos",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920008100",
+        "930492609",
+        "935793321"
+      ],
+      "processos_criticos": [
+        "920008100",
+        "930492609",
+        "935793321"
+      ],
+      "justificativa": "Processo 938217534 indeferido por conflito anterior; despacho oficial do INPI cita 920008100, 930492609, 935793321 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6116086 (hash ff8895788c69...)."
+    },
+    {
+      "id": "inpi-conflito-938216546",
+      "marca": "JN DISTRIBUIDORA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "929603176"
+      ],
+      "processos_criticos": [
+        "929603176"
+      ],
+      "justificativa": "Processo 938216546 indeferido por conflito anterior; despacho oficial do INPI cita 929603176 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6103129 (hash 2b2e96a54e78...)."
+    },
+    {
+      "id": "inpi-conflito-938215027",
+      "marca": "LOBO Store",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "911396560",
+        "933993374"
+      ],
+      "processos_criticos": [
+        "911396560",
+        "933993374"
+      ],
+      "justificativa": "Processo 938215027 indeferido por conflito anterior; despacho oficial do INPI cita 911396560, 933993374 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6102805 (hash bdfbf6295534...)."
+    },
+    {
+      "id": "inpi-conflito-938212567",
+      "marca": "IMMERSA HAIR CARE",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "922647933"
+      ],
+      "processos_criticos": [
+        "922647933"
+      ],
+      "justificativa": "Processo 938212567 indeferido por conflito anterior; despacho oficial do INPI cita 922647933 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6116557 (hash 2119f2ba54e0...)."
+    },
+    {
+      "id": "inpi-conflito-938212338",
+      "marca": "BE BLISS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "914625861",
+        "929279921",
+        "937510580"
+      ],
+      "processos_criticos": [
+        "914625861",
+        "929279921",
+        "937510580"
+      ],
+      "justificativa": "Processo 938212338 indeferido por conflito anterior; despacho oficial do INPI cita 914625861, 929279921, 937510580 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101181 (hash 4394bf67d678...)."
+    },
+    {
+      "id": "inpi-conflito-938209264",
+      "marca": "AXESCARD",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "902426567",
+        "912983515"
+      ],
+      "processos_criticos": [
+        "902426567",
+        "912983515"
+      ],
+      "justificativa": "Processo 938209264 indeferido por conflito anterior; despacho oficial do INPI cita 902426567, 912983515 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101173 (hash d65daab1d093...)."
+    },
+    {
+      "id": "inpi-conflito-938228684",
+      "marca": "AIC DIGITAL",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "924888830"
+      ],
+      "processos_criticos": [
+        "924888830"
+      ],
+      "justificativa": "Processo 938228684 indeferido por conflito anterior; despacho oficial do INPI cita 924888830 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6112462 (hash 1dd9e9afb8ff...)."
+    },
+    {
+      "id": "inpi-conflito-938227351",
+      "marca": "CONTÁBIL HABBER",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "908044160"
+      ],
+      "processos_criticos": [
+        "908044160"
+      ],
+      "justificativa": "Processo 938227351 indeferido por conflito anterior; despacho oficial do INPI cita 908044160 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6120221 (hash 1fc2dc97ad7d...)."
+    },
+    {
+      "id": "inpi-conflito-938228609",
+      "marca": "NEXOSHOP",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "918749700",
+        "931039142",
+        "934547793",
+        "937692379"
+      ],
+      "processos_criticos": [
+        "918749700",
+        "931039142",
+        "934547793",
+        "937692379"
+      ],
+      "justificativa": "Processo 938228609 indeferido por conflito anterior; despacho oficial do INPI cita 918749700, 931039142, 934547793, 937692379 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6127498 (hash 6032f6ae8aaa...)."
+    },
+    {
+      "id": "inpi-conflito-938229362",
+      "marca": "JJ ARTESANATOS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "913600954",
+        "927050200"
+      ],
+      "processos_criticos": [
+        "913600954",
+        "927050200"
+      ],
+      "justificativa": "Processo 938229362 indeferido por conflito anterior; despacho oficial do INPI cita 913600954, 927050200 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6105897 (hash c29b2adf4bfa...)."
+    },
+    {
+      "id": "inpi-conflito-938232479",
+      "marca": "Leve & Mel",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "937388424"
+      ],
+      "processos_criticos": [
+        "937388424"
+      ],
+      "justificativa": "Processo 938232479 indeferido por conflito anterior; despacho oficial do INPI cita 937388424 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107405 (hash 0ba8e6a12586...)."
+    },
+    {
+      "id": "inpi-conflito-938230808",
+      "marca": "WR Place",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "930156897",
+        "935073698"
+      ],
+      "processos_criticos": [
+        "930156897",
+        "935073698"
+      ],
+      "justificativa": "Processo 938230808 indeferido por conflito anterior; despacho oficial do INPI cita 930156897, 935073698 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6121235 (hash 3f296fecb905...)."
+    },
+    {
+      "id": "inpi-conflito-938232401",
+      "marca": "O SEGREDO DAS ÁGUAS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "905092996"
+      ],
+      "processos_criticos": [
+        "905092996"
+      ],
+      "justificativa": "Processo 938232401 indeferido por conflito anterior; despacho oficial do INPI cita 905092996 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6119166 (hash b83e364994ec...)."
+    },
+    {
+      "id": "inpi-conflito-938230891",
+      "marca": "ESVATECH",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "933017383"
+      ],
+      "processos_criticos": [
+        "933017383"
+      ],
+      "justificativa": "Processo 938230891 indeferido por conflito anterior; despacho oficial do INPI cita 933017383 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6119223 (hash ed1c38fce47b...)."
+    },
+    {
+      "id": "inpi-conflito-938232550",
+      "marca": "O SEGREDO DAS ÁGUAS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "905092996"
+      ],
+      "processos_criticos": [
+        "905092996"
+      ],
+      "justificativa": "Processo 938232550 indeferido por conflito anterior; despacho oficial do INPI cita 905092996 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6101943 (hash b83e364994ec...)."
+    },
+    {
+      "id": "inpi-conflito-938232444",
+      "marca": "Giusto Gelato",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920310710",
+        "926144847"
+      ],
+      "processos_criticos": [
+        "920310710",
+        "926144847"
+      ],
+      "justificativa": "Processo 938232444 indeferido por conflito anterior; despacho oficial do INPI cita 920310710, 926144847 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6109113 (hash 897c6fca8a65...)."
+    },
+    {
+      "id": "inpi-conflito-938235605",
+      "marca": "Papelaria Infocop",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "919085288"
+      ],
+      "processos_criticos": [
+        "919085288"
+      ],
+      "justificativa": "Processo 938235605 indeferido por conflito anterior; despacho oficial do INPI cita 919085288 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6123293 (hash cfb9b1c83d5d...)."
+    },
+    {
+      "id": "inpi-conflito-938235397",
+      "marca": "JD MODULADOS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "904176606",
+        "910536180"
+      ],
+      "processos_criticos": [
+        "904176606",
+        "910536180"
+      ],
+      "justificativa": "Processo 938235397 indeferido por conflito anterior; despacho oficial do INPI cita 904176606, 910536180 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6113879 (hash add629670243...)."
+    },
+    {
+      "id": "inpi-conflito-938233378",
+      "marca": "FIORE DI GRANO PRODUTOS NATURAIS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "916769763"
+      ],
+      "processos_criticos": [
+        "916769763"
+      ],
+      "justificativa": "Processo 938233378 indeferido por conflito anterior; despacho oficial do INPI cita 916769763 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6111165 (hash 02f1ce617d20...)."
+    },
+    {
+      "id": "inpi-conflito-938233297",
+      "marca": "MOW",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "909480290"
+      ],
+      "processos_criticos": [
+        "909480290"
+      ],
+      "justificativa": "Processo 938233297 indeferido por conflito anterior; despacho oficial do INPI cita 909480290 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6105644 (hash ba674aff03e0...)."
+    },
+    {
+      "id": "inpi-conflito-938233556",
+      "marca": "PONTO DAS MANGUEIRAS FSA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "910094241",
+        "918382114"
+      ],
+      "processos_criticos": [
+        "910094241",
+        "918382114"
+      ],
+      "justificativa": "Processo 938233556 indeferido por conflito anterior; despacho oficial do INPI cita 910094241, 918382114 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6108924 (hash a7fd0818b025...)."
+    },
+    {
+      "id": "inpi-conflito-938246887",
+      "marca": "Repassar Veículos",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "906685621",
+        "924608137",
+        "924608501"
+      ],
+      "processos_criticos": [
+        "906685621",
+        "924608137",
+        "924608501"
+      ],
+      "justificativa": "Processo 938246887 indeferido por conflito anterior; despacho oficial do INPI cita 906685621, 924608137, 924608501 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6115215 (hash dd3e7b94a725...)."
+    },
+    {
+      "id": "inpi-conflito-938243160",
+      "marca": "CROSS TECK",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "919394710"
+      ],
+      "processos_criticos": [
+        "919394710"
+      ],
+      "justificativa": "Processo 938243160 indeferido por conflito anterior; despacho oficial do INPI cita 919394710 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6115180 (hash 009d4938810e...)."
+    },
+    {
+      "id": "inpi-conflito-938242830",
+      "marca": "PLANETA ÁGUA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "918274729"
+      ],
+      "processos_criticos": [
+        "918274729"
+      ],
+      "justificativa": "Processo 938242830 indeferido por conflito anterior; despacho oficial do INPI cita 918274729 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6115263 (hash 11883ae85a15...)."
+    },
+    {
+      "id": "inpi-conflito-938242229",
+      "marca": "PRNET",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "902420658"
+      ],
+      "processos_criticos": [
+        "902420658"
+      ],
+      "justificativa": "Processo 938242229 indeferido por conflito anterior; despacho oficial do INPI cita 902420658 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6133998 (hash 69db0be9dca5...)."
+    },
+    {
+      "id": "inpi-conflito-938241850",
+      "marca": "CLOUD CONTABILIDADE",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "918015570",
+        "924387726",
+        "932268552"
+      ],
+      "processos_criticos": [
+        "918015570",
+        "924387726",
+        "932268552"
+      ],
+      "justificativa": "Processo 938241850 indeferido por conflito anterior; despacho oficial do INPI cita 918015570, 924387726, 932268552 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6134933 (hash 20f636f25b67...)."
+    },
+    {
+      "id": "inpi-conflito-938238388",
+      "marca": "OXENTE",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "922565287"
+      ],
+      "processos_criticos": [
+        "922565287"
+      ],
+      "justificativa": "Processo 938238388 indeferido por conflito anterior; despacho oficial do INPI cita 922565287 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107234 (hash fededd6c0875...)."
+    },
+    {
+      "id": "inpi-conflito-938237632",
+      "marca": "ESQUINA MERCEARIA & CONVENIENCIA",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "907961908",
+        "922377308",
+        "922377901",
+        "925424536",
+        "925424773",
+        "925424935",
+        "934680078",
+        "937748668"
+      ],
+      "processos_criticos": [
+        "907961908",
+        "922377308",
+        "922377901",
+        "925424536",
+        "925424773",
+        "925424935",
+        "934680078",
+        "937748668"
+      ],
+      "justificativa": "Processo 938237632 indeferido por conflito anterior; despacho oficial do INPI cita 907961908, 922377308, 922377901, 925424536, 925424773, 925424935, 934680078, 937748668 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6107540 (hash 0dd4b4e577d6...)."
+    },
+    {
+      "id": "inpi-conflito-938247050",
+      "marca": "NARCISO SPORTFISHING",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "824007760"
+      ],
+      "processos_criticos": [
+        "824007760"
+      ],
+      "justificativa": "Processo 938247050 indeferido por conflito anterior; despacho oficial do INPI cita 824007760 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6115686 (hash 26fb63ecc269...)."
+    },
+    {
+      "id": "inpi-conflito-938244230",
+      "marca": "SMART",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "821171836",
+        "914364260"
+      ],
+      "processos_criticos": [
+        "821171836",
+        "914364260"
+      ],
+      "justificativa": "Processo 938244230 indeferido por conflito anterior; despacho oficial do INPI cita 821171836, 914364260 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6115095 (hash 50cc1407ea23...)."
+    },
+    {
+      "id": "inpi-conflito-938243330",
+      "marca": "IMPERATRIZ BABY",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "931406234"
+      ],
+      "processos_criticos": [
+        "931406234"
+      ],
+      "justificativa": "Processo 938243330 indeferido por conflito anterior; despacho oficial do INPI cita 931406234 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6115486 (hash 1b5b877638bf...)."
+    },
+    {
+      "id": "inpi-conflito-938243187",
+      "marca": "ELAS LIDERAM",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "931805538"
+      ],
+      "processos_criticos": [
+        "931805538"
+      ],
+      "justificativa": "Processo 938243187 indeferido por conflito anterior; despacho oficial do INPI cita 931805538 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6113739 (hash ef7b852bed5f...)."
+    },
+    {
+      "id": "inpi-conflito-938241826",
+      "marca": "DA NORTH",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "926831259",
+        "926831275",
+        "926831356"
+      ],
+      "processos_criticos": [
+        "926831259",
+        "926831275",
+        "926831356"
+      ],
+      "justificativa": "Processo 938241826 indeferido por conflito anterior; despacho oficial do INPI cita 926831259, 926831275, 926831356 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6114103 (hash bc3207e5c1eb...)."
+    },
+    {
+      "id": "inpi-conflito-938241567",
+      "marca": "3R FITNESS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "934823480",
+        "936423552"
+      ],
+      "processos_criticos": [
+        "934823480",
+        "936423552"
+      ],
+      "justificativa": "Processo 938241567 indeferido por conflito anterior; despacho oficial do INPI cita 934823480, 936423552 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6115712 (hash 2acb1f4ca5af...)."
+    },
+    {
+      "id": "inpi-conflito-938240749",
+      "marca": "K N STORE",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "914425331",
+        "923490418"
+      ],
+      "processos_criticos": [
+        "914425331",
+        "923490418"
+      ],
+      "justificativa": "Processo 938240749 indeferido por conflito anterior; despacho oficial do INPI cita 914425331, 923490418 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6113711 (hash 95493fdf84cd...)."
+    },
+    {
+      "id": "inpi-conflito-938238981",
+      "marca": "NS DIESEL PRECISÃO E QUALIDADE",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "827246609",
+        "902265903",
+        "935401644",
+        "937323608",
+        "937324140"
+      ],
+      "processos_criticos": [
+        "827246609",
+        "902265903",
+        "935401644",
+        "937323608",
+        "937324140"
+      ],
+      "justificativa": "Processo 938238981 indeferido por conflito anterior; despacho oficial do INPI cita 827246609, 902265903, 935401644, 937323608, 937324140 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6113318 (hash 5aee64a24d3f...)."
+    },
+    {
+      "id": "inpi-conflito-938238353",
+      "marca": "JS FOTO E PRESENTES",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "828745722",
+        "905125843",
+        "923317970",
+        "934517819",
+        "937881279"
+      ],
+      "processos_criticos": [
+        "828745722",
+        "905125843",
+        "923317970",
+        "934517819",
+        "937881279"
+      ],
+      "justificativa": "Processo 938238353 indeferido por conflito anterior; despacho oficial do INPI cita 828745722, 905125843, 923317970, 934517819, 937881279 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6105618 (hash faef5a8918b3...)."
+    },
+    {
+      "id": "inpi-conflito-938238019",
+      "marca": "ARMAZÉM CÉU AZUL",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "935150072"
+      ],
+      "processos_criticos": [
+        "935150072"
+      ],
+      "justificativa": "Processo 938238019 indeferido por conflito anterior; despacho oficial do INPI cita 935150072 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6106420 (hash 7df2dffe8b93...)."
+    },
+    {
+      "id": "inpi-conflito-938246372",
+      "marca": "COVERS DO BRASIL",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "910182655"
+      ],
+      "processos_criticos": [
+        "910182655"
+      ],
+      "justificativa": "Processo 938246372 indeferido por conflito anterior; despacho oficial do INPI cita 910182655 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6128492 (hash 872d2fbf1d15...)."
+    },
+    {
+      "id": "inpi-conflito-938244370",
+      "marca": "iUltra",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "935791043",
+        "935792732"
+      ],
+      "processos_criticos": [
+        "935791043",
+        "935792732"
+      ],
+      "justificativa": "Processo 938244370 indeferido por conflito anterior; despacho oficial do INPI cita 935791043, 935792732 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6112293 (hash e86d278beabf...)."
+    },
+    {
+      "id": "inpi-conflito-938243950",
+      "marca": "Mottu Sport ESD",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "829385142"
+      ],
+      "processos_criticos": [
+        "829385142"
+      ],
+      "justificativa": "Processo 938243950 indeferido por conflito anterior; despacho oficial do INPI cita 829385142 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6131300 (hash fc9200eea046...)."
+    },
+    {
+      "id": "inpi-conflito-938243730",
+      "marca": "VITRÁH",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "937589918"
+      ],
+      "processos_criticos": [
+        "937589918"
+      ],
+      "justificativa": "Processo 938243730 indeferido por conflito anterior; despacho oficial do INPI cita 937589918 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6112547 (hash 31c8488dafbd...)."
+    },
+    {
+      "id": "inpi-conflito-938238469",
+      "marca": "RESTAURANTE E LANCHONETE BIG TABOÃO",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "920810780",
+        "926798251"
+      ],
+      "processos_criticos": [
+        "920810780",
+        "926798251"
+      ],
+      "justificativa": "Processo 938238469 indeferido por conflito anterior; despacho oficial do INPI cita 920810780, 926798251 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6111384 (hash 5b1c74356369...)."
+    },
+    {
+      "id": "inpi-conflito-938238434",
+      "marca": "Método Commerce",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "900724293",
+        "929824660"
+      ],
+      "processos_criticos": [
+        "900724293",
+        "929824660"
+      ],
+      "justificativa": "Processo 938238434 indeferido por conflito anterior; despacho oficial do INPI cita 900724293, 929824660 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6105008 (hash a53c2fe8f0cf...)."
+    },
+    {
+      "id": "inpi-conflito-938237233",
+      "marca": "TUKA'S MOTOS",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "821867342"
+      ],
+      "processos_criticos": [
+        "821867342"
+      ],
+      "justificativa": "Processo 938237233 indeferido por conflito anterior; despacho oficial do INPI cita 821867342 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6105545 (hash f25e7d42be0b...)."
+    },
+    {
+      "id": "inpi-conflito-938236636",
+      "marca": "DROGARIA ALENCAR",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "930327950"
+      ],
+      "processos_criticos": [
+        "930327950"
+      ],
+      "justificativa": "Processo 938236636 indeferido por conflito anterior; despacho oficial do INPI cita 930327950 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6104179 (hash 234bf9ca75b2...)."
+    },
+    {
+      "id": "inpi-conflito-938247131",
+      "marca": "LT DELÍCIAS GOURMET",
+      "classe_nice": "35",
+      "tipo_pesquisa": "dupla",
+      "processos_esperados": [
+        "921640978",
+        "935002855"
+      ],
+      "processos_criticos": [
+        "921640978",
+        "935002855"
+      ],
+      "justificativa": "Processo 938247131 indeferido por conflito anterior; despacho oficial do INPI cita 921640978, 935002855 como anterioridade(s). Fonte: https://busca.inpi.gov.br/pePI/servlet/MarcasServletController?Action=detail&CodPedido=6109527 (hash 9e776aa1843c...)."
+    }
+  ]
+}

@@ -70,9 +70,13 @@ def extrair_palavras(marca: str) -> list[str]:
 def extrair_radicais(marca: str) -> list[str]:
     radicais: list[str] = []
     for palavra in extrair_palavras(marca):
-        if len(palavra) >= 7:
+        # O truncamento nunca deixa o radical com menos de 5 letras: um radical de
+        # 4 letras (ex.: "SINAL" -> "SINA") colide por acaso com siglas e palavras
+        # nao relacionadas (SINAFRESP, SINAP, SINAIT...), gerando falso positivo de
+        # conflito tanto na busca quanto no motor de risco que reusa esse criterio.
+        if len(palavra) >= 8:
             radical = palavra[:-2]
-        elif len(palavra) >= 5:
+        elif len(palavra) >= 6:
             radical = palavra[:-1]
         else:
             radical = palavra

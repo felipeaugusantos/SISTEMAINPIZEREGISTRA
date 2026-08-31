@@ -15,13 +15,16 @@ def payload() -> dict[str, object]:
 
 
 def test_extrai_radicais_recomendados() -> None:
-    assert extrair_radicais("CAVALINHO FEROZ") == ["CAVALIN", "FERO"]
+    # "FEROZ" (5 letras) nao e' truncado: um radical de 4 letras ("FERO") colidiria
+    # por acaso com palavras nao relacionadas -- o truncamento so entra a partir de
+    # 6 letras, garantindo radical minimo de 5.
+    assert extrair_radicais("CAVALINHO FEROZ") == ["CAVALIN", "FEROZ"]
 
 
 def test_gera_variacoes_ortograficas_e_foneticas_recomendadas() -> None:
     variacoes = gerar_variacoes("CAVALINHO FEROZ")
 
-    assert {"CAVALO", "KAVAL", "PHERO", "FHERO"} <= set(variacoes)
+    assert {"CAVALO", "KAVAL", "PHEROZ", "FHEROZ"} <= set(variacoes)
 
 
 def test_explica_por_que_ocorrencia_foi_encontrada() -> None:

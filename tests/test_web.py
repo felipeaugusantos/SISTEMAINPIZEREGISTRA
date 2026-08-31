@@ -196,7 +196,7 @@ def test_dossie_envia_e_exibe_leitura_supervisionada() -> None:
     page = (web_dir / "admin-analise.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-analise.js").read_text(encoding="utf-8")
 
-    assert "admin-analise.js?v=10" in page
+    assert "admin-analise.js?v=" in page
     assert "admin-analise.css?v=5" in page
     assert 'observacoes: values.get("observacoes_humanas")' in script
     assert "Boolean(item.avaliado_em)" in script

@@ -36,6 +36,7 @@ from app.relatorios import gerar_pdf_resumo_cliente
 from app.request_context import adicionar_detalhes_operacionais
 from app.schemas import (
     AfinidadeClassesResponse,
+    AnaliseConsolidadaPublicaResponse,
     ClasseNiceCandidataResponse,
     ConclusaoIndicativaResponse,
     EstimativaRegistrabilidadeResponse,
@@ -46,7 +47,6 @@ from app.schemas import (
     PrognosticoRegistrabilidadeResponse,
     QualidadeBaseResponse,
     RelatorioMarcaResponse,
-    AnaliseConsolidadaPublicaResponse,
     ResumoPublicoMarcaResponse,
     TitularResponse,
 )

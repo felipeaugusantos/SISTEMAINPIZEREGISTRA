@@ -29,6 +29,8 @@ def _hash_conteudo(relatorio: RelatorioMarcaResponse) -> str:
 async def versionar_relatorio(
     session: AsyncSession,
     relatorio: RelatorioMarcaResponse,
+    *,
+    resetar_workflow: bool = True,
 ) -> RelatorioMarcaResponse:
     pesquisa = await session.get(PesquisaMarca, relatorio.id, with_for_update=True)
     conteudo_hash = _hash_conteudo(relatorio)
@@ -63,7 +65,13 @@ async def versionar_relatorio(
             gerado_em=gerado_em,
         )
     )
-    if pesquisa is not None:
+    if pesquisa is not None and resetar_workflow:
+        # Só se aplica a uma pesquisa NOVA de verdade (novo resultado de busca do
+        # cliente) -- exige revisão humana do zero. Refinamentos internos da MESMA
+        # análise (consolidar de novo, completar dados complementares, registrar
+        # parecer) passam resetar_workflow=False: eles não devem apagar um workflow
+        # já em andamento (achado de bug real: parecer humano registrado, seguido
+        # de uma consolidação, voltava silenciosamente para PENDING_REVIEW).
         pesquisa.analysis_state = EstadoAnalise.PENDING_REVIEW.value
         pesquisa.validated_by = None
         pesquisa.validated_at = None

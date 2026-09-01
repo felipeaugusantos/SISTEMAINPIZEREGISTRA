@@ -146,7 +146,14 @@ async def atualizar_dados_complementares(
         )
     )
     try:
-        await atualizar_snapshot_analise(session, pesquisa)
+        # Só reabre o workflow do zero se a versão anterior já estava formalmente
+        # validada -- dado novo depois de uma chancela técnica exige nova revisão de
+        # verdade. Se ainda está em progresso (PENDING_REVIEW/IN_REVIEW/etc.),
+        # preencher mais um campo não deve apagar a revisão já em andamento (bug
+        # relatado: parecer humano registrado "sumia" após uma ação de refinamento).
+        await atualizar_snapshot_analise(
+            session, pesquisa, resetar_workflow=pesquisa.analysis_state == EstadoAnalise.VALIDATED.value
+        )
     except ValueError as exc:
         # Complementos também podem ser cadastrados antes do primeiro relatório.
         if str(exc) != "Gere o resultado da pesquisa antes de analisar a marca.":

@@ -133,7 +133,14 @@ async def test_stale_review_cannot_write():
     assert session.adicionados == []
 
 
-async def test_new_opinion_creates_snapshot_and_clears_approval():
+async def test_new_opinion_snapshot_preserves_workflow_by_default():
+    """atualizar_snapshot_analise() sozinha não deve derrubar um workflow em
+    andamento -- refinamentos internos (consolidar, parecer) não são um novo
+    resultado de busca do cliente. A responsabilidade de mover o estado para
+    IN_REVIEW quando um parecer é registrado é do endpoint (ver
+    test_review_uses_authenticated_identity_and_advances_to_review); esta função
+    de baixo nível só reseta quando o chamador pede explicitamente
+    (resetar_workflow=True), ex.: dados complementares editados após validação."""
     report = snapshot()
     pesquisa = PesquisaMarca(
         id=report.id,
@@ -158,9 +165,9 @@ async def test_new_opinion_creates_snapshot_and_clears_approval():
     )
     assert result.versao == 2
     assert result.analise_consolidada["parecer_humano"]["nivel"] == "alto"
-    assert pesquisa.analysis_state == "PENDING_REVIEW"
-    assert pesquisa.validated_by is None
-    assert pesquisa.validated_at is None
+    assert pesquisa.analysis_state == "VALIDATED"
+    assert pesquisa.validated_by == "anterior"
+    assert pesquisa.validated_at is not None
 
 
 def test_review_uses_authenticated_identity_and_advances_to_review():

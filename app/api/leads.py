@@ -71,7 +71,7 @@ from app.schemas import (
     RelatorioMarcaResponse,
 )
 from app.settings import get_settings
-from app.tenancy import OrganizacaoPublicaDep
+from app.tenancy import OrganizacaoPublicaDep, aplicar_contexto_tenant
 from app.trademarks.analysis_workflow import EstadoAnalise, revisao_obrigatoria_pendente
 from app.trademarks.consolidated import analise_para_exibicao
 
@@ -452,6 +452,20 @@ def _lead_response(
     return dados
 
 
+# Achado da auditoria do CRM: todo lead que chega pelo formulário público
+# nascia sem proxima_acao_em, sem nunca passar pela política de CRM (que só é
+# aplicada em atualizar_status_lead). Aqui a falta não pode virar bloqueio --
+# é a porta de entrada mais comum, travar o formulário do site é pior do que
+# aplicar um prazo padrão -- então só aplica o fallback, nunca levanta 422.
+DIAS_PROXIMA_ACAO_CAPTACAO_PADRAO = 2
+
+
+async def _garantir_proxima_acao_padrao(session: AsyncSession, lead: Lead) -> None:
+    await aplicar_politica_oportunidade(session, lead)
+    if lead.proxima_acao_em is None:
+        lead.proxima_acao_em = datetime.now(UTC) + timedelta(days=DIAS_PROXIMA_ACAO_CAPTACAO_PADRAO)
+
+
 @router.post(
     "/v1/leads",
     response_model=LeadResponse,
@@ -491,6 +505,8 @@ async def criar_lead(
         existente.processo_numero = dados.processo_numero or existente.processo_numero
         existente.origem = dados.origem
         existente.tipo_interesse = dados.tipo_interesse or existente.tipo_interesse
+        if existente.status not in (StatusLead.CONVERTIDO, StatusLead.DESCARTADO):
+            await _garantir_proxima_acao_padrao(session, existente)
         await session.commit()
         await session.refresh(existente)
         return existente
@@ -508,6 +524,7 @@ async def criar_lead(
         status=StatusLead.NOVO,
     )
     session.add(lead)
+    await _garantir_proxima_acao_padrao(session, lead)
     await session.commit()
     await session.refresh(lead)
     return lead
@@ -764,6 +781,15 @@ async def mover_lead_kanban(
         lead.status = StatusLead.EM_CONTATO
     elif dados.etapa == "aguardando_retorno_cliente":
         lead.status = StatusLead.SEM_RETORNO
+    # Mover o card também é "mexer no CRM": oportunidade aberta exige responsável
+    # e próxima ação, mesma regra aplicada em atualizar_status_lead.
+    if lead.status not in (StatusLead.CONVERTIDO, StatusLead.DESCARTADO):
+        faltando = await aplicar_politica_oportunidade(session, lead, usuario.id)
+        if faltando:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Oportunidade aberta exige {' e '.join(faltando)}.",
+            )
     _auditar(
         session,
         usuario,
@@ -2303,6 +2329,9 @@ async def _proposta_por_token(session: AsyncSession, token: str) -> PropostaCome
     ).scalar_one_or_none()
     if proposta is None or not proposta.public_token_expira_em or proposta.public_token_expira_em < datetime.now(UTC):
         return None
+    # Link publico chega sem sessao de operador -- resolve o tenant a partir da
+    # propria proposta antes de qualquer leitura/escrita adicional protegida por RLS.
+    await aplicar_contexto_tenant(session, proposta.organizacao_id)
     return proposta
 
 

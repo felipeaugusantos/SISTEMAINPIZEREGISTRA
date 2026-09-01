@@ -148,6 +148,63 @@ def test_resumo_crm_apresenta_prioridades_comerciais() -> None:
     assert resposta.json()["sem_proxima_acao"] == 3
 
 
+def test_lead_publico_nasce_com_proxima_acao_padrao() -> None:
+    # Achado da auditoria do CRM: todo lead do formulário público nascia com
+    # proxima_acao_em nulo. Agora sempre recebe um fallback (sem bloquear o
+    # formulário do site com 422 quando a organização não configurou política).
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=None), FakeResult(scalar=None))
+    resposta = TestClient(app).post("/v1/leads", json=_payload())
+    assert resposta.status_code == 201
+    assert resposta.json()["proxima_acao_em"] is not None
+
+
+def test_mover_kanban_bloqueia_oportunidade_aberta_sem_proxima_acao() -> None:
+    lead = Lead(
+        id=9,
+        organizacao_id=1,
+        nome="Fulano",
+        email="fulano@example.com",
+        telefone="11999998888",
+        marca="ACME",
+        origem="processo",
+        status=StatusLead.NOVO,
+        fase="contato_inicial",
+        responsavel_id=None,
+        proxima_acao_em=None,
+        aceite_marketing=False,
+    )
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+    app.dependency_overrides[obter_usuario_atual] = auth_override()
+
+    resposta = TestClient(app).post("/v1/admin/leads/9/kanban", json={"etapa": "aguardando_contato_nosso"})
+
+    assert resposta.status_code == 422
+    assert "próxima ação" in resposta.json()["detail"]
+
+
+def test_mover_kanban_permite_oportunidade_aberta_com_proxima_acao() -> None:
+    lead = Lead(
+        id=9,
+        organizacao_id=1,
+        nome="Fulano",
+        email="fulano@example.com",
+        telefone="11999998888",
+        marca="ACME",
+        origem="processo",
+        status=StatusLead.NOVO,
+        fase="contato_inicial",
+        responsavel_id=3,
+        proxima_acao_em=datetime.now(UTC),
+        aceite_marketing=False,
+    )
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+    app.dependency_overrides[obter_usuario_atual] = auth_override()
+
+    resposta = TestClient(app).post("/v1/admin/leads/9/kanban", json={"etapa": "aguardando_contato_nosso"})
+
+    assert resposta.status_code == 200
+
+
 def test_admin_abre_contato_com_historico_de_pesquisas() -> None:
     lead = Lead(
         organizacao_id=1,

@@ -54,6 +54,13 @@ class ParecerConsolidadoInput(BaseModel):
     diretriz_acao_humana: (
         Literal["deposito_imediato", "ajuste_especificacao", "adequacao_mista", "inviavel_rebranding"] | None
     ) = Field(default=None, description="Sobrescreve a sugestão automática de estratégia de depósito.")
+    veredito_humano: Literal["favoravel", "desfavoravel", "inconclusiva"] | None = Field(
+        default=None,
+        description=(
+            "Veredito final do especialista, explícito (não inferido de nivel_humano nem de texto livre). "
+            "Quando informado, passa a ser a Situação exibida ao cliente no lugar da pré-análise da IA."
+        ),
+    )
 
 
 def _modulo_liberado(usuario: UsuarioAutenticado, modulo: str, permissao: str) -> bool:
@@ -235,6 +242,7 @@ async def registrar_parecer_consolidado(
         "avaliado_em": agora.isoformat(),
         "versao_revisada": dados.versao_relatorio,
         "diretriz_acao_humana": dados.diretriz_acao_humana,
+        "veredito_humano": dados.veredito_humano,
     }
     try:
         relatorio = await atualizar_snapshot_analise(

@@ -25,6 +25,17 @@ function formatDate(value) {
 }
 function percent(value) { return value === null || value === undefined ? "—" : `${Math.round(value * 100)}%`; }
 function label(value) { return String(value || "não informado").replaceAll("_", " "); }
+const nivelRiscoLabels = {
+  baixo: "Baixo risco — favorável ao registro",
+  moderado: "Moderado — viável com ressalvas",
+  alto: "Alto risco — desfavorável ao registro",
+  critico: "Crítico — fortemente desfavorável",
+};
+const veredictoHumanoLabels = {
+  favoravel: "Favorável",
+  desfavoravel: "Desfavorável",
+  inconclusiva: "Inconclusiva",
+};
 const diretrizLabels = {
   deposito_imediato: "Depósito imediato",
   ajuste_especificacao: "Ajuste de especificação",
@@ -116,8 +127,10 @@ function renderUnified(data) {
   const refresh = data.permissoes.validacao_revisar ? '<button id="consolidate-analysis" class="secondary-button" type="button">Atualizar análise consolidada</button>' : "";
   const diretriz = item.diretriz_acao ? `<p><strong>Diretriz de ação recomendada:</strong> ${escapeHtml(diretrizLabels[item.diretriz_acao.codigo] || label(item.diretriz_acao.codigo))}${item.diretriz_acao.origem === "humana" ? ' <span class="situacao-badge situacao-favoravel">definida pelo especialista</span>' : ""}</p>` : "";
   const disclaimers = (item.disclaimers || []).map(d => `<li><strong>${escapeHtml(d.titulo)}:</strong> ${escapeHtml(d.texto)}</li>`).join("");
+  const sobrescritaPeloHumano = presentation.situacao?.origem === "parecer_humano";
+  const iaPreliminar = sobrescritaPeloHumano && presentation.situacao_ia_preliminar ? `<p class="analysis-empty">Pré-análise automática da IA (antes do parecer): <span class="situacao-badge situacao-${escapeHtml(presentation.situacao_ia_preliminar.codigo)}">${escapeHtml(presentation.situacao_ia_preliminar.rotulo)}</span></p>` : "";
   return step({ id: "unified", number: 1, title: "Análise de registrabilidade", subtitle: `Versão ${item.versao_relatorio} · ${item.versao_motor}`, state: item.revisao.validada ? "completed" : "attention", stateLabel: item.revisao.validada ? "Validada por especialista" : "Preliminar", open: true, body: `
-    <section class="unified-conclusion"><p class="eyebrow">Conclusão automática preliminar</p><h3>Situação: <span class="situacao-badge situacao-${escapeHtml(presentation.situacao?.codigo || "inconclusiva")}">${escapeHtml(presentation.situacao?.rotulo || "Inconclusiva - requer revisão")}</span></h3><p>${escapeHtml(presentation.situacao?.explicacao)}</p><p>${escapeHtml(item.titulo)}</p><p>${escapeHtml(item.recomendacao)}</p>${diretriz}
+    <section class="unified-conclusion"><p class="eyebrow">${sobrescritaPeloHumano ? "Veredito do especialista (sobrescreve a IA)" : "Conclusão automática preliminar"}</p><h3>Situação: <span class="situacao-badge situacao-${escapeHtml(presentation.situacao?.codigo || "inconclusiva")}">${escapeHtml(presentation.situacao?.rotulo || "Inconclusiva - requer revisão")}</span></h3><p>${escapeHtml(presentation.situacao?.explicacao)}</p>${iaPreliminar}<p>${escapeHtml(item.titulo)}</p><p>${escapeHtml(item.recomendacao)}</p>${diretriz}
     <div class="analysis-grid"><div class="analysis-stat"><span>Risco técnico</span><strong>${escapeHtml(label(result.nivel_risco || "não calculado"))}</strong></div><div class="analysis-stat"><span>Cobertura dos critérios</span><strong>${percent(result.cobertura)}</strong></div><div class="analysis-stat"><span>Pendências</span><strong>${item.pendencias.length}</strong></div></div>
     ${impediments ? `<h3>Possíveis impedimentos (${presentation.impedimentos.length})</h3><ul class="analysis-alerts">${impediments}</ul>` : ""}
     ${attention ? `<h3>Pontos de atenção (${presentation.pontos_atencao.length})</h3><ul class="analysis-alerts">${attention}</ul>` : ""}
@@ -140,8 +153,9 @@ function renderOpinion(data) {
   const reviewed = Boolean(opinion);
   const composite = item?.score_composto;
   const compositeBlock = composite?.score_final != null ? `<div class="analysis-grid"><div class="analysis-stat"><span>Score IA</span><strong>${composite.score_ia}</strong></div><div class="analysis-stat"><span>Score humano</span><strong>${composite.score_humano}</strong></div><div class="analysis-stat"><span>Score final (50/50)</span><strong>${composite.score_final} · ${escapeHtml(label(composite.nivel_final))}</strong></div></div>` : "";
-  const saved = opinion ? `<div class="analysis-grid"><div class="analysis-stat"><span>Classificação humana</span><strong>${escapeHtml(label(opinion.nivel))}</strong></div><div class="analysis-stat"><span>Avaliador</span><strong>${escapeHtml(opinion.avaliador_nome || opinion.avaliador)}</strong></div><div class="analysis-stat"><span>Data</span><strong>${formatDate(opinion.avaliado_em)}</strong></div></div>${compositeBlock}<div class="analysis-opinion">${escapeHtml(opinion.observacoes)}</div>` : '<p class="analysis-empty">Revise as evidências e registre um único parecer para esta análise. A classificação humana não altera o resultado automático da IA, mas passa a compor o score final ponderado (50% IA + 50% especialista) e pode sobrescrever a diretriz de ação sugerida.</p>';
-  const form = item && data.permissoes.risco_revisar && data.permissoes.validacao_visualizar ? `<form id="consolidated-review-form" class="analysis-action-form"><label>Classificação humana<select name="nivel_humano" required><option value="">Selecione</option>${["baixo","moderado","alto","critico"].map(value => `<option value="${value}" ${opinion?.nivel === value ? "selected" : ""}>${label(value)}</option>`).join("")}</select></label><label>Diretriz de ação (opcional — sobrescreve a sugestão automática)<select name="diretriz_acao_humana"><option value="">Manter sugestão automática</option>${Object.entries(diretrizLabels).map(([value, text]) => `<option value="${value}" ${opinion?.diretriz_acao_humana === value ? "selected" : ""}>${text}</option>`).join("")}</select></label><p>Avaliador: ${escapeHtml(data.usuario.nome)}</p><label class="wide">Parecer e justificativa<textarea name="observacoes_humanas" minlength="3" maxlength="4000" rows="5" required>${escapeHtml(opinion?.observacoes || "")}</textarea></label><p class="wide">Salvar cria uma nova versão e exige validação formal novamente.</p><button class="primary-button" type="submit">Salvar parecer único</button></form>` : "";
+  const veredictoBlock = opinion?.veredito_humano ? `<div class="analysis-grid"><div class="analysis-stat"><span>Veredito final (sobrescreve a Situação)</span><strong>${escapeHtml(veredictoHumanoLabels[opinion.veredito_humano])}</strong></div></div>` : "";
+  const saved = opinion ? `<div class="analysis-grid"><div class="analysis-stat"><span>Classificação de risco (especialista)</span><strong>${escapeHtml(nivelRiscoLabels[opinion.nivel] || label(opinion.nivel))}</strong></div><div class="analysis-stat"><span>Avaliador</span><strong>${escapeHtml(opinion.avaliador_nome || opinion.avaliador)}</strong></div><div class="analysis-stat"><span>Data</span><strong>${formatDate(opinion.avaliado_em)}</strong></div></div>${veredictoBlock}${compositeBlock}<div class="analysis-opinion">${escapeHtml(opinion.observacoes)}</div>` : '<p class="analysis-empty">Revise as evidências e registre um único parecer para esta análise. A classificação humana não altera o resultado automático da IA, mas passa a compor o score final ponderado (50% IA + 50% especialista) e pode sobrescrever a diretriz de ação sugerida.</p>';
+  const form = item && data.permissoes.risco_revisar && data.permissoes.validacao_visualizar ? `<form id="consolidated-review-form" class="analysis-action-form"><label>Classificação de risco do especialista <small>(o RISCO que você identifica, não a confiança na conclusão — marque "baixo" se considera o registro viável)</small><select name="nivel_humano" required><option value="">Selecione</option>${["baixo","moderado","alto","critico"].map(value => `<option value="${value}" ${opinion?.nivel === value ? "selected" : ""}>${nivelRiscoLabels[value]}</option>`).join("")}</select></label><label>Veredito final <small>(opcional — quando preenchido, SOBRESCREVE a Situação exibida ao cliente no relatório, no lugar da pré-análise da IA)</small><select name="veredito_humano"><option value="">Manter leitura automática da IA</option>${Object.entries(veredictoHumanoLabels).map(([value, text]) => `<option value="${value}" ${opinion?.veredito_humano === value ? "selected" : ""}>${text}</option>`).join("")}</select></label><label>Diretriz de ação (opcional — sobrescreve a sugestão automática)<select name="diretriz_acao_humana"><option value="">Manter sugestão automática</option>${Object.entries(diretrizLabels).map(([value, text]) => `<option value="${value}" ${opinion?.diretriz_acao_humana === value ? "selected" : ""}>${text}</option>`).join("")}</select></label><p>Avaliador: ${escapeHtml(data.usuario.nome)}</p><label class="wide">Parecer e justificativa<textarea name="observacoes_humanas" minlength="3" maxlength="4000" rows="5" required>${escapeHtml(opinion?.observacoes || "")}</textarea></label><p class="wide">Salvar cria uma nova versão e exige validação formal novamente.</p><button class="primary-button" type="submit">Salvar parecer único</button></form>` : "";
   return step({ id: "opinion", number: 2, title: "Parecer humano", subtitle: "Síntese profissional vinculada à versão", state: reviewed ? "completed" : "pending", stateLabel: reviewed ? "Registrado" : "Pendente", body: saved + form });
 }
 
@@ -202,7 +216,12 @@ async function sendJson(url, options) {
   return data;
 }
 async function downloadFullReport() {
-  const response = await fetch(`/v1/admin/pesquisas/${encodeURIComponent(pesquisaId)}/relatorio-completo.pdf`, { method: "POST" });
+  // Trava a versão: se a análise mudou (novo parecer, nova consolidação) desde que
+  // a tela carregou, o backend recusa em vez de gerar um PDF que já não bate com o
+  // que está sendo mostrado (achado da auditoria Fase 1, item 6).
+  const versaoCarregada = analysis?.analise_consolidada?.versao_relatorio;
+  const query = versaoCarregada ? `?versao_esperada=${encodeURIComponent(versaoCarregada)}` : "";
+  const response = await fetch(`/v1/admin/pesquisas/${encodeURIComponent(pesquisaId)}/relatorio-completo.pdf${query}`, { method: "POST" });
   if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.detail || "Não foi possível gerar o relatório."); }
   const blob = await response.blob();
   const disposition = response.headers.get("content-disposition") || "";
@@ -262,7 +281,7 @@ sections.addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.target; const values = new FormData(form); const button = form.querySelector("button[type=submit]"); button.disabled = true;
   try {
-    if (form.id === "consolidated-review-form") await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/parecer`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nivel_humano: values.get("nivel_humano"), observacoes_humanas: values.get("observacoes_humanas"), versao_relatorio: analysis.analise_consolidada.versao_relatorio, diretriz_acao_humana: values.get("diretriz_acao_humana") || null }) });
+    if (form.id === "consolidated-review-form") await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/parecer`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nivel_humano: values.get("nivel_humano"), observacoes_humanas: values.get("observacoes_humanas"), versao_relatorio: analysis.analise_consolidada.versao_relatorio, diretriz_acao_humana: values.get("diretriz_acao_humana") || null, veredito_humano: values.get("veredito_humano") || null }) });
     if (form.id === "workflow-form") await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/workflow`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: values.get("action"), notes: values.get("notes")?.trim() || null, versao_relatorio: analysis.workflow.report_version }) });
     showMessage("Etapa atualizada com sucesso.", "success"); await load();
   } catch (error) { showMessage(error.message, "error"); button.disabled = false; }

@@ -125,6 +125,23 @@ def apresentacao_analise(analise: dict) -> dict:
     if resultado.get("abstencao") and decisao != "cenario_desfavoravel":
         decisao = "dados_insuficientes"
     codigo, rotulo, explicacao = situacoes.get(decisao, situacoes["dados_insuficientes"])
+    situacao_ia_preliminar = {"codigo": codigo, "rotulo": rotulo, "explicacao": explicacao}
+
+    veredito_humano = (analise.get("parecer_humano") or {}).get("veredito_humano")
+    if veredito_humano:
+        # Poder de override explícito do especialista: quando ele registra um veredito
+        # direto (não inferido de nivel_humano nem de texto livre), a Situação exibida
+        # ao cliente passa a refletir a leitura profissional, não a pré-análise da IA
+        # sozinha -- a pré-análise continua visível em situacao_ia_preliminar, para
+        # auditoria/transparência, nunca escondida.
+        rotulos_humanos = {
+            "favoravel": ("Favorável", "Avaliação do especialista: cenário favorável ao registro."),
+            "desfavoravel": ("Desfavorável", "Avaliação do especialista: riscos relevantes identificados."),
+            "inconclusiva": ("Inconclusiva", "Avaliação do especialista: dados ainda insuficientes para concluir."),
+        }
+        rotulo_humano, explicacao_humana = rotulos_humanos[veredito_humano]
+        codigo, rotulo, explicacao = veredito_humano, rotulo_humano, explicacao_humana
+
     estatistica = analise.get("estatistica") or {}
     mensagem = estatistica.get("mensagem") or ""
     if not estatistica.get("disponivel") and "restrito" not in mensagem.lower():
@@ -133,7 +150,13 @@ def apresentacao_analise(analise: dict) -> dict:
             "A indisponibilidade desse apoio não é um impedimento da marca."
         )
     return {
-        "situacao": {"codigo": codigo, "rotulo": rotulo, "explicacao": explicacao, "origem": "analise_automatica"},
+        "situacao": {
+            "codigo": codigo,
+            "rotulo": rotulo,
+            "explicacao": explicacao,
+            "origem": "parecer_humano" if veredito_humano else "analise_automatica",
+        },
+        "situacao_ia_preliminar": situacao_ia_preliminar,
         "impedimentos": impedimentos,
         "pontos_atencao": alertas,
         "fundamentos_tecnicos": fundamentos,

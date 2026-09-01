@@ -226,6 +226,7 @@ def _analise_consolidada_publica(analise: dict | None) -> AnaliseConsolidadaPubl
         situacao_codigo=situacao["codigo"],
         situacao_rotulo=situacao["rotulo"],
         situacao_explicacao=situacao["explicacao"],
+        situacao_origem=situacao.get("origem") or "analise_automatica",
         titulo=analise.get("titulo") or "",
         recomendacao=analise.get("recomendacao") or "",
         diretriz_acao=codigo_diretriz,

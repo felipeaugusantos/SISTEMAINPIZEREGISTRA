@@ -67,12 +67,13 @@ async function loadReport() {
       box.className = "report-classification prognostico";
       box.dataset.veredito = analise.situacao_codigo;
       const disclaimers = (analise.disclaimers || []).map((d) => `<li><strong>${escapeHtml(d.titulo)}:</strong> ${escapeHtml(d.texto)}</li>`).join("");
-      box.innerHTML = `<div><p class="eyebrow">Situação da análise</p><h2>${escapeHtml(analise.titulo)}</h2><p class="prognostico-tag" data-veredito="${escapeHtml(analise.situacao_codigo)}">Situação: ${escapeHtml(analise.situacao_rotulo)}</p></div>
+      const avaliadoPorEspecialista = analise.situacao_origem === "parecer_humano";
+      box.innerHTML = `<div><p class="eyebrow">${avaliadoPorEspecialista ? "Situação da análise · avaliação de especialista" : "Situação da análise"}</p><h2>${escapeHtml(analise.titulo)}</h2><p class="prognostico-tag" data-veredito="${escapeHtml(analise.situacao_codigo)}">Situação: ${escapeHtml(analise.situacao_rotulo)}</p></div>
         <p>${escapeHtml(analise.situacao_explicacao)}</p>
         <p>${escapeHtml(analise.recomendacao)}</p>
         ${analise.diretriz_acao_rotulo ? `<p><strong>Diretriz de ação recomendada:</strong> ${escapeHtml(analise.diretriz_acao_rotulo)}</p>` : ""}
         ${disclaimers ? `<p><strong>Avisos importantes:</strong></p><ul class="prognostico-motivos">${disclaimers}</ul>` : ""}
-        <p class="matrix-status">Análise preliminar automatizada; não constitui garantia de deferimento pelo INPI nem substitui avaliação jurídica especializada.</p>`;
+        <p class="matrix-status">${avaliadoPorEspecialista ? "Situação revisada por especialista da equipe; " : "Análise preliminar automatizada; "}não constitui garantia de deferimento pelo INPI nem substitui avaliação jurídica especializada.</p>`;
       document.querySelector("#report-conclusion").after(box);
     } else if (data.prognostico_registrabilidade) {
       // Relatório legado, gerado antes da análise consolidada existir.

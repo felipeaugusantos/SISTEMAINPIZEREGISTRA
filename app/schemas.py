@@ -471,6 +471,7 @@ class AnaliseConsolidadaPublicaResponse(BaseModel):
     situacao_codigo: str
     situacao_rotulo: str
     situacao_explicacao: str
+    situacao_origem: str = "analise_automatica"
     titulo: str
     recomendacao: str
     diretriz_acao: str | None = None

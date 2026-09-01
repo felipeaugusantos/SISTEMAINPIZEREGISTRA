@@ -438,7 +438,10 @@ async def gerar_resumo_pesquisa(session: AsyncSession, pesquisa: PesquisaMarca) 
     )
     await session.execute(comando_risco)
     todos_titular_ids = {tid for ids in titular_ids_por_processo.values() for tid in ids}
-    portfolio_por_titular = await contar_marcas_por_titular(session, list(todos_titular_ids))
+    data_referencia_inferencia = datetime.now(UTC).date()
+    portfolio_por_titular = await contar_marcas_por_titular(
+        session, list(todos_titular_ids), data_referencia_inferencia
+    )
     pares_aprendizado = [
         extrair_atributos_par(
             pesquisa.marca,
@@ -449,9 +452,9 @@ async def gerar_resumo_pesquisa(session: AsyncSession, pesquisa: PesquisaMarca) 
                 item.afinidade_classes and item.afinidade_classes.nivel in {"identica", "alta", "moderada"}
             ),
             candidata_ativa=item.relevancia_situacao == "ativa",
-            antiguidade_candidata_norm=antiguidade_norm(item.data_deposito, datetime.now(UTC).date()),
+            antiguidade_candidata_norm=antiguidade_norm(item.data_deposito, data_referencia_inferencia),
             portfolio_titular_candidata_norm=portfolio_titular_norm(
-                portfolio_por_titular, titular_ids_por_processo.get(item.numero, [])
+                portfolio_por_titular, titular_ids_por_processo.get(item.numero, []), data_referencia_inferencia
             ),
         )
         for item in itens

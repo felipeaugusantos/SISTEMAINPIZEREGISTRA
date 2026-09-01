@@ -22,6 +22,7 @@ from app.trademarks.learning import (
     decidir_exibicao_estimativa,
     extrair_atributos_par,
     extrair_rotulo,
+    portfolio_titular_norm,
     prever,
     prioridade_revisao_rotulo,
     validar_estimativa_para_cliente,
@@ -54,6 +55,21 @@ def test_rotulo_separa_decisao_de_merito_de_arquivamento_formal() -> None:
     assert resultado is not None
     assert resultado.alvo_deferimento is False
     assert resultado.fundamento == "falta_distintividade"
+
+
+def test_portfolio_titular_norm_respeita_a_data_de_referencia() -> None:
+    """Regressão: o cache de portfólio é indexado por (titular_id, data_referencia)
+    -- a mesma contagem para uma data não deve "vazar" para uma consulta em outra
+    data do mesmo titular (achado da auditoria Fase 1: vazamento temporal)."""
+    contagens = {(1, date(2015, 1, 1)): 3, (1, date(2026, 1, 1)): 40}
+
+    assert portfolio_titular_norm(contagens, [1], date(2015, 1, 1)) == 3 / 20.0
+    assert portfolio_titular_norm(contagens, [1], date(2026, 1, 1)) == 40 / 20.0 and portfolio_titular_norm(
+        contagens, [1], date(2026, 1, 1)
+    ) <= 1.0
+    # Data sem entrada no cache -> tratado como portfólio desconhecido (0), não herda
+    # a contagem de outra data do mesmo titular.
+    assert portfolio_titular_norm(contagens, [1], date(2020, 1, 1)) == 0.0
 
 
 def test_arquivamento_apos_deferimento_nao_conta_como_deferida() -> None:

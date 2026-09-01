@@ -337,20 +337,31 @@ def antiguidade_norm(data_candidata: date | None, data_referencia: date | None) 
 _ESCALA_PORTFOLIO_TITULAR = 20.0
 
 
-async def contar_marcas_por_titular(session: AsyncSession, titular_ids: list[int]) -> dict[int, int]:
-    """Nº de processos de marca distintos ligados a cada titular_id informado."""
+async def contar_marcas_por_titular(
+    session: AsyncSession, titular_ids: list[int], data_referencia: date
+) -> dict[int, int]:
+    """Nº de processos de marca distintos ligados a cada titular_id, considerando só
+    depósitos até data_referencia -- o portfólio como existia naquele momento, não o
+    portfólio atual do titular (que pode incluir marcas depositadas bem depois)."""
     if not titular_ids:
         return {}
     linhas = await session.execute(
         select(processo_titulares.c.titular_id, func.count(func.distinct(processo_titulares.c.processo_id)))
-        .where(processo_titulares.c.titular_id.in_(titular_ids))
+        .select_from(processo_titulares.join(Processo, Processo.id == processo_titulares.c.processo_id))
+        .where(
+            processo_titulares.c.titular_id.in_(titular_ids),
+            Processo.data_deposito.is_not(None),
+            Processo.data_deposito <= data_referencia,
+        )
         .group_by(processo_titulares.c.titular_id)
     )
     return dict(linhas.all())
 
 
-def portfolio_titular_norm(contagens: dict[int, int], titular_ids: list[int]) -> float:
-    maior = max((contagens.get(tid, 0) for tid in titular_ids), default=0)
+def portfolio_titular_norm(
+    contagens: dict[tuple[int, date], int], titular_ids: list[int], data_referencia: date
+) -> float:
+    maior = max((contagens.get((tid, data_referencia), 0) for tid in titular_ids), default=0)
     return min(1.0, maior / _ESCALA_PORTFOLIO_TITULAR)
 
 
@@ -507,9 +518,11 @@ async def construir_dataset_historico(
     afinidades = _pares_afinidade(list(matriz))
     rotulos_processados = 0
     pares_processados = 0
-    # Cache de portfólio por titular acumulado ao longo de toda a construção do dataset:
-    # titulares se repetem muito entre candidatos de alvos diferentes, então evita reconsultar.
-    cache_portfolio_titular: dict[int, int] = {}
+    # Cache de portfólio por (titular, data_referencia) acumulado ao longo da
+    # construção do dataset -- chave inclui a data porque o portfólio de um titular
+    # muda com o tempo; cachear só por titular_id (como antes) vazava o portfólio
+    # atual em exemplos de qualquer época (achado da auditoria Fase 1).
+    cache_portfolio_titular: dict[tuple[int, date], int] = {}
 
     for processo in processos:
         extraido = extrair_rotulo(processo.movimentacoes)
@@ -592,12 +605,14 @@ async def construir_dataset_historico(
             titular.id
             for candidata in candidatos
             for titular in candidata.titulares
-            if titular.id not in cache_portfolio_titular
+            if (titular.id, processo.data_deposito) not in cache_portfolio_titular
         }
         if titular_ids_faltantes:
-            cache_portfolio_titular.update(
-                await contar_marcas_por_titular(session, list(titular_ids_faltantes))
+            novas_contagens = await contar_marcas_por_titular(
+                session, list(titular_ids_faltantes), processo.data_deposito
             )
+            for titular_id in titular_ids_faltantes:
+                cache_portfolio_titular[(titular_id, processo.data_deposito)] = novas_contagens.get(titular_id, 0)
         for candidata in candidatos:
             classes_candidata = _classes(candidata)
             afinidade = any(
@@ -614,7 +629,7 @@ async def construir_dataset_historico(
                 candidata_ativa=_candidata_ativa_na_data(candidata, processo.data_deposito),
                 antiguidade_candidata_norm=antiguidade_norm(candidata.data_deposito, processo.data_deposito),
                 portfolio_titular_candidata_norm=portfolio_titular_norm(
-                    cache_portfolio_titular, [titular.id for titular in candidata.titulares]
+                    cache_portfolio_titular, [titular.id for titular in candidata.titulares], processo.data_deposito
                 ),
             )
             session.add(

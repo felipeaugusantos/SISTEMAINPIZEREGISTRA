@@ -230,6 +230,13 @@ def extrair_rotulo(movimentacoes: list[Movimentacao]) -> RotuloExtraido | None:
         codigo = (movimento.codigo_despacho or "").upper()
         if "recurso" in texto and "decisao" not in texto:
             continue
+        # Arquivamento definitivo (ex.: falta de pagamento da concessao apos um
+        # deferimento) e um encerramento formal, nao uma decisao de merito -- se ele
+        # for a movimentacao relevante mais recente (varredura e do mais novo pro mais
+        # antigo), o processo nunca chegou a um resultado real e nao deve virar exemplo,
+        # mesmo que uma decisao de merito mais antiga exista no historico.
+        if "desarquiv" not in texto and ("arquivamento" in texto or "arquivado" in texto):
+            return None
         positivo_recurso = codigo == "IPAS237" or ("recurso provido" in texto and "deferimento" in texto)
         negativo = codigo == "IPAS024" or any(
             termo in texto

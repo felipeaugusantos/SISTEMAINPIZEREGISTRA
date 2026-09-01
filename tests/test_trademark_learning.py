@@ -56,6 +56,22 @@ def test_rotulo_separa_decisao_de_merito_de_arquivamento_formal() -> None:
     assert resultado.fundamento == "falta_distintividade"
 
 
+def test_arquivamento_apos_deferimento_nao_conta_como_deferida() -> None:
+    """Regressão: falta de pagamento da concessão arquiva o processo definitivamente
+    -- não pode virar exemplo de "deferida" só porque um deferimento aconteceu antes."""
+    resultado = extrair_rotulo(
+        [
+            movimento("Deferimento do pedido", numero_rpi=2890, codigo="IPAS029"),
+            movimento(
+                "Arquivamento definitivo do pedido de registro por falta de pagamento da concessão",
+                numero_rpi=2900,
+                codigo="IPAS157",
+            ),
+        ]
+    )
+    assert resultado is None
+
+
 def test_recurso_nao_substitui_decisao_final() -> None:
     resultado = extrair_rotulo(
         [

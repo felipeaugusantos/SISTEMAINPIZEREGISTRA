@@ -10,7 +10,7 @@ from starlette.requests import Request
 from app.api.financeiro import LancamentoFinanceiro, ParcelaFinanceira
 from app.api.juridico import PrazoUpdate, atualizar_prazo
 from app.crm import aplicar_politica_oportunidade, aplicar_regras_automacao
-from app.models import EventoDominio, Lead, LembreteCRM, PoliticaCRM, PrazoJuridico, StatusLead
+from app.models import EventoDominio, Lead, PoliticaCRM, PrazoJuridico, StatusLead
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
@@ -65,17 +65,21 @@ def test_politica_configuravel_atribui_operador_e_proxima_acao() -> None:
 
 
 def test_automacao_reprocessada_nao_duplica_lembrete() -> None:
+    # A checagem de duplicidade agora é um INSERT ... ON CONFLICT DO NOTHING
+    # (upsert atômico no banco) em vez de SELECT-depois-INSERT, para fechar a
+    # corrida entre duas requisições quase simultâneas. FakeResult(scalar=1)
+    # simula o INSERT RETURNING id de quando a linha é realmente criada;
+    # FakeResult(scalar=None) simula o conflito (linha já existia).
     lead = _lead()
-    primeira = FakeSession([IterableFakeResult(itens=[]), FakeResult(scalar=None)])
-    segunda = FakeSession([IterableFakeResult(itens=[]), FakeResult(scalar=123)])
+    primeira = FakeSession([IterableFakeResult(itens=[]), FakeResult(scalar=1)])
+    segunda = FakeSession([IterableFakeResult(itens=[]), FakeResult(scalar=None)])
 
     assert asyncio.run(aplicar_regras_automacao(primeira, lead, "status", "sem_retorno", "teste")) == [
         "reengajar_sem_retorno"
     ]
     assert asyncio.run(aplicar_regras_automacao(segunda, lead, "status", "sem_retorno", "teste")) == []
-    assert len([x for x in primeira.adicionados if isinstance(x, LembreteCRM)]) == 1
     assert len([x for x in primeira.adicionados if isinstance(x, EventoDominio)]) == 1
-    assert not [x for x in segunda.adicionados if isinstance(x, LembreteCRM)]
+    assert not [x for x in segunda.adicionados if isinstance(x, EventoDominio)]
 
 
 def test_confirmacao_juridica_exige_responsavel_e_justificativa() -> None:

@@ -3,6 +3,7 @@ import unicodedata
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -163,32 +164,34 @@ async def aplicar_regras_automacao(session: AsyncSession, lead: Lead, evento: st
             continue
         dias = override.dias if override is not None else regra["dias"]
         chave_idempotencia = f"lead:{lead.id}:{evento}:{valor}:{chave}"
-        existente = (
+        # INSERT com ON CONFLICT DO NOTHING em vez de SELECT-depois-INSERT: duas
+        # requisicoes quase simultaneas (ex.: duplo PATCH) podiam ambas passar
+        # pelo SELECT antes de qualquer uma comitar e colidir na constraint unica
+        # so no commit, virando erro 500 nao tratado. O upsert resolve a corrida
+        # no proprio banco, de forma atomica.
+        inserido = (
             await session.execute(
-                select(LembreteCRM.id).where(
-                    LembreteCRM.organizacao_id == lead.organizacao_id,
-                    LembreteCRM.idempotency_key == chave_idempotencia,
+                pg_insert(LembreteCRM)
+                .values(
+                    organizacao_id=lead.organizacao_id,
+                    lead_id=lead.id,
+                    responsavel_id=lead.responsavel_id,
+                    tipo=regra["tipo"],
+                    prioridade=regra["prioridade"],
+                    titulo=regra["titulo"],
+                    descricao=regra["descricao"],
+                    lembrar_em=datetime.now(UTC) + timedelta(days=max(0, dias)),
+                    status="pendente",
+                    criado_por=f"Automação ({por})"[:254],
+                    criado_por_id=None,
+                    idempotency_key=chave_idempotencia,
                 )
+                .on_conflict_do_nothing(constraint="uq_lembrete_crm_idempotencia")
+                .returning(LembreteCRM.id)
             )
         ).scalar_one_or_none()
-        if existente is not None:
+        if inserido is None:
             continue
-        session.add(
-            LembreteCRM(
-                organizacao_id=lead.organizacao_id,
-                lead_id=lead.id,
-                responsavel_id=lead.responsavel_id,
-                tipo=regra["tipo"],
-                prioridade=regra["prioridade"],
-                titulo=regra["titulo"],
-                descricao=regra["descricao"],
-                lembrar_em=datetime.now(UTC) + timedelta(days=max(0, dias)),
-                status="pendente",
-                criado_por=f"Automação ({por})"[:254],
-                criado_por_id=None,
-                idempotency_key=chave_idempotencia,
-            )
-        )
         registrar_evento_operacional(
             session,
             organizacao_id=lead.organizacao_id,

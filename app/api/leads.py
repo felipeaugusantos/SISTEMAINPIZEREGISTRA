@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import case, desc, exists, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -2699,43 +2700,39 @@ async def aplicar_cadencia_lead(
     if cadencia is None:
         raise HTTPException(status_code=404, detail="Cadência não encontrada")
     agora = datetime.now(UTC)
-    chaves = [f"cadencia:{lead.id}:{cadencia.id}:{passo.id}" for passo in cadencia.passos]
-    existentes = set(
-        (
-            await session.execute(
-                select(LembreteCRM.idempotency_key).where(
-                    LembreteCRM.organizacao_id == usuario.organizacao_id,
-                    LembreteCRM.idempotency_key.in_(chaves),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
     criados = 0
     for passo in cadencia.passos:
         chave_idempotencia = f"cadencia:{lead.id}:{cadencia.id}:{passo.id}"
-        if chave_idempotencia in existentes:
-            continue
         descricao = f"Cadência “{cadencia.nome}” · canal {passo.canal}"
         if passo.descricao:
             descricao += f" — {passo.descricao}"
-        session.add(
-            LembreteCRM(
-                organizacao_id=usuario.organizacao_id,
-                lead_id=lead.id,
-                responsavel_id=lead.responsavel_id,
-                tipo="retorno",
-                prioridade="media",
-                titulo=passo.titulo,
-                descricao=descricao,
-                lembrar_em=agora + timedelta(days=passo.dia),
-                status="pendente",
-                criado_por=f"Cadência ({usuario.nome})"[:254],
-                criado_por_id=usuario.id,
-                idempotency_key=chave_idempotencia,
+        # INSERT com ON CONFLICT DO NOTHING em vez de SELECT-em-lote-depois-INSERT:
+        # duas chamadas quase simultaneas (duplo clique em "aplicar cadência")
+        # podiam ambas passar pelo SELECT antes de comitar e colidir na
+        # constraint unica so no commit final, virando 500 nao tratado.
+        inserido = (
+            await session.execute(
+                pg_insert(LembreteCRM)
+                .values(
+                    organizacao_id=usuario.organizacao_id,
+                    lead_id=lead.id,
+                    responsavel_id=lead.responsavel_id,
+                    tipo="retorno",
+                    prioridade="media",
+                    titulo=passo.titulo,
+                    descricao=descricao,
+                    lembrar_em=agora + timedelta(days=passo.dia),
+                    status="pendente",
+                    criado_por=f"Cadência ({usuario.nome})"[:254],
+                    criado_por_id=usuario.id,
+                    idempotency_key=chave_idempotencia,
+                )
+                .on_conflict_do_nothing(constraint="uq_lembrete_crm_idempotencia")
+                .returning(LembreteCRM.id)
             )
-        )
+        ).scalar_one_or_none()
+        if inserido is None:
+            continue
         criados += 1
         registrar_evento_operacional(
             session,

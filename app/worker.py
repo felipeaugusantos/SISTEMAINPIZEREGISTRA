@@ -1,15 +1,25 @@
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import or_, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.api.juridico import executar_motor_organizacao
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
 from app.database import session_factory
-from app.models import AlertaSistema, Lead, LembreteCRM, Organizacao, StatusLead
+from app.models import (
+    AlertaSistema,
+    Lead,
+    LembreteCRM,
+    Movimentacao,
+    Organizacao,
+    Processo,
+    ProcessoMonitorado,
+    RenovacaoFinanceira,
+    StatusLead,
+)
 from app.queueing import (
     FAILED_KEY,
     MAX_ATTEMPTS,
@@ -29,12 +39,21 @@ from app.trademarks.learning import (
     reprocessar_previsoes_pendentes,
 )
 from app.trademarks.model_status import StatusModelo
+from app.trademarks.status import normalizar_despacho
 
 logger = logging.getLogger("ze_registra.worker")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
     logger.addHandler(logging.StreamHandler())
 logger.propagate = False
+
+
+def _somar_anos(referencia: date, anos: int) -> date:
+    try:
+        return referencia.replace(year=referencia.year + anos)
+    except ValueError:
+        # 29 de fevereiro em ano nao bissexto -> usa 28/02 do ano de destino.
+        return referencia.replace(year=referencia.year + anos, day=28)
 
 
 async def processar(tipo: str, payload: dict) -> None:
@@ -153,6 +172,77 @@ async def processar(tipo: str, payload: dict) -> None:
                         codigo="REENGAJAMENTO_CRM_EXECUTADO",
                         mensagem=f"Reengajamento por inatividade: {criados} lembrete(s) criado(s).",
                         detalhes={"criados": criados, "semana": semana},
+                    )
+                )
+        elif tipo == "crm.gerar_renovacoes_marca":
+            # Achado da auditoria: RenovacaoFinanceira e o endpoint de criar ja
+            # existiam (app/api/contratacoes.py), mas so eram usados manualmente --
+            # nada gerava a renovacao sozinho quando a marca era concedida. Gatilho
+            # confiavel: Processo.situacao_normalizada == "registrada" (concessao de
+            # registro, ja calculado pelo importador da RPI). Vencimento = data da
+            # concessao (extraida da movimentacao que causou a mudanca de situacao)
+            # + 10 anos, prazo padrao de vigencia do registro de marca no Brasil.
+            pendentes = (
+                await session.execute(
+                    select(ProcessoMonitorado.organizacao_id, ProcessoMonitorado.processo_id)
+                    .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+                    .where(
+                        Processo.situacao_normalizada == "registrada",
+                        ~exists(
+                            select(1).where(
+                                RenovacaoFinanceira.organizacao_id == ProcessoMonitorado.organizacao_id,
+                                RenovacaoFinanceira.processo_id == ProcessoMonitorado.processo_id,
+                                RenovacaoFinanceira.tipo == "renovacao",
+                            )
+                        ),
+                    )
+                    .distinct()
+                )
+            ).all()
+            criadas = 0
+            for organizacao_id, processo_id in pendentes:
+                movimentacoes = (
+                    await session.execute(
+                        select(Movimentacao)
+                        .where(Movimentacao.processo_id == processo_id)
+                        .order_by(Movimentacao.data_rpi.desc())
+                    )
+                ).scalars()
+                data_concessao = next(
+                    (
+                        mov.data_rpi
+                        for mov in movimentacoes
+                        if normalizar_despacho(mov.codigo_despacho, mov.descricao).codigo == "registrada"
+                    ),
+                    None,
+                )
+                if data_concessao is None:
+                    continue
+                inserido = (
+                    await session.execute(
+                        pg_insert(RenovacaoFinanceira)
+                        .values(
+                            organizacao_id=organizacao_id,
+                            processo_id=processo_id,
+                            tipo="renovacao",
+                            referencia=f"registro-{data_concessao.isoformat()}",
+                            vencimento=_somar_anos(data_concessao, 10),
+                            status="pendente",
+                        )
+                        .on_conflict_do_nothing(constraint="uq_renovacao_financeira")
+                        .returning(RenovacaoFinanceira.id)
+                    )
+                ).scalar_one_or_none()
+                if inserido is not None:
+                    criadas += 1
+            if criadas:
+                session.add(
+                    AlertaSistema(
+                        organizacao_id=1,
+                        severidade="info",
+                        codigo="RENOVACOES_GERADAS",
+                        mensagem=f"{criadas} renovação(ões) de marca gerada(s) automaticamente.",
+                        detalhes={"criadas": criadas},
                     )
                 )
         elif tipo == "registrabilidade.reconciliar_resultados":
@@ -304,6 +394,7 @@ async def main() -> None:
                     "assinaturas.verificar",
                     "privacidade.verificar_retencao",
                     "crm.reengajamento_inatividade",
+                    "crm.gerar_renovacoes_marca",
                     "registrabilidade.reconciliar_resultados",
                     "juridico.executar_motor",
                     "vigilancia.executar_semanal",

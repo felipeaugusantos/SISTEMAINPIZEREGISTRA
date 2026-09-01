@@ -457,10 +457,31 @@ class RelatorioMarcaResponse(BaseModel):
     analise_consolidada: dict | None = None
 
 
+class DisclaimerEstrategicoResponse(BaseModel):
+    codigo: str
+    titulo: str
+    texto: str
+
+
+class AnaliseConsolidadaPublicaResponse(BaseModel):
+    """Leitura client-safe de analise_consolidada -- mesma decisão unificada
+    (Favorável/Desfavorável/Inconclusiva) mostrada na Central de Análise interna,
+    sem os campos internos (matriz completa, parecer humano, dados brutos)."""
+
+    situacao_codigo: str
+    situacao_rotulo: str
+    situacao_explicacao: str
+    titulo: str
+    recomendacao: str
+    diretriz_acao: str | None = None
+    diretriz_acao_rotulo: str | None = None
+    disclaimers: list[DisclaimerEstrategicoResponse] = Field(default_factory=list)
+
+
 class ResumoPublicoMarcaResponse(BaseModel):
     id: str
     versao: int = 1
-    schema_versao: str = "resumo-publico-marca-1.2"
+    schema_versao: str = "resumo-publico-marca-1.3"
     gerado_em: datetime | None = None
     marca: str
     atividade: str
@@ -475,6 +496,11 @@ class ResumoPublicoMarcaResponse(BaseModel):
     risco_nivel: str | None = None
     # Triagem determinística separada do indicador histórico supervisionado.
     prognostico_registrabilidade: PrognosticoRegistrabilidadeResponse | None = None
+    # Veredito único (Favorável/Desfavorável/Inconclusiva) -- substitui, para o
+    # cliente, a leitura de "conclusao"/"prognostico_registrabilidade" acima como
+    # fonte de verdade sobre a situação do registro; os dois campos anteriores
+    # ficam só por compatibilidade com integrações existentes.
+    analise_consolidada: AnaliseConsolidadaPublicaResponse | None = None
     detalhes_internos_disponiveis: bool = True
 
 

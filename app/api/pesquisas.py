@@ -46,6 +46,7 @@ from app.schemas import (
     PrognosticoRegistrabilidadeResponse,
     QualidadeBaseResponse,
     RelatorioMarcaResponse,
+    AnaliseConsolidadaPublicaResponse,
     ResumoPublicoMarcaResponse,
     TitularResponse,
 )
@@ -54,7 +55,7 @@ from app.search_ranking import adicionar_contexto_score
 from app.tenancy import OrganizacaoPublicaDep, validar_limite_pesquisas
 from app.trademarks.affinity import avaliar_afinidade
 from app.trademarks.agent import registrar_execucao_agente
-from app.trademarks.consolidated import construir_analise_consolidada
+from app.trademarks.consolidated import apresentacao_analise, construir_analise_consolidada
 from app.trademarks.learning import (
     antiguidade_norm,
     contar_marcas_por_titular,
@@ -206,6 +207,33 @@ async def criar_pesquisa(
     )
 
 
+_ROTULOS_DIRETRIZ_PUBLICOS = {
+    "deposito_imediato": "Depósito imediato",
+    "ajuste_especificacao": "Ajuste de especificação",
+    "adequacao_mista": "Adequação de logotipo/mista",
+    "inviavel_rebranding": "Inviável — sugerir rebranding",
+}
+
+
+def _analise_consolidada_publica(analise: dict | None) -> AnaliseConsolidadaPublicaResponse | None:
+    if not analise:
+        return None
+    apresentacao = apresentacao_analise(analise)
+    situacao = apresentacao["situacao"]
+    diretriz = analise.get("diretriz_acao") or {}
+    codigo_diretriz = diretriz.get("codigo")
+    return AnaliseConsolidadaPublicaResponse(
+        situacao_codigo=situacao["codigo"],
+        situacao_rotulo=situacao["rotulo"],
+        situacao_explicacao=situacao["explicacao"],
+        titulo=analise.get("titulo") or "",
+        recomendacao=analise.get("recomendacao") or "",
+        diretriz_acao=codigo_diretriz,
+        diretriz_acao_rotulo=_ROTULOS_DIRETRIZ_PUBLICOS.get(codigo_diretriz) if codigo_diretriz else None,
+        disclaimers=list(analise.get("disclaimers") or []),
+    )
+
+
 def construir_resumo_publico(relatorio: RelatorioMarcaResponse) -> ResumoPublicoMarcaResponse:
     return ResumoPublicoMarcaResponse(
         id=relatorio.id,
@@ -223,6 +251,7 @@ def construir_resumo_publico(relatorio: RelatorioMarcaResponse) -> ResumoPublico
         risco_pontuacao=relatorio.risco_pontuacao,
         risco_nivel=relatorio.risco_nivel,
         prognostico_registrabilidade=relatorio.prognostico_registrabilidade,
+        analise_consolidada=_analise_consolidada_publica(relatorio.analise_consolidada),
     )
 
 

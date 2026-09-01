@@ -58,8 +58,25 @@ async function loadReport() {
     document.querySelector("#conclusion-title").textContent = conclusion?.titulo || "Resultado meramente indicativo";
     document.querySelector("#conclusion-summary").textContent = conclusion?.resumo || "A pesquisa não substitui uma análise profissional.";
     document.querySelector("#conclusion-review").textContent = conclusion?.revisao_humana_recomendada ? "Revisão humana recomendada antes de qualquer decisão." : "A ausência de conflito evidente não garante o registro.";
-    const prognostico = data.prognostico_registrabilidade;
-    if (prognostico) {
+    const analise = data.analise_consolidada;
+    if (analise) {
+      // Veredito único (Favorável/Desfavorável/Inconclusiva) -- substitui a leitura
+      // antiga de "prognostico_registrabilidade" (que podia mostrar "Atenção" como
+      // se fosse um 4º veredito) como fonte de verdade para o cliente.
+      const box = document.createElement("section");
+      box.className = "report-classification prognostico";
+      box.dataset.veredito = analise.situacao_codigo;
+      const disclaimers = (analise.disclaimers || []).map((d) => `<li><strong>${escapeHtml(d.titulo)}:</strong> ${escapeHtml(d.texto)}</li>`).join("");
+      box.innerHTML = `<div><p class="eyebrow">Situação da análise</p><h2>${escapeHtml(analise.titulo)}</h2><p class="prognostico-tag" data-veredito="${escapeHtml(analise.situacao_codigo)}">Situação: ${escapeHtml(analise.situacao_rotulo)}</p></div>
+        <p>${escapeHtml(analise.situacao_explicacao)}</p>
+        <p>${escapeHtml(analise.recomendacao)}</p>
+        ${analise.diretriz_acao_rotulo ? `<p><strong>Diretriz de ação recomendada:</strong> ${escapeHtml(analise.diretriz_acao_rotulo)}</p>` : ""}
+        ${disclaimers ? `<p><strong>Avisos importantes:</strong></p><ul class="prognostico-motivos">${disclaimers}</ul>` : ""}
+        <p class="matrix-status">Análise preliminar automatizada; não constitui garantia de deferimento pelo INPI nem substitui avaliação jurídica especializada.</p>`;
+      document.querySelector("#report-conclusion").after(box);
+    } else if (data.prognostico_registrabilidade) {
+      // Relatório legado, gerado antes da análise consolidada existir.
+      const prognostico = data.prognostico_registrabilidade;
       const rotulos = { favoravel: "Favorável", atencao: "Atenção", desfavoravel: "Desfavorável" };
       const box = document.createElement("section");
       box.className = "report-classification prognostico";

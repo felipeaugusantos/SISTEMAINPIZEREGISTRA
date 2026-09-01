@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/static/styles.css?v=47">
   <link rel="stylesheet" href="/static/admin-juridico.css?v=14">
   <script src="/static/admin-shell.js?v=39" defer></script>
-  <script src="/static/admin-juridico.js?v=12" defer></script>
+  <script src="/static/admin-juridico.js?v=13" defer></script>
 </head>
 <body class="admin-body" data-admin-section="legal">
   <main class="admin-main legal-main">
@@ -88,6 +88,16 @@
       <label class="full"><span>Orientações</span><textarea name="descricao" rows="4" maxlength="4000"></textarea></label>
       <p class="legal-disclaimer full">A contagem automática é operacional e não substitui a conferência da publicação, da legislação aplicável, de feriados ou do profissional responsável.</p>
       <footer class="full"><button class="secondary-button" type="button" data-close-dialog>Cancelar</button><button class="primary-button" type="submit">Salvar prazo</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-deadline-dialog" class="legal-dialog compact">
+    <form id="confirm-deadline-form">
+      <header><div><p class="eyebrow">CONFERÊNCIA OBRIGATÓRIA</p><h2>Confirmar prazo</h2></div><button type="button" data-close-confirm-deadline aria-label="Fechar">×</button></header>
+      <input type="hidden" name="prazo_id">
+      <p class="legal-disclaimer full">Confirme que a sugestão gerada pelo motor de prazos foi conferida por um responsável antes de seguir para a agenda.</p>
+      <label><span>Observações da confirmação jurídica</span><textarea name="confirmacao_observacoes" rows="4" minlength="3" maxlength="2000" required></textarea></label>
+      <footer><button class="secondary-button" type="button" data-close-confirm-deadline>Cancelar</button><button class="primary-button" type="submit">Confirmar prazo</button></footer>
     </form>
   </dialog>
 

@@ -4,6 +4,8 @@ const deadlineDialog = document.querySelector("#deadline-dialog");
 const deadlineForm = document.querySelector("#deadline-form");
 const deliveryDialog = document.querySelector("#delivery-dialog");
 const deliveryForm = document.querySelector("#delivery-form");
+const confirmDeadlineDialog = document.querySelector("#confirm-deadline-dialog");
+const confirmDeadlineForm = document.querySelector("#confirm-deadline-form");
 const dateOnly = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" });
 const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
 
@@ -153,6 +155,7 @@ document.querySelector("#legal-next").addEventListener("click", () => { legalSta
 document.querySelector("#new-legal-deadline").addEventListener("click", openDeadline);
 document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => deadlineDialog.close()));
 document.querySelectorAll("[data-close-delivery]").forEach((button) => button.addEventListener("click", () => deliveryDialog.close()));
+document.querySelectorAll("[data-close-confirm-deadline]").forEach((button) => button.addEventListener("click", () => confirmDeadlineDialog.close()));
 document.querySelector("#run-legal-engine").addEventListener("click", async () => {
   showMessage("Analisando prazos e escalonamentos…", "loading");
   try {
@@ -188,11 +191,10 @@ document.querySelector("#legal-deadlines").addEventListener("click", (event) => 
   const progress = event.target.closest(".progress-deadline");
   const delivery = event.target.closest(".delivery-deadline");
   if (confirm) {
-    const observacoes = window.prompt("Observações da confirmação jurídica (obrigatório):", "Prazo sugerido pela RPI conferido e confirmado pelo operador");
-    if (observacoes !== null) {
-      if (!observacoes.trim()) { showMessage("Informe as observações da confirmação jurídica."); }
-      else updateDeadline(confirm.dataset.id, { confirmar: true, confirmacao_observacoes: observacoes.trim(), descricao_evento: "Prazo sugerido pela RPI conferido e confirmado pelo operador" }).catch((error) => showMessage(error.message));
-    }
+    confirmDeadlineForm.reset();
+    confirmDeadlineForm.elements.prazo_id.value = confirm.dataset.id;
+    confirmDeadlineForm.elements.confirmacao_observacoes.value = "Prazo sugerido pela RPI conferido e confirmado pelo operador";
+    confirmDeadlineDialog.showModal();
   }
   if (cancel) updateDeadline(cancel.dataset.id, { status: "cancelado", descricao_evento: "Sugestão automática descartada após conferência" }).catch((error) => showMessage(error.message));
   if (complete) updateDeadline(complete.dataset.id, { status: "concluido" }).catch((error) => showMessage(error.message));
@@ -218,6 +220,16 @@ deliveryForm.addEventListener("submit", async (event) => {
   try {
     await api(`/v1/admin/juridico/prazos/${prazoId}/entregas`, { method: "POST", body: JSON.stringify(data) });
     deliveryDialog.close(); showMessage("Entrega registrada na trilha auditável.", "success"); await loadDashboard();
+  } catch (error) { showMessage(error.message); }
+});
+confirmDeadlineForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(confirmDeadlineForm));
+  const prazoId = data.prazo_id;
+  try {
+    await updateDeadline(prazoId, { confirmar: true, confirmacao_observacoes: data.confirmacao_observacoes.trim(), descricao_evento: "Prazo sugerido pela RPI conferido e confirmado pelo operador" });
+    confirmDeadlineDialog.close();
+    showMessage("Prazo confirmado.", "success");
   } catch (error) { showMessage(error.message); }
 });
 

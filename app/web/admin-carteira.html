@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/static/styles.css?v=47">
   <link rel="stylesheet" href="/static/admin-carteira.css?v=9">
   <script src="/static/admin-shell.js?v=39" defer></script>
-  <script src="/static/admin-carteira.js?v=13" defer></script>
+  <script src="/static/admin-carteira.js?v=14" defer></script>
 </head>
 <body class="admin-body" data-admin-section="portfolio">
   <main class="admin-main portfolio-main">
@@ -23,6 +23,11 @@
     <div id="portfolio-message" class="status-message" role="status" aria-live="polite" hidden></div>
 
     <section class="portfolio-metrics" id="portfolio-metrics" aria-label="Resumo da carteira"></section>
+
+    <section class="portfolio-card" id="pre-cadastros-section" hidden>
+      <header><div><p class="eyebrow">VÍNCULO AUTOMÁTICO</p><h2>Aguardando publicação na RPI</h2><p>Processos ainda não publicados. Assim que a RPI publicar o número, o vínculo com a carteira é feito automaticamente.</p></div></header>
+      <div class="portfolio-table-wrap"><table><thead><tr><th>Processo</th><th>Titular informado</th><th>Empresa</th><th>Responsável</th><th>Cadastrado por</th><th>Cadastrado em</th><th><span class="visually-hidden">Ações</span></th></tr></thead><tbody id="pre-cadastros-rows"></tbody></table></div>
+    </section>
 
     <section class="portfolio-card attorney-search">
       <header><div><p class="eyebrow">VÍNCULO AUTOMÁTICO</p><h2>Pesquisar por procurador</h2><p>Use preferencialmente a pesquisa exata após selecionar o nome sugerido.</p></div></header>
@@ -61,7 +66,9 @@
   <dialog id="manual-dialog" class="portfolio-dialog">
     <form id="manual-form" method="dialog">
       <header><div><p class="eyebrow">CADASTRO MANUAL</p><h2>Adicionar processo à carteira</h2></div><button id="close-manual" type="button" aria-label="Fechar">×</button></header>
-      <label><span>Número do processo no INPI</span><input name="numero" minlength="5" maxlength="50" placeholder="Ex.: 935977333" required></label>
+      <label><span>Número do processo/protocolo no INPI</span><input name="numero" minlength="5" maxlength="50" placeholder="Ex.: 935977333" required></label>
+      <label><span>Titular</span><input name="titular" minlength="2" maxlength="300" placeholder="Nome do titular no INPI" required></label>
+      <p class="import-hint">Se o número ainda não estiver publicado na base RPI, o cadastro fica pendente e é vinculado automaticamente assim que a RPI publicar.</p>
       <label><span>Empresa/cliente</span><input name="empresa_nome" list="company-suggestions" placeholder="Opcional"></label>
       <label><span>Responsável</span><select name="responsavel_id" id="manual-owner"><option value="">Não atribuído</option></select></label>
       <label><span>Observações</span><textarea name="observacoes" rows="4" maxlength="4000"></textarea></label>

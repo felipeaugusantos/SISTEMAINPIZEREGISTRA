@@ -193,7 +193,38 @@ document.querySelector("#close-manual").addEventListener("click", () => dialog.c
 document.querySelector("#cancel-manual").addEventListener("click", () => dialog.close());
 document.querySelector("#manual-form").addEventListener("submit", async event => {
   event.preventDefault(); const form = event.currentTarget; const values = Object.fromEntries(new FormData(form));
-  try { const result = await api("/v1/admin/carteira/manual", { method: "POST", body: JSON.stringify({ ...values, responsavel_id: Number(values.responsavel_id) || null, empresa_nome: values.empresa_nome || null, observacoes: values.observacoes || null }) }); showMessage(result.vinculados ? `Processo ${result.numero} adicionado à carteira.` : `Processo ${result.numero} já estava na carteira.`); dialog.close(); form.reset(); await loadPortfolio(); }
+  try {
+    const result = await api("/v1/admin/carteira/manual", { method: "POST", body: JSON.stringify({ ...values, responsavel_id: Number(values.responsavel_id) || null, empresa_nome: values.empresa_nome || null, observacoes: values.observacoes || null }) });
+    if (result.status === "pendente") showMessage(result.mensagem || `Processo ${result.numero} aguardando publicação na RPI.`);
+    else showMessage(result.vinculados ? `Processo ${result.numero} adicionado à carteira.` : `Processo ${result.numero} já estava na carteira.`);
+    dialog.close(); form.reset(); await Promise.all([loadPortfolio(), loadPreCadastros()]);
+  }
+  catch (error) { showMessage(error.message, "error"); }
+});
+
+async function loadPreCadastros() {
+  const section = document.querySelector("#pre-cadastros-section");
+  const tbody = document.querySelector("#pre-cadastros-rows");
+  let itens;
+  try { itens = await api("/v1/admin/carteira/pre-cadastros"); }
+  catch { section.hidden = true; return; }
+  section.hidden = itens.length === 0;
+  tbody.innerHTML = itens.map(item => `
+    <tr data-id="${item.id}">
+      <td>${escapeHtml(item.numero)}</td>
+      <td>${escapeHtml(item.titular)}</td>
+      <td>${escapeHtml(item.empresa || "—")}</td>
+      <td>${escapeHtml(item.responsavel_nome || "Não atribuído")}</td>
+      <td>${escapeHtml(item.criado_por)}</td>
+      <td>${new Date(item.criado_em).toLocaleDateString("pt-BR")}</td>
+      <td><button class="secondary-button cancel-pre-cadastro" type="button">Cancelar</button></td>
+    </tr>`).join("");
+}
+document.querySelector("#pre-cadastros-rows").addEventListener("click", async event => {
+  const button = event.target.closest(".cancel-pre-cadastro"); if (!button) return;
+  const id = button.closest("tr").dataset.id;
+  if (!confirm("Cancelar este pré-cadastro? Ele não será mais vinculado automaticamente quando a RPI publicar.")) return;
+  try { await api(`/v1/admin/carteira/pre-cadastros/${id}/cancelar`, { method: "POST" }); await loadPreCadastros(); }
   catch (error) { showMessage(error.message, "error"); }
 });
 document.querySelector("#portfolio-filter").addEventListener("submit", event => { event.preventDefault(); state.offset = 0; loadPortfolio().catch(error => showMessage(error.message, "error")); });
@@ -311,4 +342,4 @@ document.querySelector("#attorney-name").addEventListener("input", event => {
   suggestionTimer = setTimeout(async () => { try { const names = await api(`/v1/admin/carteira/procuradores?busca=${encodeURIComponent(value)}`); document.querySelector("#attorney-suggestions").replaceChildren(...names.map(name => { const option = document.createElement("option"); option.value = name; return option; })); } catch {} }, 300);
 });
 
-Promise.all([loadReferences(), loadPortfolio()]).catch(error => showMessage(error.message, "error"));
+Promise.all([loadReferences(), loadPortfolio(), loadPreCadastros()]).catch(error => showMessage(error.message, "error"));

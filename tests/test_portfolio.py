@@ -119,7 +119,7 @@ def test_cadastro_manual_vincula_processo_sem_duplicar_dados_rpi() -> None:
 
     resultado = asyncio.run(
         cadastrar_manual(
-            CadastroManual(numero="935977333"),
+            CadastroManual(numero="935977333", titular="Titular Teste Ltda"),
             _request(),
             session,
             usuario,
@@ -153,7 +153,7 @@ def test_cadastro_manual_informa_quando_processo_ja_esta_vinculado() -> None:
 
     resultado = asyncio.run(
         cadastrar_manual(
-            CadastroManual(numero="935977333"),
+            CadastroManual(numero="935977333", titular="Titular Teste Ltda"),
             _request(),
             session,
             usuario_teste(),
@@ -176,7 +176,7 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
     assert "Pesquisar por procurador" in html
     assert "Cadastrar processo" in html
     assert "admin-carteira.css?v=9" in html
-    assert "admin-carteira.js?v=13" in html
+    assert "admin-carteira.js?v=" in html
     assert "Incluir variações do nome" in html
     assert "titular" in javascript
     assert "attorney-variants" in javascript

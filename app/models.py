@@ -1083,6 +1083,50 @@ class HistoricoEtapaCarteira(Base):
     processo_monitorado: Mapped[ProcessoMonitorado] = relationship(back_populates="historico_etapas")
 
 
+class PreCadastroProcesso(Base):
+    """Numero e titular registrados antes da RPI publicar o processo.
+
+    Vinculado automaticamente a um ProcessoMonitorado assim que a sincronizacao
+    da RPI cria o Processo correspondente (ver app/rpi/bulk_importer.py).
+    """
+
+    __tablename__ = "pre_cadastros_processo"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('aguardando','vinculado','cancelado')",
+            name="ck_pre_cadastro_processo_status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    numero: Mapped[str] = mapped_column(String(50))
+    numero_normalizado: Mapped[str] = mapped_column(String(50), index=True)
+    titular: Mapped[str] = mapped_column(String(300))
+    empresa_id: Mapped[int | None] = mapped_column(
+        ForeignKey("empresas_crm.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    responsavel_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="aguardando", server_default="aguardando", index=True)
+    titular_divergente: Mapped[bool] = mapped_column(Boolean, default=False)
+    criado_por: Mapped[str] = mapped_column(String(254))
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    vinculado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processo_monitorado_id: Mapped[int | None] = mapped_column(
+        ForeignKey("processos_monitorados.id", ondelete="SET NULL"), nullable=True
+    )
+
+    empresa: Mapped[EmpresaCRM | None] = relationship(lazy="selectin")
+    responsavel: Mapped["UsuarioOperacoes | None"] = relationship(lazy="selectin")
+    processo_monitorado: Mapped[ProcessoMonitorado | None] = relationship(lazy="selectin")
+
+
 class PrazoJuridico(Base):
     """Prazo operacional vinculado a um processo monitorado."""
 

@@ -73,10 +73,65 @@ async def importar_rpi_em_lotes(
             estatisticas.adicionar(lote)
             if progresso:
                 progresso(estatisticas.registros)
+
+        await _vincular_pre_cadastros_pendentes(conexao)
     finally:
         await conexao.close()
 
     return estatisticas
+
+
+async def _vincular_pre_cadastros_pendentes(conexao: asyncpg.Connection) -> None:
+    """Vincula automaticamente processos pre-cadastrados (numero informado antes
+    da RPI publicar) assim que o numero correspondente aparece em `processos`.
+
+    Roda em toda sincronizacao da RPI, entao tambem cobre pre-cadastros cujo
+    processo ja tinha sido publicado antes desta execucao especifica.
+    """
+    async with conexao.transaction():
+        # Escopo cruza organizacoes (varias podem ter pre-cadastrado o mesmo
+        # numero) -- precisa do bypass de RLS igual outros jobs de sistema.
+        await conexao.execute("SET LOCAL app.superadmin = 'true'")
+        await conexao.execute(
+            """
+            INSERT INTO processos_monitorados (
+                organizacao_id, processo_id, empresa_id, responsavel_id, status,
+                origem, observacoes, vinculado_por, criado_em, atualizado_em,
+                etapa_kanban, ordem_kanban, etapa_atualizada_em, prioridade
+            )
+            SELECT pc.organizacao_id, proc.id, pc.empresa_id, pc.responsavel_id, 'ativo',
+                   'pre_cadastro', pc.observacoes, pc.criado_por, now(), now(),
+                   'triagem', 0, now(), 'media'
+            FROM pre_cadastros_processo AS pc
+            JOIN processos AS proc
+              ON proc.numero_normalizado = pc.numero_normalizado AND proc.tipo = 'marca'
+            WHERE pc.status = 'aguardando'
+            ON CONFLICT (organizacao_id, processo_id) DO NOTHING
+            """
+        )
+        await conexao.execute(
+            """
+            UPDATE pre_cadastros_processo AS pc
+            SET status = 'vinculado',
+                vinculado_em = now(),
+                processo_monitorado_id = pm.id,
+                titular_divergente = NOT EXISTS (
+                    SELECT 1 FROM processo_titulares AS pt
+                    JOIN titulares AS t ON t.id = pt.titular_id
+                    WHERE pt.processo_id = pm.processo_id
+                      AND (
+                            unaccent(lower(t.nome)) = unaccent(lower(pc.titular))
+                         OR unaccent(lower(t.nome)) LIKE '%' || unaccent(lower(pc.titular)) || '%'
+                         OR unaccent(lower(pc.titular)) LIKE '%' || unaccent(lower(t.nome)) || '%'
+                      )
+                )
+            FROM processos_monitorados AS pm
+            JOIN processos AS proc ON proc.id = pm.processo_id
+            WHERE pc.status = 'aguardando'
+              AND pc.organizacao_id = pm.organizacao_id
+              AND proc.numero_normalizado = pc.numero_normalizado
+            """
+        )
 
 
 async def _criar_tabelas_temporarias(conexao: asyncpg.Connection) -> None:

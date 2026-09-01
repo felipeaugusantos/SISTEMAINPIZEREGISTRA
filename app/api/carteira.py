@@ -10,6 +10,7 @@ from openpyxl import load_workbook
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.cli.consolidar_situacoes_marcas import consolidar_situacao
@@ -20,6 +21,7 @@ from app.models import (
     EventoAuditoria,
     HistoricoEtapaCarteira,
     Movimentacao,
+    PreCadastroProcesso,
     Processo,
     ProcessoMonitorado,
     RpiImportacao,
@@ -161,6 +163,12 @@ class VinculoBase(BaseModel):
 
 class CadastroManual(VinculoBase):
     numero: str = Field(min_length=5, max_length=50)
+    titular: str = Field(min_length=2, max_length=300)
+
+    @field_validator("titular", mode="before")
+    @classmethod
+    def _limpar_titular(cls, valor: object) -> str | None:
+        return valor.strip() if isinstance(valor, str) else valor
 
 
 class VinculoLote(VinculoBase):
@@ -933,6 +941,13 @@ async def buscar_por_procurador(
     }
 
 
+def _titular_diverge(titular_informado: str, titulares_publicados: list[Titular]) -> bool:
+    if not titulares_publicados:
+        return False
+    informado = _normalizar_busca(titular_informado)
+    return not any(_normalizar_busca(titular.nome) in informado or informado in _normalizar_busca(titular.nome) for titular in titulares_publicados)
+
+
 @router.post("/manual", status_code=201)
 async def cadastrar_manual(
     dados: CadastroManual,
@@ -940,21 +955,137 @@ async def cadastrar_manual(
     session: SessionDep,
     usuario: ManageDep,
 ) -> dict:
+    numero_normalizado = normalizar_numero_processo(dados.numero)
     processo = (
         await session.execute(
-            select(Processo).where(
-                Processo.numero_normalizado == normalizar_numero_processo(dados.numero),
-                Processo.tipo == TipoProcesso.MARCA,
-            )
+            select(Processo)
+            .where(Processo.numero_normalizado == numero_normalizado, Processo.tipo == TipoProcesso.MARCA)
+            .options(selectinload(Processo.titulares))
         )
     ).scalar_one_or_none()
     if processo is None:
-        raise HTTPException(
-            404,
-            "Processo não localizado na base RPI. Sincronize as revistas antes de cadastrar.",
+        # Processo ainda nao publicado na RPI: guarda a intencao e vincula
+        # automaticamente assim que a sincronizacao semanal publicar o numero
+        # (ver _vincular_pre_cadastros_pendentes em app/rpi/bulk_importer.py).
+        pendente = (
+            await session.execute(
+                select(PreCadastroProcesso).where(
+                    PreCadastroProcesso.organizacao_id == usuario.organizacao_id,
+                    PreCadastroProcesso.numero_normalizado == numero_normalizado,
+                    PreCadastroProcesso.status == "aguardando",
+                )
+            )
+        ).scalar_one_or_none()
+        if pendente is not None:
+            return {
+                "status": "pendente",
+                "numero": dados.numero,
+                "mensagem": "Esse processo já está aguardando publicação na RPI para esta organização.",
+            }
+        empresa = await _empresa(session, usuario, dados.empresa_id, dados.empresa_nome)
+        await _validar_responsavel(session, usuario, dados.responsavel_id)
+        session.add(
+            PreCadastroProcesso(
+                organizacao_id=usuario.organizacao_id,
+                numero=dados.numero,
+                numero_normalizado=numero_normalizado,
+                titular=dados.titular,
+                empresa_id=empresa.id if empresa else None,
+                responsavel_id=dados.responsavel_id,
+                observacoes=dados.observacoes,
+                criado_por=usuario.ator,
+            )
         )
-    resultado = await _vincular_ids(session, request, usuario, [processo.id], dados, origem="manual")
-    return {**resultado, "numero": processo.numero}
+        _auditar(
+            session,
+            request,
+            usuario,
+            "pre_cadastrar_processo",
+            f"pre_cadastro:{numero_normalizado}",
+            {"numero": dados.numero, "titular": dados.titular},
+        )
+        await session.commit()
+        return {
+            "status": "pendente",
+            "numero": dados.numero,
+            "mensagem": "Processo ainda não publicado na RPI. Cadastro salvo e será vinculado "
+            "automaticamente à carteira assim que a RPI publicar este número.",
+        }
+
+    dados_vinculo = dados.model_copy()
+    if _titular_diverge(dados.titular, processo.titulares):
+        nota = f'Titular informado no cadastro ("{dados.titular}") não confere com o titular publicado na RPI — verifique.'
+        dados_vinculo.observacoes = f"{dados_vinculo.observacoes}\n{nota}" if dados_vinculo.observacoes else nota
+    resultado = await _vincular_ids(session, request, usuario, [processo.id], dados_vinculo, origem="manual")
+    return {**resultado, "numero": processo.numero, "status": "vinculado"}
+
+
+@router.get("/pre-cadastros")
+async def listar_pre_cadastros(
+    session: SessionDep,
+    usuario: ViewDep,
+    status_filtro: Annotated[Literal["aguardando", "vinculado", "cancelado"] | None, Query(alias="status")] = (
+        "aguardando"
+    ),
+) -> list[dict]:
+    consulta = (
+        select(PreCadastroProcesso)
+        .where(PreCadastroProcesso.organizacao_id == usuario.organizacao_id)
+        .order_by(PreCadastroProcesso.criado_em.desc())
+        .limit(500)
+    )
+    if status_filtro:
+        consulta = consulta.where(PreCadastroProcesso.status == status_filtro)
+    itens = (await session.execute(consulta)).scalars().all()
+    return [
+        {
+            "id": item.id,
+            "numero": item.numero,
+            "titular": item.titular,
+            "empresa": item.empresa.nome if item.empresa else None,
+            "responsavel_nome": item.responsavel.nome if item.responsavel else None,
+            "observacoes": item.observacoes,
+            "status": item.status,
+            "titular_divergente": item.titular_divergente,
+            "criado_por": item.criado_por,
+            "criado_em": item.criado_em,
+            "vinculado_em": item.vinculado_em,
+            "processo_monitorado_id": item.processo_monitorado_id,
+        }
+        for item in itens
+    ]
+
+
+@router.post("/pre-cadastros/{pre_cadastro_id}/cancelar")
+async def cancelar_pre_cadastro(
+    pre_cadastro_id: int,
+    request: Request,
+    session: SessionDep,
+    usuario: ManageDep,
+) -> dict:
+    pre_cadastro = (
+        await session.execute(
+            select(PreCadastroProcesso).where(
+                PreCadastroProcesso.id == pre_cadastro_id,
+                PreCadastroProcesso.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if pre_cadastro is None:
+        raise HTTPException(404, "Pré-cadastro não encontrado")
+    if pre_cadastro.status != "aguardando":
+        raise HTTPException(409, "Este pré-cadastro já foi vinculado ou cancelado")
+    pre_cadastro.status = "cancelado"
+    _auditar(
+        session,
+        request,
+        usuario,
+        "cancelar_pre_cadastro",
+        f"pre_cadastro:{pre_cadastro.numero_normalizado}",
+        {"numero": pre_cadastro.numero},
+    )
+    await session.commit()
+    return {"id": pre_cadastro.id, "status": pre_cadastro.status}
 
 
 # Fragmentos procurados dentro do nome normalizado da coluna (casamento por conteúdo,

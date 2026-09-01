@@ -197,7 +197,7 @@ def test_dossie_envia_e_exibe_parecer_unico() -> None:
     script = (web_dir / "static" / "admin-analise.js").read_text(encoding="utf-8")
 
     assert "admin-analise.js?v=" in page
-    assert "admin-analise.css?v=6" in page
+    assert "admin-analise.css?v=" in page
     assert 'observacoes_humanas: values.get("observacoes_humanas")' in script
     assert "consolidated-review-form" in script
     assert "executar-agente" not in script

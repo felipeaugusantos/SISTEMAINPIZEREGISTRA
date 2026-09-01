@@ -171,7 +171,7 @@ function renderReport(data) {
     VALIDATED: [["REOPEN", "Reabrir análise"]],
   }[workflow.state] || [];
   const allowedTransitions = transitions.filter(([key]) => key !== "VALIDATE" || data.permissoes.workflow_validar);
-  const workflowForm = data.permissoes.workflow_revisar && allowedTransitions.length ? `<form id="workflow-form" class="analysis-action-form"><label>Ação<select name="action" required>${allowedTransitions.map(([value, text]) => `<option value="${value}">${text}</option>`).join("")}</select></label><label class="wide">Notas da revisão<textarea name="notes" minlength="3" maxlength="4000" rows="3" placeholder="Registre a justificativa da transição"></textarea></label><button class="primary-button" type="submit">Atualizar workflow</button></form>` : "";
+  const workflowForm = data.permissoes.workflow_revisar && allowedTransitions.length ? `<form id="workflow-form" class="analysis-action-form"><label>Ação<select name="action" required>${allowedTransitions.map(([value, text]) => `<option value="${value}">${text}</option>`).join("")}</select></label><label class="wide">Notas da revisão <small>(obrigatório para Validar, Solicitar ajustes e Reabrir — opcional só para Iniciar revisão)</small><textarea name="notes" minlength="3" maxlength="4000" rows="3" placeholder="Registre a justificativa da transição"></textarea></label><button class="primary-button" type="submit">Atualizar workflow</button></form>` : "";
   const history = (workflow.history || []).map(item => `<li><strong>${escapeHtml(item.after?.state || item.details?.action || "Tentativa")}</strong> · ${escapeHtml(item.actor)} · ${formatDate(item.created_at)}${item.success ? "" : ` · bloqueada: ${escapeHtml(item.details?.reason || "regra do workflow")}`}</li>`).join("");
   const reportState = validated ? "completed" : "attention";
   const stateLabel = validated ? "Versão validada" : "Revisão pendente";
@@ -280,6 +280,13 @@ registrabilityForm.addEventListener("submit", async event => {
 sections.addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.target; const values = new FormData(form); const button = form.querySelector("button[type=submit]"); button.disabled = true;
+  const acoesQueExigemNotas = new Set(["VALIDATE", "REQUEST_CHANGES", "REOPEN"]);
+  if (form.id === "workflow-form" && acoesQueExigemNotas.has(values.get("action")) && !values.get("notes")?.trim()) {
+    showMessage(`A ação "${form.querySelector('select[name="action"] option:checked')?.textContent || values.get("action")}" exige notas explicando o motivo da transição.`, "error");
+    form.querySelector('textarea[name="notes"]')?.focus();
+    button.disabled = false;
+    return;
+  }
   try {
     if (form.id === "consolidated-review-form") await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/parecer`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nivel_humano: values.get("nivel_humano"), observacoes_humanas: values.get("observacoes_humanas"), versao_relatorio: analysis.analise_consolidada.versao_relatorio, diretriz_acao_humana: values.get("diretriz_acao_humana") || null, veredito_humano: values.get("veredito_humano") || null }) });
     if (form.id === "workflow-form") await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/workflow`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: values.get("action"), notes: values.get("notes")?.trim() || null, versao_relatorio: analysis.workflow.report_version }) });

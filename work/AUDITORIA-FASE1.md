@@ -160,7 +160,17 @@ Comparação já feita nesta sessão, código com Frente 1 (desconto por termo c
 
 **Falsos positivos por termo comum**: o caso real investigado ("Prenúncio o sinal antes do fato" vs. "SINAFRESP") mostrou que o desconto por frequência de palavra não cobre falsos positivos por **radical truncado curto** (ex.: "SINA", de "SINAL") — testei duas abordagens baseadas em frequência do léxico e nenhuma capturou esse padrão; documentado em `app/trademarks/lexico.py`. O motor **não reage excessivamente a uma única palavra isolada** de forma geral — reage especificamente a radicais de até 4 letras, que têm alta chance de colisão por acaso independente de frequência no corpus.
 
-*(Resultado com a correção de radical curto, testando se resolve o falso positivo sem regredir recall, pendente — job ainda rodando no momento da escrita.)*
+**Atualização — resultado da correção por comprimento de radical (testada e descartada)**: implementei um desconto para radicais truncados de até 4 letras (independente de frequência) e rodei o mesmo benchmark de 200 casos. Resultado: **regressão real**, não melhora.
+
+| Métrica | Sem regra de comprimento (produção) | Com regra de comprimento |
+|---|---|---|
+| Recall@5 | 20,5% | 17,5% (-3pp) |
+| Recall@10 | 33% | 29,5% (-3,5pp) |
+| Recall@20 | 41% | 41% (igual) |
+| MRR | 0,1057 | 0,0928 (-12%) |
+| Falsos negativos críticos | 118 | 118 (igual) |
+
+Confirma a hipótese de risco levantada antes de testar: descontar todo radical curto penaliza colisões curtas **legítimas** (marcas que realmente disputam um elemento de 4 letras), e esse custo superou o ganho no caso SINAFRESP. **Revertido — nunca chegou a ser commitado nem deployado.** O caso SINAFRESP/radical curto fica sem solução automática por ora; a recomendação é deixar para o parecer humano (HitL, já implementado na Frente 2) resolver caso a caso.
 
 ---
 

@@ -3,12 +3,13 @@ import json
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.api.juridico import executar_motor_organizacao
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
 from app.database import session_factory
-from app.models import AlertaSistema, Lead, Organizacao
+from app.models import AlertaSistema, Lead, LembreteCRM, Organizacao, StatusLead
 from app.queueing import (
     FAILED_KEY,
     MAX_ATTEMPTS,
@@ -94,6 +95,66 @@ async def processar(tipo: str, payload: dict) -> None:
                                 detalhes={"total": total},
                             )
                         )
+        elif tipo == "crm.reengajamento_inatividade":
+            # Achado da auditoria do CRM: a política de "próxima ação obrigatória"
+            # (app/crm.py::aplicar_politica_oportunidade) só é aplicada quando
+            # alguém mexe no lead -- sozinho, um lead esquecido continua esquecido
+            # para sempre. Este job varre periodicamente e cria um lembrete para
+            # o operador retomar contato. Idempotente por semana ISO: no máximo
+            # um lembrete de reengajamento por lead por semana, mesmo rodando de
+            # hora em hora.
+            agora = datetime.now(UTC)
+            semana = agora.strftime("%G-W%V")
+            leads = (
+                await session.execute(
+                    select(Lead)
+                    .join(Organizacao, Organizacao.id == Lead.organizacao_id)
+                    .where(
+                        Organizacao.status != "suspensa",
+                        Lead.status.notin_([StatusLead.CONVERTIDO, StatusLead.DESCARTADO]),
+                        Lead.arquivado_em.is_(None),
+                        or_(Lead.proxima_acao_em.is_(None), Lead.proxima_acao_em < agora),
+                    )
+                )
+            ).scalars()
+            criados = 0
+            for lead in leads:
+                inserido = (
+                    await session.execute(
+                        pg_insert(LembreteCRM)
+                        .values(
+                            organizacao_id=lead.organizacao_id,
+                            lead_id=lead.id,
+                            responsavel_id=lead.responsavel_id,
+                            tipo="retorno",
+                            prioridade="alta",
+                            titulo="Oportunidade parada — retomar contato",
+                            descricao=(
+                                "Sem próxima ação definida ou o prazo já venceu. "
+                                "Verifique o andamento e planeje o próximo passo."
+                            ),
+                            lembrar_em=agora,
+                            status="pendente",
+                            criado_por="Automação (reengajamento por inatividade)",
+                            criado_por_id=None,
+                            idempotency_key=f"reengajamento:{lead.id}:{semana}",
+                        )
+                        .on_conflict_do_nothing(constraint="uq_lembrete_crm_idempotencia")
+                        .returning(LembreteCRM.id)
+                    )
+                ).scalar_one_or_none()
+                if inserido is not None:
+                    criados += 1
+            if criados:
+                session.add(
+                    AlertaSistema(
+                        organizacao_id=1,
+                        severidade="info",
+                        codigo="REENGAJAMENTO_CRM_EXECUTADO",
+                        mensagem=f"Reengajamento por inatividade: {criados} lembrete(s) criado(s).",
+                        detalhes={"criados": criados, "semana": semana},
+                    )
+                )
         elif tipo == "registrabilidade.reconciliar_resultados":
             await reconciliar_resultados_reais(session)
         elif tipo == "registrabilidade.reprocessar_previsoes":
@@ -242,6 +303,7 @@ async def main() -> None:
                 for tarefa in (
                     "assinaturas.verificar",
                     "privacidade.verificar_retencao",
+                    "crm.reengajamento_inatividade",
                     "registrabilidade.reconciliar_resultados",
                     "juridico.executar_motor",
                     "vigilancia.executar_semanal",

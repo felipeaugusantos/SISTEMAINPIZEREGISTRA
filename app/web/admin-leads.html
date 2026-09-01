@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/admin-leads.css?v=16" />
     <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=12 -->
     <script src="/static/admin-shell.js?v=39" defer></script>
-    <script src="/static/admin-leads.js?v=48" defer></script>
+    <script src="/static/admin-leads.js?v=49" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
     <header class="topbar">
@@ -169,6 +169,32 @@
         <div>
           <button id="cancel-research-delete" class="secondary-button" type="button">Cancelar</button>
           <button class="danger-button" type="submit">Confirmar</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="proposal-dialog" class="confirm-dialog">
+      <form id="proposal-form">
+        <h2>Revisar proposta antes de gerar</h2>
+        <p>Confira ou ajuste os valores antes de criar a proposta — eles não podem ser alterados depois de gerada, só numa nova versão.</p>
+        <label>Honorários (R$)
+          <input name="honorarios" type="number" min="0" step="0.01" required>
+        </label>
+        <label>Taxa GRU / INPI (R$)
+          <input name="taxa_gru" type="number" min="0" step="0.01" required>
+        </label>
+        <label>Condições de pagamento
+          <input name="condicoes_pagamento" type="text" maxlength="2000">
+        </label>
+        <label>Validade da proposta
+          <input name="validade_em" type="date">
+        </label>
+        <label>Escopo
+          <textarea name="escopo" minlength="5" maxlength="4000" required rows="3"></textarea>
+        </label>
+        <div id="proposal-message" class="status-message" role="status" hidden></div>
+        <div>
+          <button id="cancel-proposal" class="secondary-button" type="button">Cancelar</button>
+          <button class="primary-button" type="submit">Gerar proposta</button>
         </div>
       </form>
     </dialog>

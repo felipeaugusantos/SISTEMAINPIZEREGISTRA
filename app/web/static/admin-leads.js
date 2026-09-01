@@ -18,6 +18,9 @@ const crmPipeline = document.querySelector("#crm-pipeline");
 const crmPriorities = document.querySelector("#crm-priorities");
 const researchDeleteDialog = document.querySelector("#research-delete-dialog");
 const researchDeleteForm = document.querySelector("#research-delete-form");
+const proposalDialog = document.querySelector("#proposal-dialog");
+const proposalForm = document.querySelector("#proposal-form");
+let proposalContext = null;
 
 const state = {
   offset: 0, total: 0, owners: [], archiveId: null, loading: false,
@@ -1064,10 +1067,7 @@ leadsList.addEventListener("click", event => {
   if (proposalButton) {
     const leadRow = proposalButton.closest("tr");
     const lead = state.items.find(item => String(item.id) === String(leadRow?.dataset.leadId));
-    if (lead) {
-      proposalButton.disabled = true;
-      criarProposta(lead, null).finally(() => { proposalButton.disabled = false; });
-    }
+    if (lead) criarProposta(lead, null);
     return;
   }
   const attendanceButton = event.target.closest(".register-attendance");
@@ -1230,25 +1230,57 @@ function formatCurrency(value) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
 }
 
-async function criarProposta(lead, box) {
+function criarProposta(lead, box) {
+  // Abre o diálogo de revisão em vez de gerar direto com valores fixos --
+  // honorários e taxa GRU não podem mais ser alterados depois de criada a
+  // proposta (só numa nova versão), então precisam de conferência antes.
+  proposalContext = { lead, box };
+  const statusBox = document.querySelector("#proposal-message");
+  statusBox.hidden = true;
+  proposalForm.elements.honorarios.value = "1500";
+  proposalForm.elements.taxa_gru.value = "415";
+  proposalForm.elements.condicoes_pagamento.value = "50% na contratação e 50% no protocolo";
+  proposalForm.elements.validade_em.value = "";
+  proposalForm.elements.escopo.value = "Pesquisa, preparação e protocolo de registro de marca no INPI";
+  proposalDialog.showModal();
+}
+
+document.querySelector("#cancel-proposal").addEventListener("click", () => {
+  proposalDialog.close();
+  proposalContext = null;
+});
+
+proposalForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!proposalContext) return;
+  const { lead, box } = proposalContext;
+  const dados = Object.fromEntries(new FormData(proposalForm));
+  const statusBox = document.querySelector("#proposal-message");
+  statusBox.hidden = false;
+  statusBox.className = "status-message loading";
+  statusBox.textContent = "Gerando proposta…";
   const payload = {
     pesquisa_id: lead.pesquisas?.[0]?.id || null,
     pesquisa_ids: (lead.pesquisas || []).map(item => item.id),
-    validade_em: null,
+    validade_em: dados.validade_em || null,
     marca: lead.pesquisas?.[0]?.marca || null,
     classes: lead.pesquisas?.[0]?.classe_nice || null,
-    escopo: "Pesquisa, preparação e protocolo de registro de marca no INPI",
-    honorarios: 1500,
-    taxa_gru: 415,
-    condicoes_pagamento: "50% na contratação e 50% no protocolo",
+    escopo: dados.escopo,
+    honorarios: Number(dados.honorarios),
+    taxa_gru: Number(dados.taxa_gru),
+    condicoes_pagamento: dados.condicoes_pagamento || null,
   };
-  const response = await fetch(`/v1/admin/leads/${lead.id}/propostas`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  if (response.ok) {
+  try {
+    await responsePayload(await fetch(`/v1/admin/leads/${lead.id}/propostas`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }));
+    proposalDialog.close();
+    proposalContext = null;
     if (box) await renderPropostas(lead, box);
     else { alert("Proposta criada com sucesso."); openLead(lead.id); }
+  } catch (error) {
+    statusBox.className = "status-message error";
+    statusBox.textContent = error.message;
   }
-  else alert("Não foi possível criar a proposta.");
-}
+});
 
 async function visualizarProposta(id) {
   const response = await fetch(`/v1/admin/propostas/${id}/documento`);

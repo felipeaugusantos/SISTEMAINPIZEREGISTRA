@@ -282,6 +282,7 @@ async def gerar_relatorio_completo_admin(
     usuario: LeadsManageDep,
     _limite: AcaoAdminDep,
     request: Request,
+    versao_esperada: int | None = Query(default=None, ge=1),
 ) -> Response:
     pesquisa = (
         await session.execute(
@@ -309,6 +310,32 @@ async def gerar_relatorio_completo_admin(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Abra a análise para preparar os dados antes de gerar o relatório completo.",
+        )
+    if versao_esperada is not None and versao.numero_versao != versao_esperada:
+        # A tela carregou uma versão e, antes do clique, outra ação (ex.: parecer
+        # humano, dados complementares) já criou uma versão mais nova -- gerar o PDF
+        # da versão antiga sem avisar seria mostrar um documento que já não reflete
+        # o que está na tela. Achado da auditoria Fase 1 (item 6).
+        _auditar(
+            session,
+            usuario,
+            request,
+            "bloquear_relatorio",
+            f"pesquisa:{pesquisa.id}",
+            {
+                "motivo": "versao_desatualizada",
+                "versao_esperada": versao_esperada,
+                "versao_atual": versao.numero_versao,
+            },
+            status_http=status.HTTP_409_CONFLICT,
+        )
+        await session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"A análise mudou desde que a tela foi carregada (versão atual: {versao.numero_versao}). "
+                "Recarregue a página antes de gerar o relatório."
+            ),
         )
     permitir_relatorio_preliminar = True
     if (not permitir_relatorio_preliminar) and (

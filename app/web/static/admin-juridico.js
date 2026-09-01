@@ -187,7 +187,13 @@ document.querySelector("#legal-deadlines").addEventListener("click", (event) => 
   const complete = event.target.closest(".complete-deadline");
   const progress = event.target.closest(".progress-deadline");
   const delivery = event.target.closest(".delivery-deadline");
-  if (confirm) updateDeadline(confirm.dataset.id, { confirmar: true, descricao_evento: "Prazo sugerido pela RPI conferido e confirmado pelo operador" }).catch((error) => showMessage(error.message));
+  if (confirm) {
+    const observacoes = window.prompt("Observações da confirmação jurídica (obrigatório):", "Prazo sugerido pela RPI conferido e confirmado pelo operador");
+    if (observacoes !== null) {
+      if (!observacoes.trim()) { showMessage("Informe as observações da confirmação jurídica."); }
+      else updateDeadline(confirm.dataset.id, { confirmar: true, confirmacao_observacoes: observacoes.trim(), descricao_evento: "Prazo sugerido pela RPI conferido e confirmado pelo operador" }).catch((error) => showMessage(error.message));
+    }
+  }
   if (cancel) updateDeadline(cancel.dataset.id, { status: "cancelado", descricao_evento: "Sugestão automática descartada após conferência" }).catch((error) => showMessage(error.message));
   if (complete) updateDeadline(complete.dataset.id, { status: "concluido" }).catch((error) => showMessage(error.message));
   if (progress) updateDeadline(progress.dataset.id, { status: "em_andamento" }).catch((error) => showMessage(error.message));

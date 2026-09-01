@@ -135,6 +135,41 @@ def test_cadastro_manual_vincula_processo_sem_duplicar_dados_rpi() -> None:
     assert session.commits == 1
 
 
+def test_cadastro_manual_liga_processo_ao_lead_quando_numero_bate() -> None:
+    # Achado da auditoria do CRM: Lead.processo_numero era só texto solto, sem
+    # integridade com a carteira. Agora o vínculo é preenchido sozinho quando
+    # o número do processo bate com o que o lead informou.
+    processo = Processo(
+        id=101,
+        numero="935977333",
+        numero_normalizado="935977333",
+        tipo=TipoProcesso.MARCA,
+        fonte="RPI 2897",
+    )
+    session = FakeSession(
+        [
+            FakeResult(scalar=processo),
+            FakeResult(itens=[101]),
+            FakeResult(itens=[]),
+            FakeResult(itens=[(101, 7)]),
+        ]
+    )
+    usuario = usuario_teste()
+
+    resultado = asyncio.run(
+        cadastrar_manual(
+            CadastroManual(numero="935977333", titular="Titular Teste Ltda"),
+            _request(),
+            session,
+            usuario,
+        )
+    )
+
+    assert resultado["vinculados"] == 1
+    monitorados = [item for item in session.adicionados if isinstance(item, ProcessoMonitorado)]
+    assert monitorados[0].lead_id == 7
+
+
 def test_cadastro_manual_informa_quando_processo_ja_esta_vinculado() -> None:
     processo = Processo(
         id=101,

@@ -95,11 +95,20 @@ async def _vincular_pre_cadastros_pendentes(conexao: asyncpg.Connection) -> None
         await conexao.execute(
             """
             INSERT INTO processos_monitorados (
-                organizacao_id, processo_id, empresa_id, responsavel_id, status,
+                organizacao_id, processo_id, empresa_id, responsavel_id, lead_id, status,
                 origem, observacoes, vinculado_por, criado_em, atualizado_em,
                 etapa_kanban, ordem_kanban, etapa_atualizada_em, prioridade
             )
-            SELECT pc.organizacao_id, proc.id, pc.empresa_id, pc.responsavel_id, 'ativo',
+            SELECT pc.organizacao_id, proc.id, pc.empresa_id, pc.responsavel_id,
+                   (
+                       SELECT l.id FROM leads AS l
+                       WHERE l.organizacao_id = pc.organizacao_id
+                         AND l.arquivado_em IS NULL
+                         AND l.processo_numero IS NOT NULL
+                         AND upper(regexp_replace(l.processo_numero, '[^A-Za-z0-9]', '', 'g')) = proc.numero_normalizado
+                       LIMIT 1
+                   ),
+                   'ativo',
                    'pre_cadastro', pc.observacoes, pc.criado_por, now(), now(),
                    'triagem', 0, now(), 'media'
             FROM pre_cadastros_processo AS pc

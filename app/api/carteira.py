@@ -20,6 +20,7 @@ from app.models import (
     EmpresaCRM,
     EventoAuditoria,
     HistoricoEtapaCarteira,
+    Lead,
     Movimentacao,
     PreCadastroProcesso,
     Processo,
@@ -187,6 +188,8 @@ class AtualizacaoMonitoramento(BaseModel):
     empresa_nome: str | None = Field(default=None, min_length=2, max_length=200)
     responsavel_id: int | None = Field(default=None, ge=1)
     remover_responsavel: bool = False
+    lead_id: int | None = Field(default=None, ge=1)
+    remover_lead: bool = False
     observacoes: str | None = Field(default=None, max_length=4000)
     procurador: str | None = Field(default=None, max_length=500)
     etapa_kanban: EtapaKanban | None = None
@@ -220,6 +223,16 @@ async def _empresa(
             raise HTTPException(404, "Empresa não encontrada")
         return empresa
     return await obter_ou_criar_empresa(session, usuario.organizacao_id, empresa_nome)
+
+
+async def _validar_lead(session: AsyncSession, usuario: UsuarioAutenticado, lead_id: int | None) -> None:
+    if lead_id is None:
+        return
+    existe = await session.scalar(
+        select(Lead.id).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
+    )
+    if existe is None:
+        raise HTTPException(404, "Lead não encontrado")
 
 
 async def _validar_responsavel(session: AsyncSession, usuario: UsuarioAutenticado, responsavel_id: int | None) -> None:
@@ -259,6 +272,39 @@ def _auditar(
     )
 
 
+async def _leads_por_numero_processo(
+    session: AsyncSession, organizacao_id: int, processo_ids: set[int]
+) -> dict[int, int]:
+    """Casa processo_id -> lead_id comparando Lead.processo_numero (texto livre,
+    digitado no CRM) com Processo.numero_normalizado -- fecha o achado da
+    auditoria em que essa ligação existia só como coincidência de string, nunca
+    verificada. Só preenche; nunca sobrescreve um vínculo já feito manualmente
+    (chamado apenas para processos ainda sem ProcessoMonitorado)."""
+    if not processo_ids:
+        return {}
+    normalizado = func.upper(func.regexp_replace(Lead.processo_numero, "[^A-Za-z0-9]", "", "g"))
+    linhas = (
+        await session.execute(
+            select(Processo.id, Lead.id)
+            .select_from(Processo)
+            .join(
+                Lead,
+                and_(
+                    Lead.organizacao_id == organizacao_id,
+                    Lead.arquivado_em.is_(None),
+                    Lead.processo_numero.isnot(None),
+                    normalizado == Processo.numero_normalizado,
+                ),
+            )
+            .where(Processo.id.in_(processo_ids))
+        )
+    ).all()
+    resultado: dict[int, int] = {}
+    for processo_id, lead_id in linhas:
+        resultado.setdefault(processo_id, lead_id)
+    return resultado
+
+
 async def _vincular_ids(
     session: AsyncSession,
     request: Request,
@@ -290,6 +336,7 @@ async def _vincular_ids(
     empresa = await _empresa(session, usuario, dados.empresa_id, dados.empresa_nome)
     await _validar_responsavel(session, usuario, dados.responsavel_id)
     novos = processos_existentes - ja_vinculados
+    leads_por_processo = await _leads_por_numero_processo(session, usuario.organizacao_id, novos)
     for processo_id in novos:
         session.add(
             ProcessoMonitorado(
@@ -297,6 +344,7 @@ async def _vincular_ids(
                 processo_id=processo_id,
                 empresa_id=empresa.id if empresa else None,
                 responsavel_id=dados.responsavel_id,
+                lead_id=leads_por_processo.get(processo_id),
                 status="ativo",
                 origem=origem,
                 procurador_origem=procurador_origem,
@@ -475,6 +523,8 @@ async def listar_carteira(
                 "empresa": empresa_nome,
                 "responsavel_id": monitorado.responsavel_id,
                 "responsavel": responsavel_nome,
+                "lead_id": monitorado.lead_id,
+                "lead_marca": monitorado.lead.marca if monitorado.lead else None,
                 "observacoes": monitorado.observacoes,
                 "criado_em": monitorado.criado_em,
                 "ultima_movimentacao": (
@@ -1390,6 +1440,7 @@ async def atualizar_monitoramento(
         "status": monitorado.status,
         "empresa_id": monitorado.empresa_id,
         "responsavel_id": monitorado.responsavel_id,
+        "lead_id": monitorado.lead_id,
         "etapa_kanban": monitorado.etapa_kanban,
         "prioridade": monitorado.prioridade,
     }
@@ -1405,6 +1456,11 @@ async def atualizar_monitoramento(
     elif dados.responsavel_id is not None:
         await _validar_responsavel(session, usuario, dados.responsavel_id)
         monitorado.responsavel_id = dados.responsavel_id
+    if dados.remover_lead:
+        monitorado.lead_id = None
+    elif dados.lead_id is not None:
+        await _validar_lead(session, usuario, dados.lead_id)
+        monitorado.lead_id = dados.lead_id
     if dados.observacoes is not None:
         monitorado.observacoes = dados.observacoes.strip() or None
     if dados.procurador is not None:
@@ -1441,6 +1497,7 @@ async def atualizar_monitoramento(
                 "status": monitorado.status,
                 "empresa_id": monitorado.empresa_id,
                 "responsavel_id": monitorado.responsavel_id,
+                "lead_id": monitorado.lead_id,
                 "etapa_kanban": monitorado.etapa_kanban,
                 "prioridade": monitorado.prioridade,
             },

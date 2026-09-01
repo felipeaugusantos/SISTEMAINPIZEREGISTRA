@@ -1034,6 +1034,9 @@ class ProcessoMonitorado(Base):
     responsavel_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    lead_id: Mapped[int | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     status: Mapped[str] = mapped_column(String(20), default="ativo", index=True)
     prioridade: Mapped[str] = mapped_column(String(10), default="media", server_default="media", index=True)
     etapa_kanban: Mapped[str] = mapped_column(String(30), default="triagem", server_default="triagem", index=True)
@@ -1054,6 +1057,7 @@ class ProcessoMonitorado(Base):
     processo: Mapped[Processo] = relationship(lazy="selectin")
     empresa_registro: Mapped[EmpresaCRM | None] = relationship(back_populates="processos_monitorados", lazy="selectin")
     responsavel: Mapped["UsuarioOperacoes | None"] = relationship(lazy="selectin")
+    lead: Mapped["Lead | None"] = relationship(lazy="selectin")
     prazos_juridicos: Mapped[list["PrazoJuridico"]] = relationship(
         back_populates="processo_monitorado",
         cascade="all, delete-orphan",

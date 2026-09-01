@@ -22,6 +22,8 @@ from app.models import (
     LembreteCRM,
     PesquisaMarca,
     PoliticaCRM,
+    Processo,
+    ProcessoMonitorado,
     RegraAutomacao,
     StatusLead,
     UsuarioOperacoes,
@@ -576,6 +578,10 @@ async def _empresa_da_org(session: AsyncSession, empresa_id: int, organizacao_id
 
 @router.get("/empresas/{empresa_id}")
 async def obter_empresa(empresa_id: int, session: SessionDep, usuario: CRMViewDep) -> dict:
+    # Visão 360º: além dos dados cadastrais e contatos, traz todas as
+    # oportunidades e todos os processos monitorados desta empresa -- antes
+    # cada um só aparecia navegando lead por lead ou na carteira jurídica,
+    # sem nenhuma tela que juntasse os dois lados do relacionamento.
     empresa = await _empresa_da_org(session, empresa_id, usuario.organizacao_id)
     contatos = (
         (
@@ -591,6 +597,29 @@ async def obter_empresa(empresa_id: int, session: SessionDep, usuario: CRMViewDe
         .scalars()
         .all()
     )
+    leads = (
+        await session.execute(
+            select(Lead, UsuarioOperacoes.nome)
+            .outerjoin(UsuarioOperacoes, UsuarioOperacoes.id == Lead.responsavel_id)
+            .where(
+                Lead.empresa_id == empresa_id,
+                Lead.organizacao_id == usuario.organizacao_id,
+                Lead.arquivado_em.is_(None),
+            )
+            .order_by(Lead.criado_em.desc())
+        )
+    ).all()
+    processos = (
+        await session.execute(
+            select(ProcessoMonitorado, Processo)
+            .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+            .where(
+                ProcessoMonitorado.empresa_id == empresa_id,
+                ProcessoMonitorado.organizacao_id == usuario.organizacao_id,
+            )
+            .order_by(ProcessoMonitorado.atualizado_em.desc())
+        )
+    ).all()
     return {
         "id": empresa.id,
         "nome": empresa.nome,
@@ -601,6 +630,30 @@ async def obter_empresa(empresa_id: int, session: SessionDep, usuario: CRMViewDe
         "site": empresa.site,
         "observacoes": empresa.observacoes,
         "contatos": [_contato_dict(c) for c in contatos],
+        "leads": [
+            {
+                "id": lead.id,
+                "marca": lead.marca,
+                "status": lead.status.value,
+                "fase": lead.fase,
+                "responsavel_nome": responsavel_nome,
+                "proxima_acao_em": lead.proxima_acao_em,
+                "criado_em": lead.criado_em,
+            }
+            for lead, responsavel_nome in leads
+        ],
+        "processos": [
+            {
+                "id": monitorado.id,
+                "numero": processo.numero,
+                "titulo": processo.titulo,
+                "situacao": processo.situacao,
+                "etapa_kanban": monitorado.etapa_kanban,
+                "status": monitorado.status,
+                "lead_id": monitorado.lead_id,
+            }
+            for monitorado, processo in processos
+        ],
     }
 
 

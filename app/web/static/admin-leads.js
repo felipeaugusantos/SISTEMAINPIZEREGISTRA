@@ -614,7 +614,27 @@ async function renderEmpresa(lead) {
         <label class="emp-check"><input type="checkbox" name="principal"><span>Contato principal</span></label>
         <div class="emp-form-acts"><button class="secondary-button" type="submit">Salvar contato</button><button class="secondary-button emp-contato-cancel" type="button">Cancelar</button></div>
       </form>` : ""}
+    </div>
+    <div class="emp-relacionamento">
+      <p class="eyebrow">Todas as oportunidades desta empresa (${(data.leads || []).length})</p>
+      <ul class="emp-lead-list">${(data.leads || []).map(item => `
+        <li class="emp-lead-item${String(item.id) === String(lead.id) ? " emp-lead-atual" : ""}">
+          <a href="#" class="emp-lead-open" data-id="${item.id}"><strong>${escapeHtml(item.marca || "Interesse geral")}</strong></a>
+          <small>${escapeHtml(statusLabels[item.status] || item.status)} · ${escapeHtml(FASE_LABELS[item.fase] || item.fase)} · ${escapeHtml(item.responsavel_nome || "Sem responsável")}${item.proxima_acao_em ? "" : " · sem próxima ação"}</small>
+        </li>`).join("") || `<li class="emp-empty">Nenhuma outra oportunidade.</li>`}
+      </ul>
+      <p class="eyebrow">Processos monitorados desta empresa (${(data.processos || []).length})</p>
+      <ul class="emp-processo-list">${(data.processos || []).map(item => `
+        <li class="emp-processo-item">
+          <a href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener"><strong>${escapeHtml(item.numero)}</strong></a>
+          <small>${escapeHtml(item.titulo || "Título não informado pelo INPI")} · ${escapeHtml(item.situacao || "Situação não informada")}${item.lead_id ? "" : " · sem lead de origem vinculado"}</small>
+        </li>`).join("") || `<li class="emp-empty">Nenhum processo monitorado.</li>`}
+      </ul>
     </div>`;
+  box.querySelectorAll(".emp-lead-open").forEach(a => a.addEventListener("click", event => {
+    event.preventDefault();
+    openLead(Number(a.dataset.id));
+  }));
   if (!canManage) return;
   box.querySelector(".emp-form").addEventListener("submit", async e => {
     e.preventDefault();

@@ -1102,6 +1102,15 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
 .emp-contato-acts button { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 5px 9px; font-size: .78rem; cursor: pointer; }
 .emp-contato-form { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
 .emp-check { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: .82rem; }
+.emp-relacionamento { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+.emp-relacionamento .eyebrow { margin: 0 0 10px; color: var(--muted); font-size: .7rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.emp-relacionamento .eyebrow:not(:first-child) { margin-top: 16px; }
+.emp-lead-list, .emp-processo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.emp-lead-item, .emp-processo-item { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: .9rem; }
+.emp-lead-item.emp-lead-atual { border-color: #235c3f; background: #f3faf5; }
+.emp-lead-item a, .emp-processo-item a { color: #235c3f; text-decoration: none; font-weight: 700; }
+.emp-lead-item a:hover, .emp-processo-item a:hover { text-decoration: underline; }
+.emp-lead-item small, .emp-processo-item small { display: block; margin-top: 3px; color: var(--muted); font-size: .78rem; }
 @media (max-width: 640px) { .emp-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 420px) { .emp-grid { grid-template-columns: 1fr; } }
 .crm-cadencias { display: flex; flex-direction: column; gap: 10px; }

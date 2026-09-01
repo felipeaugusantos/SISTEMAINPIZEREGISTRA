@@ -911,18 +911,11 @@ def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencia
                     f"Indicador histórico: {estimativa['probabilidade_deferimento']:.0%}.",
                     estilos["celula"],
                 ))
-            parecer = analise.get("parecer_humano") or {}
-            story.append(Paragraph("Parecer humano", estilos["secao"]))
-            if parecer:
-                story.append(Paragraph(
-                    f"<b>Classificação:</b> {_texto(parecer.get('nivel'))}<br/>"
-                    f"<b>Avaliador:</b> {_texto(parecer.get('avaliador_nome') or parecer.get('avaliador'))}<br/>"
-                    f"<b>Registrado em:</b> {_texto(parecer.get('avaliado_em'))}<br/>"
-                    f"{_texto(parecer.get('observacoes'))}",
-                    estilos["celula"],
-                ))
-            else:
-                story.append(Paragraph("Parecer ainda não registrado.", estilos["celula"]))
+            # O parecer humano (classificação, observações internas do especialista)
+            # e' propositalmente omitido daqui -- este relatorio completo e' entregue
+            # ao cliente como prova da pesquisa, e o parecer e' controle interno.
+            # O selo de validação abaixo continua aparecendo (é um sinal de
+            # confiança para o cliente, não conteúdo interno).
             if revisao.get("validada"):
                 story.append(Paragraph(
                     f"Validado por {_texto(revisao.get('validado_por'))} em {_texto(revisao.get('validado_em'))}.",

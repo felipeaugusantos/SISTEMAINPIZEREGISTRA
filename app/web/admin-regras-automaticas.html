@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>Regras automáticas — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=47"><link rel="stylesheet" href="/static/admin-financeiro.css?v=6"><link rel="stylesheet" href="/static/admin-crm.css?v=1"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=1">
-  <script src="/static/admin-shell.js?v=39" defer></script><script src="/static/admin-regras-automaticas.js?v=1" defer></script><script src="/static/admin-cadencias.js?v=3" defer></script>
+  <script src="/static/admin-shell.js?v=39" defer></script><script src="/static/admin-regras-automaticas.js?v=2" defer></script><script src="/static/admin-cadencias.js?v=3" defer></script>
 </head>
 <body class="admin-body" data-admin-section="config-regras">
   <main class="admin-main finance-main">
@@ -16,6 +16,17 @@
     <section class="finance-card">
       <header class="finance-list-heading"><div><p class="eyebrow">GATILHOS</p><h2>Regras por evento</h2></div></header>
       <div id="regras-list" class="crm-automacoes"></div>
+    </section>
+    <section class="finance-card">
+      <header class="finance-list-heading"><div><p class="eyebrow">OPORTUNIDADES</p><h2>Política do CRM</h2><p>Defina o que é exigido ao abrir uma oportunidade e o prazo padrão da próxima ação.</p></div></header>
+      <form id="politica-form" class="crm-politica-form">
+        <label class="crm-politica-toggle"><input type="checkbox" name="exigir_responsavel"><span>Exigir responsável atribuído</span></label>
+        <label class="crm-politica-toggle"><input type="checkbox" name="atribuir_ao_operador"><span>Atribuir automaticamente ao operador que atendeu</span></label>
+        <label class="crm-politica-toggle"><input type="checkbox" name="exigir_proxima_acao"><span>Exigir próxima ação definida</span></label>
+        <label class="crm-politica-dias"><span>Prazo padrão da próxima ação (dias, opcional)</span><input type="number" name="dias_proxima_acao_padrao" min="0" max="365" placeholder="Sem padrão"></label>
+        <div id="politica-message" class="status-message" hidden role="status"></div>
+        <button class="primary-button" type="submit">Salvar política</button>
+      </form>
     </section>
     <section class="finance-card crm-cadencias-card">
       <header class="finance-list-heading"><div><p class="eyebrow">CADÊNCIAS</p><h2>Sequências de atendimento</h2><p>Configure os passos automáticos de follow-up do atendimento.</p></div><button id="new-cadencia" class="secondary-button" type="button">Nova sequência</button></header>

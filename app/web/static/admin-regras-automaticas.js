@@ -27,4 +27,32 @@ document.querySelector("#regras-list").addEventListener("change", async event =>
   regrasMsg(r.ok ? "Automação atualizada." : "Erro ao salvar.", r.ok ? "success" : "error");
 });
 
-regrasLoad().catch(() => regrasMsg("Não foi possível carregar as regras.", "error"));
+const politicaForm = document.querySelector("#politica-form");
+function politicaMsg(text, kind = "success") { const m = document.querySelector("#politica-message"); m.hidden = false; m.textContent = text; m.className = `status-message ${kind}`; }
+function politicaFill(politica) {
+  politicaForm.elements.exigir_responsavel.checked = !!politica.exigir_responsavel;
+  politicaForm.elements.atribuir_ao_operador.checked = !!politica.atribuir_ao_operador;
+  politicaForm.elements.exigir_proxima_acao.checked = !!politica.exigir_proxima_acao;
+  politicaForm.elements.dias_proxima_acao_padrao.value = politica.dias_proxima_acao_padrao ?? "";
+}
+async function politicaLoad() {
+  const politica = await fetch("/v1/admin/crm/politica").then(r => r.json());
+  politicaFill(politica);
+  for (const campo of politicaForm.elements) campo.disabled = !regrasCanManage;
+  politicaForm.querySelector("button[type=submit]").hidden = !regrasCanManage;
+}
+politicaForm?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const dias = politicaForm.elements.dias_proxima_acao_padrao.value;
+  const payload = {
+    exigir_responsavel: politicaForm.elements.exigir_responsavel.checked,
+    atribuir_ao_operador: politicaForm.elements.atribuir_ao_operador.checked,
+    exigir_proxima_acao: politicaForm.elements.exigir_proxima_acao.checked,
+    dias_proxima_acao_padrao: dias === "" ? null : Number(dias),
+  };
+  const r = await fetch("/v1/admin/crm/politica", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  if (r.ok) politicaFill(await r.json());
+  politicaMsg(r.ok ? "Política salva." : "Erro ao salvar.", r.ok ? "success" : "error");
+});
+
+regrasLoad().then(politicaLoad).catch(() => regrasMsg("Não foi possível carregar as regras.", "error"));

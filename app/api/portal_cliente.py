@@ -22,6 +22,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.juridico import TIPOS_PRAZO
 from app.auth import exigir_permissao, hash_ip, hash_senha, hash_token, verificar_senha
 from app.clicksign import configuracao as configuracao_clicksign
 from app.database import get_session
@@ -39,7 +40,9 @@ from app.models import (
     MensagemClientePortal,
     NotificacaoClientePortal,
     ParcelaFinanceira,
+    PrazoJuridico,
     Processo,
+    ProcessoMonitorado,
     PropostaComercial,
     RecuperacaoClientePortal,
     SessaoClientePortal,
@@ -909,6 +912,86 @@ async def listar_processos_portal(request: Request, cliente: ClientDep, session:
     _auditar_cliente(session, cliente, request, "consultar_processos", "portal:processos")
     await session.commit()
     return {"processos": processos}
+
+
+STATUS_PRAZO_VISIVEL_CLIENTE = (
+    "aguardando_confirmacao",
+    "pendente",
+    "em_andamento",
+    "concluido",
+    "cancelado",
+    "historico",
+    "dispensado",
+)
+
+
+@router.get("/v1/portal/prazos")
+async def listar_prazos_portal(request: Request, cliente: ClientDep, session: SessionDep) -> dict:
+    """Prazos jurídicos do processo do cliente, com campos limitados ao que é
+    seguro mostrar externamente (sem responsável interno, checklist, trilha de
+    confirmação ou auditoria).
+
+    Achado 5.4 da auditoria (02/09/2026), Fase 9: a tela de login do portal
+    promete "Processos e prazos" e "próximos passos", mas o portal nunca teve
+    nenhuma conexão com PrazoJuridico — o cliente não tinha como saber o que
+    estava pendente. Exclui apenas "duplicado" (artefato interno de
+    reconciliação de importação, sem significado para o cliente).
+    """
+    lead = (
+        await session.execute(
+            select(Lead).where(Lead.id == cliente.lead_id, Lead.organizacao_id == cliente.organizacao_id)
+        )
+    ).scalar_one()
+    prazos: list[dict] = []
+    if lead.processo_numero:
+        processo = (
+            await session.execute(select(Processo).where(Processo.numero == lead.processo_numero))
+        ).scalar_one_or_none()
+        if processo:
+            monitorados = (
+                (
+                    await session.execute(
+                        select(ProcessoMonitorado.id).where(
+                            ProcessoMonitorado.processo_id == processo.id,
+                            ProcessoMonitorado.organizacao_id == cliente.organizacao_id,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if monitorados:
+                linhas = (
+                    (
+                        await session.execute(
+                            select(PrazoJuridico)
+                            .where(
+                                PrazoJuridico.processo_monitorado_id.in_(monitorados),
+                                PrazoJuridico.organizacao_id == cliente.organizacao_id,
+                                PrazoJuridico.status.in_(STATUS_PRAZO_VISIVEL_CLIENTE),
+                            )
+                            .order_by(PrazoJuridico.vencimento_em)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                prazos = [
+                    {
+                        "id": prazo.id,
+                        "tipo": prazo.tipo,
+                        "tipo_descricao": TIPOS_PRAZO.get(prazo.tipo, prazo.tipo),
+                        "titulo": prazo.titulo,
+                        "status": prazo.status,
+                        "prioridade": prazo.prioridade,
+                        "vencimento_em": prazo.vencimento_em,
+                        "concluido_em": prazo.concluido_em,
+                    }
+                    for prazo in linhas
+                ]
+    _auditar_cliente(session, cliente, request, "consultar_prazos", "portal:prazos")
+    await session.commit()
+    return {"prazos": prazos}
 
 
 @router.get("/v1/portal/documentos/{documento_id}/download")

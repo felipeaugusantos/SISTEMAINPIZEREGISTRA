@@ -51,9 +51,12 @@ publicacao quando houver regressao de recall.
 
 ### Agenda juridica centralizada
 
-A operação jurídica possui lista, kanban e calendário de prazos para marcas, patentes e
-desenhos industriais. Os eventos incluem RPI, oposição, exigência, manifestação, recurso,
-pagamento, deferimento, concessão, renovação, decênio e vencimentos internos. A agenda
+A operação jurídica possui lista, kanban e calendário de prazos para marcas — o motor de
+classificação de despachos, os prazos legais e o catálogo de códigos usados são específicos
+da Seção V (Marcas) da RPI; patentes e desenhos industriais não são cobertos por este
+módulo (para esses ativos, ver o módulo de Portfólio de PI). Os eventos incluem RPI,
+oposição, exigência, manifestação, recurso, pagamento, deferimento, concessão, renovação,
+decênio e vencimentos internos. A agenda
 permite filtrar por responsável, cliente/processo, tipo, prioridade e período, exibindo
 alertas de proximidade e atraso. Encerramentos e alterações permanecem na timeline; não
 existe exclusão física de prazo sem registro auditável.

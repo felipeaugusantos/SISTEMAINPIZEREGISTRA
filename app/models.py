@@ -1536,7 +1536,12 @@ class PropostaComercial(Base):
     """Proposta versionada de registro de marca vinculada a uma oportunidade."""
 
     __tablename__ = "propostas_comerciais"
-    __table_args__ = (UniqueConstraint("organizacao_id", "numero", name="uq_proposta_org_numero"),)
+    # Achado 9 do plano proposta-financeiro (Fase 5, 03/09/2026): nova versão
+    # passa a manter o número-base da proposta original (só ``versao`` muda),
+    # então a unicidade precisa incluir a versão -- antes era só (org, numero).
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "numero", "versao", name="uq_proposta_org_numero_versao"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)

@@ -13,6 +13,7 @@ from app.api.leads import (
     atualizar_status_proposta,
     calcular_pagamento_status_proposta,
     criar_contratacao_automatica_proposta,
+    criar_nova_versao_proposta,
     sincronizar_pagamento_proposta,
 )
 from app.models import (
@@ -28,14 +29,14 @@ from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
 def _proposta(**kwargs: object) -> PropostaComercial:
-    proposta = PropostaComercial(
-        organizacao_id=1,
-        lead_id=1,
-        numero="PROP-TEST",
-        escopo="Registro de marca no INPI",
-        **kwargs,
-    )
-    return proposta
+    base: dict = {
+        "organizacao_id": 1,
+        "lead_id": 1,
+        "numero": "PROP-TEST",
+        "escopo": "Registro de marca no INPI",
+    }
+    base.update(kwargs)
+    return PropostaComercial(**base)
 
 
 def _request_post(path: str) -> Request:
@@ -480,3 +481,26 @@ def test_atualizar_status_proposta_aceita_gera_contratacao_automatica() -> None:
     )
     contratacoes = [obj for obj in session.adicionados if isinstance(obj, ContratacaoServico)]
     assert len(contratacoes) == 1
+
+
+# --- Fase 5 do plano proposta-financeiro (03/09/2026): numeração de versão consistente ---
+
+
+def test_criar_nova_versao_proposta_mantem_o_numero_base() -> None:
+    anterior = _proposta(id=1, numero="PROP-2026-000010", versao=1)
+    session = FakeSession([FakeResult(scalar=anterior)])
+    resultado = asyncio.run(
+        criar_nova_versao_proposta(1, _request_post("/propostas/1/nova-versao"), session, usuario_teste())
+    )
+    assert resultado["numero"] == "PROP-2026-000010"
+    assert resultado["versao"] == 2
+
+
+def test_criar_nova_versao_proposta_incrementa_a_partir_de_versao_ja_avancada() -> None:
+    anterior = _proposta(id=3, numero="PROP-2026-000010", versao=3)
+    session = FakeSession([FakeResult(scalar=anterior)])
+    resultado = asyncio.run(
+        criar_nova_versao_proposta(3, _request_post("/propostas/3/nova-versao"), session, usuario_teste())
+    )
+    assert resultado["numero"] == "PROP-2026-000010"
+    assert resultado["versao"] == 4

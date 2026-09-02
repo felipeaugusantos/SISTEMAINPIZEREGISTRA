@@ -2018,11 +2018,16 @@ async def criar_nova_versao_proposta(
     usuario: LeadsManageDep,
 ) -> dict:
     anterior = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
+    # Achado 9 do plano proposta-financeiro (Fase 5, 03/09/2026): nova versão
+    # mantém o mesmo número-base da proposta anterior -- só ``versao`` avança.
+    # Antes cada versão ganhava um número novo, apesar de já existir o campo
+    # ``versao`` para isso. Ver migration fk91l2m3n529 (unicidade passou a
+    # incluir a versão).
     nova = PropostaComercial(
         organizacao_id=anterior.organizacao_id,
         lead_id=anterior.lead_id,
         pesquisa_id=anterior.pesquisa_id,
-        numero="TEMP",
+        numero=anterior.numero,
         versao=anterior.versao + 1,
         status="rascunho",
         validade_em=anterior.validade_em,
@@ -2038,7 +2043,6 @@ async def criar_nova_versao_proposta(
     )
     session.add(nova)
     await session.flush()
-    nova.numero = f"PROP-{datetime.now(UTC).year}-{nova.id:06d}"
     _auditar(
         session,
         usuario,

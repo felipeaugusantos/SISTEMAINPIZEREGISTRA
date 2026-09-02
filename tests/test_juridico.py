@@ -41,6 +41,7 @@ from app.api.juridico import (
     criar_regra_juridica,
     editar_politica_juridica,
     executar_motor_organizacao,
+    indicadores_juridicos,
     listar_documentos_entrega,
     painel,
     registrar_entrega,
@@ -1066,3 +1067,47 @@ def test_notificar_sem_email_destinatario_nao_tenta_enviar() -> None:
 
     assert enviado is True
     assert chamadas == []
+
+
+# --- Achado 5.10 da auditoria (02/09/2026): indicadores de gestão (Fase 10) ---
+
+
+def test_indicadores_calcula_taxa_de_cumprimento_tempo_carga_e_escalonamento() -> None:
+    session = FakeSession(
+        [
+            FakeResult(itens=[(7, 3)]),  # taxa de cumprimento: 7 no prazo, 3 atrasados
+            FakeResult(scalar=7200.0),  # tempo médio de confirmação: 7200s = 2h
+            FakeResult(itens=[(2, "Ana Responsável", 5, 1), (3, "Bruno Responsável", 2, 0)]),
+            FakeResult(itens=[(10, 4)]),  # escalonamento: 10 elegíveis, 4 escalados
+        ]
+    )
+    resultado = asyncio.run(indicadores_juridicos(session, usuario_teste(), dias=90))
+    assert resultado["periodo_dias"] == 90
+    assert resultado["taxa_cumprimento"] == {
+        "concluidos_no_prazo": 7,
+        "concluidos_atrasados": 3,
+        "total_concluidos": 10,
+        "percentual_no_prazo": 70.0,
+    }
+    assert resultado["tempo_medio_confirmacao_horas"] == 2.0
+    assert resultado["carga_por_responsavel"] == [
+        {"responsavel_id": 2, "responsavel_nome": "Ana Responsável", "ativos": 5, "atrasados": 1},
+        {"responsavel_id": 3, "responsavel_nome": "Bruno Responsável", "ativos": 2, "atrasados": 0},
+    ]
+    assert resultado["taxa_escalonamento"] == {"elegiveis": 10, "escalonados": 4, "percentual": 40.0}
+
+
+def test_indicadores_sem_dados_devolve_percentuais_nulos_em_vez_de_dividir_por_zero() -> None:
+    session = FakeSession(
+        [
+            FakeResult(itens=[(0, 0)]),
+            FakeResult(scalar=None),
+            FakeResult(itens=[]),
+            FakeResult(itens=[(0, 0)]),
+        ]
+    )
+    resultado = asyncio.run(indicadores_juridicos(session, usuario_teste(), dias=90))
+    assert resultado["taxa_cumprimento"]["percentual_no_prazo"] is None
+    assert resultado["tempo_medio_confirmacao_horas"] is None
+    assert resultado["carga_por_responsavel"] == []
+    assert resultado["taxa_escalonamento"]["percentual"] is None

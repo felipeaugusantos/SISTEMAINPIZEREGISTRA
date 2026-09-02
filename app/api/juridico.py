@@ -1070,6 +1070,115 @@ async def painel(
     }
 
 
+@router.get("/indicadores")
+async def indicadores_juridicos(
+    session: SessionDep,
+    usuario: ViewDep,
+    dias: int = Query(default=90, ge=1, le=365),
+) -> dict:
+    """Indicadores de gestão do módulo jurídico — achado 5.10 da auditoria
+    (02/09/2026), Fase 10: o painel só tinha contadores operacionais do
+    momento (vencidos, vence hoje, aguardando confirmação); nada media
+    desempenho ao longo do tempo. Quatro indicadores, todos sobre dados já
+    existentes (nenhuma coluna nova):
+
+    - taxa_cumprimento: % de prazos concluídos dentro do prazo vs. em atraso.
+    - tempo_medio_confirmacao_horas: quão rápido a equipe reage a um prazo
+      novo (só confirmação humana via revisão — não a auto-confirmada na
+      criação manual nem a dispensa/histórico automáticos do motor).
+    - carga_por_responsavel: prazos ativos e atrasados, por responsável.
+    - taxa_escalonamento: % de prazos elegíveis (com escalonar_para_id) que
+      de fato precisaram ser escalados.
+    """
+    agora = datetime.now(UTC)
+    desde = agora - timedelta(days=dias)
+
+    cumprimento = (
+        await session.execute(
+            select(
+                func.count(PrazoJuridico.id).filter(PrazoJuridico.concluido_em <= PrazoJuridico.vencimento_em),
+                func.count(PrazoJuridico.id).filter(PrazoJuridico.concluido_em > PrazoJuridico.vencimento_em),
+            ).where(
+                PrazoJuridico.organizacao_id == usuario.organizacao_id,
+                PrazoJuridico.status == "concluido",
+                PrazoJuridico.concluido_em >= desde,
+            )
+        )
+    ).one()
+    no_prazo, atrasados_concluidos = (int(v or 0) for v in cumprimento)
+    total_concluidos = no_prazo + atrasados_concluidos
+
+    tempo_confirmacao = (
+        await session.execute(
+            select(func.avg(func.extract("epoch", PrazoJuridico.confirmado_em - PrazoJuridico.criado_em))).where(
+                PrazoJuridico.organizacao_id == usuario.organizacao_id,
+                PrazoJuridico.confirmacao_origem == "revisao_humana",
+                PrazoJuridico.confirmado_em >= desde,
+            )
+        )
+    ).scalar_one()
+
+    carga_rows = (
+        await session.execute(
+            select(
+                PrazoJuridico.responsavel_id,
+                UsuarioOperacoes.nome,
+                func.count(PrazoJuridico.id),
+                func.count(PrazoJuridico.id).filter(PrazoJuridico.vencimento_em < agora),
+            )
+            .join(UsuarioOperacoes, UsuarioOperacoes.id == PrazoJuridico.responsavel_id)
+            .where(
+                PrazoJuridico.organizacao_id == usuario.organizacao_id,
+                PrazoJuridico.status.in_(STATUS_ATIVOS),
+                PrazoJuridico.responsavel_id.is_not(None),
+            )
+            .group_by(PrazoJuridico.responsavel_id, UsuarioOperacoes.nome)
+            .order_by(func.count(PrazoJuridico.id).desc())
+        )
+    ).all()
+
+    escalonamento = (
+        await session.execute(
+            select(
+                func.count(PrazoJuridico.id),
+                func.count(PrazoJuridico.id).filter(PrazoJuridico.escalonado_em.is_not(None)),
+            ).where(
+                PrazoJuridico.organizacao_id == usuario.organizacao_id,
+                PrazoJuridico.escalonar_para_id.is_not(None),
+                PrazoJuridico.criado_em >= desde,
+            )
+        )
+    ).one()
+    elegiveis, escalonados = (int(v or 0) for v in escalonamento)
+
+    return {
+        "periodo_dias": dias,
+        "taxa_cumprimento": {
+            "concluidos_no_prazo": no_prazo,
+            "concluidos_atrasados": atrasados_concluidos,
+            "total_concluidos": total_concluidos,
+            "percentual_no_prazo": round(100 * no_prazo / total_concluidos, 1) if total_concluidos else None,
+        },
+        "tempo_medio_confirmacao_horas": (
+            round(float(tempo_confirmacao) / 3600, 1) if tempo_confirmacao is not None else None
+        ),
+        "carga_por_responsavel": [
+            {
+                "responsavel_id": responsavel_id,
+                "responsavel_nome": nome,
+                "ativos": int(ativos or 0),
+                "atrasados": int(atrasados or 0),
+            }
+            for responsavel_id, nome, ativos, atrasados in carga_rows
+        ],
+        "taxa_escalonamento": {
+            "elegiveis": elegiveis,
+            "escalonados": escalonados,
+            "percentual": round(100 * escalonados / elegiveis, 1) if elegiveis else None,
+        },
+    }
+
+
 @router.post("/prazos", status_code=status.HTTP_201_CREATED)
 async def criar_prazo(dados: PrazoInput, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
     monitorado = (

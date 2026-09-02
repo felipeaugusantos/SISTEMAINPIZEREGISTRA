@@ -806,6 +806,55 @@ async def mover_lead_kanban(
     return {"id": lead.id, "etapa": _kanban_etapa(lead), "fase": lead.fase}
 
 
+# Fases do funil em que uma proposta já foi enviada (usadas em
+# _tempo_medio_ate_proposta_dias) — achado L10 do plano Leads/CRM (Fase 2,
+# 03/09/2026).
+FASES_POS_PROPOSTA: frozenset[str] = frozenset(
+    {"proposta_enviada", "proposta_aceita", "pagamento_realizado", "protocolo_inpi", "processo_inpi"}
+)
+
+
+def _tempo_medio_ate_proposta_dias(leads: list[Lead], entradas_proposta: dict[int, datetime]) -> list[float]:
+    """Dias de ``Lead.criado_em`` até o envio da proposta, por lead.
+
+    Achado L10 do plano Leads/CRM (Fase 2, 03/09/2026): antes usava
+    ``Lead.atualizado_em`` como proxy — um campo tocado por qualquer edição do
+    registro (mudar responsável, tag, nota), não só pelo envio da proposta.
+    ``entradas_proposta`` vem de ``HistoricoFaseLead`` (evento real da
+    transição para a fase "proposta_enviada"); quando não há esse histórico
+    (ex.: proposta enviada por um fluxo que ainda não avança a fase do lead),
+    cai para ``atualizado_em`` em vez de descartar o lead da métrica.
+    """
+    valores: list[float] = []
+    for item in leads:
+        if item.fase not in FASES_POS_PROPOSTA or not item.criado_em:
+            continue
+        entrada = entradas_proposta.get(item.id) or item.atualizado_em
+        if not entrada:
+            continue
+        valores.append((entrada - item.criado_em).total_seconds() / 86400)
+    return valores
+
+
+def _consulta_propostas_dashboard(organizacao_id: int):
+    """Propostas elegíveis para taxa_pagamento/taxa_protocolo no dashboard.
+
+    Achado L11 do plano Leads/CRM (Fase 2, 03/09/2026): antes o universo era
+    TODAS as propostas da organização, inclusive rascunhos nunca enviados e
+    propostas de leads já arquivados — denominador inconsistente com as
+    demais métricas do mesmo endpoint (que filtram por lead não arquivado).
+    """
+    return (
+        select(PropostaComercial)
+        .join(Lead, Lead.id == PropostaComercial.lead_id)
+        .where(
+            PropostaComercial.organizacao_id == organizacao_id,
+            PropostaComercial.status != "rascunho",
+            Lead.arquivado_em.is_(None),
+        )
+    )
+
+
 @router.get("/v1/admin/leads-dashboard")
 async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewDep) -> dict:
     org = usuario.organizacao_id
@@ -891,23 +940,20 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         and item.proxima_acao_em is not None
         and item.proxima_acao_em < agora
     )
-    tempo_ate_proposta = [
-        (item.atualizado_em - item.criado_em).total_seconds() / 86400
-        for item in leads
-        if item.fase
-        in {
-            "proposta_enviada",
-            "proposta_aceita",
-            "pagamento_realizado",
-            "protocolo_inpi",
-            "processo_inpi",
-        }
-        and item.atualizado_em
-        and item.criado_em
-    ]
-    propostas = list(
-        (await session.execute(select(PropostaComercial).where(PropostaComercial.organizacao_id == org))).scalars()
+    entradas_proposta = dict(
+        (
+            await session.execute(
+                select(HistoricoFaseLead.lead_id, func.min(HistoricoFaseLead.entrou_em))
+                .where(
+                    HistoricoFaseLead.organizacao_id == org,
+                    HistoricoFaseLead.fase == "proposta_enviada",
+                )
+                .group_by(HistoricoFaseLead.lead_id)
+            )
+        ).all()
     )
+    tempo_ate_proposta = _tempo_medio_ate_proposta_dias(leads, entradas_proposta)
+    propostas = list((await session.execute(_consulta_propostas_dashboard(org))).scalars())
     aceites = [
         (item.aceito_em - item.enviado_em).total_seconds() / 86400
         for item in propostas

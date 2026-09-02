@@ -79,6 +79,82 @@ def test_lead_criado_sem_marca() -> None:
     assert resposta.json()["id"] == 1
 
 
+# --- Achado L1/L2/L3 do plano Leads/CRM (03/09/2026): upsert público sobrescrevia
+# marca/origem de um lead existente quando a mesma pessoa voltava interessada em
+# outra marca, perdendo o histórico da oportunidade anterior. ---
+
+
+def _lead_existente(**kwargs: object) -> Lead:
+    base: dict = {
+        "id": 7,
+        "organizacao_id": 1,
+        "nome": "Fulano de Tal",
+        "email": "fulano@example.com",
+        "telefone": "11999998888",
+        "documento": "12345678900",
+        "empresa": "Fulano Comércio",
+        "marca": "ACME",
+        "origem": "resultados",
+        "status": StatusLead.QUALIFICADO,
+    }
+    base.update(kwargs)
+    return Lead(**base)
+
+
+def test_upsert_publico_mesma_marca_atualiza_lead_existente() -> None:
+    lead = _lead_existente()
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+    resposta = TestClient(app).post("/v1/leads", json=_payload(marca="acme"))
+    assert resposta.status_code == 201
+    assert resposta.json()["id"] == 7
+    assert lead.marca == "acme"
+
+
+def test_upsert_publico_mascara_documento_mesmo_atualizando_no_lugar() -> None:
+    # Vazamento pré-existente descoberto ao mexer nesta função: o reenvio do
+    # formulário público devolvia o documento (CPF/CNPJ) do lead em claro.
+    lead = _lead_existente()
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+    resposta = TestClient(app).post("/v1/leads", json=_payload(marca="acme"))
+    assert resposta.json()["documento"] == "***8900"
+
+
+def test_upsert_publico_marca_vazia_atualiza_lead_existente() -> None:
+    lead = _lead_existente()
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+    payload = _payload()
+    del payload["marca"]
+    resposta = TestClient(app).post("/v1/leads", json=payload)
+    assert resposta.status_code == 201
+    assert resposta.json()["id"] == 7
+    assert lead.marca == "ACME"
+
+
+def test_upsert_publico_marca_diferente_cria_novo_lead_e_preserva_o_antigo() -> None:
+    lead = _lead_existente()
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+    resposta = TestClient(app).post("/v1/leads", json=_payload(marca="Outra Marca Ltda"))
+
+    assert resposta.status_code == 201
+    corpo = resposta.json()
+    assert corpo["id"] != 7
+    assert corpo["marca"] == "Outra Marca Ltda"
+    # o lead antigo não pode ser tocado -- é a própria regressão que este achado corrige.
+    assert lead.marca == "ACME"
+    assert lead.origem == "resultados"
+
+
+def test_upsert_publico_marca_diferente_herda_documento_e_empresa_do_contato() -> None:
+    lead = _lead_existente()
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+    resposta = TestClient(app).post("/v1/leads", json=_payload(marca="Outra Marca Ltda"))
+    corpo = resposta.json()
+    # documento é PII sensível (CPF/CNPJ) que o formulário público nunca coletou
+    # nesta submissão -- não pode vazar em claro na resposta anônima.
+    assert corpo["documento"] == "***8900"
+    assert corpo["empresa"] == "Fulano Comércio"
+
+
 def test_rate_limit_bloqueia_excesso() -> None:
     app.dependency_overrides[get_session] = sessao_override()
     cliente = TestClient(app)

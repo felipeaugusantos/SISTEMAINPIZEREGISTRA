@@ -480,7 +480,7 @@ async def criar_lead(
     dados: LeadCreate,
     session: SessionDep,
     organizacao: OrganizacaoPublicaDep,
-) -> Lead:
+) -> LeadResponse:
     if dados.website:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Envio inválido")
 
@@ -501,7 +501,15 @@ async def criar_lead(
         .limit(1)
     )
     existente = (await session.execute(consulta_existente)).scalar_one_or_none()
-    if existente is not None:
+    marca_nova = dados.marca.strip()
+    # Achado L1/L2/L3 do plano Leads/CRM: a mesma pessoa interessada numa marca
+    # diferente da já registrada vira uma nova oportunidade, em vez de sobrescrever
+    # (e perder) a marca/origem do lead anterior. Reenvio sem marca ou com a mesma
+    # marca continua atualizando no lugar (comportamento de sempre).
+    mesma_oportunidade = existente is not None and (
+        not marca_nova or existente.marca.strip().lower() == marca_nova.lower()
+    )
+    if mesma_oportunidade:
         existente.nome = dados.nome
         existente.email = dados.email.lower()
         existente.telefone = dados.telefone
@@ -513,13 +521,17 @@ async def criar_lead(
             await _garantir_proxima_acao_padrao(session, existente)
         await session.commit()
         await session.refresh(existente)
-        return existente
+        resposta = LeadResponse.model_validate(existente)
+        resposta.documento = _mascarar_documento(resposta.documento)
+        return resposta
 
     lead = Lead(
         organizacao_id=organizacao.id,
         nome=dados.nome,
         email=dados.email.lower(),
         telefone=dados.telefone,
+        documento=existente.documento if existente is not None else None,
+        empresa=existente.empresa if existente is not None else None,
         marca=dados.marca,
         processo_numero=dados.processo_numero,
         origem=dados.origem,
@@ -531,7 +543,9 @@ async def criar_lead(
     await _garantir_proxima_acao_padrao(session, lead)
     await session.commit()
     await session.refresh(lead)
-    return lead
+    resposta = LeadResponse.model_validate(lead)
+    resposta.documento = _mascarar_documento(resposta.documento)
+    return resposta
 
 
 @router.get("/v1/admin/leads", response_model=LeadListResponse)

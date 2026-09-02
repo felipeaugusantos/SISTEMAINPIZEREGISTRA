@@ -19,6 +19,27 @@ from app.models import (
 )
 
 
+def registrar_consentimento_titular(lead: Lead, versao_termo: str) -> None:
+    """Consentimento capturado de verdade no formulário público (checkbox
+    marcado pelo titular). versao_termo vem de Organizacao.politica_privacidade_versao
+    -- a versão que a pessoa efetivamente viu ao marcar o checkbox. Achado L13
+    do plano Leads/CRM."""
+    lead.consentimento_em = datetime.now(UTC)
+    lead.consentimento_versao_termo = versao_termo
+    lead.consentimento_base_legal = "consentimento_titular"
+
+
+def registrar_consentimento_operador(lead: Lead, operador_id: int) -> None:
+    """Lead cadastrado por um atendente (ligação, reunião etc.) -- o titular não
+    marcou nenhum checkbox nesse momento, então a base legal é outra (execução
+    de atendimento já solicitado pelo próprio contato), não "consentimento".
+    Sem versao_termo: nenhum termo foi de fato exibido nesse fluxo. Achado L13
+    do plano Leads/CRM."""
+    lead.consentimento_em = datetime.now(UTC)
+    lead.consentimento_base_legal = "interesse_legitimo_atendimento"
+    lead.consentimento_registrado_por = operador_id
+
+
 def registrar_evento_operacional(
     session: AsyncSession,
     *,

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.pesquisas import detectar_pesquisa_duplicada, gerar_resumo_pesquisa
 from app.auth import UsuarioAutenticado, exigir_permissao
-from app.crm import buscar_lead_ativo_por_email, obter_ou_criar_empresa
+from app.crm import buscar_lead_ativo_por_email, obter_ou_criar_empresa, registrar_consentimento_operador
 from app.database import get_session
 from app.models import (
     Contato,
@@ -82,6 +82,7 @@ async def criar_consulta(
             responsavel_id=operador.id,
             status=StatusLead.NOVO,
         )
+        registrar_consentimento_operador(lead, operador.id)
         session.add(lead)
         await session.flush()
     elif lead is not None:

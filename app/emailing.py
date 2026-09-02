@@ -106,6 +106,68 @@ async def enviar_recuperacao_senha(destinatario: str, nome: str, token: str) -> 
         raise ultimo_erro
 
 
+def _mensagem_confirmacao_exclusao(destinatario: str, token: str, settings: Settings) -> EmailMessage:
+    base = settings.app_public_url.rstrip("/")
+    link = f"{base}/privacidade/confirmar-exclusao#token={quote(token, safe='')}"
+    minutos = settings.anonimizacao_token_minutos
+    horas = max(1, minutos // 60)
+    mensagem = EmailMessage()
+    mensagem["Subject"] = "Confirme a exclusão dos seus dados — Zé Registra"
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = destinatario
+    mensagem.set_content(
+        "Recebemos um pedido para apagar seus dados de contato do nosso sistema.\n\n"
+        f"Se foi você quem solicitou, confirme em até {horas}h acessando o link abaixo:\n\n{link}\n\n"
+        "Se você não fez esse pedido, ignore esta mensagem -- nada será alterado."
+    )
+    mensagem.add_alternative(
+        f"""
+        <!doctype html>
+        <html lang="pt-BR"><body style="margin:0;background:#f5f3eb;padding:28px;">
+          <main style="max-width:600px;margin:auto;background:#fff;border:1px solid #d8ddd6;
+                       border-radius:20px;padding:36px;font-family:Arial,sans-serif;color:#10251d;">
+            <p style="margin:0;color:#08704d;font-weight:700;letter-spacing:.08em;">
+              ZÉ REGISTRA® · PRIVACIDADE
+            </p>
+            <h1 style="font-size:28px;margin:22px 0 12px;">Confirme a exclusão dos seus dados</h1>
+            <p>Recebemos um pedido para apagar seus dados de contato do nosso sistema.
+               Este link é individual, pode ser usado uma única vez e expira em {horas}h.</p>
+            <p style="margin:28px 0;">
+              <a href="{html.escape(link, quote=True)}"
+                 style="display:inline-block;background:#086044;color:#fff;text-decoration:none;
+                        border-radius:10px;padding:14px 22px;font-weight:700;">
+                Confirmar exclusão
+              </a>
+            </p>
+            <p style="color:#607068;font-size:13px;">
+              Se você não fez esse pedido, ignore esta mensagem -- nada será alterado.
+            </p>
+          </main>
+        </body></html>
+        """,
+        subtype="html",
+    )
+    return mensagem
+
+
+async def enviar_confirmacao_exclusao(destinatario: str, token: str) -> None:
+    settings = get_settings()
+    if not settings.email_enabled:
+        return
+    mensagem = _mensagem_confirmacao_exclusao(destinatario, token, settings)
+    ultimo_erro: Exception | None = None
+    for tentativa in range(1, max(1, settings.smtp_max_attempts) + 1):
+        try:
+            await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+            return
+        except Exception as exc:
+            ultimo_erro = exc
+            if tentativa < settings.smtp_max_attempts:
+                await asyncio.sleep(min(2 ** (tentativa - 1), 4))
+    if ultimo_erro is not None:
+        raise ultimo_erro
+
+
 async def enviar_recuperacao_portal(destinatario: str, nome: str, token: str) -> None:
     """Envia recuperação do portal sem reutilizar o link do Centro de Operações."""
     settings = get_settings()

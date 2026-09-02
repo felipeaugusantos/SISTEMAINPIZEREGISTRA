@@ -39,6 +39,7 @@ from app.api.pesquisas import router as pesquisas_router
 from app.api.portal_cliente import router as portal_cliente_router
 from app.api.portfolio_pi import portal_router as portfolio_pi_portal_router
 from app.api.portfolio_pi import router as portfolio_pi_router
+from app.api.privacidade import router as privacidade_router
 from app.api.processos import router as processos_router
 from app.api.producao import router as producao_router
 from app.api.propostas_config import router as propostas_config_router
@@ -119,6 +120,7 @@ app.add_middleware(
 app.middleware("http")(observar_requisicao)
 app.include_router(processos_router)
 app.include_router(leads_router)
+app.include_router(privacidade_router)
 app.include_router(
     pesquisas_router,
     dependencies=[Depends(exigir_token_integracao)],
@@ -198,6 +200,16 @@ async def pagina_esqueci_senha() -> FileResponse:
 @app.get("/redefinir-senha", include_in_schema=False)
 async def pagina_redefinir_senha() -> FileResponse:
     return FileResponse(web_dir / "redefinir-senha.html")
+
+
+@app.get("/privacidade/excluir-meus-dados", include_in_schema=False)
+async def pagina_solicitar_exclusao() -> FileResponse:
+    return FileResponse(web_dir / "privacidade-solicitar-exclusao.html")
+
+
+@app.get("/privacidade/confirmar-exclusao", include_in_schema=False)
+async def pagina_confirmar_exclusao() -> FileResponse:
+    return FileResponse(web_dir / "privacidade-confirmar-exclusao.html")
 
 
 @app.get("/admin/leads", include_in_schema=False, dependencies=[Depends(exigir_permissao("leads.view"))])

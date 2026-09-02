@@ -42,6 +42,11 @@ class FakeResult:
     def scalars(self) -> "FakeResult":
         return self
 
+    def __iter__(self):
+        # Espelha ScalarResult real do SQLAlchemy: iterável diretamente, sem
+        # precisar chamar .all() -- padrão usado em list((await session.execute(...)).scalars()).
+        return iter(self._itens)
+
     def all(self) -> list[Any]:
         return list(self._itens)
 

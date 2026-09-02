@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     ratelimit_redis_enabled: bool = False
     trusted_proxy_networks: str = "127.0.0.1/32,::1/128"
     password_reset_minutes: int = 30
+    anonimizacao_token_minutos: int = 1440
     app_public_url: str = "http://localhost:8000"
     email_enabled: bool = False
     email_from_address: str = "nao-responda@zeregistra.local"

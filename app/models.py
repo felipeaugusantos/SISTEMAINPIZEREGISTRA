@@ -1413,6 +1413,13 @@ class Lead(Base):
     fase: Mapped[str] = mapped_column(String(30), default=FaseLead.CONTATO_INICIAL.value, index=True)
     aceite_privacidade: Mapped[bool] = mapped_column(default=True)
     aceite_marketing: Mapped[bool] = mapped_column(Boolean, default=False)
+    consentimento_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    consentimento_versao_termo: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    consentimento_base_legal: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    consentimento_registrado_por: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    anonimizado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     responsavel_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -1436,7 +1443,24 @@ class Lead(Base):
         back_populates="lead", cascade="all, delete-orphan", order_by="LembreteCRM.lembrar_em"
     )
     empresa_registro: Mapped["EmpresaCRM | None"] = relationship(back_populates="leads")
-    responsavel: Mapped["UsuarioOperacoes | None"] = relationship()
+    responsavel: Mapped["UsuarioOperacoes | None"] = relationship(foreign_keys=[responsavel_id])
+
+
+class SolicitacaoAnonimizacaoLead(Base):
+    """Pedido de exclusão de dados (LGPD) feito pelo próprio titular, sem depender
+    de um atendente. Confirmado por token enviado por e-mail, como a recuperação
+    de senha -- token de uso único, expira, nunca fica em claro no banco."""
+
+    __tablename__ = "solicitacoes_anonimizacao_lead"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    email: Mapped[str] = mapped_column(String(254), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expira_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    usado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    leads_anonimizados: Mapped[int] = mapped_column(default=0)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class HistoricoFaseLead(Base):

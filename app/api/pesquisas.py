@@ -11,6 +11,7 @@ from app.crm import (
     avancar_fase_lead,
     buscar_lead_ativo_por_email,
     obter_ou_criar_empresa,
+    registrar_consentimento_titular,
 )
 from app.database import get_session
 from app.emailing import enviar_alerta_nova_pesquisa
@@ -159,6 +160,7 @@ async def criar_pesquisa(
             aceite_marketing=dados.aceite_marketing,
             status=StatusLead.NOVO,
         )
+        registrar_consentimento_titular(lead, organizacao.politica_privacidade_versao)
         session.add(lead)
         await session.flush()
     else:
@@ -170,6 +172,7 @@ async def criar_pesquisa(
         lead.marca = dados.marca
         lead.atividade = dados.atividade
         lead.aceite_marketing = lead.aceite_marketing or dados.aceite_marketing
+        registrar_consentimento_titular(lead, organizacao.politica_privacidade_versao)
 
     original = await detectar_pesquisa_duplicada(session, organizacao.id, lead.id, dados.marca)
     pesquisa = PesquisaMarca(

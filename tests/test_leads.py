@@ -155,6 +155,26 @@ def test_upsert_publico_marca_diferente_herda_documento_e_empresa_do_contato() -
     assert corpo["empresa"] == "Fulano Comércio"
 
 
+# --- Achado L13 do plano Leads/CRM (03/09/2026): consentimento estruturado ---
+
+
+def test_upsert_publico_registra_consentimento_do_titular_em_lead_novo() -> None:
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=None))
+    resposta = TestClient(app).post("/v1/leads", json=_payload())
+    assert resposta.status_code == 201
+
+
+def test_upsert_publico_atualiza_consentimento_em_lead_existente() -> None:
+    lead = _lead_existente()
+    assert lead.consentimento_base_legal is None
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+    resposta = TestClient(app).post("/v1/leads", json=_payload(marca="acme"))
+    assert resposta.status_code == 201
+    assert lead.consentimento_base_legal == "consentimento_titular"
+    assert lead.consentimento_versao_termo == "1.0"
+    assert lead.consentimento_em is not None
+
+
 def test_rate_limit_bloqueia_excesso() -> None:
     app.dependency_overrides[get_session] = sessao_override()
     cliente = TestClient(app)

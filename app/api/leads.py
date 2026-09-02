@@ -22,6 +22,7 @@ from app.crm import (
     aplicar_politica_oportunidade,
     aplicar_regras_automacao,
     avancar_fase_lead,
+    registrar_consentimento_titular,
     registrar_evento_operacional,
     sincronizar_fase_por_status,
 )
@@ -517,6 +518,7 @@ async def criar_lead(
         existente.processo_numero = dados.processo_numero or existente.processo_numero
         existente.origem = dados.origem
         existente.tipo_interesse = dados.tipo_interesse or existente.tipo_interesse
+        registrar_consentimento_titular(existente, organizacao.politica_privacidade_versao)
         if existente.status not in (StatusLead.CONVERTIDO, StatusLead.DESCARTADO):
             await _garantir_proxima_acao_padrao(session, existente)
         await session.commit()
@@ -539,6 +541,7 @@ async def criar_lead(
         aceite_privacidade=True,
         status=StatusLead.NOVO,
     )
+    registrar_consentimento_titular(lead, organizacao.politica_privacidade_versao)
     session.add(lead)
     await _garantir_proxima_acao_padrao(session, lead)
     await session.commit()

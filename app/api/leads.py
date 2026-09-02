@@ -518,6 +518,9 @@ async def criar_lead(
         existente.processo_numero = dados.processo_numero or existente.processo_numero
         existente.origem = dados.origem
         existente.tipo_interesse = dados.tipo_interesse or existente.tipo_interesse
+        existente.utm_source_ultimo = dados.utm_source or existente.utm_source_ultimo
+        existente.utm_medium_ultimo = dados.utm_medium or existente.utm_medium_ultimo
+        existente.utm_campaign_ultimo = dados.utm_campaign or existente.utm_campaign_ultimo
         registrar_consentimento_titular(existente, organizacao.politica_privacidade_versao)
         if existente.status not in (StatusLead.CONVERTIDO, StatusLead.DESCARTADO):
             await _garantir_proxima_acao_padrao(session, existente)
@@ -540,6 +543,12 @@ async def criar_lead(
         tipo_interesse=dados.tipo_interesse,
         aceite_privacidade=True,
         status=StatusLead.NOVO,
+        utm_source=dados.utm_source,
+        utm_medium=dados.utm_medium,
+        utm_campaign=dados.utm_campaign,
+        utm_source_ultimo=dados.utm_source,
+        utm_medium_ultimo=dados.utm_medium,
+        utm_campaign_ultimo=dados.utm_campaign,
     )
     registrar_consentimento_titular(lead, organizacao.politica_privacidade_versao)
     session.add(lead)

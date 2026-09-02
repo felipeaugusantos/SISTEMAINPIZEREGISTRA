@@ -175,6 +175,55 @@ def test_upsert_publico_atualiza_consentimento_em_lead_existente() -> None:
     assert lead.consentimento_em is not None
 
 
+# --- Achado L2 do plano Leads/CRM (03/09/2026): captura de UTM ---
+
+
+def test_upsert_publico_captura_utm_de_primeira_e_ultima_origem_em_lead_novo() -> None:
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=None))
+    resposta = TestClient(app).post(
+        "/v1/leads",
+        json=_payload(utm_source="google", utm_medium="cpc", utm_campaign="marca-institucional"),
+    )
+    assert resposta.status_code == 201
+
+
+def test_upsert_publico_preserva_primeira_utm_e_atualiza_a_ultima() -> None:
+    lead = _lead_existente()
+    lead.utm_source = "google"
+    lead.utm_medium = "cpc"
+    lead.utm_campaign = "campanha-1"
+    lead.utm_source_ultimo = "google"
+    lead.utm_medium_ultimo = "cpc"
+    lead.utm_campaign_ultimo = "campanha-1"
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+
+    resposta = TestClient(app).post(
+        "/v1/leads",
+        json=_payload(marca="acme", utm_source="instagram", utm_medium="social", utm_campaign="campanha-2"),
+    )
+
+    assert resposta.status_code == 201
+    # primeiro touch nunca muda -- é a atribuição de origem da oportunidade.
+    assert lead.utm_source == "google"
+    assert lead.utm_medium == "cpc"
+    assert lead.utm_campaign == "campanha-1"
+    # último touch reflete o reenvio mais recente.
+    assert lead.utm_source_ultimo == "instagram"
+    assert lead.utm_medium_ultimo == "social"
+    assert lead.utm_campaign_ultimo == "campanha-2"
+
+
+def test_upsert_publico_sem_utm_no_reenvio_preserva_a_ultima_utm_conhecida() -> None:
+    lead = _lead_existente()
+    lead.utm_source_ultimo = "google"
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+
+    resposta = TestClient(app).post("/v1/leads", json=_payload(marca="acme"))
+
+    assert resposta.status_code == 201
+    assert lead.utm_source_ultimo == "google"
+
+
 def test_rate_limit_bloqueia_excesso() -> None:
     app.dependency_overrides[get_session] = sessao_override()
     cliente = TestClient(app)

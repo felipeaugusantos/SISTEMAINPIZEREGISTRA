@@ -168,11 +168,21 @@ class LeadCreate(BaseModel):
     tipo_interesse: TipoProcesso | None = None
     aceite_privacidade: Literal[True]
     website: str = Field(default="", max_length=200)
+    utm_source: str | None = Field(default=None, max_length=100)
+    utm_medium: str | None = Field(default=None, max_length=100)
+    utm_campaign: str | None = Field(default=None, max_length=100)
 
     @field_validator("nome", "email", "telefone", "marca")
     @classmethod
     def remover_espacos(cls, valor: str) -> str:
         return valor.strip()
+
+    @field_validator("utm_source", "utm_medium", "utm_campaign")
+    @classmethod
+    def normalizar_utm(cls, valor: str | None) -> str | None:
+        if valor is None:
+            return None
+        return valor.strip() or None
 
     @field_validator("processo_numero")
     @classmethod

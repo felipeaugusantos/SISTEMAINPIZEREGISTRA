@@ -1388,6 +1388,16 @@ class Lead(Base):
     atividade: Mapped[str | None] = mapped_column(Text, nullable=True)
     processo_numero: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     origem: Mapped[str] = mapped_column(String(30), default="resultados", index=True)
+    # Primeira origem (achado L2 do plano Leads/CRM): capturada uma única vez na
+    # criação do lead/oportunidade e nunca sobrescrita -- atribuição de marketing
+    # de first-touch. utm_*_ultimo espelha o último touch (atualizado a cada
+    # reenvio do mesmo lead com uma UTM nova).
+    utm_source: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    utm_medium: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    utm_campaign: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    utm_source_ultimo: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    utm_medium_ultimo: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    utm_campaign_ultimo: Mapped[str | None] = mapped_column(String(100), nullable=True)
     tipo_interesse: Mapped[TipoProcesso | None] = mapped_column(
         Enum(
             TipoProcesso,

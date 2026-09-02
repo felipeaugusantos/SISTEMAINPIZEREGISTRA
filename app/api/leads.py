@@ -2437,14 +2437,29 @@ async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLRe
     def safe(value: object) -> str:
         return html.escape(str(value or ""))
 
+    def moeda(valor: object) -> str:
+        return f"R$ {float(valor or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
     if proposta.status == "enviada":
         proposta.status = "visualizada"
         await session.commit()
+    total = (proposta.honorarios or 0) + (proposta.taxa_gru or 0)
+    # Achado 5 do plano proposta-financeiro (Fase 1, 03/09/2026): antes o link
+    # público só mostrava marca/classes/escopo -- o cliente aceitava sem ver
+    # valores, condições de pagamento ou validade da proposta.
+    validade_html = (
+        f"<p class='muted'>Proposta válida até {proposta.validade_em.strftime('%d/%m/%Y')}.</p>"
+        if proposta.validade_em
+        else ""
+    )
     return HTMLResponse(
         f"""<!doctype html><html lang='pt-BR'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
         <title>Proposta {safe(proposta.numero)} - {safe(org.nome)}</title><style>body{{font:16px Arial;color:#17231c;background:#f5f7f5;margin:0;padding:24px}}main{{max-width:760px;margin:auto;background:white;padding:36px;border-radius:18px;border:1px solid #d8ddd6}}h1{{font-family:Georgia,serif}}.muted{{color:#5b665f}}.button{{display:inline-block;background:#086044;color:#fff;padding:13px 20px;border-radius:9px;text-decoration:none;border:0;font-weight:700;cursor:pointer}}</style>
         <main><p class='muted'>{safe(org.nome)}</p><h1>Proposta de registro de marca</h1><p>Proposta <strong>{safe(proposta.numero)}</strong> · versão {proposta.versao}</p>
         <h2>Marca</h2><p>{safe(proposta.marca or "A definir")} · Classes {safe(proposta.classes or "A definir")}</p><h2>Escopo</h2><p>{safe(proposta.escopo)}</p>
+        <h2>Valores</h2><p>Honorários: {safe(moeda(proposta.honorarios))}<br>Taxa GRU: {safe(moeda(proposta.taxa_gru))}<br><strong>Total: {safe(moeda(total))}</strong></p>
+        <h2>Condições de pagamento</h2><p>{safe(proposta.condicoes_pagamento or "A combinar com o atendimento")}</p>
+        {validade_html}
         <p class='muted'>Após aceite, pagamento e documentação completa, o protocolo será realizado em até 24 horas úteis. O protocolo não garante a concessão da marca.</p>
         <form method='post' action='/propostas/{token}/aceitar'><button class='button' type='submit'>Aceitar proposta</button></form></main></html>"""
     )
@@ -2458,6 +2473,15 @@ async def aceitar_proposta_publica(token: str, request: Request, session: Sessio
     if proposta.status not in ("enviada", "visualizada", "aceita"):
         return HTMLResponse(
             "<h1>Proposta indisponível</h1><p>Solicite uma nova versão ao atendimento.</p>",
+            status_code=409,
+        )
+    # Achado 7 do plano proposta-financeiro (Fase 1): validade_em nunca era
+    # checada -- só o token de 7 dias. Uma proposta já aceita continua
+    # idempotente mesmo depois de vencer (não desfaz um aceite já registrado).
+    if proposta.public_aceito_em is None and proposta.validade_em and proposta.validade_em < datetime.now(UTC).date():
+        return HTMLResponse(
+            "<h1>Proposta expirada</h1><p>Esta proposta não está mais disponível para aceite. "
+            "Solicite uma nova versão ao atendimento.</p>",
             status_code=409,
         )
     if proposta.public_aceito_em is None:

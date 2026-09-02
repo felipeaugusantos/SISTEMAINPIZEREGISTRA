@@ -775,6 +775,17 @@ async def assinar_proposta_portal(proposta_id: int, request: Request, cliente: C
         raise HTTPException(status_code=404, detail="Proposta não encontrada")
     if proposta.status not in {"enviada", "visualizada", "aceita"}:
         raise HTTPException(status_code=409, detail="Proposta indisponível para assinatura")
+    # Achado 7 do plano proposta-financeiro (Fase 1, 03/09/2026): validade_em
+    # nunca era checada. Uma proposta já aceita continua idempotente mesmo
+    # depois de vencer (não desfaz um aceite já registrado).
+    if (
+        proposta.public_aceito_em is None
+        and proposta.validade_em
+        and proposta.validade_em < datetime.now(UTC).date()
+    ):
+        raise HTTPException(
+            status_code=409, detail="Proposta expirada. Solicite uma nova versão à sua equipe de atendimento."
+        )
     agora = datetime.now(UTC)
     ip_hash = hash_ip(request.client.host if request.client else None)
     assinatura_hash = hashlib.sha256(

@@ -99,11 +99,42 @@ async def webhook_clicksign(
     if proposta is None:
         return {"ok": True, "ignorado": True}
     if any(term in texto for term in ("document_closed", "envelope_closed", "signed", "assinado", "completed")):
+        # Achado 6 do plano proposta-financeiro (Fase 6, 03/09/2026): este era
+        # o único dos 3 canais de aceite que não registrava evidência
+        # (AssinaturaPropostaComercial) -- gate por ``novo_aceite`` evita criar
+        # uma linha por evento (document_closed, envelope_closed, signed...
+        # podem chegar em webhooks separados para o mesmo envelope).
+        novo_aceite = proposta.aceito_em is None
         proposta.status = "aceita"
         proposta.aceito_em = proposta.aceito_em or datetime.now(UTC)
         proposta.public_aceito_em = proposta.public_aceito_em or proposta.aceito_em
         proposta.sla_status = "aguardando_pagamento"
         await criar_contratacao_automatica_proposta(session, proposta, "clicksign")
+        if novo_aceite:
+            assinatura_hash = hashlib.sha256(
+                "|".join(
+                    str(valor or "")
+                    for valor in (
+                        proposta.numero,
+                        proposta.versao,
+                        proposta.marca,
+                        proposta.classes,
+                        proposta.escopo,
+                        proposta.honorarios,
+                        proposta.taxa_gru,
+                        proposta.condicoes_pagamento,
+                    )
+                ).encode("utf-8")
+            ).hexdigest()
+            session.add(
+                AssinaturaPropostaComercial(
+                    organizacao_id=proposta.organizacao_id,
+                    proposta_id=proposta.id,
+                    versao=proposta.versao,
+                    hash_documento=assinatura_hash,
+                    provedor="clicksign",
+                )
+            )
     clicksign = (proposta.dados or {}).get("clicksign") or {}
     event_id = (
         payload.get("event_id") or payload.get("eventId") or (data or {}).get("event_id")

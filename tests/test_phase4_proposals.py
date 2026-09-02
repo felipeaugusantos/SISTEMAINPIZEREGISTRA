@@ -504,3 +504,21 @@ def test_criar_nova_versao_proposta_incrementa_a_partir_de_versao_ja_avancada() 
     )
     assert resultado["numero"] == "PROP-2026-000010"
     assert resultado["versao"] == 4
+
+
+# --- Fase 7 do plano proposta-financeiro (03/09/2026): SLA sobre dado financeiro real ---
+
+
+def test_sla_nao_libera_quando_proposta_aceita_mas_sem_lancamento_pago() -> None:
+    """Fecha explicitamente a vulnerabilidade original: antes bastava um
+    PATCH manual em pagamento_status="confirmado" para liberar o SLA/
+    protocolo, sem nenhum dinheiro real por trás. Agora, mesmo com a
+    proposta "aceita", sem lançamento pago o SLA nunca sai de
+    "aguardando_pagamento" -- calcular_pagamento_status_proposta só retorna
+    "confirmado" quando há um LancamentoFinanceiro efetivamente "pago"."""
+    proposta = _proposta(id=10, status="aceita", pagamento_status="pendente")
+    session = FakeSession([FakeResult(itens=[])])  # nenhum lançamento vinculado
+    asyncio.run(sincronizar_pagamento_proposta(session, proposta))
+    assert proposta.pagamento_status == "pendente"
+    assert proposta.sla_inicio_em is None
+    assert _atualizar_sla_proposta(proposta) == "aguardando_pagamento"

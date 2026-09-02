@@ -1,11 +1,12 @@
 import asyncio
+import json
 from datetime import UTC, date, datetime
 
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from app.api.portal_cliente import assinar_proposta_portal, listar_prazos_portal
-from app.models import ClientePortal, Lead, PrazoJuridico, Processo, PropostaComercial
+from app.api.portal_cliente import assinar_proposta_portal, listar_prazos_portal, webhook_clicksign
+from app.models import AssinaturaPropostaComercial, ClientePortal, Lead, PrazoJuridico, Processo, PropostaComercial
 from tests.conftest import FakeResult, FakeSession
 
 
@@ -159,3 +160,86 @@ def test_assinar_proposta_portal_sem_validade_definida_nao_e_bloqueada() -> None
     resultado = asyncio.run(assinar_proposta_portal(1, _request(), _cliente(), session))
     assert resultado["ok"] is True
     assert proposta.status == "aceita"
+
+
+# --- Fase 6 do plano proposta-financeiro (03/09/2026): paridade do webhook Clicksign ---
+
+
+def _webhook_request(corpo: dict) -> Request:
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/webhooks/clicksign",
+            "headers": [],
+            "client": ("127.0.0.1", 12345),
+            "scheme": "http",
+            "server": ("testserver", 80),
+        }
+    )
+
+    async def _body() -> bytes:
+        return json.dumps(corpo).encode()
+
+    request.body = _body
+    return request
+
+
+def test_webhook_clicksign_registra_assinatura_e_gera_contratacao_no_primeiro_evento() -> None:
+    proposta = _proposta_para_assinatura(
+        id=7, status="enviada", dados={"clicksign": {"envelope_id": "env-123"}}
+    )
+    session = FakeSession(
+        [
+            FakeResult(scalar=proposta),  # busca por envelope_id
+            FakeResult(scalar=None),  # contratação existente? não
+        ]
+    )
+    resultado = asyncio.run(
+        webhook_clicksign(
+            _webhook_request({"envelope_id": "env-123", "event_id": "evt-1", "status": "document_closed"}),
+            session,
+            None,
+        )
+    )
+    assert resultado == {"ok": True, "proposta_id": 7}
+    assert proposta.status == "aceita"
+    assinaturas = [obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial)]
+    assert len(assinaturas) == 1
+    assert assinaturas[0].provedor == "clicksign"
+
+
+def test_webhook_clicksign_nao_duplica_assinatura_em_segundo_evento_do_mesmo_envelope() -> None:
+    proposta = _proposta_para_assinatura(
+        id=7,
+        status="aceita",
+        aceito_em=datetime(2026, 1, 1, tzinfo=UTC),
+        dados={"clicksign": {"envelope_id": "env-123", "ultimo_evento_id": "evt-1"}},
+    )
+    session = FakeSession(
+        [
+            FakeResult(scalar=proposta),
+            FakeResult(scalar=None),
+        ]
+    )
+    asyncio.run(
+        webhook_clicksign(
+            _webhook_request({"envelope_id": "env-123", "event_id": "evt-2", "status": "envelope_closed"}),
+            session,
+            None,
+        )
+    )
+    assinaturas = [obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial)]
+    assert assinaturas == []
+
+
+def test_webhook_clicksign_proposta_nao_encontrada_e_ignorado() -> None:
+    session = FakeSession([FakeResult(scalar=None)])
+    resultado = asyncio.run(
+        webhook_clicksign(
+            _webhook_request({"envelope_id": "env-inexistente", "status": "signed"}),
+            session,
+            None,
+        )
+    )
+    assert resultado == {"ok": True, "ignorado": True}

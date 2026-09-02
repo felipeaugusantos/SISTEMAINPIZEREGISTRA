@@ -34,11 +34,13 @@ from app.api.juridico import (
     criar_prazo,
     criar_regra_juridica,
     editar_politica_juridica,
+    executar_motor_organizacao,
     painel,
 )
 from app.models import (
     EventoJuridico,
     Movimentacao,
+    MovimentacaoAvaliadaJuridico,
     PoliticaJuridica,
     PrazoJuridico,
     ProcessoMonitorado,
@@ -730,3 +732,82 @@ def test_consultar_regras_juridicas_retorna_lista_serializada() -> None:
     resultado = asyncio.run(consultar_regras_juridicas(session, usuario_teste(), None))
     assert resultado[0]["codigo"] == "marco_isencao_taxa_concessao"
     assert resultado[0]["valor"] == "2025-06-24"
+
+
+# --- Achado 5.6 da auditoria (02/09/2026): backlog do motor jurídico (Fase 4) ---
+
+
+def test_motor_marca_despacho_nao_mapeado_como_avaliado_em_vez_de_ignorar_para_sempre() -> None:
+    monitorado = ProcessoMonitorado(id=1, processo_id=10, organizacao_id=1, status="ativo")
+    sem_prazo = Movimentacao(
+        id=101,
+        processo_id=10,
+        descricao="Publicação sem despacho mapeado pelo motor.",
+        data_rpi=date(2030, 1, 5),
+        numero_rpi=2900,
+        codigo_despacho="IPAS999",
+        fonte_arquivo="",
+        chave_origem="chave-101",
+    )
+    com_exigencia = Movimentacao(
+        id=102,
+        processo_id=10,
+        descricao="Exigência formulada pelo examinador.",
+        data_rpi=date(2030, 1, 6),
+        numero_rpi=2901,
+        codigo_despacho="IPAS010",
+        fonte_arquivo="",
+        chave_origem="chave-102",
+    )
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # _reconciliar_prazos_terminais: pendencias
+            FakeResult(itens=[]),  # _reconciliar_prazos_historicos: linhas
+            FakeResult(itens=[]),  # prazos ativos confirmados
+            FakeResult(itens=[(monitorado, sem_prazo), (monitorado, com_exigencia)]),  # candidatos
+            FakeResult(itens=[]),  # _terminais_dos_processos
+            FakeResult(itens=[]),  # chaves_existentes
+            FakeResult(itens=[]),  # historico_prazo_padrao
+            FakeResult(itens=[]),  # historico_marco_isencao
+        ]
+    )
+    resultado = asyncio.run(executar_motor_organizacao(session, organizacao_id=1))
+
+    assert resultado["avaliados_sem_prazo"] == 1
+    assert resultado["prazos_sugeridos"] == 1
+    marcas = [obj for obj in session.adicionados if isinstance(obj, MovimentacaoAvaliadaJuridico)]
+    assert len(marcas) == 1
+    assert marcas[0].movimentacao_id == 101
+    assert marcas[0].motivo == "sem_prazo_mapeado"
+    prazos_criados = [obj for obj in session.adicionados if isinstance(obj, PrazoJuridico)]
+    assert len(prazos_criados) == 1
+    assert prazos_criados[0].tipo == "exigencia"
+
+
+def test_motor_sinaliza_backlog_no_limite_quando_consulta_retorna_o_maximo() -> None:
+    monitorado = ProcessoMonitorado(id=1, processo_id=10, organizacao_id=1, status="ativo")
+    movimentacao = Movimentacao(
+        id=201,
+        processo_id=10,
+        descricao="Exigência formulada pelo examinador.",
+        data_rpi=date(2030, 1, 6),
+        numero_rpi=2901,
+        codigo_despacho="IPAS010",
+        fonte_arquivo="",
+        chave_origem="chave-201",
+    )
+    candidatos_no_limite = [(monitorado, movimentacao)] * 2000
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+            FakeResult(itens=candidatos_no_limite),
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+        ]
+    )
+    resultado = asyncio.run(executar_motor_organizacao(session, organizacao_id=1))
+    assert resultado["backlog_no_limite"] is True

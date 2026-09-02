@@ -1241,6 +1241,43 @@ class RegraJuridicaVersionada(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class MovimentacaoAvaliadaJuridico(Base):
+    """Marca que o motor jurídico (``executar_motor_organizacao``) já avaliou
+    uma movimentação para uma organização e concluiu que nenhum prazo era
+    cabível — sem essa marca, a movimentação ficaria para sempre no pool de
+    candidatos da consulta (o filtro de exclusão hoje só olha se já existe
+    ``PrazoJuridico``, e despachos não mapeados nunca geram um).
+
+    Achado 5.6 da auditoria (02/09/2026), Fase 4: com organizações que
+    acumulam mais de 2000 movimentações não-classificáveis, essas linhas
+    ocupavam para sempre as vagas do ``LIMIT 2000`` da consulta, impedindo
+    movimentações mais antigas e realmente acionáveis de serem avaliadas —
+    um backlog silencioso e crescente. ``Movimentacao`` é global (compartilhada
+    entre organizações que monitoram o mesmo processo), então esta marca tem
+    que ser por organização, não pode ir na própria ``Movimentacao``.
+
+    Contrapartida assumida conscientemente: se uma norma futura tornar uma
+    movimentação hoje não-classificável em classificável, ela não será
+    reavaliada automaticamente — precisaria de uma rotina de reprocessamento
+    manual (fora do escopo desta correção).
+    """
+
+    __tablename__ = "movimentacoes_avaliadas_juridico"
+    __table_args__ = (
+        UniqueConstraint(
+            "organizacao_id",
+            "movimentacao_id",
+            name="uq_movimentacao_avaliada_juridico",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    movimentacao_id: Mapped[int] = mapped_column(ForeignKey("movimentacoes.id", ondelete="CASCADE"), index=True)
+    motivo: Mapped[str] = mapped_column(String(40))
+    avaliado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ItemChecklistPrazo(Base):
     """Etapa de conferência de um prazo jurídico (checklist operacional)."""
 

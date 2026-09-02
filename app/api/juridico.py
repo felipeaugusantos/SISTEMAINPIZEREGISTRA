@@ -18,6 +18,7 @@ from app.models import (
     EventoJuridico,
     ItemChecklistPrazo,
     Movimentacao,
+    MovimentacaoAvaliadaJuridico,
     NotificacaoJuridica,
     PoliticaJuridica,
     PrazoJuridico,
@@ -1731,12 +1732,22 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
                 (PrazoJuridico.movimentacao_origem_id == Movimentacao.id)
                 & (PrazoJuridico.organizacao_id == organizacao_id),
             )
+            .outerjoin(
+                MovimentacaoAvaliadaJuridico,
+                (MovimentacaoAvaliadaJuridico.movimentacao_id == Movimentacao.id)
+                & (MovimentacaoAvaliadaJuridico.organizacao_id == organizacao_id),
+            )
             .where(
                 ProcessoMonitorado.organizacao_id == organizacao_id,
                 ProcessoMonitorado.status == "ativo",
                 PrazoJuridico.id.is_(None),
+                MovimentacaoAvaliadaJuridico.id.is_(None),
             )
-            .order_by(Movimentacao.data_rpi.desc())
+            # Mais antigas primeiro: são as mais urgentes (prazo mais perto de
+            # vencer ou já vencido). Achado 5.6 da auditoria (Fase 4): antes
+            # ordenava por mais recente, deixando pendências antigas nunca
+            # avaliadas quando o backlog passava de 2000 candidatos.
+            .order_by(Movimentacao.data_rpi.asc())
             .limit(2000)
         )
     ).all()
@@ -1760,17 +1771,31 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
     historico_marco_isencao = await _historico_regra(session, "marco_isencao_taxa_concessao")
     sugeridos = 0
     dispensados = 0
+    avaliados_sem_prazo = 0
+
+    def _marcar_avaliada(motivo: str) -> None:
+        nonlocal avaliados_sem_prazo
+        session.add(
+            MovimentacaoAvaliadaJuridico(
+                organizacao_id=organizacao_id, movimentacao_id=movimentacao.id, motivo=motivo
+            )
+        )
+        avaliados_sem_prazo += 1
+
     for monitorado, movimentacao in candidatos:
         if movimentacao.data_rpi is None:
+            _marcar_avaliada("sem_data_rpi")
             continue
         terminal = terminais_candidatos.get(monitorado.processo_id)
         if terminal is not None and _movimentacao_posterior(terminal, movimentacao):
+            _marcar_avaliada("despacho_posterior_a_terminal")
             continue
         dias_padrao = _valor_vigente(
             historico_prazo_padrao, movimentacao.data_rpi, PRAZO_ADMINISTRATIVO_PADRAO_DIAS
         )
         classificacao = _classificar_despacho(movimentacao.descricao, dias_padrao=dias_padrao)
         if classificacao is None:
+            _marcar_avaliada("sem_prazo_mapeado")
             continue
         dias, tipo, acao = classificacao
         chave_publicacao = (
@@ -1781,6 +1806,7 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
             (movimentacao.codigo_despacho or "").strip().upper(),
         )
         if chave_publicacao in chaves_existentes:
+            _marcar_avaliada("publicacao_duplicada")
             continue
         chaves_existentes.add(chave_publicacao)
         # (a) Deferimentos a partir da RPI nº 2842 (24/06/2025) são isentos do
@@ -1873,6 +1899,8 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
         "prazos_reconciliados": reconciliados,
         "prazos_historicos": historicos,
         "prazos_duplicados": duplicados,
+        "avaliados_sem_prazo": avaliados_sem_prazo,
+        "backlog_no_limite": len(candidatos) == 2000,
     }
 
 

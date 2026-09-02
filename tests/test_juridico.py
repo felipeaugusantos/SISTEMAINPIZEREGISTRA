@@ -10,6 +10,8 @@ from starlette.requests import Request
 from app.api.juridico import (
     CHECKLIST_GENERICO,
     CHECKLIST_PADRAO,
+    CODIGOS_DESPACHO_PRAZO,
+    CODIGOS_DESPACHO_TERMINAL,
     MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO,
     PADRAO_PRAZO,
     PRAZO_ADMINISTRATIVO_PADRAO_DIAS,
@@ -811,3 +813,45 @@ def test_motor_sinaliza_backlog_no_limite_quando_consulta_retorna_o_maximo() -> 
     )
     resultado = asyncio.run(executar_motor_organizacao(session, organizacao_id=1))
     assert resultado["backlog_no_limite"] is True
+
+
+# --- Achado 5.7 da auditoria (02/09/2026): prioridade do código de despacho (Fase 5) ---
+
+
+def test_codigos_despacho_prazo_deriva_deferimento_do_catalogo_oficial() -> None:
+    assert CODIGOS_DESPACHO_PRAZO["029"] == ("pagamento", "Pagamento da taxa de concessão")
+
+
+def test_codigos_despacho_terminal_deriva_concessao_do_catalogo_oficial() -> None:
+    assert CODIGOS_DESPACHO_TERMINAL["158"] == ("concluido", "Registro concedido pelo INPI")
+
+
+def test_classificar_despacho_usa_codigo_quando_texto_nao_bate_com_nenhuma_regra() -> None:
+    resultado = _classificar_despacho("Despacho publicado na RPI.", codigo_despacho="IPAS029")
+    assert resultado == (PRAZO_ADMINISTRATIVO_PADRAO_DIAS, "pagamento", "Pagamento da taxa de concessão")
+
+
+def test_classificar_despacho_aceita_codigo_em_formato_desp_ou_ipas() -> None:
+    via_desp = _classificar_despacho("texto qualquer", codigo_despacho="DESP029")
+    via_ipas = _classificar_despacho("texto qualquer", codigo_despacho="IPAS029")
+    assert via_desp == via_ipas == (PRAZO_ADMINISTRATIVO_PADRAO_DIAS, "pagamento", "Pagamento da taxa de concessão")
+
+
+def test_classificar_despacho_texto_soletrado_tem_prioridade_mesmo_com_codigo() -> None:
+    resultado = _classificar_despacho("Prazo de 30 (trinta) dias.", codigo_despacho="IPAS029")
+    assert resultado == (30, "pagamento", "Pagamento da taxa de concessão")
+
+
+def test_classificar_despacho_sem_codigo_reconhecido_cai_para_o_texto() -> None:
+    resultado = _classificar_despacho("Exigência formulada pelo examinador.", codigo_despacho="IPAS999999")
+    assert resultado == (PRAZO_ADMINISTRATIVO_PADRAO_DIAS, "exigencia", "Cumprimento de exigência")
+
+
+def test_classificar_despacho_terminal_usa_codigo_quando_texto_nao_bate() -> None:
+    resultado = _classificar_despacho_terminal("Despacho publicado na RPI.", codigo_despacho="IPAS158")
+    assert resultado == ("concluido", "Registro concedido pelo INPI")
+
+
+def test_classificar_despacho_terminal_sem_codigo_mantem_comportamento_por_texto() -> None:
+    resultado = _classificar_despacho_terminal("Concessão de registro deferida.")
+    assert resultado == ("concluido", "Registro concedido pelo INPI")

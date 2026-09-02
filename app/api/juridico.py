@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.saas import exigir_superadmin
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
+from app.badepi.despachos_codigos import DESCRICOES_DESPACHO, codigo_numerico
 from app.crm import obter_ou_criar_empresa, registrar_evento_operacional
 from app.database import get_session
 from app.models import (
@@ -236,21 +237,57 @@ DESPACHOS_TERMINAIS: tuple[tuple[re.Pattern[str], str, str], ...] = (
 )
 
 
+def _codigos_por_regra_de_texto(
+    regras: tuple[tuple[re.Pattern[str], str, str], ...], catalogo: dict[str, str]
+) -> dict[str, tuple[str, str]]:
+    """Deriva um mapa código→classificação aplicando as mesmas regras de texto
+    (DESPACHOS_PRAZO/DESPACHOS_TERMINAIS) às descrições oficiais do catálogo de
+    códigos de despacho (``app.badepi.despachos_codigos``, fonte: INPI —
+    "Tabela de Códigos de Despachos - Marcas").
+
+    Achado 5.7 da auditoria (02/09/2026), Fase 5: ``codigo_despacho`` (campo
+    estruturado da RPI) nunca era usado para classificar, só a descrição em
+    texto livre via regex — menos confiável quando a redação varia. Derivar o
+    mapa por código A PARTIR das mesmas regras de texto, em vez de curar cada
+    código manualmente, garante que a classificação por código nunca cubra
+    mais nem menos casos do que a classificação por texto já cobre hoje.
+    """
+    mapa: dict[str, tuple[str, str]] = {}
+    for codigo, descricao in catalogo.items():
+        for padrao, a, b in regras:
+            if padrao.search(descricao):
+                mapa[codigo] = (a, b)
+                break
+    return mapa
+
+
+CODIGOS_DESPACHO_PRAZO = _codigos_por_regra_de_texto(DESPACHOS_PRAZO, DESCRICOES_DESPACHO)
+CODIGOS_DESPACHO_TERMINAL = _codigos_por_regra_de_texto(DESPACHOS_TERMINAIS, DESCRICOES_DESPACHO)
+
+
 def _classificar_despacho(
-    descricao: str | None, dias_padrao: int = PRAZO_ADMINISTRATIVO_PADRAO_DIAS
+    descricao: str | None,
+    codigo_despacho: str | None = None,
+    dias_padrao: int = PRAZO_ADMINISTRATIVO_PADRAO_DIAS,
 ) -> tuple[int, str, str] | None:
     """Deriva (dias, tipo, ação) de uma movimentação de RPI de marca.
 
-    O número soletrado no texto ("prazo de N dias") tem prioridade; na ausência
-    dele, aplica-se ``dias_padrao`` (o prazo legal padrão, sobrescrevível pela
-    regra vigente em ``RegraJuridicaVersionada``). Retorna ``None`` para
-    despachos terminais ou sem prazo processual mapeado.
+    O número soletrado no texto ("prazo de N dias") tem prioridade sobre
+    qualquer classificação. Na ausência dele: se ``codigo_despacho`` bate com
+    um código conhecido (``CODIGOS_DESPACHO_PRAZO``), usa essa classificação —
+    mais confiável que o texto, que varia de redação. Sem código reconhecido,
+    cai para o regex sobre ``descricao`` (comportamento anterior). Retorna
+    ``None`` para despachos terminais ou sem prazo processual mapeado.
     """
     texto = descricao or ""
     match = PADRAO_PRAZO.search(texto)
     dias_texto = int(match.group(1)) if match else None
     if dias_texto is not None and not 1 <= dias_texto <= 365:
         dias_texto = None
+    numero = codigo_numerico(codigo_despacho)
+    if numero is not None and numero in CODIGOS_DESPACHO_PRAZO:
+        tipo, acao = CODIGOS_DESPACHO_PRAZO[numero]
+        return (dias_texto or dias_padrao), tipo, acao
     for padrao, tipo, acao in DESPACHOS_PRAZO:
         if padrao.search(texto):
             return (dias_texto or dias_padrao), tipo, acao
@@ -374,7 +411,12 @@ async def criar_regra_juridica(
     return _serializar_regra(regra)
 
 
-def _classificar_despacho_terminal(descricao: str | None) -> tuple[str, str] | None:
+def _classificar_despacho_terminal(
+    descricao: str | None, codigo_despacho: str | None = None
+) -> tuple[str, str] | None:
+    numero = codigo_numerico(codigo_despacho)
+    if numero is not None and numero in CODIGOS_DESPACHO_TERMINAL:
+        return CODIGOS_DESPACHO_TERMINAL[numero]
     texto = descricao or ""
     for padrao, status_final, motivo in DESPACHOS_TERMINAIS:
         if padrao.search(texto):
@@ -1480,7 +1522,7 @@ async def _terminais_dos_processos(session: AsyncSession, processo_ids: set[int]
     )
     terminais: dict[int, Movimentacao] = {}
     for movimentacao in movimentacoes:
-        if _classificar_despacho_terminal(movimentacao.descricao) is not None:
+        if _classificar_despacho_terminal(movimentacao.descricao, movimentacao.codigo_despacho) is not None:
             terminais.setdefault(movimentacao.processo_id, movimentacao)
     return terminais
 
@@ -1511,7 +1553,7 @@ async def _reconciliar_prazos_terminais(
         terminal = terminais.get(origem.processo_id)
         if terminal is None or not _movimentacao_posterior(terminal, origem):
             continue
-        classificacao = _classificar_despacho_terminal(terminal.descricao)
+        classificacao = _classificar_despacho_terminal(terminal.descricao, terminal.codigo_despacho)
         if classificacao is None:
             continue
         status_final, motivo = classificacao
@@ -1793,7 +1835,9 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
         dias_padrao = _valor_vigente(
             historico_prazo_padrao, movimentacao.data_rpi, PRAZO_ADMINISTRATIVO_PADRAO_DIAS
         )
-        classificacao = _classificar_despacho(movimentacao.descricao, dias_padrao=dias_padrao)
+        classificacao = _classificar_despacho(
+            movimentacao.descricao, codigo_despacho=movimentacao.codigo_despacho, dias_padrao=dias_padrao
+        )
         if classificacao is None:
             _marcar_avaliada("sem_prazo_mapeado")
             continue

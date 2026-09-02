@@ -27,6 +27,7 @@ from app.api.juridico import (
     _classificar_despacho,
     _classificar_despacho_terminal,
     _dispensa_concessao,
+    _emails_usuarios,
     _pascoa,
     _reconciliar_prazos_historicos,
     _reconciliar_prazos_terminais,
@@ -970,3 +971,98 @@ def test_listar_documentos_entrega_retorna_lista_serializada() -> None:
     resultado = asyncio.run(listar_documentos_entrega(prazo.id, session, usuario_teste()))
     assert resultado["documentos"][0]["hash"] == "abc123"
     assert resultado["documentos"][0]["nome"] == "comprovante.pdf"
+
+
+# --- Achado 5.9 da auditoria (02/09/2026): alerta de prazo por e-mail (Fase 8) ---
+
+
+def test_emails_usuarios_retorna_mapa_id_para_email() -> None:
+    session = FakeSession([FakeResult(itens=[(2, "responsavel@teste.local"), (3, "outro@teste.local")])])
+    resultado = asyncio.run(_emails_usuarios(session, organizacao_id=1, usuario_ids={2, 3}))
+    assert resultado == {2: "responsavel@teste.local", 3: "outro@teste.local"}
+
+
+def test_emails_usuarios_nao_consulta_o_banco_quando_nao_ha_ids() -> None:
+    resultado = asyncio.run(_emails_usuarios(FakeSession([]), organizacao_id=1, usuario_ids=set()))
+    assert resultado == {}
+
+
+def test_notificar_envia_email_quando_e_notificacao_nova_e_ha_destinatario() -> None:
+    import app.api.juridico as juridico_modulo
+
+    chamadas: list[tuple] = []
+
+    async def _enviar_fake(destinatario: str, titulo: str, mensagem_texto: str) -> None:
+        chamadas.append((destinatario, titulo, mensagem_texto))
+
+    original = juridico_modulo.enviar_alerta_prazo_juridico
+    juridico_modulo.enviar_alerta_prazo_juridico = _enviar_fake
+    try:
+        prazo = _prazo_ativo()
+        session = FakeSession([FakeResult(scalar=None)])
+        enviado = asyncio.run(
+            juridico_modulo._notificar(
+                session,
+                prazo,
+                "vencido",
+                2,
+                "Prazo jurídico vencido",
+                "Responder exigência venceu há 3 dia(s).",
+                "responsavel@teste.local",
+            )
+        )
+    finally:
+        juridico_modulo.enviar_alerta_prazo_juridico = original
+
+    assert enviado is True
+    assert chamadas == [
+        ("responsavel@teste.local", "Prazo jurídico vencido", "Responder exigência venceu há 3 dia(s).")
+    ]
+
+
+def test_notificar_nao_reenvia_email_quando_ja_notificado() -> None:
+    import app.api.juridico as juridico_modulo
+
+    chamadas: list[tuple] = []
+
+    async def _enviar_fake(destinatario: str, titulo: str, mensagem_texto: str) -> None:
+        chamadas.append((destinatario, titulo, mensagem_texto))
+
+    original = juridico_modulo.enviar_alerta_prazo_juridico
+    juridico_modulo.enviar_alerta_prazo_juridico = _enviar_fake
+    try:
+        prazo = _prazo_ativo()
+        session = FakeSession([FakeResult(scalar=123)])  # já existe notificação com essa chave
+        enviado = asyncio.run(
+            juridico_modulo._notificar(
+                session, prazo, "vencido", 2, "Prazo jurídico vencido", "texto", "responsavel@teste.local"
+            )
+        )
+    finally:
+        juridico_modulo.enviar_alerta_prazo_juridico = original
+
+    assert enviado is False
+    assert chamadas == []
+
+
+def test_notificar_sem_email_destinatario_nao_tenta_enviar() -> None:
+    import app.api.juridico as juridico_modulo
+
+    chamadas: list[tuple] = []
+
+    async def _enviar_fake(destinatario: str, titulo: str, mensagem_texto: str) -> None:
+        chamadas.append((destinatario, titulo, mensagem_texto))
+
+    original = juridico_modulo.enviar_alerta_prazo_juridico
+    juridico_modulo.enviar_alerta_prazo_juridico = _enviar_fake
+    try:
+        prazo = _prazo_ativo()
+        session = FakeSession([FakeResult(scalar=None)])
+        enviado = asyncio.run(
+            juridico_modulo._notificar(session, prazo, "vencido", 2, "Prazo jurídico vencido", "texto")
+        )
+    finally:
+        juridico_modulo.enviar_alerta_prazo_juridico = original
+
+    assert enviado is True
+    assert chamadas == []

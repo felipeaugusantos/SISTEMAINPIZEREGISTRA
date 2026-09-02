@@ -15,6 +15,7 @@ from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.badepi.despachos_codigos import DESCRICOES_DESPACHO, codigo_numerico
 from app.crm import obter_ou_criar_empresa, registrar_evento_operacional
 from app.database import get_session
+from app.emailing import enviar_alerta_prazo_juridico
 from app.models import (
     DocumentoEntregaJuridico,
     EmpresaCRM,
@@ -1552,6 +1553,20 @@ async def ler_notificacao(
     return {"id": item.id, "status": item.status, "lida_em": item.lida_em}
 
 
+async def _emails_usuarios(session: AsyncSession, organizacao_id: int, usuario_ids: set[int]) -> dict[int, str]:
+    if not usuario_ids:
+        return {}
+    linhas = (
+        await session.execute(
+            select(UsuarioOperacoes.id, UsuarioOperacoes.email).where(
+                UsuarioOperacoes.organizacao_id == organizacao_id,
+                UsuarioOperacoes.id.in_(usuario_ids),
+            )
+        )
+    ).all()
+    return dict(linhas)
+
+
 async def _notificar(
     session: AsyncSession,
     prazo: PrazoJuridico,
@@ -1559,6 +1574,7 @@ async def _notificar(
     destinatario_id: int | None,
     titulo: str,
     mensagem: str,
+    email_destinatario: str | None = None,
 ) -> bool:
     chave = f"juridico:{prazo.organizacao_id}:{prazo.id}:{tipo}:{destinatario_id or 0}"
     existe = (
@@ -1578,6 +1594,12 @@ async def _notificar(
             status="nova",
         )
     )
+    # Achado 5.9 da auditoria (Fase 8): antes só o registro acima existia --
+    # ninguém era avisado de fato fora do painel. E-mail é reforço, não
+    # substitui a central de notificações (falha de envio não desfaz o
+    # registro nem interrompe o motor -- ver enviar_alerta_prazo_juridico).
+    if email_destinatario:
+        await enviar_alerta_prazo_juridico(email_destinatario, titulo, mensagem)
     return True
 
 
@@ -1802,6 +1824,10 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
         .scalars()
         .all()
     )
+    destinatario_ids = {p.responsavel_id for p in prazos if p.responsavel_id} | {
+        p.escalonar_para_id for p in prazos if p.escalonar_para_id
+    }
+    emails_destinatarios = await _emails_usuarios(session, organizacao_id, destinatario_ids)
     notificacoes = 0
     escalados = 0
     for prazo in prazos:
@@ -1815,6 +1841,7 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
                 prazo.responsavel_id,
                 "Prazo jurídico vencido",
                 f"{prazo.titulo} venceu há {abs(dias)} dia(s).",
+                emails_destinatarios.get(prazo.responsavel_id),
             )
         elif dias <= prazo.antecedencia_dias:
             notificacoes += await _notificar(
@@ -1824,6 +1851,7 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
                 prazo.responsavel_id,
                 "Prazo jurídico próximo",
                 f"{prazo.titulo} vence em {dias} dia(s).",
+                emails_destinatarios.get(prazo.responsavel_id),
             )
         if dias <= prazo.escalonar_dias_antes and prazo.escalonar_para_id and prazo.escalonado_em is None:
             prazo.escalonado_em = agora
@@ -1836,6 +1864,7 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
                 prazo.escalonar_para_id,
                 "Prazo escalonado",
                 f"{prazo.titulo} requer acompanhamento imediato.",
+                emails_destinatarios.get(prazo.escalonar_para_id),
             )
             _evento(
                 session,

@@ -177,3 +177,31 @@ async def enviar_proposta_email(destinatario: str, nome: str, link: str, pdf_byt
                 await asyncio.sleep(min(2 ** (tentativa - 1), 4))
     if ultimo_erro is not None:
         raise ultimo_erro
+
+
+async def enviar_alerta_prazo_juridico(destinatario: str, titulo: str, mensagem_texto: str) -> None:
+    """Avisa por e-mail o responsável por um prazo jurídico vencido, próximo do
+    vencimento ou escalonado.
+
+    Achado 5.9 da auditoria (02/09/2026), Fase 8: o motor jurídico só criava um
+    registro de ``NotificacaoJuridica`` no banco (a central de notificações do
+    painel), mas nunca enviava nada de fato — quem não abrisse o painel nunca
+    ficava sabendo. Silencioso se e-mail ou o destinatário não estiverem
+    configurados, e não propaga falha de envio: a central de notificações do
+    painel continua sendo o registro de referência, este e-mail é reforço.
+    """
+    settings = get_settings()
+    if not settings.email_enabled or not destinatario:
+        return
+    link = f"{settings.app_public_url.rstrip('/')}/admin/operacao-juridica"
+    mensagem = EmailMessage()
+    mensagem["Subject"] = f"[Zé Registra] {titulo}"
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = destinatario
+    mensagem.set_content(
+        f"{mensagem_texto}\n\nAcesse a Operação Jurídica para ver os detalhes e confirmar:\n{link}"
+    )
+    try:
+        await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+    except Exception:
+        logger.exception("Falha ao enviar alerta de prazo jurídico por e-mail")

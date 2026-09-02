@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import hashlib
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +19,7 @@ from app.api.juridico import (
     PRAZO_ADMINISTRATIVO_PADRAO_DIAS,
     TIPOS_PRAZO,
     ChecklistItemUpdate,
+    EntregaInput,
     PoliticaJuridicaUpdate,
     PrazoInput,
     PrazoUpdate,
@@ -37,9 +40,12 @@ from app.api.juridico import (
     criar_regra_juridica,
     editar_politica_juridica,
     executar_motor_organizacao,
+    listar_documentos_entrega,
     painel,
+    registrar_entrega,
 )
 from app.models import (
+    DocumentoEntregaJuridico,
     EventoJuridico,
     Movimentacao,
     MovimentacaoAvaliadaJuridico,
@@ -855,3 +861,112 @@ def test_classificar_despacho_terminal_usa_codigo_quando_texto_nao_bate() -> Non
 def test_classificar_despacho_terminal_sem_codigo_mantem_comportamento_por_texto() -> None:
     resultado = _classificar_despacho_terminal("Concessão de registro deferida.")
     assert resultado == ("concluido", "Registro concedido pelo INPI")
+
+
+# --- Achado 5.8 da auditoria (02/09/2026): evidência de entrega com hash (Fase 7) ---
+
+
+def test_registrar_entrega_sem_documento_continua_funcionando_como_antes() -> None:
+    prazo = _prazo_ativo()
+    session = FakeSession([FakeResult(scalar=prazo)])
+    resultado = asyncio.run(
+        registrar_entrega(
+            prazo.id,
+            EntregaInput(descricao="Protocolo BR512345678 registrado.", protocolo="BR512345678"),
+            _request(),
+            session,
+            usuario_teste(),
+        )
+    )
+    assert resultado == {"registrado": True, "documento_id": None}
+    documentos = [obj for obj in session.adicionados if isinstance(obj, DocumentoEntregaJuridico)]
+    assert documentos == []
+
+
+def test_entrega_input_exige_nome_quando_anexa_documento_base64() -> None:
+    try:
+        EntregaInput(descricao="Comprovante anexado.", documento_base64=base64.b64encode(b"x").decode())
+        raise AssertionError("Esperava ValidationError por falta de documento_nome")
+    except ValidationError:
+        pass
+
+
+def test_registrar_entrega_com_documento_calcula_hash_e_persiste_via_storage() -> None:
+    import app.api.juridico as juridico_modulo
+
+    caminhos_salvos: list[tuple[str, bytes]] = []
+
+    def _save_bytes_fake(key: str, content: bytes) -> str:
+        caminhos_salvos.append((key, content))
+        return f"data/uploads/{key}"
+
+    original = juridico_modulo.save_bytes
+    juridico_modulo.save_bytes = _save_bytes_fake
+    try:
+        prazo = _prazo_ativo()
+        session = FakeSession([FakeResult(scalar=prazo)])
+        conteudo = b"comprovante de protocolo em pdf"
+        resultado = asyncio.run(
+            juridico_modulo.registrar_entrega(
+                prazo.id,
+                EntregaInput(
+                    descricao="Protocolo enviado ao INPI.",
+                    documento_nome="comprovante.pdf",
+                    documento_base64=base64.b64encode(conteudo).decode(),
+                    documento_content_type="application/pdf",
+                ),
+                _request(),
+                session,
+                usuario_teste(),
+            )
+        )
+    finally:
+        juridico_modulo.save_bytes = original
+
+    assert resultado["registrado"] is True
+    assert len(caminhos_salvos) == 1
+    digest_esperado = hashlib.sha256(conteudo).hexdigest()
+    documentos = [obj for obj in session.adicionados if isinstance(obj, DocumentoEntregaJuridico)]
+    assert len(documentos) == 1
+    assert documentos[0].hash_documento == digest_esperado
+    assert documentos[0].nome == "comprovante.pdf"
+
+
+def test_registrar_entrega_rejeita_base64_invalido() -> None:
+    prazo = _prazo_ativo()
+    session = FakeSession([FakeResult(scalar=prazo)])
+    try:
+        asyncio.run(
+            registrar_entrega(
+                prazo.id,
+                EntregaInput(
+                    descricao="Comprovante anexado.",
+                    documento_nome="comprovante.pdf",
+                    documento_base64="isto-nao-e-base64-valido!!!",
+                ),
+                _request(),
+                session,
+                usuario_teste(),
+            )
+        )
+        raise AssertionError("Esperava HTTPException 422 por base64 inválido")
+    except HTTPException as erro:
+        assert erro.status_code == 422
+
+
+def test_listar_documentos_entrega_retorna_lista_serializada() -> None:
+    prazo = _prazo_ativo()
+    documento = DocumentoEntregaJuridico(
+        id=1,
+        organizacao_id=1,
+        prazo_id=prazo.id,
+        nome="comprovante.pdf",
+        hash_documento="abc123",
+        caminho="data/uploads/juridico/1/9/abc123-comprovante.pdf",
+        content_type="application/pdf",
+        criado_por="admin@teste.local",
+    )
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(itens=[documento])])
+    resultado = asyncio.run(listar_documentos_entrega(prazo.id, session, usuario_teste()))
+    assert resultado["documentos"][0]["hash"] == "abc123"
+    assert resultado["documentos"][0]["nome"] == "comprovante.pdf"

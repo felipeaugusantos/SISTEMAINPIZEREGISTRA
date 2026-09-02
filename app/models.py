@@ -1278,6 +1278,33 @@ class MovimentacaoAvaliadaJuridico(Base):
     avaliado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class DocumentoEntregaJuridico(Base):
+    """Documento anexado como evidência de uma entrega (protocolo, GRU paga,
+    comprovante) registrada num prazo jurídico — com hash SHA-256 para
+    verificação de integridade, seguindo o mesmo padrão de
+    ``DocumentoAtivoPI``/``app.storage``.
+
+    Achado 5.8 da auditoria (02/09/2026), Fase 7: ``registrar_entrega`` só
+    aceitava ``protocolo``/``documento`` como texto livre, sem anexo real nem
+    hash — qualquer texto passava como "evidência", sem verificação alguma.
+    O anexo é opcional aqui (mantém compatibilidade com quem só registra o
+    número de protocolo em texto); quando enviado, fica registrado com hash e
+    pode ser conferido depois.
+    """
+
+    __tablename__ = "documentos_entrega_juridico"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    prazo_id: Mapped[int] = mapped_column(ForeignKey("prazos_juridicos.id", ondelete="CASCADE"), index=True)
+    nome: Mapped[str] = mapped_column(String(255))
+    hash_documento: Mapped[str] = mapped_column(String(64), index=True)
+    caminho: Mapped[str] = mapped_column(Text)
+    content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    criado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class ItemChecklistPrazo(Base):
     """Etapa de conferência de um prazo jurídico (checklist operacional)."""
 

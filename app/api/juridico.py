@@ -1,10 +1,12 @@
+import base64
+import hashlib
 import re
 from datetime import UTC, date, datetime, time, timedelta
 from types import SimpleNamespace
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +16,7 @@ from app.badepi.despachos_codigos import DESCRICOES_DESPACHO, codigo_numerico
 from app.crm import obter_ou_criar_empresa, registrar_evento_operacional
 from app.database import get_session
 from app.models import (
+    DocumentoEntregaJuridico,
     EmpresaCRM,
     EventoAuditoria,
     EventoJuridico,
@@ -31,6 +34,7 @@ from app.models import (
     processo_titulares,
 )
 from app.proxy import cliente_ip
+from app.storage import StorageError, save_bytes
 
 FERIADOS_NACIONAIS_FIXOS: tuple[tuple[int, int, str], ...] = (
     (1, 1, "Confraternização Universal"),
@@ -516,10 +520,22 @@ def _politica_juridica_dict(politica: PoliticaJuridica) -> dict:
     }
 
 
+TAMANHO_MAXIMO_DOCUMENTO_ENTREGA = 15 * 1024 * 1024  # 15 MB decodificado
+
+
 class EntregaInput(BaseModel):
     descricao: str = Field(min_length=3, max_length=500)
     protocolo: str | None = Field(default=None, max_length=120)
     documento: str | None = Field(default=None, max_length=500)
+    documento_nome: str | None = Field(default=None, min_length=1, max_length=255)
+    documento_base64: str | None = Field(default=None, min_length=1)
+    documento_content_type: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def _exigir_nome_com_base64(self) -> "EntregaInput":
+        if self.documento_base64 and not self.documento_nome:
+            raise ValueError("Informe documento_nome ao anexar documento_base64")
+        return self
 
 
 class ChecklistItemInput(BaseModel):
@@ -1220,6 +1236,10 @@ async def editar_politica_juridica(
     return _politica_juridica_dict(politica)
 
 
+def _slug_documento(valor: str) -> str:
+    return re.sub(r"_+", "_", re.sub(r"[^a-zA-Z0-9._-]", "_", valor))[:180] or "documento"
+
+
 @router.post("/prazos/{prazo_id}/entregas", status_code=status.HTTP_201_CREATED)
 async def registrar_entrega(
     prazo_id: int,
@@ -1230,6 +1250,37 @@ async def registrar_entrega(
 ) -> dict:
     prazo = await _obter_prazo(session, usuario, prazo_id)
     detalhes = {"protocolo": dados.protocolo, "documento": dados.documento}
+    documento_id = None
+    if dados.documento_base64:
+        try:
+            conteudo = base64.b64decode(dados.documento_base64, validate=True)
+        except Exception as exc:
+            raise HTTPException(422, "documento_base64 inválido") from exc
+        if len(conteudo) > TAMANHO_MAXIMO_DOCUMENTO_ENTREGA:
+            raise HTTPException(
+                422, f"Documento excede o tamanho máximo de {TAMANHO_MAXIMO_DOCUMENTO_ENTREGA // (1024 * 1024)} MB"
+            )
+        digest = hashlib.sha256(conteudo).hexdigest()
+        try:
+            caminho = save_bytes(
+                f"juridico/{usuario.organizacao_id}/{prazo.id}/{digest}-{_slug_documento(dados.documento_nome)}",
+                conteudo,
+            )
+        except StorageError as exc:
+            raise HTTPException(503, str(exc)) from exc
+        documento = DocumentoEntregaJuridico(
+            organizacao_id=usuario.organizacao_id,
+            prazo_id=prazo.id,
+            nome=dados.documento_nome,
+            hash_documento=digest,
+            caminho=caminho,
+            content_type=dados.documento_content_type,
+            criado_por=usuario.ator,
+        )
+        session.add(documento)
+        await session.flush()
+        documento_id = documento.id
+        detalhes["documento_anexo"] = {"id": documento.id, "nome": dados.documento_nome, "hash": digest}
     _evento(
         session,
         usuario,
@@ -1241,7 +1292,39 @@ async def registrar_entrega(
     )
     _auditar(session, request, usuario, "registrar_entrega", f"prazo:{prazo.id}", detalhes)
     await session.commit()
-    return {"registrado": True}
+    return {"registrado": True, "documento_id": documento_id}
+
+
+@router.get("/prazos/{prazo_id}/documentos")
+async def listar_documentos_entrega(prazo_id: int, session: SessionDep, usuario: ViewDep) -> dict:
+    await _obter_prazo(session, usuario, prazo_id)
+    documentos = (
+        (
+            await session.execute(
+                select(DocumentoEntregaJuridico)
+                .where(
+                    DocumentoEntregaJuridico.prazo_id == prazo_id,
+                    DocumentoEntregaJuridico.organizacao_id == usuario.organizacao_id,
+                )
+                .order_by(DocumentoEntregaJuridico.criado_em.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "documentos": [
+            {
+                "id": documento.id,
+                "nome": documento.nome,
+                "hash": documento.hash_documento,
+                "content_type": documento.content_type,
+                "criado_por": documento.criado_por,
+                "criado_em": documento.criado_em,
+            }
+            for documento in documentos
+        ]
+    }
 
 
 class VincularClienteInput(BaseModel):

@@ -1,9 +1,28 @@
-FROM python:3.11-slim
+FROM python:3.11-slim AS base
 
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN pip install --no-cache-dir uv && uv sync --frozen --no-dev
+RUN pip install --no-cache-dir uv
+
+# Estagio "test": inclui pytest/ruff (grupo dev) e a suite de testes, para uso
+# via `docker compose run --rm test pytest ...`. Nunca e a imagem publicada.
+FROM base AS test
+
+RUN uv sync --frozen
+
+COPY app ./app
+COPY migrations ./migrations
+COPY tests ./tests
+COPY alembic.ini ./alembic.ini
+
+CMD ["uv", "run", "pytest", "-q"]
+
+# Estagio final (default de `docker build`/`docker compose build` sem --target):
+# mesma imagem de producao de sempre, sem dependencias de dev.
+FROM base AS production
+
+RUN uv sync --frozen --no-dev
 
 COPY app ./app
 COPY migrations ./migrations

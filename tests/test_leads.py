@@ -174,9 +174,15 @@ def test_mover_kanban_bloqueia_oportunidade_aberta_sem_proxima_acao() -> None:
         aceite_marketing=False,
     )
     app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
-    app.dependency_overrides[obter_usuario_atual] = auth_override()
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
 
-    resposta = TestClient(app).post("/v1/admin/leads/9/kanban", json={"etapa": "aguardando_contato_nosso"})
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/9/kanban",
+        json={"etapa": "aguardando_contato_nosso"},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
 
     assert resposta.status_code == 422
     assert "próxima ação" in resposta.json()["detail"]
@@ -198,9 +204,15 @@ def test_mover_kanban_permite_oportunidade_aberta_com_proxima_acao() -> None:
         aceite_marketing=False,
     )
     app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
-    app.dependency_overrides[obter_usuario_atual] = auth_override()
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
 
-    resposta = TestClient(app).post("/v1/admin/leads/9/kanban", json={"etapa": "aguardando_contato_nosso"})
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/9/kanban",
+        json={"etapa": "aguardando_contato_nosso"},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
 
     assert resposta.status_code == 200
 

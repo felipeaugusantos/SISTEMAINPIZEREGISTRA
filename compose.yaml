@@ -198,6 +198,60 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Banco efemero exclusivo dos testes -- NUNCA aponta para o "db" de producao.
+  # Volume proprio (test_postgres_data), sem persistencia real entre execucoes
+  # que importe (pode ser apagado a qualquer momento).
+  db-test:
+    image: postgres:16-alpine
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: inpi
+      POSTGRES_USER: inpi
+      POSTGRES_PASSWORD: inpi
+      APP_DB_PASSWORD: inpi-app-teste
+    volumes:
+      - test_postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-create-app-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inpi -d inpi"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis-test:
+    image: redis:7-alpine
+    profiles: ["test"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Suite de testes real (pytest), sem substituir os testes de CI. So sobe com
+  # `docker compose --profile test run --rm test [args do pytest]` -- nunca com
+  # `docker compose up`, para nao afetar a stack em execucao nem tocar o banco
+  # de producao ("db"/"redis" acima).
+  test:
+    build:
+      context: .
+      target: test
+    profiles: ["test"]
+    environment:
+      APP_ENV: test
+      DATABASE_URL: postgresql+asyncpg://inpi:inpi@db-test:5432/inpi
+      REDIS_URL: redis://redis-test:6379/0
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Teste-Seguro-123!}
+      AUDIT_IP_SALT: teste-local
+      SECURITY_MASTER_KEY: ${SECURITY_MASTER_KEY:-desenvolvimento-local-chave-mestra}
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      db-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:
+  test_postgres_data:

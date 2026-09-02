@@ -1,11 +1,18 @@
 import asyncio
 from datetime import UTC, date, datetime, timedelta
 
+from fastapi import HTTPException
 from starlette.requests import Request
 
-from app.api.leads import _atualizar_sla_proposta, _prazo_sla_24h, aceitar_proposta_publica
+from app.api.leads import (
+    PropostaStatusInput,
+    _atualizar_sla_proposta,
+    _prazo_sla_24h,
+    aceitar_proposta_publica,
+    atualizar_status_proposta,
+)
 from app.models import AssinaturaPropostaComercial, Organizacao, PropostaComercial
-from tests.conftest import FakeResult, FakeSession
+from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
 def _proposta(**kwargs: object) -> PropostaComercial:
@@ -178,3 +185,115 @@ def test_aceitar_proposta_publica_sem_validade_definida_nao_e_bloqueada() -> Non
 
     assert resposta.status_code == 200
     assert proposta.status == "aceita"
+
+
+def _request_patch(path: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "PATCH",
+            "path": path,
+            "headers": [],
+            "client": ("127.0.0.1", 12345),
+            "scheme": "http",
+            "server": ("testserver", 80),
+        }
+    )
+
+
+# --- Fase 2 do plano proposta-financeiro (03/09/2026): máquina de estados ---
+
+
+def test_atualizar_status_proposta_bloqueia_transicao_invalida() -> None:
+    proposta = _proposta(id=1, status="aceita")
+    session = FakeSession([FakeResult(scalar=proposta)])
+    try:
+        asyncio.run(
+            atualizar_status_proposta(
+                1,
+                PropostaStatusInput(status="rascunho"),
+                _request_patch("/propostas/1/status"),
+                session,
+                usuario_teste(),
+            )
+        )
+        raise AssertionError("Esperava HTTPException 422 para transição aceita→rascunho")
+    except HTTPException as erro:
+        assert erro.status_code == 422
+    assert proposta.status == "aceita"
+
+
+def test_atualizar_status_proposta_estado_terminal_e_final() -> None:
+    proposta = _proposta(id=1, status="cancelada")
+    session = FakeSession([FakeResult(scalar=proposta)])
+    try:
+        asyncio.run(
+            atualizar_status_proposta(
+                1,
+                PropostaStatusInput(status="enviada"),
+                _request_patch("/propostas/1/status"),
+                session,
+                usuario_teste(),
+            )
+        )
+        raise AssertionError("Esperava HTTPException 422 — cancelada é estado terminal")
+    except HTTPException as erro:
+        assert erro.status_code == 422
+
+
+def test_atualizar_status_proposta_permite_manter_o_mesmo_status() -> None:
+    proposta = _proposta(id=1, status="aceita")
+    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=None)])
+    resultado = asyncio.run(
+        atualizar_status_proposta(
+            1, PropostaStatusInput(status="aceita"), _request_patch("/propostas/1/status"), session, usuario_teste()
+        )
+    )
+    assert resultado["status"] == "aceita"
+
+
+def test_atualizar_status_proposta_transicao_valida_prossegue() -> None:
+    proposta = _proposta(id=1, status="rascunho")
+    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=None)])
+    resultado = asyncio.run(
+        atualizar_status_proposta(
+            1, PropostaStatusInput(status="enviada"), _request_patch("/propostas/1/status"), session, usuario_teste()
+        )
+    )
+    assert resultado["status"] == "enviada"
+    assert proposta.enviado_em is not None
+
+
+def test_atualizar_status_proposta_cancelamento_exige_motivo() -> None:
+    proposta = _proposta(id=1, status="enviada")
+    session = FakeSession([FakeResult(scalar=proposta)])
+    try:
+        asyncio.run(
+            atualizar_status_proposta(
+                1,
+                PropostaStatusInput(status="cancelada"),
+                _request_patch("/propostas/1/status"),
+                session,
+                usuario_teste(),
+            )
+        )
+        raise AssertionError("Esperava HTTPException 422 por falta de motivo")
+    except HTTPException as erro:
+        assert erro.status_code == 422
+    assert proposta.status == "enviada"
+
+
+def test_atualizar_status_proposta_cancelamento_com_motivo_registra_no_historico() -> None:
+    proposta = _proposta(id=1, status="enviada")
+    session = FakeSession([FakeResult(scalar=proposta)])
+    resultado = asyncio.run(
+        atualizar_status_proposta(
+            1,
+            PropostaStatusInput(status="cancelada", motivo="Cliente desistiu do registro."),
+            _request_patch("/propostas/1/status"),
+            session,
+            usuario_teste(),
+        )
+    )
+    assert resultado["status"] == "cancelada"
+    assert proposta.dados["cancelamento"]["motivo"] == "Cliente desistiu do registro."

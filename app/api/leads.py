@@ -1442,6 +1442,23 @@ CONDICOES_PROPOSTA_PADRAO = "50% na contratação e 50% no protocolo"
 
 class PropostaStatusInput(BaseModel):
     status: Literal["rascunho", "enviada", "visualizada", "aceita", "recusada", "expirada", "cancelada"]
+    motivo: str | None = Field(default=None, max_length=500)
+
+
+# Achado 8 do plano proposta-financeiro (Fase 2, 03/09/2026): antes o status
+# aceitava qualquer valor do Literal incondicionalmente -- uma proposta aceita
+# podia voltar para rascunho, ou um estado terminal (recusada/expirada/
+# cancelada) podia "reviver". Mapa de transições permitidas a partir de cada
+# status atual; manter o mesmo status é sempre permitido (idempotente).
+TRANSICOES_STATUS_PROPOSTA: dict[str, set[str]] = {
+    "rascunho": {"enviada", "cancelada"},
+    "enviada": {"visualizada", "aceita", "recusada", "expirada", "cancelada"},
+    "visualizada": {"aceita", "recusada", "expirada", "cancelada"},
+    "aceita": {"cancelada"},
+    "recusada": set(),
+    "expirada": set(),
+    "cancelada": set(),
+}
 
 
 class PropostaPagamentoInput(BaseModel):
@@ -2054,8 +2071,22 @@ async def atualizar_status_proposta(
     ).scalar_one_or_none()
     if proposta is None:
         raise HTTPException(status_code=404, detail="Proposta não encontrada")
+    if dados.status != proposta.status and dados.status not in TRANSICOES_STATUS_PROPOSTA.get(
+        proposta.status, set()
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Não é possível mudar o status de '{proposta.status}' para '{dados.status}'",
+        )
+    if dados.status == "cancelada" and not (dados.motivo and dados.motivo.strip()):
+        raise HTTPException(status_code=422, detail="Informe o motivo do cancelamento")
     agora = datetime.now(UTC)
     proposta.status = dados.status
+    if dados.status == "cancelada":
+        proposta.dados = {
+            **(proposta.dados or {}),
+            "cancelamento": {"motivo": dados.motivo.strip(), "em": agora.isoformat(), "por": usuario.ator},
+        }
     if dados.status == "enviada":
         proposta.enviado_em = agora
         lead = (
@@ -2083,7 +2114,7 @@ async def atualizar_status_proposta(
         request,
         "status_proposta",
         f"proposta:{proposta.id}",
-        {"status": dados.status},
+        {"status": dados.status, "motivo": dados.motivo} if dados.motivo else {"status": dados.status},
     )
     await session.commit()
     org = await session.get(Organizacao, usuario.organizacao_id)

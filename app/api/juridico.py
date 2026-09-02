@@ -4,10 +4,11 @@ from types import SimpleNamespace
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.saas import exigir_superadmin
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.crm import obter_ou_criar_empresa, registrar_evento_operacional
 from app.database import get_session
@@ -22,6 +23,7 @@ from app.models import (
     PrazoJuridico,
     Processo,
     ProcessoMonitorado,
+    RegraJuridicaVersionada,
     Titular,
     UsuarioOperacoes,
     processo_titulares,
@@ -97,6 +99,7 @@ router = APIRouter(prefix="/v1/admin/juridico", tags=["operacao juridica"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("legal.view"))]
 ManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("legal.manage"))]
+SuperAdminDep = Annotated[UsuarioAutenticado, Depends(exigir_superadmin)]
 
 TIPOS_PRAZO = {
     "publicacao_rpi": "Publicação RPI",
@@ -120,42 +123,46 @@ PADRAO_PRAZO = re.compile(
     r"prazo\b[^.\n]{0,40}?(\d{1,3})\s*(?:\([^)]*\)\s*)?dias?",
     re.IGNORECASE,
 )
-# Prazo legal (dias corridos) por tipo de despacho de marca, aplicado quando o
-# texto da publicação não soletra o número de dias. Ordem importa: o primeiro
-# padrão que casar vence. Base: LPI (Lei 9.279/96); o prazo administrativo de
-# marca é de 60 dias na quase totalidade dos casos. Despachos terminais
-# (concessão, arquivamento, extinção, recurso julgado) não constam de propósito
-# e não geram prazo.
-DESPACHOS_PRAZO: tuple[tuple[re.Pattern[str], int, str, str], ...] = (
+# Prazo administrativo padrão (dias corridos) aplicado a todos os despachos de
+# DESPACHOS_PRAZO quando o texto da publicação não soletra o número de dias.
+# Base: LPI (Lei 9.279/96); o prazo administrativo de marca é de 60 dias na
+# quase totalidade dos casos. Valor default usado quando não há linha
+# aplicável em RegraJuridicaVersionada (codigo="prazo_administrativo_padrao_
+# dias") -- ver _historico_regra/_valor_vigente, achado 5.5 da auditoria
+# (Fase 3, 02/09/2026).
+PRAZO_ADMINISTRATIVO_PADRAO_DIAS = 60
+
+# Padrões de texto -> (tipo de prazo, ação), na ordem em que devem ser
+# testados (o primeiro que casar vence). O número de dias vem de
+# PRAZO_ADMINISTRATIVO_PADRAO_DIAS (ou da regra vigente, se houver), não é
+# mais fixo por entrada -- todas usavam o mesmo valor (60). Despachos
+# terminais (concessão, arquivamento, extinção, recurso julgado) não constam
+# de propósito e não geram prazo.
+DESPACHOS_PRAZO: tuple[tuple[re.Pattern[str], str, str], ...] = (
     (
         re.compile(r"instaura[çc][ãa]o de processo de nulidade", re.IGNORECASE),
-        60,
         "manifestacao",
         "Manifestação em processo de nulidade",
     ),
     (
         re.compile(r"notifica[çc][ãa]o de oposi[çc][ãa]o", re.IGNORECASE),
-        60,
         "oposicao",
         "Manifestação sobre oposição",
     ),
-    (re.compile(r"para oposi[çc][ãa]o", re.IGNORECASE), 60, "oposicao", "Janela de oposição"),
+    (re.compile(r"para oposi[çc][ãa]o", re.IGNORECASE), "oposicao", "Janela de oposição"),
     (
         re.compile(r"notifica[çc][ãa]o de recurso", re.IGNORECASE),
-        60,
         "recurso",
         "Contrarrazões de recurso",
     ),
     (
         re.compile(r"indeferimento do pedido", re.IGNORECASE),
-        60,
         "recurso",
         "Recurso contra indeferimento",
     ),
-    (re.compile(r"exig[êe]ncia", re.IGNORECASE), 60, "exigencia", "Cumprimento de exigência"),
+    (re.compile(r"exig[êe]ncia", re.IGNORECASE), "exigencia", "Cumprimento de exigência"),
     (
         re.compile(r"deferimento do pedido", re.IGNORECASE),
-        60,
         "pagamento",
         "Pagamento da taxa de concessão",
     ),
@@ -179,14 +186,19 @@ DESPACHOS_PRAZO: tuple[tuple[re.Pattern[str], int, str, str], ...] = (
 MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO = date(2025, 6, 24)
 
 
-def _dispensa_concessao(tipo: str, data_deferimento: date) -> bool:
+def _dispensa_concessao(
+    tipo: str, data_deferimento: date, marco: date = MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO
+) -> bool:
     """Pedidos de marca com deferimento publicado a partir da RPI nº 2842
     (24/06/2025) são isentos do pagamento do primeiro decênio/certificado de
     registro (serviços 372/373/3012), mesmo se depositados antes da entrada
     em vigor da nova tabela do INPI — ver fonte no comentário de
     ``MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO``.
+
+    ``marco`` é o valor default, mas pode ser sobrescrito pela regra vigente
+    em ``RegraJuridicaVersionada`` (codigo="marco_isencao_taxa_concessao").
     """
-    return tipo == "pagamento" and data_deferimento >= MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO
+    return tipo == "pagamento" and data_deferimento >= marco
 
 DESPACHOS_TERMINAIS: tuple[tuple[re.Pattern[str], str, str], ...] = (
     (
@@ -223,11 +235,14 @@ DESPACHOS_TERMINAIS: tuple[tuple[re.Pattern[str], str, str], ...] = (
 )
 
 
-def _classificar_despacho(descricao: str | None) -> tuple[int, str, str] | None:
+def _classificar_despacho(
+    descricao: str | None, dias_padrao: int = PRAZO_ADMINISTRATIVO_PADRAO_DIAS
+) -> tuple[int, str, str] | None:
     """Deriva (dias, tipo, ação) de uma movimentação de RPI de marca.
 
     O número soletrado no texto ("prazo de N dias") tem prioridade; na ausência
-    dele, aplica-se o prazo legal do tipo de despacho. Retorna ``None`` para
+    dele, aplica-se ``dias_padrao`` (o prazo legal padrão, sobrescrevível pela
+    regra vigente em ``RegraJuridicaVersionada``). Retorna ``None`` para
     despachos terminais ou sem prazo processual mapeado.
     """
     texto = descricao or ""
@@ -235,12 +250,127 @@ def _classificar_despacho(descricao: str | None) -> tuple[int, str, str] | None:
     dias_texto = int(match.group(1)) if match else None
     if dias_texto is not None and not 1 <= dias_texto <= 365:
         dias_texto = None
-    for padrao, dias_legal, tipo, acao in DESPACHOS_PRAZO:
+    for padrao, tipo, acao in DESPACHOS_PRAZO:
         if padrao.search(texto):
-            return (dias_texto or dias_legal), tipo, acao
+            return (dias_texto or dias_padrao), tipo, acao
     if dias_texto is not None:
         return dias_texto, "outro", "Prazo indicado no texto da publicação"
     return None
+
+
+async def _historico_regra(session: AsyncSession, codigo: str) -> list[RegraJuridicaVersionada]:
+    resultado = await session.execute(
+        select(RegraJuridicaVersionada)
+        .where(RegraJuridicaVersionada.codigo == codigo)
+        .order_by(RegraJuridicaVersionada.vigencia_inicio)
+    )
+    return list(resultado.scalars().all())
+
+
+def _valor_vigente(historico: list[RegraJuridicaVersionada], data_referencia: date, valor_padrao: object) -> object:
+    """Escolhe, dentre o histórico de um código, o valor vigente em
+    ``data_referencia`` (intervalo [vigencia_inicio, vigencia_fim) —
+    vigencia_fim nulo = "vigente até hoje"). Sem linha aplicável, devolve
+    ``valor_padrao`` (o hardcoded no código) -- garante que uma tabela vazia
+    não muda nenhum comportamento existente.
+    """
+    for regra in historico:
+        if regra.vigencia_inicio <= data_referencia and (
+            regra.vigencia_fim is None or data_referencia < regra.vigencia_fim
+        ):
+            return regra.valor.get("valor", valor_padrao)
+    return valor_padrao
+
+
+class RegraJuridicaInput(BaseModel):
+    codigo: Literal["marco_isencao_taxa_concessao", "prazo_administrativo_padrao_dias"]
+    valor: int | date
+    vigencia_inicio: date
+    fonte_legal: str = Field(min_length=10, max_length=2000)
+    observacoes: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("valor")
+    @classmethod
+    def _validar_valor(cls, valor: int | date, info: ValidationInfo) -> int | date:
+        codigo = info.data.get("codigo")
+        if codigo == "prazo_administrativo_padrao_dias" and (not isinstance(valor, int) or not 1 <= valor <= 365):
+            raise ValueError("Para prazo_administrativo_padrao_dias, valor deve ser um inteiro entre 1 e 365 (dias)")
+        if codigo == "marco_isencao_taxa_concessao" and not isinstance(valor, date):
+            raise ValueError("Para marco_isencao_taxa_concessao, valor deve ser uma data (AAAA-MM-DD)")
+        return valor
+
+
+def _serializar_regra(regra: RegraJuridicaVersionada) -> dict:
+    return {
+        "id": regra.id,
+        "codigo": regra.codigo,
+        "valor": regra.valor.get("valor"),
+        "vigencia_inicio": regra.vigencia_inicio,
+        "vigencia_fim": regra.vigencia_fim,
+        "fonte_legal": regra.fonte_legal,
+        "observacoes": regra.observacoes,
+        "criado_por": regra.criado_por,
+        "criado_em": regra.criado_em,
+    }
+
+
+@router.get("/regras")
+async def consultar_regras_juridicas(
+    session: SessionDep, usuario: ViewDep, codigo: str | None = Query(default=None)
+) -> list[dict]:
+    consulta = select(RegraJuridicaVersionada).order_by(
+        RegraJuridicaVersionada.codigo, RegraJuridicaVersionada.vigencia_inicio.desc()
+    )
+    if codigo:
+        consulta = consulta.where(RegraJuridicaVersionada.codigo == codigo)
+    regras = (await session.execute(consulta)).scalars().all()
+    return [_serializar_regra(regra) for regra in regras]
+
+
+@router.post("/regras", status_code=status.HTTP_201_CREATED)
+async def criar_regra_juridica(
+    dados: RegraJuridicaInput, request: Request, session: SessionDep, usuario: SuperAdminDep
+) -> dict:
+    """Registra uma nova vigência para um parâmetro jurídico. Exclusivo do
+    superadministrador da plataforma: o parâmetro é global (vale para todas
+    as organizações), não uma configuração por tenant. Fecha automaticamente
+    a vigência aberta anterior do mesmo código, se houver — nunca sobrescreve
+    ou apaga histórico (append-only)."""
+    aberta = (
+        await session.execute(
+            select(RegraJuridicaVersionada).where(
+                RegraJuridicaVersionada.codigo == dados.codigo,
+                RegraJuridicaVersionada.vigencia_fim.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if aberta is not None and aberta.vigencia_inicio >= dados.vigencia_inicio:
+        raise HTTPException(
+            422, "A nova vigência deve começar depois do início da vigência atualmente aberta para este código"
+        )
+    if aberta is not None:
+        aberta.vigencia_fim = dados.vigencia_inicio
+    valor_serializado = dados.valor.isoformat() if isinstance(dados.valor, date) else dados.valor
+    regra = RegraJuridicaVersionada(
+        codigo=dados.codigo,
+        valor={"valor": valor_serializado},
+        vigencia_inicio=dados.vigencia_inicio,
+        fonte_legal=dados.fonte_legal.strip(),
+        observacoes=dados.observacoes.strip() if dados.observacoes else None,
+        criado_por=usuario.ator,
+    )
+    session.add(regra)
+    await session.flush()
+    _auditar(
+        session,
+        request,
+        usuario,
+        "criar_regra_juridica",
+        f"regra_juridica:{dados.codigo}",
+        {"vigencia_inicio": dados.vigencia_inicio.isoformat(), "valor": valor_serializado},
+    )
+    await session.commit()
+    return _serializar_regra(regra)
 
 
 def _classificar_despacho_terminal(descricao: str | None) -> tuple[str, str] | None:
@@ -1626,6 +1756,8 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
             )
         ).all()
     }
+    historico_prazo_padrao = await _historico_regra(session, "prazo_administrativo_padrao_dias")
+    historico_marco_isencao = await _historico_regra(session, "marco_isencao_taxa_concessao")
     sugeridos = 0
     dispensados = 0
     for monitorado, movimentacao in candidatos:
@@ -1634,7 +1766,10 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
         terminal = terminais_candidatos.get(monitorado.processo_id)
         if terminal is not None and _movimentacao_posterior(terminal, movimentacao):
             continue
-        classificacao = _classificar_despacho(movimentacao.descricao)
+        dias_padrao = _valor_vigente(
+            historico_prazo_padrao, movimentacao.data_rpi, PRAZO_ADMINISTRATIVO_PADRAO_DIAS
+        )
+        classificacao = _classificar_despacho(movimentacao.descricao, dias_padrao=dias_padrao)
         if classificacao is None:
             continue
         dias, tipo, acao = classificacao
@@ -1653,7 +1788,12 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
         # prazo acionável. (b) Registra um aviso informativo (prazo
         # dispensado, sem ação) para o operador entender. Ver fonte no
         # comentário de MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO.
-        dispensa_concessao = _dispensa_concessao(tipo, movimentacao.data_rpi)
+        marco_isencao = _valor_vigente(
+            historico_marco_isencao, movimentacao.data_rpi, MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO
+        )
+        if isinstance(marco_isencao, str):
+            marco_isencao = date.fromisoformat(marco_isencao)
+        dispensa_concessao = _dispensa_concessao(tipo, movimentacao.data_rpi, marco=marco_isencao)
         if dispensa_concessao:
             titulo = "Concessão sem taxa — isenta pela regra do INPI (deferimento ≥ 24/06/2025)"
             descricao = (

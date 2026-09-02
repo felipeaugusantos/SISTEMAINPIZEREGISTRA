@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 from starlette.requests import Request
 
 from app.api.juridico import (
@@ -11,11 +12,13 @@ from app.api.juridico import (
     CHECKLIST_PADRAO,
     MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO,
     PADRAO_PRAZO,
+    PRAZO_ADMINISTRATIVO_PADRAO_DIAS,
     TIPOS_PRAZO,
     ChecklistItemUpdate,
     PoliticaJuridicaUpdate,
     PrazoInput,
     PrazoUpdate,
+    RegraJuridicaInput,
     _classificar_despacho,
     _classificar_despacho_terminal,
     _dispensa_concessao,
@@ -23,14 +26,24 @@ from app.api.juridico import (
     _reconciliar_prazos_historicos,
     _reconciliar_prazos_terminais,
     _serializar_prazo,
+    _valor_vigente,
     atualizar_item_checklist,
     atualizar_prazo,
     calcular_vencimento,
+    consultar_regras_juridicas,
     criar_prazo,
+    criar_regra_juridica,
     editar_politica_juridica,
     painel,
 )
-from app.models import EventoJuridico, Movimentacao, PoliticaJuridica, PrazoJuridico, ProcessoMonitorado
+from app.models import (
+    EventoJuridico,
+    Movimentacao,
+    PoliticaJuridica,
+    PrazoJuridico,
+    ProcessoMonitorado,
+    RegraJuridicaVersionada,
+)
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
@@ -570,3 +583,150 @@ def test_editar_politica_juridica_cria_registro_quando_inexistente() -> None:
     assert resultado == {"exigir_evidencia_conclusao": True, "exigir_segunda_pessoa_critico": True}
     assert session.commits == 1
     assert len(session.adicionados) == 1
+
+
+# --- Achado 5.5 da auditoria (02/09/2026): versionamento de regras jurídicas (Fase 3) ---
+
+
+def _regra(**overrides: object) -> RegraJuridicaVersionada:
+    base: dict = {
+        "id": 1,
+        "codigo": "marco_isencao_taxa_concessao",
+        "valor": {"valor": "2025-06-24"},
+        "vigencia_inicio": date(2025, 6, 22),
+        "vigencia_fim": None,
+        "fonte_legal": "FAQ oficial do INPI, item 7.",
+        "observacoes": None,
+        "criado_por": "superadmin@teste.local",
+    }
+    base.update(overrides)
+    return RegraJuridicaVersionada(**base)
+
+
+def test_valor_vigente_usa_padrao_quando_historico_vazio() -> None:
+    assert _valor_vigente([], date(2026, 1, 1), PRAZO_ADMINISTRATIVO_PADRAO_DIAS) == PRAZO_ADMINISTRATIVO_PADRAO_DIAS
+
+
+def test_valor_vigente_escolhe_linha_cuja_vigencia_contem_a_data() -> None:
+    historico = [_regra(valor={"valor": "2025-07-01"})]
+    assert _valor_vigente(historico, date(2025, 8, 1), MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO) == "2025-07-01"
+
+
+def test_valor_vigente_ignora_linha_expirada_e_usa_a_seguinte() -> None:
+    historico = [
+        _regra(valor={"valor": "2025-06-24"}, vigencia_inicio=date(2025, 6, 22), vigencia_fim=date(2026, 1, 1)),
+        _regra(valor={"valor": "2026-01-01"}, vigencia_inicio=date(2026, 1, 1), vigencia_fim=None),
+    ]
+    assert _valor_vigente(historico, date(2026, 3, 1), MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO) == "2026-01-01"
+
+
+def test_valor_vigente_trata_vigencia_fim_como_exclusiva() -> None:
+    historico = [
+        _regra(valor={"valor": "2025-06-24"}, vigencia_inicio=date(2025, 6, 22), vigencia_fim=date(2026, 1, 1)),
+        _regra(valor={"valor": "2026-01-01"}, vigencia_inicio=date(2026, 1, 1), vigencia_fim=None),
+    ]
+    assert _valor_vigente(historico, date(2026, 1, 1), MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO) == "2026-01-01"
+
+
+def test_classificar_despacho_usa_dias_padrao_customizado() -> None:
+    resultado = _classificar_despacho("Exigência formulada pelo examinador.", dias_padrao=90)
+    assert resultado == (90, "exigencia", "Cumprimento de exigência")
+
+
+def test_dispensa_concessao_usa_marco_customizado() -> None:
+    assert _dispensa_concessao("pagamento", date(2025, 1, 10), marco=date(2025, 1, 1)) is True
+    assert _dispensa_concessao("pagamento", date(2025, 1, 10), marco=date(2025, 6, 24)) is False
+
+
+def test_regra_juridica_input_rejeita_valor_do_tipo_errado_para_o_codigo() -> None:
+    try:
+        RegraJuridicaInput(
+            codigo="prazo_administrativo_padrao_dias",
+            valor=date(2025, 1, 1),
+            vigencia_inicio=date(2026, 1, 1),
+            fonte_legal="Fonte legal qualquer.",
+        )
+        raise AssertionError("Esperava ValidationError por tipo de valor incompatível com o código")
+    except ValidationError:
+        pass
+
+
+def test_regra_juridica_input_rejeita_dias_fora_do_intervalo_valido() -> None:
+    try:
+        RegraJuridicaInput(
+            codigo="prazo_administrativo_padrao_dias",
+            valor=400,
+            vigencia_inicio=date(2026, 1, 1),
+            fonte_legal="Fonte legal qualquer.",
+        )
+        raise AssertionError("Esperava ValidationError por dias fora de 1..365")
+    except ValidationError:
+        pass
+
+
+def test_criar_regra_juridica_sem_vigencia_aberta_anterior() -> None:
+    session = FakeSession([FakeResult(scalar=None)])
+    resultado = asyncio.run(
+        criar_regra_juridica(
+            RegraJuridicaInput(
+                codigo="marco_isencao_taxa_concessao",
+                valor=date(2025, 6, 24),
+                vigencia_inicio=date(2025, 6, 22),
+                fonte_legal="FAQ oficial do INPI, item 7.",
+            ),
+            _request(),
+            session,
+            usuario_teste(),
+        )
+    )
+    assert resultado["codigo"] == "marco_isencao_taxa_concessao"
+    assert resultado["valor"] == "2025-06-24"
+    assert session.commits == 1
+
+
+def test_criar_regra_juridica_fecha_vigencia_aberta_anterior() -> None:
+    aberta = _regra(codigo="prazo_administrativo_padrao_dias", valor={"valor": 60}, vigencia_inicio=date(2020, 1, 1))
+    session = FakeSession([FakeResult(scalar=aberta)])
+    asyncio.run(
+        criar_regra_juridica(
+            RegraJuridicaInput(
+                codigo="prazo_administrativo_padrao_dias",
+                valor=90,
+                vigencia_inicio=date(2026, 1, 1),
+                fonte_legal="Portaria hipotética de teste.",
+            ),
+            _request(),
+            session,
+            usuario_teste(),
+        )
+    )
+    assert aberta.vigencia_fim == date(2026, 1, 1)
+
+
+def test_criar_regra_juridica_rejeita_vigencia_anterior_a_aberta() -> None:
+    aberta = _regra(codigo="prazo_administrativo_padrao_dias", valor={"valor": 60}, vigencia_inicio=date(2026, 1, 1))
+    session = FakeSession([FakeResult(scalar=aberta)])
+    try:
+        asyncio.run(
+            criar_regra_juridica(
+                RegraJuridicaInput(
+                    codigo="prazo_administrativo_padrao_dias",
+                    valor=90,
+                    vigencia_inicio=date(2025, 1, 1),
+                    fonte_legal="Portaria hipotética de teste.",
+                ),
+                _request(),
+                session,
+                usuario_teste(),
+            )
+        )
+        raise AssertionError("Esperava HTTPException 422 por vigência retroativa à vigência aberta")
+    except HTTPException as erro:
+        assert erro.status_code == 422
+
+
+def test_consultar_regras_juridicas_retorna_lista_serializada() -> None:
+    session = FakeSession([FakeResult(itens=[_regra()])])
+    resultado = asyncio.run(consultar_regras_juridicas(session, usuario_teste(), None))
+    assert resultado[0]["codigo"] == "marco_isencao_taxa_concessao"
+    assert resultado[0]["valor"] == "2025-06-24"

@@ -1214,6 +1214,33 @@ class PoliticaJuridica(Base):
     )
 
 
+class RegraJuridicaVersionada(Base):
+    """Histórico de parâmetros jurídicos (prazos legais em dias, datas-marco
+    de vigência de norma) hoje fixos em app/api/juridico.py, sem registro de
+    quando cada valor passou a valer nem da fonte que o justifica.
+
+    Achado 5.5 da auditoria (02/09/2026), Fase 3: tabela de referência global
+    (não é dado por organização — a lei é a mesma para todos os tenants),
+    append-only. Cada linha vale no intervalo [vigencia_inicio, vigencia_fim)
+    — vigencia_fim nulo significa "vigente até hoje". O código consulta esta
+    tabela só em app.api.juridico._historico_regra/_valor_vigente; quando não
+    há linha aplicável, o valor padrão hardcoded no código continua valendo
+    (tabela vazia = comportamento idêntico ao anterior a esta migration).
+    """
+
+    __tablename__ = "regras_juridicas_versionadas"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    codigo: Mapped[str] = mapped_column(String(80), index=True)
+    valor: Mapped[dict] = mapped_column(JSON)
+    vigencia_inicio: Mapped[date] = mapped_column(Date)
+    vigencia_fim: Mapped[date | None] = mapped_column(Date, nullable=True)
+    fonte_legal: Mapped[str] = mapped_column(Text)
+    observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    criado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ItemChecklistPrazo(Base):
     """Etapa de conferência de um prazo jurídico (checklist operacional)."""
 

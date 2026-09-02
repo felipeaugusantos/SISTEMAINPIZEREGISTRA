@@ -29,9 +29,10 @@ def auth_override(usuario: UsuarioAutenticado | None = None):
 class FakeResult:
     """Resultado de execute() configurável para os testes de endpoint."""
 
-    def __init__(self, scalar: Any = None, itens: list[Any] | None = None) -> None:
+    def __init__(self, scalar: Any = None, itens: list[Any] | None = None, rowcount: int = 0) -> None:
         self._scalar = scalar
         self._itens = itens if itens is not None else []
+        self.rowcount = rowcount
 
     def scalar_one(self) -> Any:
         return self._scalar
@@ -62,12 +63,15 @@ class FakeResult:
 class FakeSession:
     """Sessão async que devolve resultados enfileirados, sem tocar no banco."""
 
-    def __init__(self, resultados: list[FakeResult] | None = None) -> None:
+    def __init__(self, resultados: list[FakeResult] | None = None, objetos_get: list[Any] | None = None) -> None:
         self._resultados = list(resultados or [])
+        self._objetos_get = list(objetos_get or [])
         self.adicionados: list[Any] = []
+        self.executados: list[Any] = []
         self.commits = 0
 
-    async def execute(self, *_args: Any, **_kwargs: Any) -> FakeResult:
+    async def execute(self, statement: Any = None, *_args: Any, **_kwargs: Any) -> FakeResult:
+        self.executados.append(statement)
         if self._resultados:
             return self._resultados.pop(0)
         return FakeResult()
@@ -95,6 +99,8 @@ class FakeSession:
             obj.atualizado_em = agora
 
     async def get(self, *_args: Any, **_kwargs: Any) -> Any:
+        if self._objetos_get:
+            return self._objetos_get.pop(0)
         return None
 
 

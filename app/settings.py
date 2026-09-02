@@ -79,6 +79,20 @@ class Settings(BaseSettings):
     clicksign_webhook_secret: str = ""
     clicksign_webhook_url: str = ""
     health_api_key: str = ""
+    # Cadências reais por e-mail (Fase 9 do plano Leads/CRM). Sem webhook de
+    # provedor (SMTP puro), "enviado" é o máximo garantido -- não "entregue".
+    cadencia_email_horario_inicio: int = 8
+    cadencia_email_horario_fim: int = 19
+    cadencia_email_max_tentativas: int = 3
+    # Detecção de resposta + pausa automática exige uma caixa de e-mail dedicada
+    # via IMAP. Desligado por padrão -- fica inerte até credenciais reais serem
+    # configuradas (mesmo princípio de email_enabled).
+    imap_enabled: bool = False
+    imap_host: str = ""
+    imap_port: int = 993
+    imap_username: str = ""
+    imap_password: str = ""
+    imap_ssl: bool = True
 
     model_config = SettingsConfigDict(
         env_file=".env",

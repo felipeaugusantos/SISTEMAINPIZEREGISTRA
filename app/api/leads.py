@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
+from app.cadencia_email import montar_envio_pendente, registrar_abertura
 from app.clicksign import configuracao as configuracao_clicksign
 from app.clicksign import criar_envelope
 from app.crm import (
@@ -42,6 +43,7 @@ from app.models import (
     ContratacaoServico,
     DocumentoLead,
     EmpresaCRM,
+    EnvioCadenciaEmail,
     EventoAuditoria,
     EventoDominio,
     FaseLead,
@@ -2997,8 +2999,42 @@ async def aplicar_cadencia_lead(
             payload={"cadencia_id": cadencia.id, "passo_id": passo.id},
             idempotency_key=chave_idempotencia,
         )
+        if passo.canal == "email":
+            # Fase 9 do plano Leads/CRM: além do lembrete manual de sempre, o
+            # canal e-mail passa a ter envio automático real -- agendado aqui,
+            # disparado pelo worker (app.cadencia_email).
+            await session.execute(
+                pg_insert(EnvioCadenciaEmail)
+                .values(
+                    **montar_envio_pendente(
+                        organizacao_id=usuario.organizacao_id,
+                        lead_id=lead.id,
+                        cadencia_id=cadencia.id,
+                        passo=passo,
+                        agora=agora,
+                    )
+                )
+                .on_conflict_do_nothing(constraint="uq_envio_cadencia_passo")
+            )
     await session.commit()
     return {"criados": criados, "ignorados_idempotentes": len(cadencia.passos) - criados}
+
+
+@router.get("/v1/cadencias/rastreio/{token}.gif", include_in_schema=False)
+async def rastreio_abertura_cadencia(token: str, session: SessionDep) -> Response:
+    # Pixel 1x1 transparente. Best-effort: bloqueadores de imagem e proxies de
+    # e-mail (ex.: Gmail) podem distorcer esse sinal -- limitação conhecida da
+    # indústria toda, não corrigível do nosso lado.
+    PIXEL_GIF = (
+        b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00"
+        b"\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+    )
+    try:
+        await registrar_abertura(session, token)
+        await session.commit()
+    except Exception:
+        await session.rollback()
+    return Response(content=PIXEL_GIF, media_type="image/gif")
 
 
 FASE_LABELS: dict[str, str] = {

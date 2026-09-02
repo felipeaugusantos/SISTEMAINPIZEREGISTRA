@@ -7,8 +7,10 @@ from sqlalchemy import exists, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.api.juridico import executar_motor_organizacao
+from app.cadencia_email import processar_envios_cadencia_pendentes
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
 from app.database import session_factory
+from app.imap_polling import verificar_respostas_email
 from app.models import (
     AlertaSistema,
     Lead,
@@ -337,6 +339,33 @@ async def processar(tipo: str, payload: dict) -> None:
             ).scalars()
             for organizacao_id in organizacoes:
                 await executar_motor_organizacao(session, organizacao_id)
+        elif tipo == "cadencia.enviar_emails_pendentes":
+            resultado = await processar_envios_cadencia_pendentes(session)
+            if resultado.get("enviados") or resultado.get("falhas"):
+                session.add(
+                    AlertaSistema(
+                        organizacao_id=1,
+                        severidade="aviso" if resultado.get("falhas") else "info",
+                        codigo="CADENCIA_EMAILS_PROCESSADOS",
+                        mensagem=(
+                            f"{resultado.get('enviados', 0)} e-mail(s) de cadência enviado(s), "
+                            f"{resultado.get('falhas', 0)} falha(s)."
+                        ),
+                        detalhes=resultado,
+                    )
+                )
+        elif tipo == "cadencia.verificar_respostas_email":
+            resultado = await verificar_respostas_email(session)
+            if resultado.get("pausados"):
+                session.add(
+                    AlertaSistema(
+                        organizacao_id=1,
+                        severidade="info",
+                        codigo="CADENCIA_PAUSADA_POR_RESPOSTA",
+                        mensagem=f"{resultado['pausados']} envio(s) de cadência pausado(s) por resposta do titular.",
+                        detalhes=resultado,
+                    )
+                )
         elif tipo == "vigilancia.executar_semanal":
             from app.vigilancia import executar_vigilancia_semanal
 
@@ -395,6 +424,8 @@ async def main() -> None:
                     "privacidade.verificar_retencao",
                     "crm.reengajamento_inatividade",
                     "crm.gerar_renovacoes_marca",
+                    "cadencia.enviar_emails_pendentes",
+                    "cadencia.verificar_respostas_email",
                     "registrabilidade.reconciliar_resultados",
                     "juridico.executar_motor",
                     "vigilancia.executar_semanal",

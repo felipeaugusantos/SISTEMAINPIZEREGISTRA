@@ -729,6 +729,41 @@ class CadenciaPasso(Base):
     cadencia: Mapped["Cadencia"] = relationship(back_populates="passos")
 
 
+class EnvioCadenciaEmail(Base):
+    """Execução real (não só o lembrete interno) de um passo de cadência com
+    canal e-mail. Fase 9 do plano Leads/CRM (achados L5/L6).
+
+    "enviado" é o máximo que SMTP puro garante -- sem webhook de provedor não
+    há confirmação real de entrega na caixa do destinatário. aberto_em é
+    best-effort (pixel de rastreio). respondido_em só é preenchido se o
+    polling IMAP estiver habilitado (settings.imap_enabled)."""
+
+    __tablename__ = "envios_cadencia_email"
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "lead_id", "cadencia_id", "passo_id", name="uq_envio_cadencia_passo"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    cadencia_id: Mapped[int] = mapped_column(ForeignKey("cadencias.id", ondelete="CASCADE"), index=True)
+    passo_id: Mapped[int] = mapped_column(ForeignKey("cadencia_passos.id", ondelete="CASCADE"), index=True)
+    agendado_para: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    tentativas: Mapped[int] = mapped_column(Integer, default=0)
+    # Só existe a partir do envio de fato -- gerar no agendamento seria inútil
+    # (o token bruto não pode ser reconstruído a partir do hash quando o e-mail
+    # for realmente montado, dias depois).
+    rastreio_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
+    enviado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    aberto_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    respondido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    pausado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ultimo_erro: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    passo: Mapped["CadenciaPasso"] = relationship()
+
+
 class CategoriaFinanceira(Base):
     __tablename__ = "categorias_financeiras"
     __table_args__ = (UniqueConstraint("organizacao_id", "nome", "tipo", name="uq_categoria_financeira_org"),)

@@ -168,6 +168,56 @@ async def enviar_confirmacao_exclusao(destinatario: str, token: str) -> None:
         raise ultimo_erro
 
 
+def _mensagem_passo_cadencia(
+    destinatario: str, nome: str, titulo: str, corpo: str, rastreio_url: str, settings: Settings
+) -> EmailMessage:
+    nome_seguro = html.escape(nome or "")
+    saudacao = f"Olá, {nome_seguro}." if nome_seguro else "Olá."
+    corpo_seguro = html.escape(corpo).replace("\n", "<br>") if corpo else ""
+    mensagem = EmailMessage()
+    mensagem["Subject"] = titulo
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = destinatario
+    mensagem.set_content(f"{saudacao}\n\n{corpo}\n\n-- \n{settings.email_from_name}")
+    mensagem.add_alternative(
+        f"""
+        <!doctype html>
+        <html lang="pt-BR"><body style="margin:0;background:#f5f3eb;padding:28px;">
+          <main style="max-width:600px;margin:auto;background:#fff;border:1px solid #d8ddd6;
+                       border-radius:20px;padding:36px;font-family:Arial,sans-serif;color:#10251d;">
+            <p style="margin:0;color:#08704d;font-weight:700;letter-spacing:.08em;">
+              ZÉ REGISTRA®
+            </p>
+            <p style="margin-top:22px;">{saudacao}</p>
+            <p>{corpo_seguro}</p>
+            <p style="color:#607068;font-size:13px;margin-top:28px;">{html.escape(settings.email_from_name)}</p>
+          </main>
+          <img src="{html.escape(rastreio_url, quote=True)}" width="1" height="1" alt="" style="display:none">
+        </body></html>
+        """,
+        subtype="html",
+    )
+    return mensagem
+
+
+async def enviar_passo_cadencia(destinatario: str, nome: str, titulo: str, corpo: str, rastreio_url: str) -> None:
+    settings = get_settings()
+    if not settings.email_enabled:
+        return
+    mensagem = _mensagem_passo_cadencia(destinatario, nome, titulo, corpo, rastreio_url, settings)
+    ultimo_erro: Exception | None = None
+    for tentativa in range(1, max(1, settings.smtp_max_attempts) + 1):
+        try:
+            await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+            return
+        except Exception as exc:
+            ultimo_erro = exc
+            if tentativa < settings.smtp_max_attempts:
+                await asyncio.sleep(min(2 ** (tentativa - 1), 4))
+    if ultimo_erro is not None:
+        raise ultimo_erro
+
+
 async def enviar_recuperacao_portal(destinatario: str, nome: str, token: str) -> None:
     """Envia recuperação do portal sem reutilizar o link do Centro de Operações."""
     settings = get_settings()

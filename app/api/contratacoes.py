@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.leads import sincronizar_pagamento_proposta_por_id
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
 from app.models import (
@@ -369,6 +370,8 @@ async def receber_webhook_gateway(
         parcela.lancamento.status = (
             "pago" if all(item.status == "paga" for item in parcela.lancamento.parcelas) else "parcial"
         )
+        if parcela.lancamento.proposta_id:
+            await sincronizar_pagamento_proposta_por_id(session, dados.organizacao_id, parcela.lancamento.proposta_id)
     try:
         await session.commit()
     except IntegrityError:

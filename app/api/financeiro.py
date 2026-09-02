@@ -12,6 +12,7 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.leads import sincronizar_pagamento_proposta_por_id
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.crm import normalizar_empresa, registrar_evento_operacional
 from app.database import get_session
@@ -976,6 +977,8 @@ async def baixar(
     parcela.forma_pagamento_id = forma.id
     parcela.observacoes_baixa, parcela.status = (dados.observacoes or "").strip() or None, "paga"
     await _atualizar_status(parcela.lancamento)
+    if parcela.lancamento.proposta_id:
+        await sincronizar_pagamento_proposta_por_id(session, usuario.organizacao_id, parcela.lancamento.proposta_id)
     _auditar(
         session,
         request,
@@ -1019,6 +1022,8 @@ async def estornar(
     parcela.forma_pagamento_id = None
     parcela.observacoes_baixa, parcela.status = None, "aberta"
     await _atualizar_status(parcela.lancamento)
+    if parcela.lancamento.proposta_id:
+        await sincronizar_pagamento_proposta_por_id(session, usuario.organizacao_id, parcela.lancamento.proposta_id)
     _auditar(
         session,
         request,
@@ -1069,6 +1074,8 @@ async def cancelar(
         raise HTTPException(409, "Estorne as baixas antes de cancelar")
     lancamento.status, lancamento.cancelado_em = "cancelado", datetime.now(UTC)
     lancamento.cancelado_por, lancamento.cancelamento_motivo = usuario.ator, dados.motivo.strip()
+    if lancamento.proposta_id:
+        await sincronizar_pagamento_proposta_por_id(session, usuario.organizacao_id, lancamento.proposta_id)
     _auditar(
         session,
         request,

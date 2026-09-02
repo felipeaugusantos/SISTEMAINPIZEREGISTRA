@@ -45,6 +45,7 @@ from app.models import (
     FaseLead,
     GuiaInpi,
     HistoricoFaseLead,
+    LancamentoFinanceiro,
     Lead,
     LembreteCRM,
     MensagemClientePortal,
@@ -1461,11 +1462,6 @@ TRANSICOES_STATUS_PROPOSTA: dict[str, set[str]] = {
 }
 
 
-class PropostaPagamentoInput(BaseModel):
-    status: Literal["pendente", "confirmado", "parcial", "cancelado"]
-    confirmado_em: datetime | None = None
-
-
 class PropostaProtocoloInput(BaseModel):
     responsavel_protocolo_id: int
     protocolo_numero: str | None = Field(default=None, max_length=80)
@@ -2135,46 +2131,106 @@ async def _proposta_da_org(session: AsyncSession, proposta_id: int, organizacao_
     return proposta
 
 
-@router.patch("/v1/admin/propostas/{proposta_id}/pagamento")
-async def atualizar_pagamento_proposta(
-    proposta_id: int,
-    dados: PropostaPagamentoInput,
-    request: Request,
-    session: SessionDep,
-    usuario: LeadsManageDep,
-) -> dict:
-    proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
-    proposta.pagamento_status = dados.status
-    proposta.pagamento_confirmado_em = (
-        (dados.confirmado_em or datetime.now(UTC)) if dados.status == "confirmado" else None
+async def calcular_pagamento_status_proposta(session: AsyncSession, organizacao_id: int, proposta_id: int) -> str:
+    """Deriva o status de pagamento a partir dos ``LancamentoFinanceiro``
+    vinculados à proposta -- nunca é atribuído livremente.
+
+    Achado 1/3 do plano proposta-financeiro (Fase 3, 03/09/2026): antes
+    ``pagamento_status`` era setado direto via PATCH, sem nenhuma baixa
+    financeira correspondente. O financeiro passa a ser a fonte de verdade.
+    """
+    status_lancamentos = (
+        (
+            await session.execute(
+                select(LancamentoFinanceiro.status).where(
+                    LancamentoFinanceiro.organizacao_id == organizacao_id,
+                    LancamentoFinanceiro.proposta_id == proposta_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
     )
-    if dados.status == "confirmado":
-        proposta.pagamento_confirmado_por_id = usuario.id
-        proposta.pagamento_confirmado_por = usuario.ator
-        proposta.pagamento_confirmado_ip_hash = hash_ip(cliente_ip(request))
-    else:
+    ativos = [status for status in status_lancamentos if status != "cancelado"]
+    if not ativos:
+        return "cancelado" if status_lancamentos else "pendente"
+    if all(status == "pago" for status in ativos):
+        return "confirmado"
+    if any(status in ("pago", "parcial") for status in ativos):
+        return "parcial"
+    return "pendente"
+
+
+async def sincronizar_pagamento_proposta(session: AsyncSession, proposta: PropostaComercial) -> None:
+    """Recalcula ``pagamento_status`` da proposta a partir do financeiro e
+    reflete a mudança no SLA. Chamado após qualquer baixa/estorno/cancelamento
+    de um lançamento vinculado, e sob demanda via ``PATCH .../pagamento``."""
+    novo_status = await calcular_pagamento_status_proposta(session, proposta.organizacao_id, proposta.id)
+    if novo_status == proposta.pagamento_status:
+        return
+    proposta.pagamento_status = novo_status
+    proposta.pagamento_confirmado_em = (
+        proposta.pagamento_confirmado_em or datetime.now(UTC) if novo_status == "confirmado" else None
+    )
+    if novo_status != "confirmado":
         proposta.pagamento_confirmado_por_id = None
         proposta.pagamento_confirmado_por = None
         proposta.pagamento_confirmado_ip_hash = None
     documentos_ok = await _documentacao_protocolavel(session, proposta)
     if (
-        proposta.pagamento_status == "confirmado"
+        novo_status == "confirmado"
         and proposta.status == "aceita"
         and not proposta.sla_inicio_em
         and documentos_ok
     ):
         proposta.sla_inicio_em = proposta.pagamento_confirmado_em
         proposta.sla_prazo_em = _prazo_sla_24h(proposta.sla_inicio_em)
-    if proposta.pagamento_status == "confirmado" and proposta.status == "aceita" and not documentos_ok:
+    if novo_status == "confirmado" and proposta.status == "aceita" and not documentos_ok:
         proposta.sla_status = "aguardando_documentos"
     _atualizar_sla_proposta(proposta)
+
+
+async def sincronizar_pagamento_proposta_por_id(
+    session: AsyncSession, organizacao_id: int, proposta_id: int
+) -> None:
+    """Wrapper para chamar de fora de leads.py (ex.: financeiro.py) sem
+    precisar carregar a proposta antes."""
+    proposta = (
+        await session.execute(
+            select(PropostaComercial).where(
+                PropostaComercial.id == proposta_id,
+                PropostaComercial.organizacao_id == organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if proposta is not None:
+        await sincronizar_pagamento_proposta(session, proposta)
+
+
+@router.patch("/v1/admin/propostas/{proposta_id}/pagamento")
+async def atualizar_pagamento_proposta(
+    proposta_id: int,
+    request: Request,
+    session: SessionDep,
+    usuario: LeadsManageDep,
+) -> dict:
+    """Recalcula ``pagamento_status`` a partir do financeiro vinculado à
+    proposta -- não aceita mais um status arbitrário no corpo da requisição.
+
+    Achado 1/3 do plano proposta-financeiro (Fase 3): registre a baixa em
+    ``POST /v1/admin/financeiro/parcelas/{id}/baixar`` (com o lançamento
+    apontando para esta proposta); esse endpoint só reflete o resultado.
+    """
+    proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
+    anterior = proposta.pagamento_status
+    await sincronizar_pagamento_proposta(session, proposta)
     _auditar(
         session,
         usuario,
         request,
         "pagamento_proposta",
         f"proposta:{proposta.id}",
-        {"status": dados.status},
+        {"status_anterior": anterior, "status_atual": proposta.pagamento_status},
     )
     await session.commit()
     return _proposta_dict(proposta, await session.get(Organizacao, usuario.organizacao_id))

@@ -9,9 +9,12 @@ from app.api.leads import (
     _atualizar_sla_proposta,
     _prazo_sla_24h,
     aceitar_proposta_publica,
+    atualizar_pagamento_proposta,
     atualizar_status_proposta,
+    calcular_pagamento_status_proposta,
+    sincronizar_pagamento_proposta,
 )
-from app.models import AssinaturaPropostaComercial, Organizacao, PropostaComercial
+from app.models import AssinaturaPropostaComercial, DocumentoLead, Organizacao, PropostaComercial
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
@@ -297,3 +300,100 @@ def test_atualizar_status_proposta_cancelamento_com_motivo_registra_no_historico
     )
     assert resultado["status"] == "cancelada"
     assert proposta.dados["cancelamento"]["motivo"] == "Cliente desistiu do registro."
+
+
+# --- Fase 3 do plano proposta-financeiro (03/09/2026): financeiro como fonte de verdade ---
+
+
+def test_calcular_pagamento_status_proposta_sem_lancamento_e_pendente() -> None:
+    session = FakeSession([FakeResult(itens=[])])
+    resultado = asyncio.run(calcular_pagamento_status_proposta(session, 1, 10))
+    assert resultado == "pendente"
+
+
+def test_calcular_pagamento_status_proposta_todos_pagos_e_confirmado() -> None:
+    session = FakeSession([FakeResult(itens=["pago", "pago"])])
+    resultado = asyncio.run(calcular_pagamento_status_proposta(session, 1, 10))
+    assert resultado == "confirmado"
+
+
+def test_calcular_pagamento_status_proposta_pago_e_aberto_e_parcial() -> None:
+    session = FakeSession([FakeResult(itens=["pago", "aberto"])])
+    resultado = asyncio.run(calcular_pagamento_status_proposta(session, 1, 10))
+    assert resultado == "parcial"
+
+
+def test_calcular_pagamento_status_proposta_so_cancelados_e_cancelado() -> None:
+    session = FakeSession([FakeResult(itens=["cancelado"])])
+    resultado = asyncio.run(calcular_pagamento_status_proposta(session, 1, 10))
+    assert resultado == "cancelado"
+
+
+def test_calcular_pagamento_status_proposta_ignora_cancelados_e_considera_ativos() -> None:
+    session = FakeSession([FakeResult(itens=["cancelado", "aberto"])])
+    resultado = asyncio.run(calcular_pagamento_status_proposta(session, 1, 10))
+    assert resultado == "pendente"
+
+
+def test_sincronizar_pagamento_proposta_sem_mudanca_nao_altera_nada() -> None:
+    proposta = _proposta(id=10, status="rascunho", pagamento_status="pendente")
+    session = FakeSession([FakeResult(itens=[])])
+    asyncio.run(sincronizar_pagamento_proposta(session, proposta))
+    assert proposta.pagamento_status == "pendente"
+
+
+def test_sincronizar_pagamento_proposta_confirma_e_libera_sla_quando_aceita_e_docs_ok() -> None:
+    proposta = _proposta(id=10, status="aceita", pagamento_status="pendente")
+    documento = DocumentoLead(
+        id=1, lead_id=1, organizacao_id=1, tipo="procuracao", status="validado", obrigatorio=True
+    )
+    session = FakeSession(
+        [
+            FakeResult(itens=["pago"]),
+            FakeResult(itens=[documento]),
+        ]
+    )
+    asyncio.run(sincronizar_pagamento_proposta(session, proposta))
+    assert proposta.pagamento_status == "confirmado"
+    assert proposta.sla_inicio_em is not None
+    assert proposta.sla_status == "em_prazo"
+
+
+def test_sincronizar_pagamento_proposta_limpa_campos_de_confirmacao_ao_deixar_de_ser_confirmado() -> None:
+    proposta = _proposta(
+        id=10,
+        status="aceita",
+        pagamento_status="confirmado",
+        pagamento_confirmado_por_id=5,
+        pagamento_confirmado_por="Alguém",
+        pagamento_confirmado_ip_hash="hash",
+    )
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+        ]
+    )
+    asyncio.run(sincronizar_pagamento_proposta(session, proposta))
+    assert proposta.pagamento_status == "pendente"
+    assert proposta.pagamento_confirmado_por_id is None
+    assert proposta.pagamento_confirmado_por is None
+    assert proposta.pagamento_confirmado_ip_hash is None
+
+
+def test_atualizar_pagamento_proposta_recalcula_a_partir_do_financeiro() -> None:
+    proposta = _proposta(id=1, status="aceita", pagamento_status="pendente")
+    documento = DocumentoLead(
+        id=1, lead_id=1, organizacao_id=1, tipo="procuracao", status="validado", obrigatorio=True
+    )
+    session = FakeSession(
+        [
+            FakeResult(scalar=proposta),
+            FakeResult(itens=["pago"]),
+            FakeResult(itens=[documento]),
+        ]
+    )
+    resultado = asyncio.run(
+        atualizar_pagamento_proposta(1, _request_patch("/propostas/1/pagamento"), session, usuario_teste())
+    )
+    assert resultado["pagamento_status"] == "confirmado"

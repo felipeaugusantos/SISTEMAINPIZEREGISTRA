@@ -198,7 +198,31 @@ async def contratar_servico(dados: ContratacaoInput, session: SessionDep, usuari
         lancamento_id=lancamento.id,
     )
     session.add(contratacao)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # Achado 5 do plano proposta-financeiro (Fase 4): constraint de
+        # unicidade em proposta_id -- uma segunda contratacao para a mesma
+        # proposta (com idempotency_key diferente) nao gera cobranca
+        # duplicada, devolve a contratacao ja existente.
+        await session.rollback()
+        if dados.proposta_id is None:
+            raise HTTPException(status_code=409, detail="Lancamento ja existe") from exc
+        existente = (
+            await session.execute(
+                select(ContratacaoServico).where(
+                    ContratacaoServico.organizacao_id == usuario.organizacao_id,
+                    ContratacaoServico.proposta_id == dados.proposta_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existente is None:
+            raise
+        return {
+            "idempotente": True,
+            "contratacao_id": existente.id,
+            "lancamento_id": existente.lancamento_id,
+        }
     return {
         "idempotente": False,
         "contratacao_id": contratacao.id,

@@ -12,9 +12,18 @@ from app.api.leads import (
     atualizar_pagamento_proposta,
     atualizar_status_proposta,
     calcular_pagamento_status_proposta,
+    criar_contratacao_automatica_proposta,
     sincronizar_pagamento_proposta,
 )
-from app.models import AssinaturaPropostaComercial, DocumentoLead, Organizacao, PropostaComercial
+from app.models import (
+    AssinaturaPropostaComercial,
+    ContratacaoServico,
+    DocumentoLead,
+    LancamentoFinanceiro,
+    Organizacao,
+    ParcelaFinanceira,
+    PropostaComercial,
+)
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
@@ -397,3 +406,77 @@ def test_atualizar_pagamento_proposta_recalcula_a_partir_do_financeiro() -> None
         atualizar_pagamento_proposta(1, _request_patch("/propostas/1/pagamento"), session, usuario_teste())
     )
     assert resultado["pagamento_status"] == "confirmado"
+
+
+# --- Fase 4 do plano proposta-financeiro (03/09/2026): contratação automática no aceite ---
+
+
+def test_criar_contratacao_automatica_proposta_cria_lancamento_parcela_e_contratacao() -> None:
+    proposta = _proposta(id=1, honorarios=1500, taxa_gru=355)
+    session = FakeSession([FakeResult(scalar=None)])
+    asyncio.run(criar_contratacao_automatica_proposta(session, proposta, "link_publico"))
+    lancamentos = [obj for obj in session.adicionados if isinstance(obj, LancamentoFinanceiro)]
+    parcelas = [obj for obj in session.adicionados if isinstance(obj, ParcelaFinanceira)]
+    contratacoes = [obj for obj in session.adicionados if isinstance(obj, ContratacaoServico)]
+    assert len(lancamentos) == 1
+    assert lancamentos[0].valor_total == 1855
+    assert lancamentos[0].proposta_id == 1
+    assert lancamentos[0].idempotency_key == "proposta-aceite:1"
+    assert len(parcelas) == 1
+    assert parcelas[0].valor == 1855
+    assert len(contratacoes) == 1
+    assert contratacoes[0].servico_id is None
+    assert contratacoes[0].proposta_id == 1
+
+
+def test_criar_contratacao_automatica_proposta_e_idempotente() -> None:
+    proposta = _proposta(id=1, honorarios=1500, taxa_gru=355)
+    session = FakeSession([FakeResult(scalar=99)])
+    asyncio.run(criar_contratacao_automatica_proposta(session, proposta, "link_publico"))
+    assert session.adicionados == []
+
+
+def test_criar_contratacao_automatica_proposta_sem_valor_nao_cria_nada() -> None:
+    proposta = _proposta(id=1, honorarios=0, taxa_gru=0)
+    session = FakeSession([])
+    asyncio.run(criar_contratacao_automatica_proposta(session, proposta, "link_publico"))
+    assert session.adicionados == []
+
+
+def test_aceitar_proposta_publica_gera_contratacao_automatica() -> None:
+    import app.api.leads as leads_modulo
+
+    async def _avancar_fake(*_args: object, **_kwargs: object) -> bool:
+        return True
+
+    original = leads_modulo.avancar_fase_lead
+    leads_modulo.avancar_fase_lead = _avancar_fake
+    try:
+        proposta = _proposta_com_token(validade_em=None)
+        session = FakeSession(
+            [
+                FakeResult(scalar=proposta),
+                FakeResult(scalar=None),
+                FakeResult(scalar=None),
+            ]
+        )
+        asyncio.run(
+            leads_modulo.aceitar_proposta_publica("token-qualquer", _request_post("/propostas/x/aceitar"), session)
+        )
+    finally:
+        leads_modulo.avancar_fase_lead = original
+
+    contratacoes = [obj for obj in session.adicionados if isinstance(obj, ContratacaoServico)]
+    assert len(contratacoes) == 1
+
+
+def test_atualizar_status_proposta_aceita_gera_contratacao_automatica() -> None:
+    proposta = _proposta(id=1, status="enviada", honorarios=1500, taxa_gru=355)
+    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=None), FakeResult(scalar=None)])
+    asyncio.run(
+        atualizar_status_proposta(
+            1, PropostaStatusInput(status="aceita"), _request_patch("/propostas/1/status"), session, usuario_teste()
+        )
+    )
+    contratacoes = [obj for obj in session.adicionados if isinstance(obj, ContratacaoServico)]
+    assert len(contratacoes) == 1

@@ -38,6 +38,7 @@ from app.models import (
     ChecklistFaseLead,
     Contato,
     ContatoLead,
+    ContratacaoServico,
     DocumentoLead,
     EmpresaCRM,
     EventoAuditoria,
@@ -50,6 +51,7 @@ from app.models import (
     LembreteCRM,
     MensagemClientePortal,
     Organizacao,
+    ParcelaFinanceira,
     PesquisaMarca,
     PropostaComercial,
     RetribuicaoInpi,
@@ -2096,6 +2098,7 @@ async def atualizar_status_proposta(
     elif dados.status == "aceita":
         proposta.aceito_em = agora
         proposta.sla_status = "aguardando_pagamento"
+        await criar_contratacao_automatica_proposta(session, proposta, "admin")
         lead = (
             await session.execute(
                 select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id)
@@ -2205,6 +2208,66 @@ async def sincronizar_pagamento_proposta_por_id(
     ).scalar_one_or_none()
     if proposta is not None:
         await sincronizar_pagamento_proposta(session, proposta)
+
+
+async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta: PropostaComercial, origem: str) -> None:
+    """Gera a contratação financeira do aceite (``ContratacaoServico`` +
+    ``LancamentoFinanceiro`` + 1 parcela), usando o valor ASSINADO da
+    proposta (honorários + taxa GRU) -- nunca um preço de catálogo.
+
+    Achados 4 e 5 do plano proposta-financeiro (Fase 4, 03/09/2026):
+    ``POST /financeiro/contratacoes`` sempre usava ``ServicoFinanceiro.valor``,
+    e nada impedia duas contratações para a mesma proposta. Idempotente (não
+    cria uma segunda linha se já existir uma para esta proposta) e protegido
+    também por constraint de unicidade em ``contratacoes_servicos.proposta_id``.
+    A condição de pagamento é texto livre, não estruturado -- gera 1 parcela
+    à vista pelo valor total; o operador pode reparcelar manualmente em
+    ``app/api/financeiro.py`` quando a condição combinada exigir isso.
+    """
+    total = (proposta.honorarios or 0) + (proposta.taxa_gru or 0)
+    if total <= 0:
+        return
+    existente = (
+        await session.execute(
+            select(ContratacaoServico.id).where(
+                ContratacaoServico.organizacao_id == proposta.organizacao_id,
+                ContratacaoServico.proposta_id == proposta.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existente is not None:
+        return
+    lancamento = LancamentoFinanceiro(
+        organizacao_id=proposta.organizacao_id,
+        lead_id=proposta.lead_id,
+        proposta_id=proposta.id,
+        idempotency_key=f"proposta-aceite:{proposta.id}",
+        tipo="receber",
+        descricao=f"Honorários — Proposta {proposta.numero}",
+        competencia=date.today(),
+        valor_total=total,
+        status="aberto",
+        criado_por=f"aceite:{origem}",
+    )
+    session.add(lancamento)
+    await session.flush()
+    session.add(
+        ParcelaFinanceira(
+            organizacao_id=proposta.organizacao_id,
+            lancamento_id=lancamento.id,
+            numero=1,
+            vencimento=date.today(),
+            valor=total,
+        )
+    )
+    session.add(
+        ContratacaoServico(
+            organizacao_id=proposta.organizacao_id,
+            lead_id=proposta.lead_id,
+            proposta_id=proposta.id,
+            lancamento_id=lancamento.id,
+        )
+    )
 
 
 @router.patch("/v1/admin/propostas/{proposta_id}/pagamento")
@@ -2577,6 +2640,7 @@ async def aceitar_proposta_publica(token: str, request: Request, session: Sessio
         proposta.public_aceito_ip_hash = hash_ip(cliente_ip(request))
         proposta.status = "aceita"
         proposta.sla_status = "aguardando_pagamento"
+        await criar_contratacao_automatica_proposta(session, proposta, "link_publico")
         assinatura_hash = hashlib.sha256(
             "|".join(
                 str(valor or "")

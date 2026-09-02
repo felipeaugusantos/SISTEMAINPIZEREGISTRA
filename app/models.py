@@ -874,13 +874,18 @@ class ContratacaoServico(Base):
     __tablename__ = "contratacoes_servicos"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
-    servico_id: Mapped[int] = mapped_column(ForeignKey("servicos_financeiros.id", ondelete="RESTRICT"), index=True)
+    # Nulo quando a contratacao vem do aceite de uma proposta (valor
+    # assinado, sem item de catalogo vinculado) -- Fase 4 do plano
+    # proposta-financeiro (03/09/2026).
+    servico_id: Mapped[int | None] = mapped_column(
+        ForeignKey("servicos_financeiros.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     lead_id: Mapped[int | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True)
     processo_id: Mapped[int | None] = mapped_column(
         ForeignKey("processos.id", ondelete="SET NULL"), nullable=True, index=True
     )
     proposta_id: Mapped[int | None] = mapped_column(
-        ForeignKey("propostas_comerciais.id", ondelete="SET NULL"), nullable=True, index=True
+        ForeignKey("propostas_comerciais.id", ondelete="SET NULL"), nullable=True, unique=True, index=True
     )
     lancamento_id: Mapped[int | None] = mapped_column(
         ForeignKey("lancamentos_financeiros.id", ondelete="SET NULL"), nullable=True, unique=True

@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.juridico import TIPOS_PRAZO
+from app.api.leads import criar_contratacao_automatica_proposta
 from app.auth import exigir_permissao, hash_ip, hash_senha, hash_token, verificar_senha
 from app.clicksign import configuracao as configuracao_clicksign
 from app.database import get_session
@@ -102,6 +103,7 @@ async def webhook_clicksign(
         proposta.aceito_em = proposta.aceito_em or datetime.now(UTC)
         proposta.public_aceito_em = proposta.public_aceito_em or proposta.aceito_em
         proposta.sla_status = "aguardando_pagamento"
+        await criar_contratacao_automatica_proposta(session, proposta, "clicksign")
     clicksign = (proposta.dados or {}).get("clicksign") or {}
     event_id = (
         payload.get("event_id") or payload.get("eventId") or (data or {}).get("event_id")
@@ -809,6 +811,7 @@ async def assinar_proposta_portal(proposta_id: int, request: Request, cliente: C
         proposta.public_aceito_ip_hash = ip_hash
         proposta.status = "aceita"
         proposta.sla_status = "aguardando_pagamento"
+        await criar_contratacao_automatica_proposta(session, proposta, "portal")
         session.add(
             AssinaturaPropostaComercial(
                 organizacao_id=cliente.organizacao_id,

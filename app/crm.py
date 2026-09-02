@@ -236,6 +236,16 @@ async def avancar_fase_lead(session: AsyncSession, lead: Lead, nova_fase: str, p
     novo_status = MAPA_FASE_STATUS.get(nova_fase)
     if novo_status is not None and lead.status != novo_status:
         lead.status = novo_status
+        # Achado L9 da auditoria Leads/CRM (Fase 1, 03/09/2026): esta era a
+        # única via de conversão que não espelhava a lógica já existente no
+        # PATCH manual de status (app/api/leads.py) -- um lead convertido
+        # automaticamente pelo aceite de proposta ficava com status=CONVERTIDO
+        # mas resultado=None, divergindo da métrica de taxa_conversao (que lê
+        # Lead.resultado, não Lead.status).
+        if novo_status == StatusLead.CONVERTIDO:
+            lead.resultado = "ganho"
+            lead.motivo_perda = None
+            lead.motivo_perda_detalhe = None
     session.add(HistoricoFaseLead(organizacao_id=lead.organizacao_id, lead_id=lead.id, fase=nova_fase, por=por))
     registrar_evento_operacional(
         session,

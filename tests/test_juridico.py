@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.api.juridico import (
@@ -12,7 +13,9 @@ from app.api.juridico import (
     PADRAO_PRAZO,
     TIPOS_PRAZO,
     ChecklistItemUpdate,
+    PoliticaJuridicaUpdate,
     PrazoInput,
+    PrazoUpdate,
     _classificar_despacho,
     _classificar_despacho_terminal,
     _dispensa_concessao,
@@ -21,11 +24,13 @@ from app.api.juridico import (
     _reconciliar_prazos_terminais,
     _serializar_prazo,
     atualizar_item_checklist,
+    atualizar_prazo,
     calcular_vencimento,
     criar_prazo,
+    editar_politica_juridica,
     painel,
 )
-from app.models import EventoJuridico, Movimentacao, PrazoJuridico, ProcessoMonitorado
+from app.models import EventoJuridico, Movimentacao, PoliticaJuridica, PrazoJuridico, ProcessoMonitorado
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
@@ -447,3 +452,121 @@ def test_desmarcar_item_limpa_autor_e_data() -> None:
     assert resultado["concluido"] is False
     assert item.concluido_em is None
     assert item.concluido_por is None
+
+
+# --- Achado 5.3 da auditoria (01/09/2026): dupla conferência e evidência de conclusão ---
+
+
+def _prazo_ativo(**overrides: object) -> PrazoJuridico:
+    base: dict = {
+        "id": 9,
+        "organizacao_id": 1,
+        "processo_monitorado_id": 3,
+        "titulo": "Responder exigência",
+        "tipo": "exigencia",
+        "origem": "motor_rpi",
+        "data_base": date(2026, 8, 14),
+        "dias_prazo": 60,
+        "contagem": "corridos",
+        "vencimento_em": datetime(2026, 10, 13, tzinfo=UTC),
+        "status": "pendente",
+        "prioridade": "alta",
+        "confirmado": True,
+        "confirmado_por_id": 2,
+        "criado_por": "motor-juridico",
+    }
+    base.update(overrides)
+    return PrazoJuridico(**base)
+
+
+def test_cancelamento_sem_justificativa_e_rejeitado() -> None:
+    prazo = _prazo_ativo()
+    session = FakeSession([FakeResult(scalar=prazo)])
+    try:
+        asyncio.run(atualizar_prazo(9, PrazoUpdate(status="cancelado"), _request(), session, usuario_teste()))
+        raise AssertionError("Esperava HTTPException 422 por falta de justificativa")
+    except HTTPException as erro:
+        assert erro.status_code == 422
+
+
+def test_cancelamento_com_justificativa_e_aceito() -> None:
+    prazo = _prazo_ativo()
+    session = FakeSession([FakeResult(scalar=prazo)])
+    resultado = asyncio.run(
+        atualizar_prazo(
+            9,
+            PrazoUpdate(status="cancelado", descricao_evento="Processo arquivado pelo cliente."),
+            _request(),
+            session,
+            usuario_teste(),
+        )
+    )
+    assert resultado["status"] == "cancelado"
+
+
+def test_conclusao_sem_politica_configurada_nao_exige_evidencia() -> None:
+    prazo = _prazo_ativo()
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=None)])
+    resultado = asyncio.run(atualizar_prazo(9, PrazoUpdate(status="concluido"), _request(), session, usuario_teste()))
+    assert resultado["status"] == "concluido"
+
+
+def test_conclusao_exige_evidencia_quando_politica_ativa() -> None:
+    prazo = _prazo_ativo()
+    politica = PoliticaJuridica(organizacao_id=1, exigir_evidencia_conclusao=True, exigir_segunda_pessoa_critico=False)
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=politica), FakeResult(scalar=None)])
+    try:
+        asyncio.run(atualizar_prazo(9, PrazoUpdate(status="concluido"), _request(), session, usuario_teste()))
+        raise AssertionError("Esperava HTTPException 422 por falta de evidência de entrega")
+    except HTTPException as erro:
+        assert erro.status_code == 422
+
+
+def test_conclusao_permitida_quando_ha_entrega_registrada() -> None:
+    prazo = _prazo_ativo()
+    politica = PoliticaJuridica(organizacao_id=1, exigir_evidencia_conclusao=True, exigir_segunda_pessoa_critico=False)
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=politica), FakeResult(scalar=1)])
+    resultado = asyncio.run(atualizar_prazo(9, PrazoUpdate(status="concluido"), _request(), session, usuario_teste()))
+    assert resultado["status"] == "concluido"
+
+
+def test_conclusao_de_prazo_critico_exige_segunda_pessoa_quando_politica_ativa() -> None:
+    usuario = usuario_teste()
+    prazo = _prazo_ativo(prioridade="critica", confirmado_por_id=usuario.id)
+    politica = PoliticaJuridica(organizacao_id=1, exigir_evidencia_conclusao=False, exigir_segunda_pessoa_critico=True)
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=politica)])
+    try:
+        asyncio.run(atualizar_prazo(9, PrazoUpdate(status="concluido"), _request(), session, usuario))
+        raise AssertionError("Esperava HTTPException 422 por falta de segunda pessoa na conclusão")
+    except HTTPException as erro:
+        assert erro.status_code == 422
+
+
+def test_conclusao_de_prazo_critico_permitida_quando_outra_pessoa_confirmou() -> None:
+    usuario = usuario_teste()
+    prazo = _prazo_ativo(prioridade="critica", confirmado_por_id=usuario.id + 1)
+    politica = PoliticaJuridica(organizacao_id=1, exigir_evidencia_conclusao=False, exigir_segunda_pessoa_critico=True)
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=politica)])
+    resultado = asyncio.run(atualizar_prazo(9, PrazoUpdate(status="concluido"), _request(), session, usuario))
+    assert resultado["status"] == "concluido"
+
+
+def test_conclusao_de_prazo_ja_concluido_nao_reexige_evidencia() -> None:
+    prazo = _prazo_ativo(status="concluido")
+    session = FakeSession([FakeResult(scalar=prazo)])
+    resultado = asyncio.run(atualizar_prazo(9, PrazoUpdate(prioridade="media"), _request(), session, usuario_teste()))
+    assert resultado["status"] == "concluido"
+
+
+def test_editar_politica_juridica_cria_registro_quando_inexistente() -> None:
+    session = FakeSession([FakeResult(scalar=None)])
+    resultado = asyncio.run(
+        editar_politica_juridica(
+            PoliticaJuridicaUpdate(exigir_evidencia_conclusao=True, exigir_segunda_pessoa_critico=True),
+            session,
+            usuario_teste(),
+        )
+    )
+    assert resultado == {"exigir_evidencia_conclusao": True, "exigir_segunda_pessoa_critico": True}
+    assert session.commits == 1
+    assert len(session.adicionados) == 1

@@ -1193,6 +1193,27 @@ class PrazoJuridico(Base):
     escalonar_para: Mapped["UsuarioOperacoes | None"] = relationship(foreign_keys=[escalonar_para_id], lazy="selectin")
 
 
+class PoliticaJuridica(Base):
+    """Regras operacionais do módulo jurídico configuradas por organização.
+
+    Achado 5.3 da auditoria (01/09/2026): por padrão nada muda — as duas
+    exigências abaixo são opt-in, desligadas por padrão, para não travar
+    operações pequenas que hoje concluem prazos sozinhas.
+    """
+
+    __tablename__ = "politicas_juridicas"
+    __table_args__ = (UniqueConstraint("organizacao_id", name="uq_politica_juridica_organizacao"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    exigir_evidencia_conclusao: Mapped[bool] = mapped_column(Boolean, default=False)
+    exigir_segunda_pessoa_critico: Mapped[bool] = mapped_column(Boolean, default=False)
+    atualizado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ItemChecklistPrazo(Base):
     """Etapa de conferência de um prazo jurídico (checklist operacional)."""
 

@@ -18,6 +18,7 @@ from app.models import (
     ItemChecklistPrazo,
     Movimentacao,
     NotificacaoJuridica,
+    PoliticaJuridica,
     PrazoJuridico,
     Processo,
     ProcessoMonitorado,
@@ -317,6 +318,29 @@ class PrazoUpdate(BaseModel):
     confirmar: bool = False
     confirmacao_observacoes: str | None = Field(default=None, min_length=3, max_length=2000)
     descricao_evento: str | None = Field(default=None, max_length=500)
+
+
+class PoliticaJuridicaUpdate(BaseModel):
+    exigir_evidencia_conclusao: bool = False
+    exigir_segunda_pessoa_critico: bool = False
+
+
+async def obter_politica_juridica(session: AsyncSession, organizacao_id: int) -> PoliticaJuridica:
+    politica = (
+        await session.execute(select(PoliticaJuridica).where(PoliticaJuridica.organizacao_id == organizacao_id))
+    ).scalar_one_or_none()
+    return politica or PoliticaJuridica(
+        organizacao_id=organizacao_id,
+        exigir_evidencia_conclusao=False,
+        exigir_segunda_pessoa_critico=False,
+    )
+
+
+def _politica_juridica_dict(politica: PoliticaJuridica) -> dict:
+    return {
+        "exigir_evidencia_conclusao": politica.exigir_evidencia_conclusao,
+        "exigir_segunda_pessoa_critico": politica.exigir_segunda_pessoa_critico,
+    }
 
 
 class EntregaInput(BaseModel):
@@ -945,6 +969,31 @@ async def atualizar_prazo(
         prazo.confirmado_em = datetime.now(UTC)
         prazo.confirmacao_origem = "revisao_humana"
         prazo.confirmacao_observacoes = dados.confirmacao_observacoes.strip()
+    if dados.status == "cancelado" and not (dados.descricao_evento and dados.descricao_evento.strip()):
+        raise HTTPException(422, "Informe a justificativa do cancelamento")
+    if dados.status == "concluido" and anterior in STATUS_ATIVOS:
+        politica = await obter_politica_juridica(session, usuario.organizacao_id)
+        if politica.exigir_evidencia_conclusao:
+            entrega_existente = (
+                await session.execute(
+                    select(EventoJuridico.id)
+                    .where(EventoJuridico.prazo_id == prazo.id, EventoJuridico.tipo == "entrega_registrada")
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if entrega_existente is None:
+                raise HTTPException(
+                    422, "Registre ao menos uma entrega (protocolo/documento) antes de concluir este prazo"
+                )
+        if (
+            politica.exigir_segunda_pessoa_critico
+            and prazo.prioridade == "critica"
+            and prazo.confirmado_por_id is not None
+            and prazo.confirmado_por_id == usuario.id
+        ):
+            raise HTTPException(
+                422, "Prazo crítico exige confirmação por uma segunda pessoa antes da conclusão"
+            )
     if dados.status:
         prazo.status = dados.status
         if dados.status == "concluido":
@@ -974,6 +1023,28 @@ async def atualizar_prazo(
     _auditar(session, request, usuario, "atualizar_prazo", f"prazo:{prazo.id}", {"status": prazo.status})
     await session.commit()
     return {"id": prazo.id, "status": prazo.status, "confirmado": prazo.confirmado}
+
+
+@router.get("/politica")
+async def consultar_politica_juridica(session: SessionDep, usuario: ViewDep) -> dict:
+    return _politica_juridica_dict(await obter_politica_juridica(session, usuario.organizacao_id))
+
+
+@router.put("/politica")
+async def editar_politica_juridica(
+    dados: PoliticaJuridicaUpdate, session: SessionDep, usuario: ManageDep
+) -> dict:
+    politica = (
+        await session.execute(select(PoliticaJuridica).where(PoliticaJuridica.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    if politica is None:
+        politica = PoliticaJuridica(organizacao_id=usuario.organizacao_id)
+        session.add(politica)
+    for campo, valor in dados.model_dump().items():
+        setattr(politica, campo, valor)
+    politica.atualizado_por = usuario.ator
+    await session.commit()
+    return _politica_juridica_dict(politica)
 
 
 @router.post("/prazos/{prazo_id}/entregas", status_code=status.HTTP_201_CREATED)

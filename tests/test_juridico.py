@@ -8,12 +8,15 @@ from starlette.requests import Request
 from app.api.juridico import (
     CHECKLIST_GENERICO,
     CHECKLIST_PADRAO,
+    MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO,
     PADRAO_PRAZO,
     TIPOS_PRAZO,
     ChecklistItemUpdate,
     PrazoInput,
     _classificar_despacho,
     _classificar_despacho_terminal,
+    _dispensa_concessao,
+    _pascoa,
     _reconciliar_prazos_historicos,
     _reconciliar_prazos_terminais,
     _serializar_prazo,
@@ -52,6 +55,60 @@ def test_agenda_centralizada_cobre_eventos_de_propriedade_intelectual() -> None:
 def test_calcula_prazo_em_dias_uteis_sem_contar_fim_de_semana() -> None:
     vencimento = calcular_vencimento(date(2026, 8, 14), 2, "uteis")
     assert vencimento.date() == date(2026, 8, 18)
+
+
+# --- Achado 5.1 da auditoria (01/09/2026): a dispensa da taxa de concessão
+# usava a data de DEPÓSITO; a regra oficial do INPI (FAQ oficial, item 7,
+# gov.br/inpi/pt-br/inpi-data/precificacao-dos-servicos/PerguntaseRespostas)
+# isenta pela data de DEFERIMENTO (RPI nº 2842, 24/06/2025), mesmo para
+# pedidos depositados antes da nova tabela (Portaria INPI/PR nº 10/2025).
+def test_dispensa_concessao_usa_data_de_deferimento_nao_de_deposito() -> None:
+    # Depósito antigo (muito antes do marco), deferimento após o corte real:
+    # é o caso mais comum na prática e o critério antigo (data de depósito)
+    # cobrava indevidamente esse cenário.
+    assert _dispensa_concessao("pagamento", date(2025, 8, 15)) is True
+
+
+def test_dispensa_concessao_nao_se_aplica_a_deferimento_anterior_ao_marco() -> None:
+    assert _dispensa_concessao("pagamento", date(2025, 6, 17)) is False
+
+
+def test_dispensa_concessao_no_limite_exato_do_marco_e_isenta() -> None:
+    assert _dispensa_concessao("pagamento", MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO) is True
+    assert MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO == date(2025, 6, 24)
+
+
+def test_dispensa_concessao_nao_se_aplica_a_outros_tipos_de_prazo() -> None:
+    assert _dispensa_concessao("exigencia", date(2026, 1, 1)) is False
+
+
+# --- Achado 5.2 da auditoria: vencimento em dias corridos não prorrogava
+# quando caía em sábado, domingo ou feriado nacional -- viola a Portaria
+# INPI/PR nº 08/2022, art. 6º, § 2º ("prorroga-se automaticamente para o
+# primeiro dia útil o prazo que vença no sábado, domingo ou feriado").
+def test_vencimento_corrido_prorroga_quando_cai_em_domingo() -> None:
+    # 11/08/2026 + 12 dias corridos = 23/08/2026, um domingo.
+    vencimento = calcular_vencimento(date(2026, 8, 11), 12, "corridos")
+    assert vencimento.date() == date(2026, 8, 24)  # segunda-feira seguinte
+
+
+def test_vencimento_corrido_prorroga_quando_cai_em_feriado_nacional() -> None:
+    # 09/07/2026 + 60 dias corridos = 07/09/2026 (Independência, 2ª-feira).
+    vencimento = calcular_vencimento(date(2026, 7, 9), 60, "corridos")
+    assert vencimento.date() == date(2026, 9, 8)  # 1º dia útil seguinte (terça)
+
+
+def test_pascoa_calcula_data_correta_para_ano_conhecido() -> None:
+    # Domingo de Páscoa de 2026 é 05/04/2026 (data pública/oficialmente
+    # conhecida) — verifica o algoritmo do calendário móvel usado para
+    # calcular a Sexta-feira Santa.
+    assert _pascoa(2026) == date(2026, 4, 5)
+
+
+def test_vencimento_corrido_prorroga_quando_cai_em_feriado_movel() -> None:
+    # 02/02/2026 + 60 dias corridos = 03/04/2026, Sexta-feira Santa.
+    vencimento = calcular_vencimento(date(2026, 2, 2), 60, "corridos")
+    assert vencimento.date() == date(2026, 4, 6)  # pula sáb/dom também
 
 
 def test_motor_reconhece_prazo_numerico_com_texto_por_extenso() -> None:
@@ -273,7 +330,12 @@ def test_criar_prazo_vincula_processo_e_registra_historico() -> None:
     prazos = [item for item in session.adicionados if isinstance(item, PrazoJuridico)]
     eventos = [item for item in session.adicionados if isinstance(item, EventoJuridico)]
     assert resultado["status"] == "pendente"
-    assert prazos[0].vencimento_em.date() == date(2026, 10, 10)
+    # 11/08/2026 + 60 dias corridos = 10/10/2026 (sábado); com a prorrogação
+    # da Portaria/INPI/PR nº 08/2022 (achado 5.2 da auditoria), pula o fim de
+    # semana E o feriado de 12/10 (Nossa Senhora Aparecida) até o próximo dia
+    # útil, 13/10/2026 (terça). Antes da correção, este teste esperava
+    # 10/10/2026 — uma data que caía num sábado.
+    assert prazos[0].vencimento_em.date() == date(2026, 10, 13)
     assert eventos[0].tipo == "prazo_criado"
     assert session.commits == 1
 

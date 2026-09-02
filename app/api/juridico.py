@@ -27,6 +27,71 @@ from app.models import (
 )
 from app.proxy import cliente_ip
 
+FERIADOS_NACIONAIS_FIXOS: tuple[tuple[int, int, str], ...] = (
+    (1, 1, "Confraternização Universal"),
+    (4, 21, "Tiradentes"),
+    (5, 1, "Dia do Trabalho"),
+    (9, 7, "Independência do Brasil"),
+    (10, 12, "Nossa Senhora Aparecida"),  # Lei nº 6.802/1980
+    (11, 2, "Finados"),
+    (11, 15, "Proclamação da República"),
+    (11, 20, "Dia Nacional de Zumbi e da Consciência Negra"),  # Lei nº 14.759/2023, a partir de 2024
+    (12, 25, "Natal"),
+)
+
+
+def _pascoa(ano: int) -> date:
+    """Data da Páscoa (algoritmo do calendário gregoriano — Gauss/Meeus)."""
+    a = ano % 19
+    b = ano // 100
+    c = ano % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    n = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * n) // 451
+    mes = (h + n - 7 * m + 114) // 31
+    dia = ((h + n - 7 * m + 114) % 31) + 1
+    return date(ano, mes, dia)
+
+
+def _feriados_nacionais(ano: int) -> set[date]:
+    """Feriados nacionais fixos + Sexta-feira Santa (móvel).
+
+    NÃO inclui pontos facultativos (discricionários, fora da redação "sábado,
+    domingo ou feriado" da Portaria/INPI/PR nº 08/2022, art. 6º, § 2º) nem
+    feriados estaduais/municipais (que exigem petição comprobatória própria,
+    conforme Parecer nº 00016/2021/CGPI/PFE-INPI/PGF/AGU — não prorrogam
+    automaticamente). Fonte da lista fixa: Lei nº 662/1949 c/ Lei nº
+    6.802/1980 e Lei nº 14.759/2023.
+    """
+    feriados = {
+        date(ano, mes, dia)
+        for mes, dia, _nome in FERIADOS_NACIONAIS_FIXOS
+        if not (mes == 11 and dia == 20 and ano < 2024)
+    }
+    feriados.add(_pascoa(ano) - timedelta(days=2))
+    return feriados
+
+
+def _eh_dia_util(dia: date) -> bool:
+    return dia.weekday() < 5 and dia not in _feriados_nacionais(dia.year)
+
+
+def _proximo_dia_util(dia: date) -> date:
+    """Prorroga para o primeiro dia útil seguinte quando ``dia`` cair em
+    sábado, domingo ou feriado nacional — Portaria/INPI/PR nº 08/2022, art.
+    6º, § 2º: "prorroga-se automaticamente para o primeiro dia útil o prazo
+    que vença no sábado, domingo ou feriado"."""
+    while not _eh_dia_util(dia):
+        dia += timedelta(days=1)
+    return dia
+
+
 router = APIRouter(prefix="/v1/admin/juridico", tags=["operacao juridica"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("legal.view"))]
@@ -95,11 +160,32 @@ DESPACHOS_PRAZO: tuple[tuple[re.Pattern[str], int, str, str], ...] = (
     ),
 )
 
-# A partir de 20/09/2025 o INPI unificou as retribuições de marca: a taxa de
-# concessão e os 10 primeiros anos de vigência passam a ser pagos no depósito.
-# Marcas depositadas nessa data ou depois NÃO têm prazo de pagamento da
-# concessão — o motor registra um aviso informativo no lugar do prazo acionável.
-MARCO_TAXA_UNICA_INPI = date(2025, 9, 20)
+# Achado da auditoria (01/09/2026): a regra usava a data de DEPÓSITO, mas a
+# regra oficial do INPI isenta pela data de DEFERIMENTO — critério errado,
+# gerava cobrança indevida para o caso mais comum (depósito antigo, deferido
+# recentemente). Fonte oficial: FAQ do INPI, item 7 —
+# gov.br/inpi/pt-br/inpi-data/precificacao-dos-servicos/PerguntaseRespostas:
+# "Todos os pedidos de marca com deferimento publicado a partir de 22/06/2025
+# poderão ter a emissão automática do Primeiro decênio de vigência de
+# registro de marca e expedição de certificado de registro, sem necessidade
+# de pagamento, mesmo se depositados antes da entrada em vigor da nova
+# tabela." O corte operacional é a RPI nº 2842 (24/06/2025) — primeira RPI
+# publicada a partir de 22/06/2025 (domingo, sem RPI). O valor zero em si
+# (serviços 372/373/3012) é da Portaria/INPI/PR nº 10/2025, vigente desde
+# 20/09/2025 — mas o critério de isenção retroage ao deferimento, não ao
+# depósito, e não é "pago no depósito": é gratuito e automático (mesmo FAQ,
+# item 10, resposta explícita "Não").
+MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO = date(2025, 6, 24)
+
+
+def _dispensa_concessao(tipo: str, data_deferimento: date) -> bool:
+    """Pedidos de marca com deferimento publicado a partir da RPI nº 2842
+    (24/06/2025) são isentos do pagamento do primeiro decênio/certificado de
+    registro (serviços 372/373/3012), mesmo se depositados antes da entrada
+    em vigor da nova tabela do INPI — ver fonte no comentário de
+    ``MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO``.
+    """
+    return tipo == "pagamento" and data_deferimento >= MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO
 
 DESPACHOS_TERMINAIS: tuple[tuple[re.Pattern[str], str, str], ...] = (
     (
@@ -190,10 +276,14 @@ def calcular_vencimento(data_base: date, dias: int, contagem: str) -> datetime:
         restantes = dias
         while restantes:
             atual += timedelta(days=1)
-            if atual.weekday() < 5:
+            if _eh_dia_util(atual):
                 restantes -= 1
     else:
         atual += timedelta(days=dias)
+        # Portaria/INPI/PR nº 08/2022, art. 6º, § 2º: prorroga automaticamente
+        # para o primeiro dia útil o prazo corrido que vença em sábado,
+        # domingo ou feriado nacional.
+        atual = _proximo_dia_util(atual)
     return datetime.combine(atual, time(23, 59, 59), tzinfo=UTC)
 
 
@@ -1432,7 +1522,7 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
 
     candidatos = (
         await session.execute(
-            select(ProcessoMonitorado, Movimentacao, Processo.data_deposito)
+            select(ProcessoMonitorado, Movimentacao)
             .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
             .join(Movimentacao, Movimentacao.processo_id == Processo.id)
             .outerjoin(
@@ -1450,7 +1540,7 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
         )
     ).all()
     terminais_candidatos = await _terminais_dos_processos(
-        session, {monitorado.processo_id for monitorado, _movimentacao, _data in candidatos}
+        session, {monitorado.processo_id for monitorado, _movimentacao in candidatos}
     )
     chaves_existentes = {
         _chave_publicacao(prazo, origem)
@@ -1467,7 +1557,7 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
     }
     sugeridos = 0
     dispensados = 0
-    for monitorado, movimentacao, data_deposito in candidatos:
+    for monitorado, movimentacao in candidatos:
         if movimentacao.data_rpi is None:
             continue
         terminal = terminais_candidatos.get(monitorado.processo_id)
@@ -1487,17 +1577,20 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
         if chave_publicacao in chaves_existentes:
             continue
         chaves_existentes.add(chave_publicacao)
-        # (a) Depósitos sob a taxa única do INPI (≥ 20/09/2025) não têm pagamento
-        # de concessão: não gera prazo acionável. (b) Registra um aviso informativo
-        # (prazo dispensado, sem ação) para o operador entender.
-        dispensa_concessao = (
-            tipo == "pagamento" and data_deposito is not None and data_deposito >= MARCO_TAXA_UNICA_INPI
-        )
+        # (a) Deferimentos a partir da RPI nº 2842 (24/06/2025) são isentos do
+        # pagamento de concessão, mesmo se o depósito for anterior — não gera
+        # prazo acionável. (b) Registra um aviso informativo (prazo
+        # dispensado, sem ação) para o operador entender. Ver fonte no
+        # comentário de MARCO_DEFERIMENTO_ISENTO_TAXA_CONCESSAO.
+        dispensa_concessao = _dispensa_concessao(tipo, movimentacao.data_rpi)
         if dispensa_concessao:
-            titulo = "Concessão sem taxa — já paga no depósito (regra INPI de 20/09/2025)"
+            titulo = "Concessão sem taxa — isenta pela regra do INPI (deferimento ≥ 24/06/2025)"
             descricao = (
-                "A taxa de concessão e os 10 primeiros anos de vigência foram pagos no "
-                "depósito (unificação de retribuições do INPI vigente desde 20/09/2025). "
+                "O primeiro decênio de vigência e a expedição do certificado são "
+                "gratuitos e automáticos para pedidos com deferimento publicado a "
+                "partir da RPI nº 2842 (24/06/2025), mesmo se depositados antes da "
+                "nova tabela de retribuições do INPI (Portaria/INPI/PR nº 10/2025, "
+                "vigente desde 20/09/2025) — fonte: FAQ oficial do INPI, item 7. "
                 "Nenhum pagamento de concessão é devido — nenhuma ação necessária."
             )
         else:

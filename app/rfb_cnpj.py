@@ -14,8 +14,6 @@ do ETL completo ficam em app/cli/importar_cnpj_rfb.py.
 
 from datetime import date
 
-BASE_URL_RFB = "https://dadosabertos.rfb.gov.br/CNPJ/dados_abertos_cnpj"
-
 # Ordem exata das colunas de cada arquivo (sem cabeçalho na origem).
 COLUNAS_EMPRESA = (
     "cnpj_basico",

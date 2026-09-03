@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     session_duration_hours: int = 8
     session_idle_minutes: int = 60
     alto_renome_page_url: str = "https://www.gov.br/inpi/pt-br/servicos/marcas/alto-renome/"
+    # dadosabertos.rfb.gov.br não responde a partir da rede desta VPS (timeout de
+    # TCP, confirmado em 03/09/2026 -- outros hosts gov.br respondem normalmente,
+    # então não é bloqueio de saída local). Compartilhamento público via WebDAV
+    # (Nextcloud/SERPRO+) é a rota que efetivamente funciona; token pode expirar/
+    # rotacionar, por isso fica configurável em vez de fixo no código.
+    rfb_cnpj_base_url: str = "https://arquivos.receitafederal.gov.br/public.php/webdav"
+    rfb_cnpj_share_token: str = "YggdBLfdninEJX9"
     audit_ip_salt: str = "desenvolvimento-local"
     security_master_key: str = "desenvolvimento-local-chave-mestra"
     security_master_key_version: int = 1

@@ -54,19 +54,70 @@ def test_carregar_referencia_monta_dict_codigo_descricao(monkeypatch) -> None:
     conteudo = _zip_com_csv("F.K03200MUNICCSV", ["7107;SAO PAULO", "6001;RIO DE JANEIRO"])
     monkeypatch.setattr(modulo, "_baixar", lambda url: conteudo)
 
-    resultado = modulo.carregar_referencia("2026-08", "Municipios")
+    resultado = modulo.carregar_referencia("https://exemplo.com/webdav", "2026-08", "Municipios")
 
     assert resultado == {"7107": "SAO PAULO", "6001": "RIO DE JANEIRO"}
 
 
-def test_descobrir_periodo_mais_recente_pega_o_ultimo_da_listagem(monkeypatch) -> None:
-    html = b"""
-    <html><body>
-    <a href="2026-06/">2026-06/</a>
-    <a href="2026-07/">2026-07/</a>
-    <a href="2026-08/">2026-08/</a>
-    </body></html>
-    """
-    monkeypatch.setattr(modulo, "_baixar", lambda url: html)
+class _RespostaFalsa:
+    def __init__(self, corpo: bytes) -> None:
+        self._corpo = corpo
 
-    assert modulo.descobrir_periodo_mais_recente() == "2026-08"
+    def read(self) -> bytes:
+        return self._corpo
+
+    def __enter__(self) -> "_RespostaFalsa":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+
+def test_descobrir_periodo_mais_recente_pega_o_ultimo_da_listagem_propfind(monkeypatch) -> None:
+    # Resposta real de PROPFIND (WebDAV/Nextcloud) contra o compartilhamento
+    # publico da RFB -- verificado manualmente em 03/09/2026.
+    xml = b"""<?xml version="1.0"?>
+    <d:multistatus xmlns:d="DAV:">
+      <d:response><d:href>/public.php/webdav/</d:href></d:response>
+      <d:response><d:href>/public.php/webdav/2026-06/</d:href></d:response>
+      <d:response><d:href>/public.php/webdav/2026-07/</d:href></d:response>
+      <d:response><d:href>/public.php/webdav/2026-08/</d:href></d:response>
+      <d:response><d:href>/public.php/webdav/cnpj.tar.gz</d:href></d:response>
+    </d:multistatus>"""
+    monkeypatch.setattr(modulo, "urlopen", lambda *_args, **_kwargs: _RespostaFalsa(xml))
+
+    assert modulo.descobrir_periodo_mais_recente("https://exemplo.com/webdav") == "2026-08"
+
+
+def test_baixar_inclui_autenticacao_basic_quando_token_configurado(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    capturado = {}
+
+    def _urlopen_falso(requisicao, timeout):  # noqa: ARG001 - assinatura espelha urlopen
+        capturado["headers"] = dict(requisicao.header_items())
+        return _RespostaFalsa(b"conteudo")
+
+    monkeypatch.setattr(modulo, "urlopen", _urlopen_falso)
+    monkeypatch.setattr(modulo, "get_settings", lambda: SimpleNamespace(rfb_cnpj_share_token="token-de-teste"))
+
+    modulo._baixar("https://exemplo.com/webdav/2026-08/Municipios.zip")
+
+    assert any(chave.lower() == "authorization" for chave in capturado["headers"])
+
+
+def test_baixar_sem_token_nao_envia_autenticacao(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    capturado = {}
+
+    def _urlopen_falso(requisicao, timeout):  # noqa: ARG001 - assinatura espelha urlopen
+        capturado["headers"] = dict(requisicao.header_items())
+        return _RespostaFalsa(b"conteudo")
+
+    monkeypatch.setattr(modulo, "urlopen", _urlopen_falso)
+    monkeypatch.setattr(modulo, "get_settings", lambda: SimpleNamespace(rfb_cnpj_share_token=""))
+
+    modulo._baixar("https://exemplo.com/webdav/2026-08/Municipios.zip")
+
+    assert not any(chave.lower() == "authorization" for chave in capturado["headers"])

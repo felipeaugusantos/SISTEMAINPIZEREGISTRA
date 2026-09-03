@@ -22,6 +22,12 @@ CMD ["uv", "run", "pytest", "-q"]
 # mesma imagem de producao de sempre, sem dependencias de dev.
 FROM base AS production
 
+# Commit exato empacotado nesta imagem (Fase 0, item 4) -- consultar com
+# `docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' <imagem>`.
+# Sem --build-arg (ex.: build local avulso) fica "unknown", nunca quebra o build.
+ARG GIT_SHA=unknown
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+
 RUN uv sync --frozen --no-dev
 
 COPY app ./app

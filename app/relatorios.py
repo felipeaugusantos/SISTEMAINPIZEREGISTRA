@@ -865,6 +865,12 @@ def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencia
         estado = "VALIDADO POR ESPECIALISTA" if incluir_ocorrencias and revisao.get("validada") else "PRELIMINAR — REVISÃO HUMANA NECESSÁRIA"
         story.append(Paragraph("Análise de registrabilidade", estilos["secao"]))
         story.append(Paragraph(_texto(estado), estilos["celula"]))
+        parecer_humano = analise.get("parecer_humano")
+        if incluir_ocorrencias and parecer_humano and parecer_humano.get("observacoes"):
+            # Justificativa do especialista para o parecer de validação -- só no
+            # relatório interno (incluir_ocorrencias=True), nunca no público.
+            story.append(Paragraph("Parecer do especialista", estilos["secao"]))
+            story.append(Paragraph(_texto(parecer_humano["observacoes"]), estilos["celula"]))
         _cor_situacao = {
             "favoravel": "#176a3a",
             "desfavoravel": "#8d2923",

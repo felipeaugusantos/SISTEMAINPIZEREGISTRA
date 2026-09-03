@@ -22,6 +22,16 @@ Para restaurar no ambiente definido pelo Compose, use confirmação explícita. 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\restaurar-banco.ps1 -Arquivo .\backups\inpi-AAAAMMDD-HHMMSS.dump -Confirmar
 ```
 
+**Na VPS** (sem PowerShell), use os equivalentes em bash (Fase 0, item 8/9 — `docs/fase0-baseline-controle-desenvolvimento.md`):
+
+```bash
+./docker/backup-banco.sh
+./docker/restaurar-banco.sh backups/inpi-AAAAMMDD-HHMMSS.dump              # restaura em db-test (efêmero, sem risco)
+./docker/restaurar-banco.sh backups/inpi-AAAAMMDD-HHMMSS.dump --producao   # restaura em produção -- exige confirmação digitada
+```
+
+`docker/deploy.sh` já chama `backup-banco.sh` automaticamente antes de toda migration.
+
 ## 3. Validar schema e dados
 
 ```powershell

@@ -48,18 +48,25 @@ TAG_VERSAO="${VERSAO}-${DATA}"
 echo "==> versao: $TAG_VERSAO (commit $(git rev-parse --short HEAD))"
 
 echo "==> build: $SERVICOS"
-docker compose build $SERVICOS
+GIT_SHA="$(git rev-parse HEAD)"
+for servico in $SERVICOS; do
+    docker compose build --build-arg "GIT_SHA=${GIT_SHA}" "$servico"
+done
 
 for servico in $SERVICOS; do
     imagem="zeregistra-${servico}"
     docker tag "${imagem}:latest" "${imagem}:${TAG_VERSAO}"
-    echo "==> ${imagem}:${TAG_VERSAO} marcada"
+    echo "==> ${imagem}:${TAG_VERSAO} marcada (commit ${GIT_SHA})"
 done
 
 # migrate roda as migrations pendentes e sai sozinho -- espera terminar antes
-# de seguir para os servicos de longa duracao.
+# de seguir para os servicos de longa duracao. Backup automatico antes de
+# qualquer migration (Fase 0, item 8): se a migration der problema, da pra
+# restaurar com docker/restaurar-banco.sh.
 case " $SERVICOS " in
     *" migrate "*)
+        echo "==> backup antes da migration"
+        ./docker/backup-banco.sh
         echo "==> aplicando migrations"
         docker compose up -d migrate
         docker compose wait migrate

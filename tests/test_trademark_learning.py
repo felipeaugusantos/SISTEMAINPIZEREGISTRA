@@ -61,15 +61,17 @@ def test_portfolio_titular_norm_respeita_a_data_de_referencia() -> None:
     """Regressão: o cache de portfólio é indexado por (titular_id, data_referencia)
     -- a mesma contagem para uma data não deve "vazar" para uma consulta em outra
     data do mesmo titular (achado da auditoria Fase 1: vazamento temporal)."""
-    contagens = {(1, date(2015, 1, 1)): 3, (1, date(2026, 1, 1)): 40}
+    contagens = {(1, date(2015, 1, 1)): 3, (1, date(2021, 6, 1)): 8}
 
     assert portfolio_titular_norm(contagens, [1], date(2015, 1, 1)) == 3 / 20.0
-    assert portfolio_titular_norm(contagens, [1], date(2026, 1, 1)) == 40 / 20.0 and portfolio_titular_norm(
-        contagens, [1], date(2026, 1, 1)
-    ) <= 1.0
+    assert portfolio_titular_norm(contagens, [1], date(2021, 6, 1)) == 8 / 20.0
     # Data sem entrada no cache -> tratado como portfólio desconhecido (0), não herda
     # a contagem de outra data do mesmo titular.
     assert portfolio_titular_norm(contagens, [1], date(2020, 1, 1)) == 0.0
+
+    # A normalização é limitada em 1.0 mesmo quando a contagem bruta excede a escala.
+    contagens_grandes = {(1, date(2024, 1, 1)): 40}
+    assert portfolio_titular_norm(contagens_grandes, [1], date(2024, 1, 1)) == 1.0
 
 
 def test_arquivamento_apos_deferimento_nao_conta_como_deferida() -> None:

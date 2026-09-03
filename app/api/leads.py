@@ -28,7 +28,7 @@ from app.crm import (
     sincronizar_fase_por_status,
 )
 from app.database import get_session
-from app.emailing import enviar_proposta_email
+from app.emailing import enviar_alerta_novo_lead, enviar_proposta_email
 from app.models import (
     MOTIVOS_PERDA,
     ORDEM_FASE_LEAD,
@@ -487,6 +487,10 @@ async def criar_lead(
     if dados.website:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Envio inválido")
 
+    # Achado P0 da auditoria de Leads (03/09/2026): a comparação exata de string
+    # não reconhecia o mesmo telefone em máscaras diferentes -- (16) 99999-9999
+    # e 16999999999 viravam leads duplicados. Compara só os dígitos dos dois lados.
+    telefone_digitos = "".join(caractere for caractere in dados.telefone if caractere.isdigit())
     consulta_existente = (
         select(Lead)
         .where(
@@ -494,7 +498,7 @@ async def criar_lead(
             Lead.arquivado_em.is_(None),
             or_(
                 func.lower(Lead.email) == dados.email.lower(),
-                Lead.telefone == dados.telefone,
+                func.regexp_replace(Lead.telefone, r"\D", "", "g") == telefone_digitos,
             ),
         )
         .order_by(
@@ -557,6 +561,10 @@ async def criar_lead(
     await _garantir_proxima_acao_padrao(session, lead)
     await session.commit()
     await session.refresh(lead)
+    if lead.responsavel_id is None:
+        # Achado P0 da auditoria de Leads: nenhum alerta ativo avisava a equipe
+        # de um lead novo chegando pelo formulário genérico de captação.
+        await enviar_alerta_novo_lead(lead.nome, lead.email, lead.telefone, lead.marca, lead.origem)
     resposta = LeadResponse.model_validate(lead)
     resposta.documento = _mascarar_documento(resposta.documento)
     return resposta

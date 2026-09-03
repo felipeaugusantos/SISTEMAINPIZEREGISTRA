@@ -234,6 +234,36 @@ async def enviar_recuperacao_portal(destinatario: str, nome: str, token: str) ->
     await asyncio.to_thread(_enviar_smtp, mensagem, settings)
 
 
+async def enviar_alerta_novo_lead(nome: str, email: str, telefone: str, marca: str, origem: str) -> None:
+    """Avisa a equipe de atendimento por e-mail quando um novo lead chega sem
+    responsável (achado P0 da auditoria de Leads, 03/09/2026: o formulário
+    genérico de captação não tinha nenhum alerta ativo, diferente do fluxo de
+    pesquisa de marca). Silencioso se e-mail ou destinatário não configurados."""
+    settings = get_settings()
+    if not settings.email_enabled or not settings.equipe_atendimento_email:
+        return
+    mensagem = EmailMessage()
+    mensagem["Subject"] = f"Novo lead recebido: {nome}"
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = settings.equipe_atendimento_email
+    linha_marca = f"\nMarca de interesse: {marca}" if marca else ""
+    mensagem.set_content(
+        f"Um novo lead acabou de ser recebido, ainda sem responsável.\n\n"
+        f"Nome: {nome}\n"
+        f"E-mail: {email}\n"
+        f"Telefone: {telefone}\n"
+        f"Origem: {origem}"
+        f"{linha_marca}\n\n"
+        "Acesse o Centro de Operações para assumir o atendimento."
+    )
+    try:
+        await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+    except Exception:
+        # Falha de e-mail não deve impedir a criação do lead nem derrubar a
+        # requisição do cliente -- o painel continua sendo a fonte de verdade.
+        logger.exception("Falha ao enviar alerta de novo lead por e-mail")
+
+
 async def enviar_alerta_nova_pesquisa(marca: str, nome_lead: str, empresa: str | None) -> None:
     """Avisa a equipe de atendimento por e-mail quando uma nova pesquisa chega.
 

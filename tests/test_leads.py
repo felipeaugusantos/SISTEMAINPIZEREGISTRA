@@ -224,6 +224,91 @@ def test_upsert_publico_sem_utm_no_reenvio_preserva_a_ultima_utm_conhecida() -> 
     assert lead.utm_source_ultimo == "google"
 
 
+# --- Achado P0 da auditoria de Leads (03/09/2026): telefone com máscara
+# diferente virava lead duplicado; nenhum alerta avisava a equipe de um lead
+# novo sem responsável. ---
+
+
+def _override_session(session: FakeSession):
+    async def _gen():
+        yield session
+
+    return _gen
+
+
+def test_upsert_publico_normaliza_telefone_na_query_de_duplicidade() -> None:
+    session = FakeSession([FakeResult(scalar=None)])
+    app.dependency_overrides[get_session] = _override_session(session)
+
+    resposta = TestClient(app).post("/v1/leads", json=_payload(telefone="(16) 99999-9999"))
+
+    assert resposta.status_code == 201
+    primeira_consulta = str(session.executados[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "regexp_replace" in primeira_consulta
+    assert "16999999999" in primeira_consulta
+
+
+def test_upsert_publico_telefone_com_mascara_diferente_reconhece_o_mesmo_lead() -> None:
+    lead = _lead_existente(telefone="(16) 99999-9999")
+    session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=None)])
+    app.dependency_overrides[get_session] = _override_session(session)
+
+    resposta = TestClient(app).post(
+        "/v1/leads", json=_payload(telefone="16999999999", marca="acme", email="outro@example.com")
+    )
+
+    assert resposta.status_code == 201
+    assert resposta.json()["id"] == lead.id
+
+
+async def _sem_envio(*_a: object, **_k: object) -> None:
+    return None
+
+
+def test_upsert_publico_novo_lead_sem_responsavel_dispara_alerta() -> None:
+    import app.api.leads as modulo
+
+    chamadas: list[tuple] = []
+
+    async def _capturar(*args: object) -> None:
+        chamadas.append(args)
+
+    original = modulo.enviar_alerta_novo_lead
+    modulo.enviar_alerta_novo_lead = _capturar
+    try:
+        session = FakeSession([FakeResult(scalar=None)])
+        app.dependency_overrides[get_session] = _override_session(session)
+        resposta = TestClient(app).post("/v1/leads", json=_payload())
+    finally:
+        modulo.enviar_alerta_novo_lead = original
+
+    assert resposta.status_code == 201
+    assert len(chamadas) == 1
+    assert chamadas[0][0] == "Fulano de Tal"
+
+
+def test_upsert_publico_atualizacao_de_lead_existente_nao_dispara_alerta() -> None:
+    import app.api.leads as modulo
+
+    chamadas: list[tuple] = []
+
+    async def _capturar(*args: object) -> None:
+        chamadas.append(args)
+
+    original = modulo.enviar_alerta_novo_lead
+    modulo.enviar_alerta_novo_lead = _capturar
+    try:
+        lead = _lead_existente()
+        session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=None)])
+        app.dependency_overrides[get_session] = _override_session(session)
+        resposta = TestClient(app).post("/v1/leads", json=_payload(marca="acme"))
+    finally:
+        modulo.enviar_alerta_novo_lead = original
+
+    assert resposta.status_code == 201
+    assert chamadas == []
+
+
 def test_rate_limit_bloqueia_excesso() -> None:
     app.dependency_overrides[get_session] = sessao_override()
     cliente = TestClient(app)

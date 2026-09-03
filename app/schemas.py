@@ -561,6 +561,94 @@ class LeadListResponse(BaseModel):
     acoes: dict[str, bool] = Field(default_factory=dict)
 
 
+# --- Fase 1 do Radar de Prospecção (03/09/2026) -----------------------------
+
+
+class ProspectCreate(BaseModel):
+    razao_social: str = Field(min_length=2, max_length=200)
+    nome_fantasia: str | None = Field(default=None, max_length=200)
+    cnpj: str | None = Field(default=None, max_length=18)
+    cnae_principal: str | None = Field(default=None, max_length=10)
+    cnaes_secundarios: list[str] = Field(default_factory=list)
+    porte: str | None = Field(default=None, max_length=20)
+    situacao_cadastral: str | None = Field(default=None, max_length=20)
+    data_abertura: date | None = None
+    uf: str | None = Field(default=None, max_length=2)
+    cidade: str | None = Field(default=None, max_length=120)
+    telefone: str | None = Field(default=None, max_length=30)
+    email: str | None = Field(default=None, max_length=254)
+    site: str | None = Field(default=None, max_length=200)
+
+    @field_validator("razao_social", "nome_fantasia", "cidade", "site", mode="before")
+    @classmethod
+    def _limpar_texto(cls, valor: object) -> object:
+        return valor.strip() if isinstance(valor, str) else valor
+
+    @field_validator("uf", mode="before")
+    @classmethod
+    def _normalizar_uf(cls, valor: object) -> object:
+        return valor.strip().upper() if isinstance(valor, str) else valor
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _normalizar_email(cls, valor: object) -> object:
+        return valor.strip().lower() or None if isinstance(valor, str) else valor
+
+    @field_validator("cnpj")
+    @classmethod
+    def _validar_cnpj(cls, valor: str | None) -> str | None:
+        if valor is None:
+            return None
+        digitos = "".join(item for item in valor if item.isdigit())
+        if not digitos:
+            return None
+        if len(digitos) != 14:
+            raise ValueError("Informe um CNPJ com 14 dígitos")
+        if not _cnpj_valido(digitos):
+            raise ValueError("CNPJ inválido (dígito verificador não confere)")
+        return digitos
+
+
+class ProspectStatusUpdate(BaseModel):
+    status: Literal["rejeitado"]
+    motivo_descarte: str = Field(min_length=2, max_length=30)
+
+
+class ProspectResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    razao_social: str
+    nome_fantasia: str | None
+    cnpj: str | None
+    cnae_principal: str | None
+    cnaes_secundarios: list[str]
+    porte: str | None
+    situacao_cadastral: str | None
+    data_abertura: date | None
+    uf: str | None
+    cidade: str | None
+    telefone: str | None
+    email: str | None
+    site: str | None
+    status: str
+    motivo_descarte: str | None
+    responsavel_id: int | None
+    responsavel_nome: str | None = None
+    lead_id: int | None
+    empresa_crm_id: int | None
+    duplicado_de_id: int | None
+    criado_em: datetime
+    atualizado_em: datetime
+
+
+class ProspectListResponse(BaseModel):
+    total: int
+    limite: int
+    deslocamento: int
+    itens: list[ProspectResponse]
+
+
 class PesquisaLeadResumo(BaseModel):
     id: str
     marca: str

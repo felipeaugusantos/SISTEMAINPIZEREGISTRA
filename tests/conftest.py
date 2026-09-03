@@ -83,7 +83,13 @@ class FakeSession:
         self.commits += 1
 
     async def flush(self) -> None:
-        return None
+        # Simula o autoincrement que o Postgres de verdade preenche via
+        # RETURNING id no INSERT -- vários endpoints fazem session.add(x) +
+        # flush() para usar x.id ainda dentro da mesma transação (antes do
+        # commit), então a Fake precisa espelhar isso.
+        for obj in self.adicionados:
+            if getattr(obj, "id", None) is None:
+                obj.id = 1
 
     async def rollback(self) -> None:
         return None

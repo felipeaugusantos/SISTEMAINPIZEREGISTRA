@@ -43,6 +43,19 @@ class StatusLead(StrEnum):
     DESCARTADO = "descartado"
 
 
+class StatusProspect(StrEnum):
+    """Situação de um Prospect (Fase 1 do Radar de Prospecção, 03/09/2026).
+
+    Vocabulário deliberadamente restrito ao que a Fase 1 sabe produzir --
+    enriquecimento/triagem/score (Fases 2-5) trazem estados intermediários
+    novos por migração própria, quando o código que os produz existir."""
+
+    NOVO = "novo"
+    REJEITADO = "rejeitado"
+    DUPLICADO = "duplicado"
+    CONVERTIDO_LEAD = "convertido_lead"
+
+
 class FaseLead(StrEnum):
     """Etapa do lead no funil de atendimento (do 1º contato ao processo no INPI)."""
 
@@ -1524,6 +1537,70 @@ class HistoricoFaseLead(Base):
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
     lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     fase: Mapped[str] = mapped_column(String(30))
+    entrou_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    por: Mapped[str | None] = mapped_column(String(150), nullable=True)
+
+
+class Prospect(Base):
+    """Empresa localizada por fonte externa, ainda não qualificada como Lead.
+
+    Fase 1 do Radar de Prospecção (03/09/2026, docs/arquitetura-radar-prospeccao-2026-09-03.md):
+    só estrutura + CRUD + importação manual + conversão em Lead. Campos de
+    fonte/campanha (Fase 2), presença digital (Fase 3), triagem de marca
+    (Fase 4) e score (Fase 5) entram por migração própria em cada fase,
+    para não carregar colunas que nenhum código ainda preenche.
+    """
+
+    __tablename__ = "prospects"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    cnpj: Mapped[str | None] = mapped_column(String(18), nullable=True, index=True)
+    razao_social: Mapped[str] = mapped_column(String(200), index=True)
+    nome_fantasia: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    cnae_principal: Mapped[str | None] = mapped_column(String(10), nullable=True, index=True)
+    cnaes_secundarios: Mapped[list[str]] = mapped_column(JSON, default=list)
+    porte: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    situacao_cadastral: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    data_abertura: Mapped[date | None] = mapped_column(Date, nullable=True)
+    uf: Mapped[str | None] = mapped_column(String(2), nullable=True, index=True)
+    cidade: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    endereco: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    telefone: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True, index=True)
+    site: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default=StatusProspect.NOVO.value, index=True)
+    motivo_descarte: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    responsavel_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    lead_id: Mapped[int | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, unique=True, index=True
+    )
+    empresa_crm_id: Mapped[int | None] = mapped_column(
+        ForeignKey("empresas_crm.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    duplicado_de_id: Mapped[int | None] = mapped_column(
+        ForeignKey("prospects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    dados_brutos: Mapped[dict] = mapped_column(JSON, default=dict)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    responsavel: Mapped["UsuarioOperacoes | None"] = relationship(foreign_keys=[responsavel_id], lazy="selectin")
+
+
+class HistoricoStatusProspect(Base):
+    """Timeline de status do Prospect -- mesmo padrão de HistoricoFaseLead."""
+
+    __tablename__ = "historico_status_prospect"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    prospect_id: Mapped[int] = mapped_column(ForeignKey("prospects.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(20))
     entrou_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     por: Mapped[str | None] = mapped_column(String(150), nullable=True)
 

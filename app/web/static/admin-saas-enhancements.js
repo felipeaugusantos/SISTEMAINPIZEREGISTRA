@@ -25,7 +25,7 @@ orgList.addEventListener("click", async event => {
   if (!org) return;
   const branding = org.branding || {};
   editForm.reset();
-  if (!editForm.querySelector(".module-access-fieldset")) editForm.insertAdjacentHTML("beforeend", `<fieldset class="module-access-fieldset"><legend>Módulos liberados para esta empresa</legend>${[["leads","Leads"],["crm","CRM"],["processos_monitorados","Processos monitorados"],["operacao_juridica","Operação jurídica"],["financeiro","Financeiro"],["consulta","Consulta RPI"]].map(([value,label]) => `<label><input type="checkbox" name="modulos_liberados" value="${value}">${label}</label>`).join("")}</fieldset>`);
+  if (!editForm.querySelector(".module-access-fieldset")) editForm.insertAdjacentHTML("beforeend", `<fieldset class="module-access-fieldset"><legend>Módulos liberados para esta empresa</legend>${[["leads","Leads"],["crm","CRM"],["prospeccao","Radar de Prospecção"],["processos_monitorados","Processos monitorados"],["operacao_juridica","Operação jurídica"],["financeiro","Financeiro"],["consulta","Consulta RPI"]].map(([value,label]) => `<label><input type="checkbox" name="modulos_liberados" value="${value}">${label}</label>`).join("")}</fieldset>`);
   editForm.querySelectorAll("[name='modulos_liberados']").forEach(input => { input.checked = (org.modulos_liberados || []).includes(input.value); });
   editForm.elements.id.value = org.id;
   editForm.elements.nome.value = org.nome || "";

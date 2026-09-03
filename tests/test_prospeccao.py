@@ -411,3 +411,61 @@ def test_enriquecer_prospect_com_verificacao_recente_usa_cache() -> None:
     assert corpo["cache"] is True
     assert corpo["resultado"]["ativo"] is True
     assert session.commits == 0
+
+
+# --- Fase 4 do Radar de Prospecção (03/09/2026) -- triagem de marca --------
+
+
+def test_triar_marca_prospect_enfileira_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    prospect = _prospect(status=StatusProspect.NOVO.value)
+    session = _sessao_admin(FakeResult(scalar=prospect))
+
+    class RedisFalso:
+        async def set(self, *_args: object, **_kwargs: object) -> bool:
+            return True
+
+        async def rpush(self, *_args: object) -> None:
+            return None
+
+        async def hincrby(self, *_args: object) -> int:
+            return 1
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr("app.queueing.cliente_redis", lambda: RedisFalso())
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/triar-marca", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 202
+    assert session.commits == 1
+
+
+def test_listar_triagens_inclui_disclaimer() -> None:
+    from app.models import ProspectTriagem
+    from app.prospeccao_triagem import DISCLAIMER_TRIAGEM
+
+    prospect = _prospect()
+    triagem = ProspectTriagem(
+        id=1,
+        organizacao_id=1,
+        prospect_id=5,
+        marca_pesquisada="Empresa Teste",
+        classificacao="nao_localizado",
+        justificativa='Nenhuma ocorrência encontrada na base de marcas para "Empresa Teste".',
+        total_resultados=0,
+        criado_em=datetime(2026, 9, 1, tzinfo=UTC),
+    )
+    _sessao_admin(FakeResult(scalar=prospect), FakeResult(itens=[triagem]))
+
+    resposta = TestClient(app).get("/v1/admin/prospects/5/triagens")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["disclaimer"] == DISCLAIMER_TRIAGEM
+    assert corpo["itens"][0]["classificacao"] == "nao_localizado"
+    # Garantia central: a resposta da API nunca pode conter um rótulo de disponibilidade.
+    texto_completo = str(corpo).lower()
+    assert "dispon" not in texto_completo

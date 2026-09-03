@@ -28,9 +28,11 @@ from app.models import (
     Prospect,
     ProspectEnriquecimento,
     ProspectFonte,
+    ProspectTriagem,
     StatusLead,
     StatusProspect,
 )
+from app.prospeccao_triagem import DISCLAIMER_TRIAGEM
 from app.proxy import cliente_ip
 from app.queueing import enfileirar
 from app.schemas import (
@@ -640,3 +642,57 @@ async def enriquecer_prospect(
     _auditar(session, request, usuario, "enriquecer_prospect", f"prospect:{prospect.id}", {"job_id": job.get("id")})
     await session.commit()
     return {"job_id": job.get("id"), "cache": False}
+
+
+# --- Fase 4 do Radar de Prospecção (03/09/2026) -- triagem de marca --------
+#
+# SOMENTE indicativa (ver app/prospeccao_triagem.py e DISCLAIMER_TRIAGEM) --
+# nunca afirma que uma marca está disponível para registro.
+
+
+@router.post("/{prospect_id}/triar-marca", status_code=status.HTTP_202_ACCEPTED)
+async def triar_marca_prospect_endpoint(
+    prospect_id: int, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
+) -> dict:
+    prospect = await _buscar_prospect(session, prospect_id, usuario.organizacao_id)
+    job = await enfileirar(
+        "prospeccao.triar_marca_prospect",
+        {"prospect_id": prospect.id, "organizacao_id": usuario.organizacao_id},
+        idempotency_key=f"{prospect.id}:triagem_marca:{datetime.now(UTC).date().isoformat()}",
+    )
+    _auditar(session, request, usuario, "triar_marca_prospect", f"prospect:{prospect.id}", {"job_id": job.get("id")})
+    await session.commit()
+    return {"job_id": job.get("id"), "duplicado": job.get("duplicado", False)}
+
+
+@router.get("/{prospect_id}/triagens")
+async def listar_triagens_prospect(prospect_id: int, session: SessionDep, usuario: ProspeccaoViewDep) -> dict:
+    await _buscar_prospect(session, prospect_id, usuario.organizacao_id)
+    triagens = (
+        (
+            await session.execute(
+                select(ProspectTriagem)
+                .where(
+                    ProspectTriagem.organizacao_id == usuario.organizacao_id,
+                    ProspectTriagem.prospect_id == prospect_id,
+                )
+                .order_by(ProspectTriagem.criado_em.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "disclaimer": DISCLAIMER_TRIAGEM,
+        "itens": [
+            {
+                "id": item.id,
+                "marca_pesquisada": item.marca_pesquisada,
+                "classificacao": item.classificacao,
+                "justificativa": item.justificativa,
+                "total_resultados": item.total_resultados,
+                "criado_em": item.criado_em,
+            }
+            for item in triagens
+        ],
+    }

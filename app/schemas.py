@@ -641,6 +641,8 @@ class ProspectResponse(BaseModel):
     fonte_id: int | None = None
     campanha_id: int | None = None
     presenca_digital: dict | None = None
+    triagem_marca_status: str | None = None
+    triagem_marca_em: datetime | None = None
     criado_em: datetime
     atualizado_em: datetime
 

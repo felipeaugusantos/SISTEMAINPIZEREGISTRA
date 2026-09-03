@@ -1595,6 +1595,11 @@ class Prospect(Base):
     # Fase 3 do Radar de Prospecção (03/09/2026): último resultado da
     # verificação de site (histórico completo fica em ProspectEnriquecimento).
     presenca_digital: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Fase 4 do Radar de Prospecção (03/09/2026): última classificação de
+    # triagem de marca -- só indicativa, nunca "disponível" (ver
+    # app/prospeccao_triagem.py). Histórico completo em ProspectTriagem.
+    triagem_marca_status: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    triagem_marca_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dados_brutos: Mapped[dict] = mapped_column(JSON, default=dict)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizado_em: Mapped[datetime] = mapped_column(
@@ -1679,6 +1684,24 @@ class ProspectEnriquecimento(Base):
     sucesso: Mapped[bool] = mapped_column(Boolean)
     erro: Mapped[str | None] = mapped_column(String(120), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ProspectTriagem(Base):
+    """Histórico de tentativas de triagem de marca de um Prospect (Fase 4 do
+    Radar, 03/09/2026) -- SOMENTE indicativo, nunca definitivo (ver
+    app/prospeccao_triagem.py). classificacao é restrita por CHECK CONSTRAINT
+    às 5 classificações do enum -- "disponível" nunca existe nesse vocabulário."""
+
+    __tablename__ = "prospect_triagens"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    prospect_id: Mapped[int] = mapped_column(ForeignKey("prospects.id", ondelete="CASCADE"), index=True)
+    marca_pesquisada: Mapped[str] = mapped_column(String(200))
+    classificacao: Mapped[str] = mapped_column(String(30))
+    justificativa: Mapped[str] = mapped_column(Text)
+    total_resultados: Mapped[int] = mapped_column(Integer, default=0)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class HistoricoStatusProspect(Base):

@@ -507,6 +507,28 @@ async def processar(tipo: str, payload: dict) -> None:
                     )
                 )
                 prospect.presenca_digital = resultado
+        elif tipo == "prospeccao.triar_marca_prospect":
+            # Fase 4 do Radar de Prospecção (03/09/2026): SOMENTE indicativo,
+            # nunca "disponível" -- ver app/prospeccao_triagem.py.
+            from app.models import Prospect, ProspectTriagem
+            from app.prospeccao_triagem import triar_marca_prospect
+
+            prospect = (
+                await session.execute(
+                    select(Prospect).where(
+                        Prospect.id == payload["prospect_id"], Prospect.organizacao_id == payload["organizacao_id"]
+                    )
+                )
+            ).scalar_one_or_none()
+            if prospect is not None:
+                resultado = await triar_marca_prospect(session, prospect.razao_social, prospect.nome_fantasia)
+                session.add(
+                    ProspectTriagem(
+                        organizacao_id=payload["organizacao_id"], prospect_id=prospect.id, **resultado
+                    )
+                )
+                prospect.triagem_marca_status = resultado["classificacao"]
+                prospect.triagem_marca_em = datetime.now(UTC)
         else:
             raise ValueError(f"Tipo de trabalho desconhecido: {tipo}")
         await session.commit()

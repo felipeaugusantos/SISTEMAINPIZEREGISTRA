@@ -8,6 +8,40 @@ from app.trademarks.analysis_workflow import AcaoWorkflowAnalise, EstadoAnalise
 from app.trademarks.model_status import StatusModelo
 
 
+def _cpf_valido(digitos: str) -> bool:
+    """Dígito verificador do CPF (módulo 11). Achado P1 da auditoria de Leads
+    (03/09/2026): antes só o tamanho (11 dígitos) era checado -- "11111111111"
+    passava como válido."""
+    if len(digitos) != 11 or len(set(digitos)) == 1:
+        return False
+
+    def _dv(base: str, pesos: range) -> str:
+        soma = sum(int(d) * p for d, p in zip(base, pesos, strict=True))
+        resto = (soma * 10) % 11
+        return str(resto if resto < 10 else 0)
+
+    dv1 = _dv(digitos[:9], range(10, 1, -1))
+    dv2 = _dv(digitos[:9] + dv1, range(11, 1, -1))
+    return digitos[-2:] == dv1 + dv2
+
+
+def _cnpj_valido(digitos: str) -> bool:
+    """Dígito verificador do CNPJ (módulo 11, pesos 5..2/9..2)."""
+    if len(digitos) != 14 or len(set(digitos)) == 1:
+        return False
+
+    def _dv(base: str, pesos: list[int]) -> str:
+        soma = sum(int(d) * p for d, p in zip(base, pesos, strict=True))
+        resto = soma % 11
+        return "0" if resto < 2 else str(11 - resto)
+
+    pesos1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+    pesos2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+    dv1 = _dv(digitos[:12], pesos1)
+    dv2 = _dv(digitos[:12] + dv1, pesos2)
+    return digitos[-2:] == dv1 + dv2
+
+
 class DadosComplementaresRegistrabilidadeUpdate(BaseModel):
     forma_apresentacao: Literal["nominativa", "mista", "figurativa", "tridimensional", "posicao"] | None = None
     descricao_visual: str | None = Field(default=None, max_length=2000)
@@ -572,9 +606,15 @@ class LeadStatusUpdate(BaseModel):
         if valor is None:
             return None
         digitos = "".join(item for item in valor if item.isdigit())
-        if digitos and len(digitos) not in (11, 14):
+        if not digitos:
+            return None
+        if len(digitos) not in (11, 14):
             raise ValueError("Informe um CPF com 11 dígitos ou CNPJ com 14 dígitos")
-        return digitos or None
+        if len(digitos) == 11 and not _cpf_valido(digitos):
+            raise ValueError("CPF inválido (dígito verificador não confere)")
+        if len(digitos) == 14 and not _cnpj_valido(digitos):
+            raise ValueError("CNPJ inválido (dígito verificador não confere)")
+        return digitos
 
     @field_validator("notas")
     @classmethod

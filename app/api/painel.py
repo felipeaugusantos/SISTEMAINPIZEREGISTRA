@@ -49,7 +49,19 @@ _DESTINO_ALERTA = {
 }
 # Códigos de alerta visíveis à equipe comercial (leads.view), não apenas a quem tem
 # production.manage — para não misturar ruído de produção na central de quem atende.
-_CODIGOS_ALERTA_COMERCIAL = frozenset({"NOVA_PESQUISA"})
+# Achado P1 da auditoria de Leads (03/09/2026): só NOVA_PESQUISA chegava a
+# quem tinha apenas leads.view (sem production.manage) -- os alertas que o
+# worker gera para automações de Leads/CRM (cadência, reengajamento,
+# retenção de dados) ficavam invisíveis para esse perfil.
+_CODIGOS_ALERTA_COMERCIAL = frozenset(
+    {
+        "NOVA_PESQUISA",
+        "RETENCAO_PENDENTE",
+        "REENGAJAMENTO_CRM_EXECUTADO",
+        "CADENCIA_EMAILS_PROCESSADOS",
+        "CADENCIA_PAUSADA_POR_RESPOSTA",
+    }
+)
 
 
 async def _bloco_financeiro(session: AsyncSession, organizacao_id: int) -> dict:

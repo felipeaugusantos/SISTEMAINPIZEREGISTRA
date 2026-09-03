@@ -5,6 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.painel import (
+    _CODIGOS_ALERTA_COMERCIAL,
     listar_notificacoes,
     marcar_notificacao_lida,
     marcar_notificacao_nao_lida,
@@ -15,6 +16,22 @@ from app.permissions import permissoes_do_perfil
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 TODAS = set(permissoes_do_perfil("ceo"))
+
+
+# --- Achado P1 da auditoria de Leads (03/09/2026): só NOVA_PESQUISA chegava a
+# quem tinha leads.view sem production.manage -- os alertas de automação de
+# Leads/CRM (cadência, reengajamento, retenção) ficavam invisíveis. ---
+
+
+def test_codigos_alerta_comercial_inclui_automacoes_de_leads_crm() -> None:
+    esperados = {
+        "NOVA_PESQUISA",
+        "RETENCAO_PENDENTE",
+        "REENGAJAMENTO_CRM_EXECUTADO",
+        "CADENCIA_EMAILS_PROCESSADOS",
+        "CADENCIA_PAUSADA_POR_RESPOSTA",
+    }
+    assert esperados <= _CODIGOS_ALERTA_COMERCIAL
 
 
 @pytest.mark.asyncio

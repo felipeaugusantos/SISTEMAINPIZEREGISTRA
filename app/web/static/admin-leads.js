@@ -422,6 +422,7 @@ async function openLead(id, selectedResearchId = null) {
     ${lead.empresa_id ? `<section class="lead-empresa lg-full" id="lead-empresa" data-empresa-id="${lead.empresa_id}" data-contato-id="${lead.contato_id || ""}"><p class="lead-funil-loading">Carregando empresa…</p></section>` : ""}
     <div class="lead-dialog-grid">
     <section class="lead-funil lg-full" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
+    <section class="lead-relacionados lg-full" id="lead-relacionados" hidden></section>
     <section class="lead-cadencia lg-full" id="lead-cadencia" hidden></section>
     <section class="lead-history lg-full"><header><div><p class="eyebrow">${selectedResearchId ? "Pesquisa selecionada" : "Histórico"}</p><h3>${pesquisasExibidas.length} pesquisa${pesquisasExibidas.length === 1 ? "" : "s"}</h3></div></header>${pesquisasExibidas.length ? pesquisasExibidas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
     <details class="lead-collapsible lg-full"><summary>Documentos do atendimento</summary><section class="lead-documentos lg-full" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section></details>
@@ -497,6 +498,7 @@ async function openLead(id, selectedResearchId = null) {
   await loadLeadContacts(lead.id);
   await renderTimeline(lead.id);
   await renderFunil(lead.id);
+  await renderRelacionados(lead.id);
   await renderDocumentos(lead.id);
   await renderChecklistFase(lead.id);
   await renderGuiasInpi(lead.id);
@@ -876,6 +878,18 @@ async function renderGuiasInpi(leadId) {
     const r = await fetch(`/v1/admin/guias-inpi/${b.dataset.id}`, { method: "DELETE" });
     if (r.ok || r.status === 204) await renderGuiasInpi(leadId);
   }));
+}
+
+async function renderRelacionados(leadId) {
+  const box = document.querySelector("#lead-relacionados");
+  if (!box) return;
+  let data;
+  try { data = await (await fetch(`/v1/admin/leads/${leadId}/relacionados`)).json(); }
+  catch { box.hidden = true; return; }
+  if (!data.itens || !data.itens.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const linhas = data.itens.map(item => `<li><a href="/admin/pesquisas?lead_id=${item.id}">${escapeHtml(item.marca || "Sem marca")}</a><span class="lead-relacionado-status">${escapeHtml(item.status)}</span><time>${formatDate(item.criado_em, false)}</time></li>`).join("");
+  box.innerHTML = `<header><p class="eyebrow">Mesmo contato</p><h3>${data.total} outra${data.total === 1 ? "" : "s"} oportunidade${data.total === 1 ? "" : "s"}</h3></header><ul class="lead-relacionados-lista">${linhas}</ul>`;
 }
 
 async function renderFunil(leadId) {

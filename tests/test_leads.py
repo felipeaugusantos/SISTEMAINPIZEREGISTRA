@@ -309,6 +309,32 @@ def test_upsert_publico_atualizacao_de_lead_existente_nao_dispara_alerta() -> No
     assert chamadas == []
 
 
+def test_leads_relacionados_lista_outras_oportunidades_do_mesmo_contato() -> None:
+    lead = _lead_existente(id=7)
+    relacionado = _lead_existente(id=8, marca="Outra Marca")
+    session = FakeSession([FakeResult(scalar=lead), FakeResult(itens=[relacionado])])
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario_teste())
+
+    resposta = TestClient(app).get("/v1/admin/leads/7/relacionados")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["total"] == 1
+    assert corpo["itens"][0]["id"] == 8
+    assert corpo["itens"][0]["marca"] == "Outra Marca"
+
+
+def test_leads_relacionados_lead_inexistente_retorna_404() -> None:
+    session = FakeSession([FakeResult(scalar=None)])
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario_teste())
+
+    resposta = TestClient(app).get("/v1/admin/leads/999/relacionados")
+
+    assert resposta.status_code == 404
+
+
 def test_rate_limit_bloqueia_excesso() -> None:
     app.dependency_overrides[get_session] = sessao_override()
     cliente = TestClient(app)

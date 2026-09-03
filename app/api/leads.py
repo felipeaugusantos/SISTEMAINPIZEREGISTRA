@@ -872,6 +872,23 @@ def _tempo_medio_ate_proposta_dias(leads: list[Lead], entradas_proposta: dict[in
     return valores
 
 
+def _tempo_medio_primeiro_atendimento_horas(leads: list[Lead], primeiro_contato: dict[int, datetime]) -> list[float]:
+    """Horas de ``Lead.criado_em`` até o primeiro ``ContatoLead`` registrado.
+
+    Achado P1 da auditoria de Leads (03/09/2026): não existia nenhuma medida de
+    SLA de primeiro atendimento -- o dashboard só media tempo até a proposta
+    (uma etapa bem mais adiante no funil). Leads sem nenhum contato registrado
+    ainda não entram nessa média (contam à parte, ver ``leads_sem_atendimento``).
+    """
+    valores: list[float] = []
+    for item in leads:
+        primeiro = primeiro_contato.get(item.id)
+        if primeiro is None or not item.criado_em:
+            continue
+        valores.append((primeiro - item.criado_em).total_seconds() / 3600)
+    return valores
+
+
 def _consulta_propostas_dashboard(organizacao_id: int):
     """Propostas elegíveis para taxa_pagamento/taxa_protocolo no dashboard.
 
@@ -989,6 +1006,21 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         ).all()
     )
     tempo_ate_proposta = _tempo_medio_ate_proposta_dias(leads, entradas_proposta)
+    primeiro_contato = dict(
+        (
+            await session.execute(
+                select(ContatoLead.lead_id, func.min(ContatoLead.criado_em))
+                .where(ContatoLead.organizacao_id == org)
+                .group_by(ContatoLead.lead_id)
+            )
+        ).all()
+    )
+    tempo_primeiro_atendimento = _tempo_medio_primeiro_atendimento_horas(leads, primeiro_contato)
+    sem_atendimento = sum(
+        1
+        for item in leads
+        if item.id not in primeiro_contato and item.status not in (StatusLead.CONVERTIDO, StatusLead.DESCARTADO)
+    )
     propostas = list((await session.execute(_consulta_propostas_dashboard(org))).scalars())
     aceites = [
         (item.aceito_em - item.enviado_em).total_seconds() / 86400
@@ -1010,6 +1042,12 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         if tempo_ate_proposta
         else 0,
         "tempo_medio_ate_aceite_dias": round(sum(aceites) / len(aceites), 2) if aceites else 0,
+        "tempo_medio_primeiro_atendimento_horas": round(
+            sum(tempo_primeiro_atendimento) / len(tempo_primeiro_atendimento), 2
+        )
+        if tempo_primeiro_atendimento
+        else 0,
+        "leads_sem_atendimento": sem_atendimento,
         "taxa_pagamento": round(pagas / len(propostas), 4) if propostas else 0,
         "taxa_protocolo": round(protocoladas / len(propostas), 4) if propostas else 0,
         "atualizado_em": agora,
@@ -1423,6 +1461,59 @@ async def funil_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -
         "fase": lead.fase,
         "ordem": list(ORDEM_FASE_LEAD),
         "historico": [{"fase": f, "entrou_em": e, "por": p} for f, e, p in historico],
+    }
+
+
+@router.get("/v1/admin/leads/{lead_id}/relacionados")
+async def leads_relacionados(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
+    """Outras oportunidades do mesmo contato (mesmo e-mail ou telefone).
+
+    Achado P1 da auditoria de Leads (03/09/2026): como não existe uma entidade
+    de contato central, a mesma pessoa interessada em marcas diferentes vira
+    leads separados sem nenhum vínculo visível em tela nenhuma. Este endpoint
+    não muda o modelo de dados -- só torna visível uma relação que já existe
+    implicitamente (mesmo e-mail/telefone), com a mesma normalização de
+    telefone usada na deduplicação do formulário público.
+    """
+    lead = (
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    telefone_digitos = "".join(caractere for caractere in lead.telefone if caractere.isdigit())
+    relacionados = (
+        (
+            await session.execute(
+                select(Lead)
+                .where(
+                    Lead.organizacao_id == usuario.organizacao_id,
+                    Lead.id != lead.id,
+                    Lead.arquivado_em.is_(None),
+                    or_(
+                        func.lower(Lead.email) == lead.email.lower(),
+                        func.regexp_replace(Lead.telefone, r"\D", "", "g") == telefone_digitos,
+                    ),
+                )
+                .order_by(Lead.criado_em.desc())
+                .limit(20)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "total": len(relacionados),
+        "itens": [
+            {
+                "id": item.id,
+                "marca": item.marca,
+                "status": item.status.value,
+                "fase": item.fase,
+                "resultado": item.resultado,
+                "criado_em": item.criado_em,
+            }
+            for item in relacionados
+        ],
     }
 
 

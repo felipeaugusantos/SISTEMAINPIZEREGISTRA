@@ -1,7 +1,11 @@
 from datetime import UTC, datetime
 
-from app.api.leads import _consulta_propostas_dashboard, _tempo_medio_ate_proposta_dias
-from app.models import Lead
+from app.api.leads import (
+    _consulta_propostas_dashboard,
+    _tempo_medio_ate_proposta_dias,
+    _tempo_medio_primeiro_atendimento_horas,
+)
+from app.models import Lead, StatusLead
 
 
 def _lead(**kwargs: object) -> Lead:
@@ -56,3 +60,20 @@ def test_consulta_propostas_dashboard_exclui_rascunho_e_lead_arquivado() -> None
     sql = str(_consulta_propostas_dashboard(1).compile(compile_kwargs={"literal_binds": True}))
     assert "rascunho" in sql
     assert "arquivado_em" in sql
+
+
+# --- Achado P1 da auditoria de Leads (03/09/2026): não existia SLA de
+# primeiro atendimento -- só tempo até a proposta, uma etapa bem mais adiante. ---
+
+
+def test_primeiro_atendimento_usa_o_contato_mais_antigo() -> None:
+    lead = _lead(id=1, status=StatusLead.EM_CONTATO)
+    primeiro_contato = {1: datetime(2026, 1, 1, 6, 0, tzinfo=UTC)}  # 6h após criado_em (00:00)
+    valores = _tempo_medio_primeiro_atendimento_horas([lead], primeiro_contato)
+    assert valores == [6.0]
+
+
+def test_primeiro_atendimento_ignora_lead_sem_contato_registrado() -> None:
+    lead = _lead(id=2, status=StatusLead.NOVO)
+    valores = _tempo_medio_primeiro_atendimento_horas([lead], {})
+    assert valores == []

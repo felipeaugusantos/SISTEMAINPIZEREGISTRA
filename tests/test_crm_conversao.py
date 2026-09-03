@@ -1,8 +1,8 @@
 import asyncio
 
-from app.crm import avancar_fase_lead
-from app.models import Lead, StatusLead
-from tests.conftest import FakeSession
+from app.crm import aplicar_cadencia_a_lead, aplicar_cadencias_automaticas, avancar_fase_lead
+from app.models import Cadencia, CadenciaPasso, Lead, StatusLead
+from tests.conftest import FakeResult, FakeSession
 
 
 def _lead(**kwargs: object) -> Lead:
@@ -100,3 +100,71 @@ def test_avancar_fase_lead_idempotente_quando_ja_convertido() -> None:
     assert mudou is True
     assert lead.status == StatusLead.CONVERTIDO
     assert lead.resultado == "ganho"
+
+
+# --- Achado P2 da auditoria de Leads (03/09/2026): cadências só podiam ser
+# aplicadas manualmente, lead por lead -- sem gatilho automático por evento. ---
+
+
+def _cadencia_um_passo(canal: str = "email") -> Cadencia:
+    passo = CadenciaPasso(id=1, organizacao_id=1, cadencia_id=9, ordem=0, dia=2, canal=canal, titulo="Follow-up")
+    return Cadencia(id=9, organizacao_id=1, nome="Reengajamento", ativo=True, passos=[passo])
+
+
+def test_aplicar_cadencia_a_lead_cria_lembrete_e_agenda_email() -> None:
+    lead = _lead(id=1, responsavel_id=None)
+    cadencia = _cadencia_um_passo("email")
+    session = FakeSession([FakeResult(scalar=101)])
+
+    criados = asyncio.run(aplicar_cadencia_a_lead(session, lead, cadencia, "sistema"))
+
+    assert criados == 1
+    inserts_lembrete = [
+        stmt for stmt in session.executados if getattr(getattr(stmt, "table", None), "name", None) == "lembretes_crm"
+    ]
+    inserts_envio = [
+        stmt
+        for stmt in session.executados
+        if getattr(getattr(stmt, "table", None), "name", None) == "envios_cadencia_email"
+    ]
+    assert len(inserts_lembrete) == 1
+    assert len(inserts_envio) == 1
+
+
+def test_aplicar_cadencia_a_lead_passo_nao_email_nao_agenda_envio() -> None:
+    lead = _lead(id=1, responsavel_id=None)
+    cadencia = _cadencia_um_passo("ligacao")
+    session = FakeSession([FakeResult(scalar=101)])
+
+    asyncio.run(aplicar_cadencia_a_lead(session, lead, cadencia, "sistema"))
+
+    inserts_envio = [
+        stmt
+        for stmt in session.executados
+        if getattr(getattr(stmt, "table", None), "name", None) == "envios_cadencia_email"
+    ]
+    assert inserts_envio == []
+
+
+def test_aplicar_cadencias_automaticas_dispara_cadencias_com_gatilho_correspondente() -> None:
+    lead = _lead(id=1, responsavel_id=None)
+    cadencia = _cadencia_um_passo("email")
+    session = FakeSession(
+        [
+            FakeResult(itens=[cadencia]),  # busca de cadências com o gatilho (já com passos carregados)
+            FakeResult(scalar=101),  # insert do lembrete
+        ]
+    )
+
+    total = asyncio.run(aplicar_cadencias_automaticas(session, lead, "status", "sem_retorno", "sistema"))
+
+    assert total == 1
+
+
+def test_aplicar_cadencias_automaticas_sem_gatilho_configurado_nao_faz_nada() -> None:
+    lead = _lead(id=1)
+    session = FakeSession([FakeResult(itens=[])])
+
+    total = asyncio.run(aplicar_cadencias_automaticas(session, lead, "status", "sem_retorno", "sistema"))
+
+    assert total == 0

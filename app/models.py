@@ -704,6 +704,13 @@ class Cadencia(Base):
     nome: Mapped[str] = mapped_column(String(120), index=True)
     descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    # Gatilho automático (achado P2 da auditoria de Leads, 03/09/2026): antes só
+    # dava pra aplicar uma cadência manualmente, lead por lead. Quando definido,
+    # a cadência é aplicada sozinha assim que um lead atinge esse evento/valor
+    # (mesmo vocabulário de REGRAS_AUTOMACAO: evento "status" ou "fase").
+    # NULL = continua exigindo aplicação manual (comportamento de sempre).
+    gatilho_evento: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    gatilho_valor: Mapped[str | None] = mapped_column(String(30), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

@@ -30,7 +30,7 @@ def _lead(**kwargs: object) -> Lead:
 def _cadencia_com_dois_passos() -> Cadencia:
     passo_ligacao = CadenciaPasso(id=1, organizacao_id=1, cadencia_id=3, ordem=0, dia=1, canal="ligacao", titulo="Ligar")
     passo_email = CadenciaPasso(id=2, organizacao_id=1, cadencia_id=3, ordem=1, dia=3, canal="email", titulo="E-mail de follow-up")
-    return Cadencia(id=3, organizacao_id=1, nome="Padrão", passos=[passo_ligacao, passo_email])
+    return Cadencia(id=3, organizacao_id=1, nome="Padrão", ativo=True, passos=[passo_ligacao, passo_email])
 
 
 def test_aplicar_cadencia_agenda_envio_real_so_para_o_passo_de_email() -> None:

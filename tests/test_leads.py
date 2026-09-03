@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.api.leads import (
     _lead_response,
+    _resumir_alteracoes,
     _resumo_pesquisa,
     _valor_csv,
     limitar_acoes_admin,
@@ -14,7 +15,7 @@ from app.api.leads import (
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
-from app.models import EventoAuditoria, Lead, PesquisaMarca, StatusLead, VersaoRelatorioMarca
+from app.models import EventoAuditoria, Lead, PesquisaMarca, StatusLead, UsuarioOperacoes, VersaoRelatorioMarca
 from app.settings import get_settings
 from app.trademarks.analysis_workflow import EstadoAnalise
 from tests.conftest import FakeResult, FakeSession, auth_override, sessao_override, usuario_teste
@@ -729,3 +730,127 @@ def test_relatorio_preliminar_e_permitido_enquanto_revisao_esta_pendente() -> No
     assert not any(
         isinstance(item, EventoAuditoria) and item.acao == "bloquear_relatorio" for item in sessao.adicionados
     )
+
+
+# --- Achado P2 da auditoria de Leads (03/09/2026): timeline não incluía o log
+# de auditoria genérico (trocas de responsável, edições de campo). ---
+
+
+def test_resumir_alteracoes_formata_de_para() -> None:
+    resumo = _resumir_alteracoes({"responsavel_id": {"de": None, "para": 5}, "notas_atualizadas": True})
+    assert "responsavel_id: None → 5" in resumo
+    assert "notas_atualizadas: True" in resumo
+
+
+def test_resumir_alteracoes_vazio_retorna_none() -> None:
+    assert _resumir_alteracoes({}) is None
+
+
+def test_timeline_inclui_evento_de_auditoria() -> None:
+    lead = _lead_existente(id=7, criado_em=datetime(2026, 8, 1, tzinfo=UTC))
+    evento_auditoria = EventoAuditoria(
+        organizacao_id=1,
+        ator="Admin Teste",
+        acao="alterar",
+        recurso="lead:7",
+        sucesso=True,
+        status_http=200,
+        detalhes={"responsavel_id": {"de": None, "para": 5}},
+        criado_em=datetime(2026, 9, 1, tzinfo=UTC),
+    )
+    session = FakeSession(
+        [
+            FakeResult(scalar=lead),  # lead
+            FakeResult(itens=[]),  # fases
+            FakeResult(itens=[]),  # contatos
+            FakeResult(itens=[]),  # pesquisas
+            FakeResult(itens=[]),  # propostas
+            FakeResult(itens=[]),  # mensagens_portal
+            FakeResult(itens=[]),  # eventos_dominio
+            FakeResult(itens=[]),  # documentos
+            FakeResult(itens=[]),  # guias
+            FakeResult(itens=[evento_auditoria]),  # auditoria
+        ]
+    )
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario_teste())
+
+    resposta = TestClient(app).get("/v1/admin/leads/7/timeline")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    tipos = [item["tipo"] for item in corpo["eventos"]]
+    assert "auditoria_alterar" in tipos
+    evento = next(item for item in corpo["eventos"] if item["tipo"] == "auditoria_alterar")
+    assert "responsavel_id" in evento["payload"]["detalhe"]
+
+
+# --- Achado P2 da auditoria de Leads (03/09/2026): nenhuma notificação
+# avisava o novo responsável quando um lead era atribuído a ele. ---
+
+
+def test_atualizar_lead_novo_responsavel_dispara_alerta() -> None:
+    import app.api.leads as modulo
+
+    chamadas: list[tuple] = []
+
+    async def _capturar(*args: object) -> None:
+        chamadas.append(args)
+
+    original = modulo.enviar_alerta_lead_atribuido
+    modulo.enviar_alerta_lead_atribuido = _capturar
+    try:
+        lead = _lead_existente(id=7, responsavel_id=None, proxima_acao_em=datetime.now(UTC))
+        operador = UsuarioOperacoes(
+            id=5, organizacao_id=1, nome="Novo Responsável", usuario="novo", email="novo@teste.local"
+        )
+        usuario = usuario_teste()
+        object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+        session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=operador)])
+        app.dependency_overrides[get_session] = _override_session(session)
+        app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+        resposta = TestClient(app).patch(
+            "/v1/admin/leads/7",
+            json={"responsavel_id": 5},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        modulo.enviar_alerta_lead_atribuido = original
+
+    assert resposta.status_code == 200
+    assert len(chamadas) == 1
+    assert chamadas[0][1] == "novo@teste.local"
+
+
+def test_atualizar_lead_mesmo_responsavel_nao_dispara_alerta() -> None:
+    import app.api.leads as modulo
+
+    chamadas: list[tuple] = []
+
+    async def _capturar(*args: object) -> None:
+        chamadas.append(args)
+
+    original = modulo.enviar_alerta_lead_atribuido
+    modulo.enviar_alerta_lead_atribuido = _capturar
+    try:
+        lead = _lead_existente(id=7, responsavel_id=5, proxima_acao_em=datetime.now(UTC))
+        operador = UsuarioOperacoes(
+            id=5, organizacao_id=1, nome="Mesmo Responsável", usuario="mesmo", email="mesmo@teste.local"
+        )
+        usuario = usuario_teste()
+        object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+        session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=operador)])
+        app.dependency_overrides[get_session] = _override_session(session)
+        app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+        resposta = TestClient(app).patch(
+            "/v1/admin/leads/7",
+            json={"responsavel_id": 5},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        modulo.enviar_alerta_lead_atribuido = original
+
+    assert resposta.status_code == 200
+    assert chamadas == []

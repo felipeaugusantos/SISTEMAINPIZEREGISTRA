@@ -11,15 +11,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import case, desc, exists, func, or_, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
-from app.cadencia_email import montar_envio_pendente, registrar_abertura
+from app.cadencia_email import registrar_abertura
 from app.clicksign import configuracao as configuracao_clicksign
 from app.clicksign import criar_envelope
 from app.crm import (
+    aplicar_cadencia_a_lead,
+    aplicar_cadencias_automaticas,
     aplicar_politica_oportunidade,
     aplicar_regras_automacao,
     avancar_fase_lead,
@@ -28,7 +29,7 @@ from app.crm import (
     sincronizar_fase_por_status,
 )
 from app.database import get_session
-from app.emailing import enviar_alerta_novo_lead, enviar_proposta_email
+from app.emailing import enviar_alerta_lead_atribuido, enviar_alerta_novo_lead, enviar_proposta_email
 from app.models import (
     MOTIVOS_PERDA,
     ORDEM_FASE_LEAD,
@@ -43,7 +44,6 @@ from app.models import (
     ContratacaoServico,
     DocumentoLead,
     EmpresaCRM,
-    EnvioCadenciaEmail,
     EventoAuditoria,
     EventoDominio,
     FaseLead,
@@ -1095,7 +1095,9 @@ async def atualizar_status_lead(
         lead.motivo_perda = dados.motivo_perda
         lead.motivo_perda_detalhe = dados.motivo_perda_detalhe
         alteracoes["motivo_perda"] = dados.motivo_perda
+    responsavel_notificar: UsuarioOperacoes | None = None
     if "responsavel_id" in dados.model_fields_set:
+        responsavel = None
         if dados.responsavel_id is not None:
             responsavel = (
                 await session.execute(
@@ -1108,6 +1110,10 @@ async def atualizar_status_lead(
             ).scalar_one_or_none()
             if responsavel is None:
                 raise HTTPException(status_code=422, detail="Responsavel invalido")
+        # Achado P2 da auditoria de Leads: nenhuma notificação avisava o novo
+        # responsável quando um lead era atribuído a ele.
+        if responsavel is not None and dados.responsavel_id != lead.responsavel_id:
+            responsavel_notificar = responsavel
         alteracoes["responsavel_id"] = {"de": lead.responsavel_id, "para": dados.responsavel_id}
         lead.responsavel_id = dados.responsavel_id
     if "contato_id" in dados.model_fields_set:
@@ -1191,6 +1197,9 @@ async def atualizar_status_lead(
             alteracoes["fase"] = lead.fase
         # Automações disparadas por mudança de status (ex.: sem_retorno).
         await aplicar_regras_automacao(session, lead, "status", lead.status.value, por=usuario.nome or "sistema")
+        await aplicar_cadencias_automaticas(
+            session, lead, "status", lead.status.value, por=usuario.nome or "sistema"
+        )
         registrar_evento_operacional(
             session,
             organizacao_id=usuario.organizacao_id,
@@ -1248,6 +1257,10 @@ async def atualizar_status_lead(
     _auditar(session, usuario, request, "alterar", f"lead:{lead.id}", alteracoes)
     await session.commit()
     await session.refresh(lead)
+    if responsavel_notificar is not None:
+        await enviar_alerta_lead_atribuido(
+            responsavel_notificar.nome, responsavel_notificar.email, lead.nome, lead.marca, lead.id
+        )
     return _lead_response(lead, usuario)
 
 
@@ -3051,72 +3064,15 @@ async def aplicar_cadencia_lead(
     ).scalar_one_or_none()
     if cadencia is None:
         raise HTTPException(status_code=404, detail="Cadência não encontrada")
-    agora = datetime.now(UTC)
-    criados = 0
-    for passo in cadencia.passos:
-        chave_idempotencia = f"cadencia:{lead.id}:{cadencia.id}:{passo.id}"
-        descricao = f"Cadência “{cadencia.nome}” · canal {passo.canal}"
-        if passo.descricao:
-            descricao += f" — {passo.descricao}"
-        # INSERT com ON CONFLICT DO NOTHING em vez de SELECT-em-lote-depois-INSERT:
-        # duas chamadas quase simultaneas (duplo clique em "aplicar cadência")
-        # podiam ambas passar pelo SELECT antes de comitar e colidir na
-        # constraint unica so no commit final, virando 500 nao tratado.
-        inserido = (
-            await session.execute(
-                pg_insert(LembreteCRM)
-                .values(
-                    organizacao_id=usuario.organizacao_id,
-                    lead_id=lead.id,
-                    responsavel_id=lead.responsavel_id,
-                    tipo="retorno",
-                    prioridade="media",
-                    titulo=passo.titulo,
-                    descricao=descricao,
-                    lembrar_em=agora + timedelta(days=passo.dia),
-                    status="pendente",
-                    criado_por=f"Cadência ({usuario.nome})"[:254],
-                    criado_por_id=usuario.id,
-                    idempotency_key=chave_idempotencia,
-                )
-                .on_conflict_do_nothing(constraint="uq_lembrete_crm_idempotencia")
-                .returning(LembreteCRM.id)
-            )
-        ).scalar_one_or_none()
-        if inserido is None:
-            continue
-        criados += 1
-        registrar_evento_operacional(
-            session,
-            organizacao_id=usuario.organizacao_id,
-            dominio="crm",
-            tipo="cadencia.tarefa_criada",
-            entidade_tipo="lead",
-            entidade_id=lead.id,
-            ator=usuario.nome or "sistema",
-            ator_id=usuario.id,
-            payload={"cadencia_id": cadencia.id, "passo_id": passo.id},
-            idempotency_key=chave_idempotencia,
-        )
-        if passo.canal == "email":
-            # Fase 9 do plano Leads/CRM: além do lembrete manual de sempre, o
-            # canal e-mail passa a ter envio automático real -- agendado aqui,
-            # disparado pelo worker (app.cadencia_email).
-            await session.execute(
-                pg_insert(EnvioCadenciaEmail)
-                .values(
-                    **montar_envio_pendente(
-                        organizacao_id=usuario.organizacao_id,
-                        lead_id=lead.id,
-                        cadencia_id=cadencia.id,
-                        passo=passo,
-                        agora=agora,
-                    )
-                )
-                .on_conflict_do_nothing(constraint="uq_envio_cadencia_passo")
-            )
+    if not cadencia.ativo:
+        raise HTTPException(status_code=422, detail="Cadência inativa")
+    total_passos = len(cadencia.passos)
+    # Loop e idempotência (LembreteCRM + EnvioCadenciaEmail para passos de
+    # e-mail, ver Fase 9 do plano Leads/CRM) ficam em app.crm::aplicar_cadencia_a_lead
+    # -- compartilhado com o gatilho automático (achado P2 da auditoria de Leads).
+    criados = await aplicar_cadencia_a_lead(session, lead, cadencia, usuario.nome or "sistema", ator_id=usuario.id)
     await session.commit()
-    return {"criados": criados, "ignorados_idempotentes": len(cadencia.passos) - criados}
+    return {"criados": criados, "ignorados_idempotentes": total_passos - criados}
 
 
 @router.get("/v1/cadencias/rastreio/{token}.gif", include_in_schema=False)
@@ -3152,6 +3108,20 @@ def _para_dt(valor) -> datetime:
     if isinstance(valor, datetime):
         return valor if valor.tzinfo else valor.replace(tzinfo=UTC)
     return datetime.combine(valor, datetime.min.time(), tzinfo=UTC)
+
+
+def _resumir_alteracoes(detalhes: dict) -> str | None:
+    """Renderiza o dict de auditoria (de/para por campo, ou marcadores simples)
+    de forma legível para a timeline. Achado P2 da auditoria de Leads."""
+    if not detalhes:
+        return None
+    partes: list[str] = []
+    for campo, valor in detalhes.items():
+        if isinstance(valor, dict) and "de" in valor and "para" in valor:
+            partes.append(f"{campo}: {valor['de']} → {valor['para']}")
+        else:
+            partes.append(f"{campo}: {valor}")
+    return "; ".join(partes) or None
 
 
 @router.get("/v1/admin/leads/{lead_id}/timeline")
@@ -3334,6 +3304,36 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
                 "data": lead.atualizado_em,
                 "titulo": "Convertido (ganho)" if lead.resultado == "ganho" else "Perdido",
                 "detalhe": MOTIVOS_PERDA.get(lead.motivo_perda or "", lead.motivo_perda),
+            }
+        )
+    # Achado P2 da auditoria de Leads (03/09/2026): a timeline já unificava
+    # ContatoLead/HistoricoFaseLead/pesquisas/propostas/EventoDominio, mas
+    # deixava de fora o log de auditoria genérico (EventoAuditoria) -- é onde
+    # ficam registradas trocas de responsável, edições de campo e
+    # arquivamento/restauração. "registrar_contato"/"documentos_lead" ficam de
+    # fora aqui porque já aparecem via ContatoLead/DocumentoLead acima.
+    auditoria = (
+        (
+            await session.execute(
+                select(EventoAuditoria).where(
+                    EventoAuditoria.organizacao_id == org,
+                    EventoAuditoria.recurso == f"lead:{lead_id}",
+                    EventoAuditoria.acao.in_(("alterar", "arquivar", "restaurar")),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    TITULOS_AUDITORIA = {"alterar": "Lead editado", "arquivar": "Lead arquivado", "restaurar": "Lead restaurado"}
+    for item in auditoria:
+        eventos.append(
+            {
+                "tipo": f"auditoria_{item.acao}",
+                "data": item.criado_em,
+                "titulo": TITULOS_AUDITORIA.get(item.acao, item.acao),
+                "detalhe": _resumir_alteracoes(item.detalhes),
+                "autor": item.ator,
             }
         )
     eventos.sort(key=lambda e: _para_dt(e["data"]), reverse=True)

@@ -10,6 +10,7 @@ from app.api.juridico import executar_motor_organizacao
 from app.cadencia_email import processar_envios_cadencia_pendentes
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
 from app.database import session_factory
+from app.emailing import enviar_alerta_atividades_atrasadas
 from app.imap_polling import verificar_respostas_email
 from app.models import (
     AlertaSistema,
@@ -21,6 +22,7 @@ from app.models import (
     ProcessoMonitorado,
     RenovacaoFinanceira,
     StatusLead,
+    UsuarioOperacoes,
 )
 from app.queueing import (
     FAILED_KEY,
@@ -139,6 +141,7 @@ async def processar(tipo: str, payload: dict) -> None:
                 )
             ).scalars()
             criados = 0
+            atrasados_por_responsavel: dict[int, list[Lead]] = {}
             for lead in leads:
                 inserido = (
                     await session.execute(
@@ -166,6 +169,29 @@ async def processar(tipo: str, payload: dict) -> None:
                 ).scalar_one_or_none()
                 if inserido is not None:
                     criados += 1
+                    if lead.responsavel_id is not None:
+                        atrasados_por_responsavel.setdefault(lead.responsavel_id, []).append(lead)
+            # Achado P2 da auditoria de Leads: nenhuma notificação ativa avisava
+            # o responsável de uma atividade atrasada -- só aparecia se ele
+            # entrasse no sistema. Um e-mail por responsável, no máximo uma vez
+            # por semana por lead (mesma idempotência do lembrete acima).
+            if atrasados_por_responsavel:
+                linhas_operadores = (
+                    await session.execute(
+                        select(UsuarioOperacoes.id, UsuarioOperacoes.nome, UsuarioOperacoes.email).where(
+                            UsuarioOperacoes.id.in_(atrasados_por_responsavel.keys())
+                        )
+                    )
+                ).all()
+                operadores = {row[0]: (row[1], row[2]) for row in linhas_operadores}
+                for responsavel_id, leads_atrasados in atrasados_por_responsavel.items():
+                    operador = operadores.get(responsavel_id)
+                    if operador is None:
+                        continue
+                    nome, email = operador
+                    await enviar_alerta_atividades_atrasadas(
+                        nome, email, [(item.nome, item.marca) for item in leads_atrasados]
+                    )
             if criados:
                 session.add(
                     AlertaSistema(

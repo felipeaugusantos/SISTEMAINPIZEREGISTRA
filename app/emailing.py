@@ -264,6 +264,60 @@ async def enviar_alerta_novo_lead(nome: str, email: str, telefone: str, marca: s
         logger.exception("Falha ao enviar alerta de novo lead por e-mail")
 
 
+async def enviar_alerta_lead_atribuido(
+    nome_operador: str, email_operador: str, nome_lead: str, marca: str, lead_id: int
+) -> None:
+    """Avisa o operador quando uma oportunidade é atribuída a ele (achado P2 da
+    auditoria de Leads, 03/09/2026). Silencioso se e-mail estiver desabilitado
+    -- o painel continua sendo a fonte de verdade."""
+    settings = get_settings()
+    if not settings.email_enabled:
+        return
+    mensagem = EmailMessage()
+    mensagem["Subject"] = f"Oportunidade atribuída a você: {nome_lead}"
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = email_operador
+    link = f"{settings.app_public_url.rstrip('/')}/admin/pesquisas?lead_id={lead_id}"
+    linha_marca = f"\nMarca de interesse: {marca}" if marca else ""
+    mensagem.set_content(
+        f"Olá, {nome_operador or 'operador'}.\n\n"
+        f"A oportunidade \"{nome_lead}\" foi atribuída a você.{linha_marca}\n\n"
+        f"Acesse: {link}"
+    )
+    try:
+        await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+    except Exception:
+        logger.exception("Falha ao enviar alerta de lead atribuído por e-mail")
+
+
+async def enviar_alerta_atividades_atrasadas(
+    nome_operador: str, email_operador: str, itens: list[tuple[str, str]]
+) -> None:
+    """Avisa o operador quando oportunidades sob sua responsabilidade ficam sem
+    próxima ação (ou com ela vencida) -- achado P2 da auditoria de Leads
+    (03/09/2026). Disparado pelo mesmo job semanal que já cria o lembrete
+    interno (mesma idempotência: no máximo um aviso por lead por semana)."""
+    settings = get_settings()
+    if not settings.email_enabled:
+        return
+    mensagem = EmailMessage()
+    plural = "s" if len(itens) != 1 else ""
+    mensagem["Subject"] = f"{len(itens)} oportunidade{plural} parada{plural} — retomar contato"
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = email_operador
+    lista = "\n".join(f"- {nome}" + (f" ({marca})" if marca else "") for nome, marca in itens)
+    mensagem.set_content(
+        f"Olá, {nome_operador or 'operador'}.\n\n"
+        f"As oportunidades abaixo, sob sua responsabilidade, estão sem próxima ação definida "
+        f"ou com o prazo vencido:\n\n{lista}\n\n"
+        "Acesse o Centro de Operações para planejar o próximo passo."
+    )
+    try:
+        await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+    except Exception:
+        logger.exception("Falha ao enviar alerta de atividades atrasadas por e-mail")
+
+
 async def enviar_alerta_nova_pesquisa(marca: str, nome_lead: str, empresa: str | None) -> None:
     """Avisa a equipe de atendimento por e-mail quando uma nova pesquisa chega.
 

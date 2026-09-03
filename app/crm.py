@@ -5,10 +5,14 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from app.cadencia_email import montar_envio_pendente
 from app.models import (
     ORDEM_FASE_LEAD,
+    Cadencia,
     EmpresaCRM,
+    EnvioCadenciaEmail,
     EventoDominio,
     HistoricoFaseLead,
     Lead,
@@ -218,6 +222,107 @@ async def aplicar_regras_automacao(session: AsyncSession, lead: Lead, evento: st
     return aplicadas
 
 
+async def aplicar_cadencia_a_lead(
+    session: AsyncSession, lead: Lead, cadencia: Cadencia, ator_nome: str, ator_id: int | None = None
+) -> int:
+    """Agenda os passos de uma cadência (já carregada, com ``passos``) para um
+    lead (idempotente por lead+cadência+passo -- reenviar não duplica). Passos
+    de canal "email" também agendam o envio automático real
+    (``EnvioCadenciaEmail``).
+
+    Compartilhado entre a aplicação manual (endpoint) e o gatilho automático
+    (``aplicar_cadencias_automaticas`` abaixo) -- achado P2 da auditoria de
+    Leads (03/09/2026): antes só existia o caminho manual. Recebe a cadência
+    já carregada (não um id) para não duplicar a consulta que o chamador já
+    fez para validar existência/organização/ativo.
+    """
+    agora = datetime.now(UTC)
+    criados = 0
+    for passo in cadencia.passos:
+        chave_idempotencia = f"cadencia:{lead.id}:{cadencia.id}:{passo.id}"
+        descricao = f"Cadência “{cadencia.nome}” · canal {passo.canal}"
+        if passo.descricao:
+            descricao += f" — {passo.descricao}"
+        inserido = (
+            await session.execute(
+                pg_insert(LembreteCRM)
+                .values(
+                    organizacao_id=lead.organizacao_id,
+                    lead_id=lead.id,
+                    responsavel_id=lead.responsavel_id,
+                    tipo="retorno",
+                    prioridade="media",
+                    titulo=passo.titulo,
+                    descricao=descricao,
+                    lembrar_em=agora + timedelta(days=passo.dia),
+                    status="pendente",
+                    criado_por=ator_nome[:254],
+                    criado_por_id=ator_id,
+                    idempotency_key=chave_idempotencia,
+                )
+                .on_conflict_do_nothing(constraint="uq_lembrete_crm_idempotencia")
+                .returning(LembreteCRM.id)
+            )
+        ).scalar_one_or_none()
+        if inserido is None:
+            continue
+        criados += 1
+        registrar_evento_operacional(
+            session,
+            organizacao_id=lead.organizacao_id,
+            dominio="crm",
+            tipo="cadencia.tarefa_criada",
+            entidade_tipo="lead",
+            entidade_id=lead.id,
+            ator=ator_nome,
+            ator_id=ator_id,
+            payload={"cadencia_id": cadencia.id, "passo_id": passo.id},
+            idempotency_key=chave_idempotencia,
+        )
+        if passo.canal == "email":
+            await session.execute(
+                pg_insert(EnvioCadenciaEmail)
+                .values(
+                    **montar_envio_pendente(
+                        organizacao_id=lead.organizacao_id,
+                        lead_id=lead.id,
+                        cadencia_id=cadencia.id,
+                        passo=passo,
+                        agora=agora,
+                    )
+                )
+                .on_conflict_do_nothing(constraint="uq_envio_cadencia_passo")
+            )
+    return criados
+
+
+async def aplicar_cadencias_automaticas(session: AsyncSession, lead: Lead, evento: str, valor: str, por: str) -> int:
+    """Dispara cadências com gatilho automático configurado para este evento
+    (mesmo vocabulário de ``aplicar_regras_automacao``: evento "status" ou
+    "fase"). Achado P2 da auditoria de Leads -- antes cadências só podiam ser
+    aplicadas manualmente, lead por lead."""
+    cadencias = (
+        (
+            await session.execute(
+                select(Cadencia)
+                .where(
+                    Cadencia.organizacao_id == lead.organizacao_id,
+                    Cadencia.ativo.is_(True),
+                    Cadencia.gatilho_evento == evento,
+                    Cadencia.gatilho_valor == valor,
+                )
+                .options(selectinload(Cadencia.passos))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    total = 0
+    for cadencia in cadencias:
+        total += await aplicar_cadencia_a_lead(session, lead, cadencia, por, ator_id=None)
+    return total
+
+
 # --- Sincronização status (pipeline CRM) <-> fase (funil) ------------------
 # A fase do funil é o eixo mais rico; ao mudar a fase o status espelha o mapa
 # abaixo. A fase "contato_inicial" não força status (novo/em_contato são
@@ -279,6 +384,7 @@ async def avancar_fase_lead(session: AsyncSession, lead: Lead, nova_fase: str, p
         payload={"fase": nova_fase, "status": lead.status.value},
     )
     await aplicar_regras_automacao(session, lead, "fase", nova_fase, por)
+    await aplicar_cadencias_automaticas(session, lead, "fase", nova_fase, por)
     return True
 
 

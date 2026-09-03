@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -854,3 +854,116 @@ def test_atualizar_lead_mesmo_responsavel_nao_dispara_alerta() -> None:
 
     assert resposta.status_code == 200
     assert chamadas == []
+
+
+# --- Fase 4 do roadmap pós-auditoria de Leads (03/09/2026): série temporal do
+# funil e importação em massa via CSV. ---
+
+
+def _sessao_admin(*resultados: FakeResult) -> FakeSession:
+    session = FakeSession(list(resultados))
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    return session
+
+
+def test_serie_temporal_leads_agrega_criacoes_e_funil_por_dia() -> None:
+    hoje = datetime.now(UTC).date()
+    ontem = hoje - timedelta(days=1)
+    _sessao_admin(
+        FakeResult(itens=[(ontem, 3), (hoje, 1)]),
+        FakeResult(itens=[(ontem, "contato_inicial", 3), (hoje, "proposta_enviada", 1)]),
+    )
+
+    resposta = TestClient(app).get("/v1/admin/leads-dashboard/serie-temporal?dias=7")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["dias"] == 7
+    assert len(corpo["serie"]) == 8
+    assert corpo["serie"][-1]["data"] == hoje.isoformat()
+    por_data = {dia["data"]: dia for dia in corpo["serie"]}
+    assert por_data[ontem.isoformat()]["leads_criados"] == 3
+    assert por_data[ontem.isoformat()]["funil"]["contato_inicial"] == 3
+    assert por_data[ontem.isoformat()]["funil"]["proposta_enviada"] == 0
+    assert por_data[hoje.isoformat()]["leads_criados"] == 1
+    assert por_data[hoje.isoformat()]["funil"]["proposta_enviada"] == 1
+
+
+def test_serie_temporal_leads_sem_dados_no_periodo_devolve_zeros() -> None:
+    _sessao_admin(FakeResult(itens=[]), FakeResult(itens=[]))
+
+    resposta = TestClient(app).get("/v1/admin/leads-dashboard/serie-temporal?dias=7")
+
+    assert resposta.status_code == 200
+    serie = resposta.json()["serie"]
+    assert len(serie) == 8
+    assert all(dia["leads_criados"] == 0 for dia in serie)
+    assert all(all(total == 0 for total in dia["funil"].values()) for dia in serie)
+
+
+def _csv_upload(conteudo: str) -> dict:
+    return {"arquivo": ("leads.csv", conteudo.encode("utf-8"), "text/csv")}
+
+
+def test_importar_leads_cria_novos_e_ignora_duplicado() -> None:
+    csv_conteudo = (
+        "Nome;Email;Telefone;Marca;Empresa;Observacoes\n"
+        "Ana Silva;ana@example.com;11988887777;ACME;Ana Comércio;Cliente antigo\n"
+        "Bruno Souza;bruno@example.com;11977776666;BETA;;\n"
+        "Já Existe;existente@example.com;11966665555;GAMA;;\n"
+    )
+    session = _sessao_admin(
+        FakeResult(itens=[("existente@example.com", "11966665555")]),
+        FakeResult(scalar=None),
+    )
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/importar",
+        files=_csv_upload(csv_conteudo),
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 201
+    corpo = resposta.json()
+    assert corpo["total_linhas"] == 3
+    assert corpo["criados"] == 2
+    assert corpo["duplicados"] == 1
+    assert corpo["sem_dados_essenciais"] == 0
+    leads_criados = [obj for obj in session.adicionados if isinstance(obj, Lead)]
+    assert len(leads_criados) == 2
+    assert all(lead.origem == "importacao" for lead in leads_criados)
+    assert {lead.email for lead in leads_criados} == {"ana@example.com", "bruno@example.com"}
+    assert session.commits == 1
+
+
+def test_importar_leads_linha_sem_contato_e_ignorada() -> None:
+    csv_conteudo = "Nome;Email;Telefone\nSem Contato;;\nCom Contato;com@example.com;\n"
+    session = _sessao_admin(FakeResult(itens=[]), FakeResult(scalar=None))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/importar",
+        files=_csv_upload(csv_conteudo),
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 201
+    corpo = resposta.json()
+    assert corpo["criados"] == 1
+    assert corpo["sem_dados_essenciais"] == 1
+    leads_criados = [obj for obj in session.adicionados if isinstance(obj, Lead)]
+    assert len(leads_criados) == 1
+
+
+def test_importar_leads_arquivo_vazio_retorna_400() -> None:
+    _sessao_admin()
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/importar",
+        files={"arquivo": ("leads.csv", b"", "text/csv")},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 400

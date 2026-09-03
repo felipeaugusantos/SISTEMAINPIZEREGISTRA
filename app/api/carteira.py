@@ -1,12 +1,9 @@
-import csv
-import io
 import re
 import unicodedata
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from openpyxl import load_workbook
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +13,7 @@ from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.cli.consolidar_situacoes_marcas import consolidar_situacao
 from app.crm import obter_ou_criar_empresa
 from app.database import get_session
+from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
 from app.models import (
     EmpresaCRM,
     EventoAuditoria,
@@ -1146,61 +1144,10 @@ COLUNAS_PROCURADOR = ("procurador", "agente", "escritorio")
 COLUNAS_OBS = ("observ", "obs", "notas")
 # Cabeçalhos curtos exatos que também identificam o número (ex.: "Nº" -> "no").
 NUMERO_CURTO = {"no", "num", "n", "nprocesso"}
-TAMANHO_MAXIMO_IMPORTACAO = 5_000_000
-
-
-def _chave_coluna(texto: str) -> str:
-    sem_acentos = "".join(c for c in unicodedata.normalize("NFKD", texto or "") if not unicodedata.combining(c))
-    return "".join(ch for ch in sem_acentos.lower() if ch.isalnum())
-
-
-def _ler_planilha(conteudo: bytes, filename: str) -> list[dict[str, str]]:
-    """Lê CSV ou XLSX e devolve uma lista de registros com chaves normalizadas."""
-    nome = (filename or "").lower()
-    linhas: list[list[str]] = []
-    if nome.endswith(".xls"):
-        raise HTTPException(400, "Formato .xls (Excel antigo) não é suportado. Salve como .xlsx ou .csv.")
-    if nome.endswith((".xlsx", ".xlsm")):
-        try:
-            wb = load_workbook(io.BytesIO(conteudo), read_only=True, data_only=True)
-        except Exception as exc:  # noqa: BLE001 - arquivo inválido enviado pelo usuário
-            raise HTTPException(400, "Planilha Excel inválida ou corrompida.") from exc
-        planilha = wb.active
-        for linha in planilha.iter_rows(values_only=True):
-            linhas.append(["" if celula is None else str(celula).strip() for celula in linha])
-        wb.close()
-    else:
-        texto = None
-        for codificacao in ("utf-8-sig", "latin-1"):
-            try:
-                texto = conteudo.decode(codificacao)
-                break
-            except UnicodeDecodeError:
-                continue
-        if texto is None:
-            raise HTTPException(400, "Não foi possível ler o arquivo (codificação não suportada).")
-        primeira_linha = texto.splitlines()[0] if texto.splitlines() else ""
-        contagens = {sep: primeira_linha.count(sep) for sep in (";", "\t", ",")}
-        delimitador = max(contagens, key=lambda sep: contagens[sep]) if any(contagens.values()) else ","
-        for linha in csv.reader(io.StringIO(texto), delimiter=delimitador):
-            linhas.append([campo.strip() for campo in linha])
-
-    linhas = [linha for linha in linhas if any(linha)]
-    if len(linhas) < 2:
-        return []
-    cabecalho = [_chave_coluna(coluna) for coluna in linhas[0]]
-    return [{cabecalho[i]: (linha[i] if i < len(linha) else "") for i in range(len(cabecalho))} for linha in linhas[1:]]
-
-
-def _valor(registro: dict[str, str], fragmentos: tuple[str, ...]) -> str | None:
-    for chave, valor in registro.items():
-        if valor.strip() and any(fragmento in chave for fragmento in fragmentos):
-            return valor.strip()
-    return None
 
 
 def _numero_processo(registro: dict[str, str]) -> str | None:
-    numero = _valor(registro, COLUNAS_NUMERO)
+    numero = valor_coluna(registro, COLUNAS_NUMERO)
     if numero:
         return numero
     for chave, valor in registro.items():
@@ -1228,7 +1175,7 @@ async def importar_carteira(
         raise HTTPException(400, "Arquivo vazio.")
     if len(conteudo) > TAMANHO_MAXIMO_IMPORTACAO:
         raise HTTPException(413, "Arquivo muito grande (máximo 5 MB).")
-    registros = _ler_planilha(conteudo, arquivo.filename or "")
+    registros = ler_planilha(conteudo, arquivo.filename or "")
     if not registros:
         raise HTTPException(
             400,
@@ -1291,7 +1238,7 @@ async def importar_carteira(
         if processo.id in ja_monitorados or processo.id in processados:
             ja_vinculados += 1
             continue
-        empresa_nome = _valor(registro, COLUNAS_EMPRESA)
+        empresa_nome = valor_coluna(registro, COLUNAS_EMPRESA)
         if empresa_nome and empresa_nome not in empresas_cache:
             empresa = await obter_ou_criar_empresa(session, usuario.organizacao_id, empresa_nome)
             empresas_cache[empresa_nome] = empresa.id if empresa else None
@@ -1303,8 +1250,8 @@ async def importar_carteira(
                 responsavel_id=responsavel_id,
                 status="ativo",
                 origem="importacao",
-                procurador_origem=_valor(registro, COLUNAS_PROCURADOR),
-                observacoes=_valor(registro, COLUNAS_OBS),
+                procurador_origem=valor_coluna(registro, COLUNAS_PROCURADOR),
+                observacoes=valor_coluna(registro, COLUNAS_OBS),
                 vinculado_por=usuario.ator,
             )
         )

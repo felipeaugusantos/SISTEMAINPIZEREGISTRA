@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import case, desc, exists, func, or_, select
@@ -24,12 +24,15 @@ from app.crm import (
     aplicar_politica_oportunidade,
     aplicar_regras_automacao,
     avancar_fase_lead,
+    obter_politica_crm,
+    registrar_consentimento_operador,
     registrar_consentimento_titular,
     registrar_evento_operacional,
     sincronizar_fase_por_status,
 )
 from app.database import get_session
 from app.emailing import enviar_alerta_lead_atribuido, enviar_alerta_novo_lead, enviar_proposta_email
+from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
 from app.models import (
     MOTIVOS_PERDA,
     ORDEM_FASE_LEAD,
@@ -570,6 +573,139 @@ async def criar_lead(
     return resposta
 
 
+COLUNAS_NOME_LEAD = ("nome", "cliente", "contato")
+COLUNAS_EMAIL_LEAD = ("email",)
+COLUNAS_TELEFONE_LEAD = ("telefone", "fone", "celular", "whatsapp")
+COLUNAS_MARCA_LEAD = ("marca",)
+COLUNAS_EMPRESA_LEAD = ("empresa", "razaosocial")
+COLUNAS_OBS_LEAD = ("observ", "obs", "notas")
+
+
+@router.post("/v1/admin/leads/importar", status_code=status.HTTP_201_CREATED)
+async def importar_leads(
+    request: Request,
+    session: SessionDep,
+    usuario: LeadsManageDep,
+    arquivo: Annotated[UploadFile, File()],
+) -> dict:
+    """Importa leads em lote (CSV/XLSX) -- achado Fase 4 do roadmap pós-auditoria
+    de Leads (03/09/2026): captação hoje só entra pelo formulário público ou uma
+    a uma pelo atendente, sem forma de trazer uma carteira externa de prospecção.
+
+    Colunas reconhecidas (cabeçalho, sem acento/maiúsculas): nome (obrigatória),
+    email e/ou telefone (ao menos um obrigatório), marca, empresa, observacoes.
+    Linhas cujo e-mail ou telefone já pertence a um lead ativo são ignoradas
+    (mesma regra de deduplicação do formulário público).
+    """
+    conteudo = await arquivo.read()
+    if not conteudo:
+        raise HTTPException(400, "Arquivo vazio.")
+    if len(conteudo) > TAMANHO_MAXIMO_IMPORTACAO:
+        raise HTTPException(413, "Arquivo muito grande (máximo 5 MB).")
+    registros = ler_planilha(conteudo, arquivo.filename or "")
+    if not registros:
+        raise HTTPException(400, "Planilha vazia ou sem cabeçalho reconhecível. Inclua uma coluna 'nome'.")
+
+    linhas_validas: list[dict[str, str | None]] = []
+    sem_dados_essenciais = 0
+    for registro in registros:
+        nome = valor_coluna(registro, COLUNAS_NOME_LEAD)
+        email = valor_coluna(registro, COLUNAS_EMAIL_LEAD)
+        telefone = valor_coluna(registro, COLUNAS_TELEFONE_LEAD)
+        if not nome or not (email or telefone):
+            sem_dados_essenciais += 1
+            continue
+        linhas_validas.append(
+            {
+                "nome": nome,
+                "email": (email or "").lower(),
+                "telefone": telefone or "",
+                "marca": valor_coluna(registro, COLUNAS_MARCA_LEAD) or "",
+                "empresa": valor_coluna(registro, COLUNAS_EMPRESA_LEAD),
+                "observacoes": valor_coluna(registro, COLUNAS_OBS_LEAD),
+            }
+        )
+    if not linhas_validas:
+        colunas = ", ".join(chave for chave in registros[0] if chave) or "nenhuma"
+        raise HTTPException(
+            400,
+            "Nenhuma linha com nome e (e-mail ou telefone) foi reconhecida. "
+            f"Colunas detectadas no arquivo: {colunas}.",
+        )
+
+    emails = {linha["email"] for linha in linhas_validas if linha["email"]}
+    telefones_digitos = {
+        "".join(c for c in str(linha["telefone"]) if c.isdigit()) for linha in linhas_validas if linha["telefone"]
+    }
+    existentes = (
+        await session.execute(
+            select(Lead.email, Lead.telefone).where(
+                Lead.organizacao_id == usuario.organizacao_id,
+                Lead.arquivado_em.is_(None),
+                or_(
+                    func.lower(Lead.email).in_(emails),
+                    func.regexp_replace(Lead.telefone, r"\D", "", "g").in_(telefones_digitos),
+                ),
+            )
+        )
+    ).all()
+    emails_vistos = {email.lower() for email, _ in existentes if email}
+    telefones_vistos = {"".join(c for c in telefone if c.isdigit()) for _, telefone in existentes if telefone}
+
+    politica = await obter_politica_crm(session, usuario.organizacao_id)
+    proxima_acao_padrao = (
+        datetime.now(UTC) + timedelta(days=politica.dias_proxima_acao_padrao)
+        if politica.dias_proxima_acao_padrao is not None
+        else None
+    )
+
+    criados = 0
+    duplicados = 0
+    for linha in linhas_validas:
+        email = str(linha["email"])
+        telefone_digitos = "".join(c for c in str(linha["telefone"]) if c.isdigit())
+        if (email and email in emails_vistos) or (telefone_digitos and telefone_digitos in telefones_vistos):
+            duplicados += 1
+            continue
+        lead = Lead(
+            organizacao_id=usuario.organizacao_id,
+            nome=str(linha["nome"]),
+            email=email,
+            telefone=str(linha["telefone"]),
+            empresa=linha["empresa"],
+            marca=str(linha["marca"]),
+            origem="importacao",
+            aceite_privacidade=True,
+            status=StatusLead.NOVO,
+            notas=linha["observacoes"],
+            proxima_acao_em=proxima_acao_padrao,
+        )
+        registrar_consentimento_operador(lead, usuario.id)
+        session.add(lead)
+        criados += 1
+        if email:
+            emails_vistos.add(email)
+        if telefone_digitos:
+            telefones_vistos.add(telefone_digitos)
+
+    resultado = {
+        "total_linhas": len(registros),
+        "criados": criados,
+        "duplicados": duplicados,
+        "sem_dados_essenciais": sem_dados_essenciais,
+    }
+    _auditar(
+        session,
+        usuario,
+        request,
+        "importar_leads",
+        f"leads:importacao:{arquivo.filename}",
+        resultado,
+    )
+    await session.commit()
+    return resultado
+
+
 @router.get("/v1/admin/leads", response_model=LeadListResponse)
 async def listar_leads(
     session: SessionDep,
@@ -1052,6 +1188,55 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         "taxa_protocolo": round(protocoladas / len(propostas), 4) if propostas else 0,
         "atualizado_em": agora,
     }
+
+
+@router.get("/v1/admin/leads-dashboard/serie-temporal")
+async def serie_temporal_leads(
+    session: SessionDep,
+    usuario: LeadsViewDep,
+    dias: Annotated[int, Query(ge=7, le=180)] = 30,
+) -> dict:
+    """Leads criados por dia e evolução do funil (achado Fase 4 do roadmap
+    pós-auditoria de Leads, 03/09/2026): antes só existiam contagens
+    acumuladas (dashboard), sem visão de tendência ao longo do tempo."""
+    org = usuario.organizacao_id
+    desde = datetime.now(UTC) - timedelta(days=dias)
+
+    criados_por_dia = dict(
+        (
+            await session.execute(
+                select(func.date(Lead.criado_em), func.count())
+                .where(Lead.organizacao_id == org, Lead.criado_em >= desde)
+                .group_by(func.date(Lead.criado_em))
+            )
+        ).all()
+    )
+    entradas_por_dia_e_fase = (
+        await session.execute(
+            select(func.date(HistoricoFaseLead.entrou_em), HistoricoFaseLead.fase, func.count())
+            .where(HistoricoFaseLead.organizacao_id == org, HistoricoFaseLead.entrou_em >= desde)
+            .group_by(func.date(HistoricoFaseLead.entrou_em), HistoricoFaseLead.fase)
+        )
+    ).all()
+    funil_por_dia: dict[str, dict[str, int]] = {}
+    for data_evento, fase, total in entradas_por_dia_e_fase:
+        funil_por_dia.setdefault(data_evento.isoformat(), {})[fase] = int(total)
+
+    hoje = datetime.now(UTC).date()
+    serie = []
+    for offset in range(dias, -1, -1):
+        dia = hoje - timedelta(days=offset)
+        chave = dia.isoformat()
+        funil_dia = {fase: 0 for fase in ORDEM_FASE_LEAD}
+        funil_dia.update(funil_por_dia.get(chave, {}))
+        serie.append(
+            {
+                "data": chave,
+                "leads_criados": int(criados_por_dia.get(dia, 0)),
+                "funil": funil_dia,
+            }
+        )
+    return {"dias": dias, "serie": serie}
 
 
 @router.patch("/v1/admin/leads/{lead_id}", response_model=LeadResponse)

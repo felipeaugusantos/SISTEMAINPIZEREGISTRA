@@ -2,15 +2,10 @@ import io
 
 from openpyxl import Workbook
 
-from app.api.carteira import (
-    COLUNAS_EMPRESA,
-    COLUNAS_NUMERO,
-    COLUNAS_OBS,
-    _chave_coluna,
-    _ler_planilha,
-    _numero_processo,
-    _valor,
-)
+from app.api.carteira import COLUNAS_EMPRESA, COLUNAS_NUMERO, COLUNAS_OBS, _numero_processo
+from app.importacao_planilha import chave_coluna as _chave_coluna
+from app.importacao_planilha import ler_planilha as _ler_planilha
+from app.importacao_planilha import valor_coluna as _valor
 
 
 def test_numero_processo_tolera_cabecalhos_variados() -> None:

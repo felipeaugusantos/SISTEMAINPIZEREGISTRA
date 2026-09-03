@@ -32,6 +32,7 @@ from app.queueing import (
     QUEUE_KEY,
     agendar_retry,
     cliente_redis,
+    enfileirar,
     promover_retentativas,
 )
 from app.request_context import definir_request_id, request_id_atual, restaurar_request_id
@@ -529,6 +530,60 @@ async def processar(tipo: str, payload: dict) -> None:
                 )
                 prospect.triagem_marca_status = resultado["classificacao"]
                 prospect.triagem_marca_em = datetime.now(UTC)
+                # Fase 5 (03/09/2026): score encadeado logo após a triagem --
+                # é o último dado que falta pra calcular o score comercial.
+                await enfileirar(
+                    "prospeccao.calcular_score",
+                    {"prospect_id": prospect.id, "organizacao_id": payload["organizacao_id"]},
+                    idempotency_key=f"{prospect.id}:score:{datetime.now(UTC).date().isoformat()}",
+                )
+        elif tipo == "prospeccao.calcular_score":
+            # Fase 5 do Radar de Prospecção (03/09/2026): fatores explícitos
+            # e versionados -- ver app/prospeccao_score.py.
+            from app.models import HistoricoStatusProspect, PoliticaProspeccao, Prospect
+            from app.prospeccao_score import calcular_score
+
+            prospect = (
+                await session.execute(
+                    select(Prospect).where(
+                        Prospect.id == payload["prospect_id"], Prospect.organizacao_id == payload["organizacao_id"]
+                    )
+                )
+            ).scalar_one_or_none()
+            if prospect is not None:
+                score = calcular_score(
+                    situacao_cadastral=prospect.situacao_cadastral,
+                    data_abertura=prospect.data_abertura,
+                    presenca_digital=prospect.presenca_digital,
+                    triagem_marca_status=prospect.triagem_marca_status,
+                )
+                prospect.score = score.total
+                prospect.score_detalhe = {"total": score.total, "versao": score.versao, "fatores": score.fatores_json()}
+                prospect.score_calculado_em = datetime.now(UTC)
+
+                if prospect.status == "novo":
+                    politica = (
+                        await session.execute(
+                            select(PoliticaProspeccao).where(
+                                PoliticaProspeccao.organizacao_id == payload["organizacao_id"]
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if (
+                        politica is not None
+                        and politica.aprovacao_automatica_ativa
+                        and politica.score_minimo_aprovacao is not None
+                        and score.total >= politica.score_minimo_aprovacao
+                    ):
+                        prospect.status = "aprovado"
+                        session.add(
+                            HistoricoStatusProspect(
+                                organizacao_id=payload["organizacao_id"],
+                                prospect_id=prospect.id,
+                                status="aprovado",
+                                por="radar:aprovacao-automatica",
+                            )
+                        )
         else:
             raise ValueError(f"Tipo de trabalho desconhecido: {tipo}")
         await session.commit()

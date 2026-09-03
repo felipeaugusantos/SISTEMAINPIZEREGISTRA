@@ -51,6 +51,7 @@ class StatusProspect(StrEnum):
     novos por migração própria, quando o código que os produz existir."""
 
     NOVO = "novo"
+    APROVADO = "aprovado"
     REJEITADO = "rejeitado"
     DUPLICADO = "duplicado"
     CONVERTIDO_LEAD = "convertido_lead"
@@ -1600,6 +1601,11 @@ class Prospect(Base):
     # app/prospeccao_triagem.py). Histórico completo em ProspectTriagem.
     triagem_marca_status: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
     triagem_marca_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Fase 5 do Radar de Prospecção (03/09/2026): score comercial (0-100,
+    # fatores explícitos em score_detalhe -- ver app/prospeccao_score.py).
+    score: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
+    score_detalhe: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    score_calculado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dados_brutos: Mapped[dict] = mapped_column(JSON, default=dict)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizado_em: Mapped[datetime] = mapped_column(
@@ -1607,6 +1613,30 @@ class Prospect(Base):
     )
 
     responsavel: Mapped["UsuarioOperacoes | None"] = relationship(foreign_keys=[responsavel_id], lazy="selectin")
+
+
+class PoliticaProspeccao(Base):
+    """Regras de aprovação automática do Radar por organização (Fase 5,
+    03/09/2026) -- mesmo padrão de PoliticaCRM. Desligada por padrão: só
+    aprova sozinho quando a organização liga explicitamente."""
+
+    __tablename__ = "politicas_prospeccao"
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", name="uq_politica_prospeccao_organizacao"),
+        CheckConstraint(
+            "score_minimo_aprovacao IS NULL OR (score_minimo_aprovacao >= 0 AND score_minimo_aprovacao <= 100)",
+            name="ck_politica_prospeccao_score_minimo",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    aprovacao_automatica_ativa: Mapped[bool] = mapped_column(Boolean, default=False)
+    score_minimo_aprovacao: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    atualizado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class ProspectFonte(Base):

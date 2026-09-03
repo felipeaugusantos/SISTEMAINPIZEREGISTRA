@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models import StatusLead, TipoProcesso
 from app.trademarks.analysis_workflow import AcaoWorkflowAnalise, EstadoAnalise
@@ -643,6 +643,9 @@ class ProspectResponse(BaseModel):
     presenca_digital: dict | None = None
     triagem_marca_status: str | None = None
     triagem_marca_em: datetime | None = None
+    score: float | None = None
+    score_detalhe: dict | None = None
+    score_calculado_em: datetime | None = None
     criado_em: datetime
     atualizado_em: datetime
 
@@ -706,6 +709,29 @@ class CampanhaProspeccaoResponse(BaseModel):
 class CampanhaProspeccaoListResponse(BaseModel):
     total: int
     itens: list[CampanhaProspeccaoResponse]
+
+
+# --- Fase 5 do Radar de Prospecção (03/09/2026) -- score e aprovação -------
+
+
+class PoliticaProspeccaoUpdate(BaseModel):
+    aprovacao_automatica_ativa: bool
+    score_minimo_aprovacao: int | None = Field(default=None, ge=0, le=100)
+
+    @model_validator(mode="after")
+    def _exigir_score_quando_ativo(self) -> "PoliticaProspeccaoUpdate":
+        if self.aprovacao_automatica_ativa and self.score_minimo_aprovacao is None:
+            raise ValueError("Informe score_minimo_aprovacao para ativar a aprovação automática.")
+        return self
+
+
+class PoliticaProspeccaoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    aprovacao_automatica_ativa: bool
+    score_minimo_aprovacao: int | None
+    atualizado_por: str | None
+    atualizado_em: datetime
 
 
 class PesquisaLeadResumo(BaseModel):

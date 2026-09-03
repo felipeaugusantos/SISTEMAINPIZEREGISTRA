@@ -469,3 +469,115 @@ def test_listar_triagens_inclui_disclaimer() -> None:
     # Garantia central: a resposta da API nunca pode conter um rótulo de disponibilidade.
     texto_completo = str(corpo).lower()
     assert "dispon" not in texto_completo
+
+
+# --- Fase 5 do Radar de Prospecção (03/09/2026) -- score e aprovação -------
+
+
+def test_calcular_score_enfileira_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    prospect = _prospect(status=StatusProspect.NOVO.value)
+    session = _sessao_admin(FakeResult(scalar=prospect))
+
+    class RedisFalso:
+        async def set(self, *_args: object, **_kwargs: object) -> bool:
+            return True
+
+        async def rpush(self, *_args: object) -> None:
+            return None
+
+        async def hincrby(self, *_args: object) -> int:
+            return 1
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr("app.queueing.cliente_redis", lambda: RedisFalso())
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/calcular-score", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 202
+    assert session.commits == 1
+
+
+def test_aprovar_prospect_novo() -> None:
+    prospect = _prospect(status=StatusProspect.NOVO.value)
+    session = _sessao_admin(FakeResult(scalar=prospect))
+
+    resposta = TestClient(app).post("/v1/admin/prospects/5/aprovar", headers={"X-CSRF-Token": "csrf-teste"})
+
+    assert resposta.status_code == 200
+    assert resposta.json()["status"] == "aprovado"
+    assert prospect.status == "aprovado"
+    assert session.commits == 1
+
+
+def test_aprovar_prospect_ja_processado_retorna_422() -> None:
+    prospect = _prospect(status=StatusProspect.REJEITADO.value)
+    _sessao_admin(FakeResult(scalar=prospect))
+
+    resposta = TestClient(app).post("/v1/admin/prospects/5/aprovar", headers={"X-CSRF-Token": "csrf-teste"})
+
+    assert resposta.status_code == 422
+
+
+def test_converter_prospect_aprovado_tambem_e_permitido() -> None:
+    prospect = _prospect(status=StatusProspect.APROVADO.value, email="empresa@teste.local")
+    _sessao_admin(FakeResult(scalar=prospect), FakeResult(scalar=None), FakeResult(scalar=None))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/converter-lead", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 201
+
+
+def test_consultar_politica_prospeccao_sem_registro_devolve_default() -> None:
+    _sessao_admin(FakeResult(scalar=None))
+
+    resposta = TestClient(app).get("/v1/admin/prospeccao/politica")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["aprovacao_automatica_ativa"] is False
+    assert corpo["score_minimo_aprovacao"] is None
+
+
+def test_editar_politica_prospeccao_exige_score_minimo_quando_ativa() -> None:
+    _sessao_admin()
+
+    resposta = TestClient(app).put(
+        "/v1/admin/prospeccao/politica",
+        json={"aprovacao_automatica_ativa": True},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 422
+
+
+def test_editar_politica_prospeccao_cria_registro_novo() -> None:
+    session = _sessao_admin(FakeResult(scalar=None))
+
+    resposta = TestClient(app).put(
+        "/v1/admin/prospeccao/politica",
+        json={"aprovacao_automatica_ativa": True, "score_minimo_aprovacao": 70},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["aprovacao_automatica_ativa"] is True
+    assert corpo["score_minimo_aprovacao"] == 70
+    assert session.commits == 1
+
+
+def test_dashboard_prospeccao_retorna_funil_e_serie() -> None:
+    _sessao_admin(FakeResult(itens=[("novo", 3), ("aprovado", 1)]), FakeResult(itens=[]))
+
+    resposta = TestClient(app).get("/v1/admin/prospeccao/dashboard?dias=7")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["funil"] == {"novo": 3, "aprovado": 1}
+    assert len(corpo["serie"]) == 8

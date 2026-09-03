@@ -25,6 +25,7 @@ from app.models import (
     EventoAuditoria,
     HistoricoStatusProspect,
     Lead,
+    PoliticaProspeccao,
     Prospect,
     ProspectEnriquecimento,
     ProspectFonte,
@@ -39,6 +40,8 @@ from app.schemas import (
     CampanhaProspeccaoCreate,
     CampanhaProspeccaoListResponse,
     CampanhaProspeccaoResponse,
+    PoliticaProspeccaoResponse,
+    PoliticaProspeccaoUpdate,
     ProspectCreate,
     ProspectListResponse,
     ProspectResponse,
@@ -410,7 +413,7 @@ async def converter_prospect_em_lead(
     prospect_id: int, request: Request, session: SessionDep, usuario: ProspeccaoConvertDep
 ) -> dict:
     prospect = await _buscar_prospect(session, prospect_id, usuario.organizacao_id)
-    if prospect.status != StatusProspect.NOVO.value:
+    if prospect.status not in (StatusProspect.NOVO.value, StatusProspect.APROVADO.value):
         raise HTTPException(422, f"Prospect já foi processado (status atual: {prospect.status}).")
     if not prospect.email and not prospect.telefone:
         raise HTTPException(422, "Prospect sem e-mail ou telefone não pode virar lead.")
@@ -696,3 +699,120 @@ async def listar_triagens_prospect(prospect_id: int, session: SessionDep, usuari
             for item in triagens
         ],
     }
+
+
+# --- Fase 5 do Radar de Prospecção (03/09/2026) -- score e aprovação -------
+
+
+@router.post("/{prospect_id}/calcular-score", status_code=status.HTTP_202_ACCEPTED)
+async def calcular_score_prospect_endpoint(
+    prospect_id: int, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
+) -> dict:
+    prospect = await _buscar_prospect(session, prospect_id, usuario.organizacao_id)
+    job = await enfileirar(
+        "prospeccao.calcular_score",
+        {"prospect_id": prospect.id, "organizacao_id": usuario.organizacao_id},
+        idempotency_key=f"{prospect.id}:score:{datetime.now(UTC).date().isoformat()}",
+    )
+    _auditar(session, request, usuario, "calcular_score_prospect", f"prospect:{prospect.id}", {"job_id": job.get("id")})
+    await session.commit()
+    return {"job_id": job.get("id"), "duplicado": job.get("duplicado", False)}
+
+
+@router.post("/{prospect_id}/aprovar", response_model=ProspectResponse)
+async def aprovar_prospect(
+    prospect_id: int, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
+) -> ProspectResponse:
+    prospect = await _buscar_prospect(session, prospect_id, usuario.organizacao_id)
+    if prospect.status != StatusProspect.NOVO.value:
+        raise HTTPException(422, f"Prospect já foi processado (status atual: {prospect.status}).")
+    prospect.status = StatusProspect.APROVADO.value
+    session.add(
+        HistoricoStatusProspect(
+            organizacao_id=usuario.organizacao_id,
+            prospect_id=prospect.id,
+            status=StatusProspect.APROVADO.value,
+            por=usuario.nome or "sistema",
+        )
+    )
+    _auditar(session, request, usuario, "aprovar_prospect", f"prospect:{prospect.id}", {})
+    await session.commit()
+    await session.refresh(prospect)
+    return _prospect_response(prospect)
+
+
+async def obter_politica_prospeccao(session: AsyncSession, organizacao_id: int) -> PoliticaProspeccao:
+    politica = (
+        await session.execute(select(PoliticaProspeccao).where(PoliticaProspeccao.organizacao_id == organizacao_id))
+    ).scalar_one_or_none()
+    return politica or PoliticaProspeccao(organizacao_id=organizacao_id, aprovacao_automatica_ativa=False)
+
+
+@router_campanhas.get("/politica", response_model=PoliticaProspeccaoResponse)
+async def consultar_politica_prospeccao(
+    session: SessionDep, usuario: ProspeccaoViewDep
+) -> PoliticaProspeccaoResponse:
+    politica = await obter_politica_prospeccao(session, usuario.organizacao_id)
+    return PoliticaProspeccaoResponse(
+        aprovacao_automatica_ativa=politica.aprovacao_automatica_ativa,
+        score_minimo_aprovacao=politica.score_minimo_aprovacao,
+        atualizado_por=politica.atualizado_por,
+        atualizado_em=politica.atualizado_em or datetime.now(UTC),
+    )
+
+
+@router_campanhas.put("/politica", response_model=PoliticaProspeccaoResponse)
+async def editar_politica_prospeccao(
+    dados: PoliticaProspeccaoUpdate, session: SessionDep, usuario: ProspeccaoManageDep
+) -> PoliticaProspeccaoResponse:
+    politica = (
+        await session.execute(
+            select(PoliticaProspeccao).where(PoliticaProspeccao.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one_or_none()
+    if politica is None:
+        politica = PoliticaProspeccao(organizacao_id=usuario.organizacao_id)
+        session.add(politica)
+    politica.aprovacao_automatica_ativa = dados.aprovacao_automatica_ativa
+    politica.score_minimo_aprovacao = dados.score_minimo_aprovacao
+    politica.atualizado_por = usuario.ator
+    await session.commit()
+    await session.refresh(politica)
+    return PoliticaProspeccaoResponse(
+        aprovacao_automatica_ativa=politica.aprovacao_automatica_ativa,
+        score_minimo_aprovacao=politica.score_minimo_aprovacao,
+        atualizado_por=politica.atualizado_por,
+        atualizado_em=politica.atualizado_em,
+    )
+
+
+@router_campanhas.get("/dashboard")
+async def dashboard_prospeccao(
+    session: SessionDep, usuario: ProspeccaoViewDep, dias: Annotated[int, Query(ge=7, le=180)] = 30
+) -> dict:
+    org = usuario.organizacao_id
+    funil = dict(
+        (
+            await session.execute(
+                select(Prospect.status, func.count()).where(Prospect.organizacao_id == org).group_by(Prospect.status)
+            )
+        ).all()
+    )
+
+    desde = datetime.now(UTC) - timedelta(days=dias)
+    criados_por_dia = dict(
+        (
+            await session.execute(
+                select(func.date(Prospect.criado_em), func.count())
+                .where(Prospect.organizacao_id == org, Prospect.criado_em >= desde)
+                .group_by(func.date(Prospect.criado_em))
+            )
+        ).all()
+    )
+    hoje = datetime.now(UTC).date()
+    serie = [
+        {"data": (hoje - timedelta(days=offset)).isoformat(), "prospects_criados": int(criados_por_dia.get(hoje - timedelta(days=offset), 0))}
+        for offset in range(dias, -1, -1)
+    ]
+
+    return {"funil": funil, "dias": dias, "serie": serie}

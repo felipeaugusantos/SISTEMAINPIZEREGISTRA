@@ -210,6 +210,15 @@ services:
       IMAP_USERNAME: ${IMAP_USERNAME:-}
       IMAP_PASSWORD: ${IMAP_PASSWORD:-}
       IMAP_SSL: ${IMAP_SSL:-true}
+    volumes:
+      # Mesmo volume persistente do api/rpi-sync -- o job
+      # prospeccao.importar_cnpj_rfb roda aqui e cacheia os arquivos
+      # baixados da RFB em /app/data/rfb_cnpj_cache (ver
+      # app/cli/importar_cnpj_rfb.py) para sobreviver a reinicios do host
+      # sem precisar rebaixar vários GB (achado de 03/09/2026: esta VPS
+      # reinicia sozinha algumas vezes por dia, por motivo ainda não
+      # identificado nos logs).
+      - ./data:/app/data
     depends_on:
       db:
         condition: service_healthy

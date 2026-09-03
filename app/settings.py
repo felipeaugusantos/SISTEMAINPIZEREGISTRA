@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     # rotacionar, por isso fica configurável em vez de fixo no código.
     rfb_cnpj_base_url: str = "https://arquivos.receitafederal.gov.br/public.php/webdav"
     rfb_cnpj_share_token: str = "YggdBLfdninEJX9"
+    # Cache em disco dos arquivos baixados (achado de 03/09/2026: esta VPS
+    # reinicia sozinha algumas vezes por dia -- cada arquivo baixado fica
+    # salvo aqui pra uma nova tentativa não precisar rebaixar vários GB do
+    # zero). Caminho dentro do volume persistente ./data:/app/data, não /tmp
+    # (que é limpo no reinício).
+    rfb_cnpj_cache_dir: str = "/app/data/rfb_cnpj_cache"
     audit_ip_salt: str = "desenvolvimento-local"
     security_master_key: str = "desenvolvimento-local-chave-mestra"
     security_master_key_version: int = 1

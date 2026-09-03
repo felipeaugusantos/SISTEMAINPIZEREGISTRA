@@ -37,10 +37,12 @@ import csv
 import io
 import logging
 import re
+import shutil
 import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Awaitable, Callable, Iterator
 from datetime import datetime
+from pathlib import Path
 from urllib.request import Request, urlopen
 
 from sqlalchemy.dialects.postgresql import insert
@@ -75,10 +77,33 @@ def _cabecalhos(extra: dict[str, str] | None = None) -> dict[str, str]:
     return cabecalhos
 
 
+def _caminho_cache(url: str) -> Path | None:
+    """Cache em disco por período+arquivo -- ver settings.rfb_cnpj_cache_dir.
+    Achado de 03/09/2026: esta VPS reinicia sozinha algumas vezes por dia, o
+    que já derrubou duas tentativas de importação no meio do download. Sem
+    isso, cada nova tentativa rebaixa vários GB do zero."""
+    cache_dir = get_settings().rfb_cnpj_cache_dir
+    if not cache_dir:
+        return None
+    partes = url.rstrip("/").split("/")
+    if len(partes) < 2:
+        return None
+    periodo, nome_arquivo = partes[-2], partes[-1]
+    return Path(cache_dir) / periodo / nome_arquivo
+
+
 def _baixar(url: str) -> bytes:
+    caminho = _caminho_cache(url)
+    if caminho is not None and caminho.is_file():
+        logger.info("Usando arquivo em cache: %s", caminho)
+        return caminho.read_bytes()
     requisicao = Request(url, headers=_cabecalhos())
     with urlopen(requisicao, timeout=300) as resposta:  # noqa: S310 - URL vem de settings, não de input do usuário
-        return resposta.read()
+        conteudo = resposta.read()
+    if caminho is not None:
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        caminho.write_bytes(conteudo)
+    return conteudo
 
 
 def descobrir_periodo_mais_recente(base_url: str) -> str:
@@ -192,7 +217,23 @@ async def importar(
             await _upsert_lote(session, lote)
             await session.commit()
 
+    if not limite_linhas:
+        _limpar_cache(periodo)
+
     return {"periodo": periodo, "processados": total_processados, "validos": total_validos}
+
+
+def _limpar_cache(periodo: str) -> None:
+    """Só chamado após sucesso completo (sem --limite-linhas) -- o cache em
+    disco existe como apoio pra retomar uma tentativa interrompida, não como
+    armazenamento permanente."""
+    cache_dir = get_settings().rfb_cnpj_cache_dir
+    if not cache_dir:
+        return
+    caminho = Path(cache_dir) / periodo
+    if caminho.is_dir():
+        shutil.rmtree(caminho, ignore_errors=True)
+        logger.info("Cache em disco de %s removido após importação bem-sucedida.", periodo)
 
 
 async def _upsert_lote(session, lote: list[dict]) -> None:

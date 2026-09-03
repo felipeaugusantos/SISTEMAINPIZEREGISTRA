@@ -99,7 +99,7 @@ def test_baixar_inclui_autenticacao_basic_quando_token_configurado(monkeypatch) 
         return _RespostaFalsa(b"conteudo")
 
     monkeypatch.setattr(modulo, "urlopen", _urlopen_falso)
-    monkeypatch.setattr(modulo, "get_settings", lambda: SimpleNamespace(rfb_cnpj_share_token="token-de-teste"))
+    monkeypatch.setattr(modulo, "get_settings", lambda: SimpleNamespace(rfb_cnpj_share_token="token-de-teste", rfb_cnpj_cache_dir=""))
 
     modulo._baixar("https://exemplo.com/webdav/2026-08/Municipios.zip")
 
@@ -116,7 +116,7 @@ def test_baixar_sem_token_nao_envia_autenticacao(monkeypatch) -> None:
         return _RespostaFalsa(b"conteudo")
 
     monkeypatch.setattr(modulo, "urlopen", _urlopen_falso)
-    monkeypatch.setattr(modulo, "get_settings", lambda: SimpleNamespace(rfb_cnpj_share_token=""))
+    monkeypatch.setattr(modulo, "get_settings", lambda: SimpleNamespace(rfb_cnpj_share_token="", rfb_cnpj_cache_dir=""))
 
     modulo._baixar("https://exemplo.com/webdav/2026-08/Municipios.zip")
 
@@ -149,3 +149,61 @@ async def test_carregar_empresas_sem_callback_nao_quebra(monkeypatch) -> None:
     resultado = await modulo.carregar_empresas_por_cnpj_basico("https://exemplo.com/webdav", "2026-08")
 
     assert resultado == {"11222333": ("01", "Loja Exemplo Ltda")}
+
+
+# --- Cache em disco (03/09/2026) -- esta VPS reinicia sozinha algumas vezes
+# por dia, o que já derrubou duas tentativas de importação no meio do
+# download. Cache evita rebaixar vários GB do zero numa nova tentativa. ---
+
+
+def test_caminho_cache_usa_periodo_e_nome_do_arquivo(monkeypatch, tmp_path) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(modulo, "get_settings", lambda: SimpleNamespace(rfb_cnpj_cache_dir=str(tmp_path)))
+
+    caminho = modulo._caminho_cache("https://exemplo.com/webdav/2026-08/Empresas0.zip")
+
+    assert caminho == tmp_path / "2026-08" / "Empresas0.zip"
+
+
+def test_caminho_cache_desligado_quando_configuracao_vazia(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(modulo, "get_settings", lambda: SimpleNamespace(rfb_cnpj_cache_dir=""))
+
+    assert modulo._caminho_cache("https://exemplo.com/webdav/2026-08/Empresas0.zip") is None
+
+
+def test_baixar_usa_cache_na_segunda_chamada_sem_rebaixar(monkeypatch, tmp_path) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(modulo, "get_settings", lambda: SimpleNamespace(rfb_cnpj_share_token="", rfb_cnpj_cache_dir=str(tmp_path)))
+    chamadas_rede = []
+
+    def _urlopen_falso(requisicao, timeout):  # noqa: ARG001 - assinatura espelha urlopen
+        chamadas_rede.append(requisicao.full_url)
+        return _RespostaFalsa(b"conteudo do arquivo")
+
+    monkeypatch.setattr(modulo, "urlopen", _urlopen_falso)
+    url = "https://exemplo.com/webdav/2026-08/Municipios.zip"
+
+    primeira = modulo._baixar(url)
+    segunda = modulo._baixar(url)
+
+    assert primeira == b"conteudo do arquivo"
+    assert segunda == b"conteudo do arquivo"
+    assert len(chamadas_rede) == 1  # só baixou uma vez -- a segunda veio do cache
+    assert (tmp_path / "2026-08" / "Municipios.zip").read_bytes() == b"conteudo do arquivo"
+
+
+def test_limpar_cache_remove_pasta_do_periodo(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(modulo, "get_settings", lambda: SimpleNamespace(rfb_cnpj_cache_dir=str(tmp_path)))
+    pasta = tmp_path / "2026-08"
+    pasta.mkdir()
+    (pasta / "Empresas0.zip").write_bytes(b"x")
+
+    modulo._limpar_cache("2026-08")
+
+    assert not pasta.exists()

@@ -49,6 +49,7 @@
 .prospeccao-table-wrap th,.prospeccao-table-wrap td{padding:12px;text-align:left;border-bottom:1px solid #e4e8e4;vertical-align:top}
 .prospeccao-table-wrap th{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;background:#f5f7f3}
 .prospeccao-empty-cell{padding:24px;text-align:center;color:#65746b}
+.prospeccao-cache-status{padding:14px 16px;border:1px solid #e4e8e4;border-radius:14px;background:#fbfcf9;font-size:.82rem;line-height:1.8;color:#3c4a42}
 .prospeccao-campanha-status{display:inline-flex;padding:4px 8px;border-radius:999px;background:#edf1ee;color:#41564a;font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
 .prospeccao-campanha-status.is-ativa{background:#fff0ca;color:#78550a;display:inline-flex;align-items:center;gap:6px}
 .prospeccao-spinner{display:inline-block;width:9px;height:9px;border-radius:50%;background:#d89b25;animation:prospeccao-pulso 1.1s ease-in-out infinite}

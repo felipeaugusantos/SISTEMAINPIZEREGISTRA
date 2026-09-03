@@ -734,6 +734,26 @@ class PoliticaProspeccaoResponse(BaseModel):
     atualizado_em: datetime
 
 
+class ImportacaoCnpjRfbTrigger(BaseModel):
+    periodo: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
+    limite_linhas: int | None = Field(default=None, ge=1)
+
+
+class ImportacaoCnpjRfbResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    status: str
+    periodo: str | None
+    etapa_atual: str | None
+    total_processados: int
+    total_validos: int
+    erro: str | None
+    solicitado_por: str | None
+    solicitado_em: datetime
+    concluido_em: datetime | None
+
+
 class PesquisaLeadResumo(BaseModel):
     id: str
     marca: str

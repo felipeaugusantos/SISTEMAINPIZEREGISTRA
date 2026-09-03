@@ -584,6 +584,45 @@ async def processar(tipo: str, payload: dict) -> None:
                                 por="radar:aprovacao-automatica",
                             )
                         )
+        elif tipo == "prospeccao.importar_cnpj_rfb":
+            # Disparado pela tela do Radar (superadmin, 03/09/2026) -- roda no
+            # worker, não preso à sessão HTTP/SSH de quem clicou. Cada
+            # checkpoint de progresso comita numa sessão própria (não só no
+            # fim) para o polling da tela enxergar progresso em tempo real.
+            from app.cli.importar_cnpj_rfb import importar
+            from app.models import ImportacaoCnpjRfb
+
+            execucao_id = payload["execucao_id"]
+
+            async def _progresso(etapa: str, processados: int, validos: int) -> None:
+                async with session_factory() as sessao_progresso:
+                    execucao = await sessao_progresso.get(ImportacaoCnpjRfb, execucao_id)
+                    if execucao is not None:
+                        execucao.etapa_atual = etapa
+                        if processados or validos:
+                            execucao.total_processados = processados
+                            execucao.total_validos = validos
+                        await sessao_progresso.commit()
+
+            try:
+                resultado = await importar(
+                    periodo=payload.get("periodo"), limite_linhas=payload.get("limite_linhas"), progresso=_progresso
+                )
+            except Exception as exc:  # noqa: BLE001 - registra o erro na execução antes de propagar para o retry padrão da fila
+                execucao = await session.get(ImportacaoCnpjRfb, execucao_id)
+                if execucao is not None:
+                    execucao.status = "erro"
+                    execucao.erro = str(exc)[:4000]
+                    execucao.concluido_em = datetime.now(UTC)
+                raise
+            execucao = await session.get(ImportacaoCnpjRfb, execucao_id)
+            if execucao is not None:
+                execucao.status = "concluido"
+                execucao.periodo = resultado["periodo"]
+                execucao.etapa_atual = "Concluído"
+                execucao.total_processados = resultado["processados"]
+                execucao.total_validos = resultado["validos"]
+                execucao.concluido_em = datetime.now(UTC)
         else:
             raise ValueError(f"Tipo de trabalho desconhecido: {tipo}")
         await session.commit()

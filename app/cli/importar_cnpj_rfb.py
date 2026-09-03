@@ -1,14 +1,18 @@
 """ETL dos Dados Abertos do CNPJ (Receita Federal) -> cache_estabelecimentos_rfb.
 
 Fase 2 do Radar de Prospecção (03/09/2026,
-docs/arquitetura-radar-prospeccao-2026-09-03.md). NÃO roda pelo worker
-Redis: a RFB não particiona os arquivos por UF/CNAE (são ~10 arquivos
-arbitrários por tipo cobrindo o Brasil inteiro, vários GB compactados), então
-isto é um job de lote pesado e demorado -- roda por cron/execução manual
-("uv run python -m app.cli.importar_cnpj_rfb"), fora do request-response da
-aplicação. A coleta *por campanha* (rápida, por tenant) é outro código
-(app/api/prospeccao.py::coletar_campanha), que só consulta este cache já
-pronto -- nunca baixa nada da RFB na hora.
+docs/arquitetura-radar-prospeccao-2026-09-03.md). A RFB não particiona os
+arquivos por UF/CNAE (são ~10 arquivos arbitrários por tipo cobrindo o Brasil
+inteiro, vários GB compactados), então isto é um job de lote pesado e
+demorado. Duas formas de rodar: standalone ("uv run python -m
+app.cli.importar_cnpj_rfb", fora do request-response da aplicação, útil por
+cron) ou disparado pela tela do Radar (superadmin), que enfileira o job
+prospeccao.importar_cnpj_rfb no worker -- ver app/worker.py -- em vez de rodar
+preso à sessão SSH/HTTP de quem clicou (esse acoplamento já causou uma
+importação perdida no meio do download em 03/09/2026). A coleta *por
+campanha* (rápida, por tenant) é outro código (app/api/prospeccao.py::
+coletar_campanha), que só consulta este cache já pronto -- nunca baixa nada
+da RFB na hora.
 
 Origem: dadosabertos.rfb.gov.br não responde a partir da rede desta VPS
 (timeout de TCP, confirmado em 03/09/2026 -- outros hosts gov.br respondem
@@ -35,7 +39,7 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from datetime import datetime
 from urllib.request import Request, urlopen
 
@@ -59,6 +63,7 @@ if not logger.handlers:
 USER_AGENT = "INPI-API/0.1 (radar de prospeccao -- dados abertos CNPJ)"
 TAMANHO_LOTE_UPSERT = 2000
 _NS_DAV = {"d": "DAV:"}
+CallableProgresso = Callable[[str, int, int], Awaitable[None]]
 
 
 def _cabecalhos(extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -115,7 +120,9 @@ def carregar_referencia(base_url: str, periodo: str, prefixo_arquivo: str) -> di
     return {reg["codigo"].strip(): reg["descricao"].strip() for reg in _registros(conteudo, COLUNAS_REFERENCIA)}
 
 
-def carregar_empresas_por_cnpj_basico(base_url: str, periodo: str) -> dict[str, tuple[str, str]]:
+async def carregar_empresas_por_cnpj_basico(
+    base_url: str, periodo: str, progresso: CallableProgresso | None = None
+) -> dict[str, tuple[str, str]]:
     """Empresas0..9.zip -- só guarda cnpj_basico -> (porte_empresa, razao_social),
     para não segurar capital social/natureza jurídica/etc. de ~50M empresas em memória."""
     empresas: dict[str, tuple[str, str]] = {}
@@ -124,16 +131,30 @@ def carregar_empresas_por_cnpj_basico(base_url: str, periodo: str) -> dict[str, 
         for registro in _registros(conteudo, COLUNAS_EMPRESA):
             empresas[registro["cnpj_basico"]] = (registro["porte_empresa"], registro["razao_social"])
         logger.info("Empresas%s.zip processado (%d cnpj_basico acumulados)", indice, len(empresas))
+        if progresso:
+            await progresso(f"Carregando empresas {indice + 1}/10 ({len(empresas)} acumuladas)", 0, 0)
     return empresas
 
 
-async def importar(periodo: str | None = None, limite_linhas: int | None = None, base_url: str | None = None) -> dict:
+async def importar(
+    periodo: str | None = None,
+    limite_linhas: int | None = None,
+    base_url: str | None = None,
+    progresso: CallableProgresso | None = None,
+) -> dict:
+    """progresso, quando informado, é chamado como
+    `await progresso(etapa_atual: str, total_processados: int, total_validos: int)`
+    em cada checkpoint significativo -- usado pelo job do worker
+    (prospeccao.importar_cnpj_rfb) para persistir progresso visível à tela do
+    Radar. A CLI standalone roda sem callback (só o logger)."""
     base_url = base_url or get_settings().rfb_cnpj_base_url
     periodo = periodo or descobrir_periodo_mais_recente(base_url)
     logger.info("Período selecionado: %s (fonte: %s)", periodo, base_url)
+    if progresso:
+        await progresso(f"Período selecionado: {periodo}", 0, 0)
 
     municipios = carregar_referencia(base_url, periodo, "Municipios")
-    empresas = carregar_empresas_por_cnpj_basico(base_url, periodo)
+    empresas = await carregar_empresas_por_cnpj_basico(base_url, periodo, progresso)
 
     total_processados = 0
     total_validos = 0
@@ -163,6 +184,8 @@ async def importar(periodo: str | None = None, limite_linhas: int | None = None,
                 if limite_linhas and total_processados >= limite_linhas:
                     break
             logger.info("Estabelecimentos%s.zip processado (%d válidos até agora)", indice, total_validos)
+            if progresso:
+                await progresso(f"Processando estabelecimentos {indice + 1}/10", total_processados, total_validos)
             if limite_linhas and total_processados >= limite_linhas:
                 break
         if lote:

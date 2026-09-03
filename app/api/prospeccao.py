@@ -15,6 +15,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.leads import _garantir_proxima_acao_padrao
+from app.api.saas import SuperAdminDep
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.crm import registrar_consentimento_operador
 from app.database import get_session
@@ -24,6 +25,7 @@ from app.models import (
     EmpresaCRM,
     EventoAuditoria,
     HistoricoStatusProspect,
+    ImportacaoCnpjRfb,
     Lead,
     PoliticaProspeccao,
     Prospect,
@@ -40,6 +42,8 @@ from app.schemas import (
     CampanhaProspeccaoCreate,
     CampanhaProspeccaoListResponse,
     CampanhaProspeccaoResponse,
+    ImportacaoCnpjRfbResponse,
+    ImportacaoCnpjRfbTrigger,
     PoliticaProspeccaoResponse,
     PoliticaProspeccaoUpdate,
     ProspectCreate,
@@ -816,3 +820,62 @@ async def dashboard_prospeccao(
     ]
 
     return {"funil": funil, "dias": dias, "serie": serie}
+
+
+# --- Importação do cache nacional de empresas (Dados Abertos do CNPJ) ------
+#
+# Restrito a superadmin: alimenta cache_estabelecimentos_rfb, que não é por
+# tenant -- afeta a plataforma inteira, não uma organização só. Roda pelo
+# worker (não preso à sessão HTTP/SSH de quem disparou -- uma importação
+# rodando via SSH direto já morreu no meio do download em 03/09/2026 quando
+# a conexão caiu).
+
+
+@router_campanhas.post(
+    "/importar-cnpj-rfb", status_code=status.HTTP_202_ACCEPTED, response_model=ImportacaoCnpjRfbResponse
+)
+async def disparar_importacao_cnpj_rfb(
+    dados: ImportacaoCnpjRfbTrigger, request: Request, session: SessionDep, usuario: SuperAdminDep
+) -> ImportacaoCnpjRfbResponse:
+    em_andamento = (
+        await session.execute(select(ImportacaoCnpjRfb).where(ImportacaoCnpjRfb.status == "executando").limit(1))
+    ).scalar_one_or_none()
+    if em_andamento is not None:
+        raise HTTPException(422, "Já existe uma importação em andamento -- aguarde terminar antes de disparar outra.")
+
+    execucao = ImportacaoCnpjRfb(
+        status="executando",
+        periodo=dados.periodo,
+        solicitado_por=usuario.nome or "sistema",
+        total_processados=0,
+        total_validos=0,
+        solicitado_em=datetime.now(UTC),
+    )
+    session.add(execucao)
+    await session.flush()
+    job = await enfileirar(
+        "prospeccao.importar_cnpj_rfb",
+        {"execucao_id": execucao.id, "periodo": dados.periodo, "limite_linhas": dados.limite_linhas},
+    )
+    _auditar(
+        session, request, usuario, "importar_cnpj_rfb", f"importacao_cnpj_rfb:{execucao.id}", {"job_id": job.get("id")}
+    )
+    await session.commit()
+    await session.refresh(execucao)
+    return ImportacaoCnpjRfbResponse.model_validate(execucao)
+
+
+@router_campanhas.get("/importar-cnpj-rfb", response_model=list[ImportacaoCnpjRfbResponse])
+async def listar_importacoes_cnpj_rfb(
+    session: SessionDep, usuario: ProspeccaoViewDep, limite: Annotated[int, Query(ge=1, le=50)] = 10
+) -> list[ImportacaoCnpjRfbResponse]:
+    execucoes = (
+        (
+            await session.execute(
+                select(ImportacaoCnpjRfb).order_by(ImportacaoCnpjRfb.solicitado_em.desc()).limit(limite)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [ImportacaoCnpjRfbResponse.model_validate(item) for item in execucoes]

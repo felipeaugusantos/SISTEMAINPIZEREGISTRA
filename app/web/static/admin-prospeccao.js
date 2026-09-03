@@ -152,6 +152,73 @@ async function loadProspects() {
 }
 async function reloadAll() { await Promise.all([loadDashboard(), loadProspects()]); }
 
+// --- Cache nacional de empresas (CNPJ/RFB) -- gatilho restrito a superadmin ---
+
+const CACHE_RFB_STATUS_LABELS = { executando: "Em andamento", concluido: "Concluída", erro: "Falhou" };
+let pollingCacheRfb = false;
+
+function renderCacheRfbStatus(execucoes) {
+  const alvo = document.querySelector("#cache-rfb-status");
+  if (!execucoes.length) { alvo.innerHTML = "Nenhuma importação registrada ainda."; return; }
+  const ultima = execucoes[0];
+  const linhas = [
+    `<strong>${escapeHtml(CACHE_RFB_STATUS_LABELS[ultima.status] || ultima.status)}</strong>${ultima.status === "executando" ? `<span class="prospeccao-spinner" aria-hidden="true"></span>` : ""}`,
+    ultima.periodo ? `Período: ${escapeHtml(ultima.periodo)}` : null,
+    ultima.etapa_atual ? `Etapa: ${escapeHtml(ultima.etapa_atual)}` : null,
+    ultima.total_processados ? `${ultima.total_processados.toLocaleString("pt-BR")} processados, ${ultima.total_validos.toLocaleString("pt-BR")} válidos` : null,
+    ultima.erro ? `<span class="status-message error" style="display:inline-block">${escapeHtml(ultima.erro)}</span>` : null,
+    `Solicitado por ${escapeHtml(ultima.solicitado_por || "—")} em ${formatDateTime(ultima.solicitado_em)}${ultima.concluido_em ? ` · concluído em ${formatDateTime(ultima.concluido_em)}` : ""}`,
+  ].filter(Boolean);
+  alvo.innerHTML = linhas.join("<br>");
+
+  const botao = document.querySelector("#importar-cnpj-rfb");
+  botao.disabled = ultima.status === "executando";
+  botao.textContent = ultima.status === "executando" ? "Importando…" : "Importar agora";
+
+  if (ultima.status === "executando" && !pollingCacheRfb) {
+    pollingCacheRfb = true;
+    const intervalo = setInterval(async () => {
+      try {
+        const dados = await api("/v1/admin/prospeccao/importar-cnpj-rfb?limite=1");
+        renderCacheRfbStatus(dados);
+        if (dados[0]?.status !== "executando") {
+          clearInterval(intervalo);
+          pollingCacheRfb = false;
+          showMessage(
+            dados[0]?.status === "concluido"
+              ? `Importação concluída: ${dados[0].total_validos.toLocaleString("pt-BR")} estabelecimentos válidos no cache.`
+              : "Importação falhou — veja o detalhe no painel do cache nacional de empresas.",
+            dados[0]?.status === "concluido" ? "success" : "error",
+          );
+        }
+      } catch {
+        clearInterval(intervalo);
+        pollingCacheRfb = false;
+      }
+    }, 5000);
+  }
+}
+async function loadCacheRfbStatus() {
+  const dados = await api("/v1/admin/prospeccao/importar-cnpj-rfb?limite=1");
+  renderCacheRfbStatus(dados);
+}
+async function configurarBotaoImportarCnpjRfb() {
+  try {
+    const usuario = await api("/v1/auth/me");
+    document.querySelector("#importar-cnpj-rfb").hidden = !usuario.superadmin;
+  } catch {
+    document.querySelector("#importar-cnpj-rfb").hidden = true;
+  }
+}
+document.querySelector("#importar-cnpj-rfb").addEventListener("click", async () => {
+  if (!confirm("Disparar a importação do cache nacional de empresas? É uma operação pesada (vários GB) e afeta todas as organizações da plataforma.")) return;
+  try {
+    await api("/v1/admin/prospeccao/importar-cnpj-rfb", { method: "POST", body: JSON.stringify({}) });
+    showMessage("Importação disparada — acompanhe pelo painel do cache nacional de empresas, que atualiza sozinho.");
+    await loadCacheRfbStatus();
+  } catch (error) { showMessage(error.message, "error"); }
+});
+
 function iniciarPollingCampanhasSeNecessario() {
   const temAtiva = document.querySelector('#campanhas-rows [data-status="ativa"]');
   if (!temAtiva || state.pollingCampanhas) return;
@@ -362,4 +429,4 @@ document.querySelector("#politica-form").addEventListener("submit", async event 
   } catch (error) { showMessage(error.message, "error"); }
 });
 
-Promise.all([loadDashboard(), loadCampanhas(), loadProspects()]).catch(error => showMessage(error.message, "error"));
+Promise.all([loadDashboard(), loadCampanhas(), loadProspects(), loadCacheRfbStatus(), configurarBotaoImportarCnpjRfb()]).catch(error => showMessage(error.message, "error"));

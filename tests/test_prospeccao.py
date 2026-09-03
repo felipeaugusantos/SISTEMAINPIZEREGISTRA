@@ -581,3 +581,96 @@ def test_dashboard_prospeccao_retorna_funil_e_serie() -> None:
     corpo = resposta.json()
     assert corpo["funil"] == {"novo": 3, "aprovado": 1}
     assert len(corpo["serie"]) == 8
+
+
+# --- Importação do cache nacional de empresas (CNPJ/RFB) -- superadmin ----
+
+
+def _sessao_superadmin(*resultados: FakeResult) -> FakeSession:
+    session = FakeSession(list(resultados))
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    object.__setattr__(usuario, "superadmin", True)
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    return session
+
+
+def _importacao_cnpj_rfb(**kwargs: object):
+    from app.models import ImportacaoCnpjRfb
+
+    base: dict = {
+        "id": 1,
+        "status": "concluido",
+        "periodo": "2026-08",
+        "etapa_atual": "Concluído",
+        "total_processados": 100,
+        "total_validos": 90,
+        "erro": None,
+        "solicitado_por": "Admin Teste",
+        "solicitado_em": datetime.now(UTC),
+        "concluido_em": datetime.now(UTC),
+    }
+    base.update(kwargs)
+    return ImportacaoCnpjRfb(**base)
+
+
+def test_disparar_importacao_cnpj_rfb_enfileira_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = _sessao_superadmin(FakeResult(scalar=None))
+
+    class RedisFalso:
+        async def set(self, *_args: object, **_kwargs: object) -> bool:
+            return True
+
+        async def rpush(self, *_args: object) -> None:
+            return None
+
+        async def hincrby(self, *_args: object) -> int:
+            return 1
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr("app.queueing.cliente_redis", lambda: RedisFalso())
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/importar-cnpj-rfb", json={}, headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 202
+    corpo = resposta.json()
+    assert corpo["status"] == "executando"
+    assert session.commits == 1
+
+
+def test_disparar_importacao_bloqueia_quando_ja_em_andamento() -> None:
+    existente = _importacao_cnpj_rfb(status="executando")
+    _sessao_superadmin(FakeResult(scalar=existente))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/importar-cnpj-rfb", json={}, headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 422
+
+
+def test_disparar_importacao_exige_superadmin() -> None:
+    _sessao_admin()
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/importar-cnpj-rfb", json={}, headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 403
+
+
+def test_listar_importacoes_cnpj_rfb() -> None:
+    execucao = _importacao_cnpj_rfb()
+    _sessao_admin(FakeResult(itens=[execucao]))
+
+    resposta = TestClient(app).get("/v1/admin/prospeccao/importar-cnpj-rfb")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo[0]["status"] == "concluido"
+    assert corpo[0]["total_validos"] == 90

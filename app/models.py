@@ -1675,8 +1675,9 @@ class CacheEstabelecimentoRFB(Base):
 
     NÃO é por tenant -- é dado público, compartilhável entre organizações do
     SaaS, e por isso não tem organizacao_id nem RLS. Alimentado por
-    app/cli/importar_cnpj_rfb.py (ETL fora do request-response da aplicação,
-    rodado por cron quando a RFB publica um novo mês de dados)."""
+    app/cli/importar_cnpj_rfb.py (ETL fora do request-response da aplicação),
+    disparado pelo job prospeccao.importar_cnpj_rfb (tela do Radar, restrito
+    a superadmin -- ver ImportacaoCnpjRfb) ou manualmente por cron/CLI."""
 
     __tablename__ = "cache_estabelecimentos_rfb"
 
@@ -1695,6 +1696,27 @@ class CacheEstabelecimentoRFB(Base):
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class ImportacaoCnpjRfb(Base):
+    """Execução do ETL dos Dados Abertos do CNPJ (03/09/2026) -- mesmo padrão
+    de RpiSyncExecucao: uma linha por execução, atualizada em commits
+    próprios (não só no fim) para o polling da tela do Radar acompanhar o
+    progresso em tempo real. Sem RLS -- alimenta um cache global, não por
+    tenant; disparo restrito a superadmin (afeta a plataforma inteira)."""
+
+    __tablename__ = "importacoes_cnpj_rfb"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    status: Mapped[str] = mapped_column(String(20), default="executando", index=True)
+    periodo: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    etapa_atual: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    total_processados: Mapped[int] = mapped_column(Integer, default=0)
+    total_validos: Mapped[int] = mapped_column(Integer, default=0)
+    erro: Mapped[str | None] = mapped_column(Text, nullable=True)
+    solicitado_por: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    solicitado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    concluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ProspectEnriquecimento(Base):

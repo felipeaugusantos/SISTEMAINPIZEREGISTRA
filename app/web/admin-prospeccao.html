@@ -26,6 +26,13 @@
 
     <section class="prospeccao-metrics" id="prospeccao-metrics" aria-label="Funil de prospecção"></section>
 
+    <section class="prospeccao-card" id="cache-rfb-section">
+      <header><div><p class="eyebrow">FONTE DE DADOS</p><h2>Cache nacional de empresas (CNPJ)</h2><p>É esse cache que alimenta a coleta por campanha abaixo. Atualizado a partir dos Dados Abertos do CNPJ da Receita Federal — operação de plataforma, restrita ao superadministrador.</p></div>
+        <button id="importar-cnpj-rfb" class="secondary-button" type="button" hidden>Importar agora</button>
+      </header>
+      <div id="cache-rfb-status" class="prospeccao-cache-status">Carregando…</div>
+    </section>
+
     <section class="prospeccao-card" id="campanhas-section">
       <header><div><p class="eyebrow">COLETA EM LOTE</p><h2>Campanhas</h2><p>Cada campanha aplica os critérios abaixo contra o cache local de empresas (Dados Abertos do CNPJ) e cria prospects novos, evitando duplicar quem já está no radar ou já é lead/cliente.</p></div></header>
       <div class="prospeccao-table-wrap"><table><thead><tr><th>Campanha</th><th>Critérios</th><th>Status</th><th>Prospects gerados</th><th><span class="visually-hidden">Ações</span></th></tr></thead><tbody id="campanhas-rows"></tbody></table></div>

@@ -121,3 +121,31 @@ def test_baixar_sem_token_nao_envia_autenticacao(monkeypatch) -> None:
     modulo._baixar("https://exemplo.com/webdav/2026-08/Municipios.zip")
 
     assert not any(chave.lower() == "authorization" for chave in capturado["headers"])
+
+
+# --- Callback de progresso (03/09/2026) -- disparo pela tela, superadmin ---
+
+
+async def test_carregar_empresas_chama_progresso_uma_vez_por_arquivo(monkeypatch) -> None:
+    conteudo = _zip_com_csv("K3241.EMPRECSV", ["11222333;Loja Exemplo Ltda;2062;49;0,00;01;"])
+    monkeypatch.setattr(modulo, "_baixar", lambda url: conteudo)
+    chamadas = []
+
+    async def _progresso(etapa, processados, validos):
+        chamadas.append((etapa, processados, validos))
+
+    resultado = await modulo.carregar_empresas_por_cnpj_basico("https://exemplo.com/webdav", "2026-08", _progresso)
+
+    assert resultado == {"11222333": ("01", "Loja Exemplo Ltda")}
+    assert len(chamadas) == 10
+    assert "Carregando empresas 1/10" in chamadas[0][0]
+    assert "Carregando empresas 10/10" in chamadas[-1][0]
+
+
+async def test_carregar_empresas_sem_callback_nao_quebra(monkeypatch) -> None:
+    conteudo = _zip_com_csv("K3241.EMPRECSV", ["11222333;Loja Exemplo Ltda;2062;49;0,00;01;"])
+    monkeypatch.setattr(modulo, "_baixar", lambda url: conteudo)
+
+    resultado = await modulo.carregar_empresas_por_cnpj_basico("https://exemplo.com/webdav", "2026-08")
+
+    assert resultado == {"11222333": ("01", "Loja Exemplo Ltda")}

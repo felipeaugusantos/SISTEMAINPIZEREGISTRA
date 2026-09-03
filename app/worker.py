@@ -405,6 +405,81 @@ async def processar(tipo: str, payload: dict) -> None:
                     detalhes=resultado,
                 )
             )
+        elif tipo == "prospeccao.coletar_campanha":
+            # Fase 2 do Radar de Prospecção (03/09/2026): a RFB nao oferece
+            # consulta sob demanda por CNAE/UF -- so consulta o cache local
+            # (cache_estabelecimentos_rfb), alimentado a parte por
+            # app/cli/importar_cnpj_rfb.py. Nunca baixa nada da RFB aqui.
+            from app.api.prospeccao import _criar_prospect, obter_ou_criar_fonte_cnae_publico
+            from app.models import CacheEstabelecimentoRFB, CampanhaProspeccao
+            from app.schemas import ProspectCreate
+
+            organizacao_id = payload["organizacao_id"]
+            campanha = (
+                await session.execute(
+                    select(CampanhaProspeccao).where(
+                        CampanhaProspeccao.id == payload["campanha_id"],
+                        CampanhaProspeccao.organizacao_id == organizacao_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if campanha is not None:
+                criterios = campanha.criterios_busca or {}
+                filtros_cache = [CacheEstabelecimentoRFB.situacao_cadastral == "ativa"]
+                if criterios.get("cnae_principal"):
+                    filtros_cache.append(CacheEstabelecimentoRFB.cnae_principal == criterios["cnae_principal"])
+                if criterios.get("uf"):
+                    filtros_cache.append(CacheEstabelecimentoRFB.uf == criterios["uf"])
+                if criterios.get("cidade"):
+                    filtros_cache.append(CacheEstabelecimentoRFB.cidade.ilike(f"%{criterios['cidade']}%"))
+                if criterios.get("porte"):
+                    filtros_cache.append(CacheEstabelecimentoRFB.porte == criterios["porte"])
+                if criterios.get("data_abertura_de"):
+                    # criterios_busca vem de JSON -- datas chegam como string ISO, não date.
+                    filtros_cache.append(
+                        CacheEstabelecimentoRFB.data_abertura >= date.fromisoformat(criterios["data_abertura_de"])
+                    )
+                if criterios.get("data_abertura_ate"):
+                    filtros_cache.append(
+                        CacheEstabelecimentoRFB.data_abertura <= date.fromisoformat(criterios["data_abertura_ate"])
+                    )
+
+                limite = min(campanha.meta_prospects or 500, 2000)
+                candidatos = (
+                    (await session.execute(select(CacheEstabelecimentoRFB).where(*filtros_cache).limit(limite)))
+                    .scalars()
+                    .all()
+                )
+                fonte = await obter_ou_criar_fonte_cnae_publico(session, organizacao_id)
+                criados = 0
+                for candidato in candidatos:
+                    dados = ProspectCreate(
+                        razao_social=candidato.razao_social,
+                        nome_fantasia=candidato.nome_fantasia,
+                        cnpj=candidato.cnpj,
+                        cnae_principal=candidato.cnae_principal,
+                        cnaes_secundarios=candidato.cnaes_secundarios,
+                        porte=candidato.porte,
+                        uf=candidato.uf,
+                        cidade=candidato.cidade,
+                        telefone=candidato.telefone,
+                        email=candidato.email,
+                    )
+                    _, criado = await _criar_prospect(
+                        session,
+                        organizacao_id,
+                        dados,
+                        "radar:coleta-automatica",
+                        fonte_id=fonte.id,
+                        campanha_id=campanha.id,
+                    )
+                    if criado:
+                        criados += 1
+                campanha.status = "concluida"
+                campanha.encerrada_em = datetime.now(UTC)
+                logger.info(
+                    "Campanha %s: %d/%d candidatos viraram prospect novo", campanha.id, criados, len(candidatos)
+                )
         else:
             raise ValueError(f"Tipo de trabalho desconhecido: {tipo}")
         await session.commit()

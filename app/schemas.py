@@ -638,6 +638,8 @@ class ProspectResponse(BaseModel):
     lead_id: int | None
     empresa_crm_id: int | None
     duplicado_de_id: int | None
+    fonte_id: int | None = None
+    campanha_id: int | None = None
     criado_em: datetime
     atualizado_em: datetime
 
@@ -647,6 +649,60 @@ class ProspectListResponse(BaseModel):
     limite: int
     deslocamento: int
     itens: list[ProspectResponse]
+
+
+# --- Fase 2 do Radar de Prospecção (03/09/2026) -- fontes e campanhas -------
+
+
+class CriteriosBuscaCampanha(BaseModel):
+    cnae_principal: str | None = Field(default=None, max_length=10)
+    uf: str | None = Field(default=None, max_length=2)
+    cidade: str | None = Field(default=None, max_length=120)
+    porte: Literal["nao_informado", "micro", "pequeno", "demais"] | None = None
+    data_abertura_de: date | None = None
+    data_abertura_ate: date | None = None
+
+    @field_validator("uf", mode="before")
+    @classmethod
+    def _normalizar_uf(cls, valor: object) -> object:
+        return valor.strip().upper() if isinstance(valor, str) else valor
+
+    @field_validator("cidade", mode="before")
+    @classmethod
+    def _limpar_cidade(cls, valor: object) -> object:
+        return valor.strip() if isinstance(valor, str) else valor
+
+
+class CampanhaProspeccaoCreate(BaseModel):
+    nome: str = Field(min_length=2, max_length=120)
+    descricao: str | None = Field(default=None, max_length=2000)
+    criterios_busca: CriteriosBuscaCampanha = Field(default_factory=CriteriosBuscaCampanha)
+    meta_prospects: int | None = Field(default=None, ge=1)
+
+    @field_validator("nome", "descricao", mode="before")
+    @classmethod
+    def _limpar_texto(cls, valor: object) -> object:
+        return valor.strip() if isinstance(valor, str) else valor
+
+
+class CampanhaProspeccaoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nome: str
+    descricao: str | None
+    criterios_busca: dict
+    status: str
+    meta_prospects: int | None
+    criado_por: str | None
+    criado_em: datetime
+    encerrada_em: datetime | None
+    prospects_gerados: int = 0
+
+
+class CampanhaProspeccaoListResponse(BaseModel):
+    total: int
+    itens: list[CampanhaProspeccaoResponse]
 
 
 class PesquisaLeadResumo(BaseModel):

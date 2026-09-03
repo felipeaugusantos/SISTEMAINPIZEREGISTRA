@@ -44,6 +44,7 @@ from app.api.processos import router as processos_router
 from app.api.producao import router as producao_router
 from app.api.propostas_config import router as propostas_config_router
 from app.api.prospeccao import router as prospeccao_router
+from app.api.prospeccao import router_campanhas as prospeccao_campanhas_router
 from app.api.rpi_admin import router as rpi_admin_router
 from app.api.rpi_consulta import router as rpi_consulta_router
 from app.api.saas import exigir_superadmin
@@ -122,6 +123,7 @@ app.middleware("http")(observar_requisicao)
 app.include_router(processos_router)
 app.include_router(leads_router)
 app.include_router(prospeccao_router)
+app.include_router(prospeccao_campanhas_router)
 app.include_router(privacidade_router)
 app.include_router(
     pesquisas_router,

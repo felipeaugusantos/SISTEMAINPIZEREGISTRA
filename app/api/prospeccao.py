@@ -7,6 +7,7 @@ própria migração -- esta fase não antecipa colunas que nenhum código ainda
 preenche.
 """
 
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
@@ -18,11 +19,31 @@ from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.crm import registrar_consentimento_operador
 from app.database import get_session
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
-from app.models import EmpresaCRM, EventoAuditoria, HistoricoStatusProspect, Lead, Prospect, StatusLead, StatusProspect
+from app.models import (
+    CampanhaProspeccao,
+    EmpresaCRM,
+    EventoAuditoria,
+    HistoricoStatusProspect,
+    Lead,
+    Prospect,
+    ProspectFonte,
+    StatusLead,
+    StatusProspect,
+)
 from app.proxy import cliente_ip
-from app.schemas import ProspectCreate, ProspectListResponse, ProspectResponse, ProspectStatusUpdate
+from app.queueing import enfileirar
+from app.schemas import (
+    CampanhaProspeccaoCreate,
+    CampanhaProspeccaoListResponse,
+    CampanhaProspeccaoResponse,
+    ProspectCreate,
+    ProspectListResponse,
+    ProspectResponse,
+    ProspectStatusUpdate,
+)
 
 router = APIRouter(prefix="/v1/admin/prospects", tags=["prospeccao"])
+router_campanhas = APIRouter(prefix="/v1/admin/prospeccao", tags=["prospeccao"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ProspeccaoViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("prospeccao.view"))]
 ProspeccaoManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("prospeccao.manage"))]
@@ -141,7 +162,13 @@ async def _correspondencia_crm(
 
 
 async def _criar_prospect(
-    session: AsyncSession, organizacao_id: int, dados: ProspectCreate, por: str
+    session: AsyncSession,
+    organizacao_id: int,
+    dados: ProspectCreate,
+    por: str,
+    *,
+    fonte_id: int | None = None,
+    campanha_id: int | None = None,
 ) -> tuple[Prospect, bool]:
     """Cria um Prospect aplicando as duas camadas de dedup. Devolve
     (prospect, criado) -- criado=False quando reaproveitou um já existente."""
@@ -169,6 +196,8 @@ async def _criar_prospect(
         site=dados.site,
         status=StatusProspect.NOVO.value,
         empresa_crm_id=empresa_crm_id,
+        fonte_id=fonte_id,
+        campanha_id=campanha_id,
     )
     session.add(prospect)
     await session.flush()
@@ -441,3 +470,132 @@ async def converter_prospect_em_lead(
     )
     await session.commit()
     return {"lead_id": lead.id, "criado_novo": criado_novo}
+
+
+# --- Fase 2 do Radar de Prospecção (03/09/2026) -- fontes e campanhas ------
+#
+# A fonte "cnae_publico" (Dados Abertos do CNPJ/RFB) não precisa ser criada
+# manualmente pelo usuário -- é a única fonte automática que existe por
+# enquanto, então nasce sozinha na primeira campanha da organização.
+
+
+async def obter_ou_criar_fonte_cnae_publico(session: AsyncSession, organizacao_id: int) -> ProspectFonte:
+    fonte = (
+        await session.execute(
+            select(ProspectFonte).where(
+                ProspectFonte.organizacao_id == organizacao_id, ProspectFonte.tipo == "cnae_publico"
+            )
+        )
+    ).scalar_one_or_none()
+    if fonte is None:
+        fonte = ProspectFonte(
+            organizacao_id=organizacao_id, tipo="cnae_publico", nome="Dados Abertos do CNPJ (Receita Federal)"
+        )
+        session.add(fonte)
+        await session.flush()
+    return fonte
+
+
+async def _contagem_prospects_por_campanha(session: AsyncSession, organizacao_id: int, campanha_ids: list[int]) -> dict[int, int]:
+    if not campanha_ids:
+        return {}
+    linhas = await session.execute(
+        select(Prospect.campanha_id, func.count())
+        .where(Prospect.organizacao_id == organizacao_id, Prospect.campanha_id.in_(campanha_ids))
+        .group_by(Prospect.campanha_id)
+    )
+    return dict(linhas.all())
+
+
+@router_campanhas.get("/campanhas", response_model=CampanhaProspeccaoListResponse)
+async def listar_campanhas(session: SessionDep, usuario: ProspeccaoViewDep) -> CampanhaProspeccaoListResponse:
+    total = (
+        await session.execute(
+            select(func.count()).select_from(CampanhaProspeccao).where(CampanhaProspeccao.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one()
+    campanhas = (
+        (
+            await session.execute(
+                select(CampanhaProspeccao)
+                .where(CampanhaProspeccao.organizacao_id == usuario.organizacao_id)
+                .order_by(CampanhaProspeccao.criado_em.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    contagens = await _contagem_prospects_por_campanha(session, usuario.organizacao_id, [c.id for c in campanhas])
+    itens = []
+    for campanha in campanhas:
+        dados = CampanhaProspeccaoResponse.model_validate(campanha)
+        dados.prospects_gerados = contagens.get(campanha.id, 0)
+        itens.append(dados)
+    return CampanhaProspeccaoListResponse(total=total, itens=itens)
+
+
+@router_campanhas.get("/campanhas/{campanha_id}", response_model=CampanhaProspeccaoResponse)
+async def detalhar_campanha(campanha_id: int, session: SessionDep, usuario: ProspeccaoViewDep) -> CampanhaProspeccaoResponse:
+    campanha = (
+        await session.execute(
+            select(CampanhaProspeccao).where(
+                CampanhaProspeccao.id == campanha_id, CampanhaProspeccao.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if campanha is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Campanha não encontrada")
+    contagens = await _contagem_prospects_por_campanha(session, usuario.organizacao_id, [campanha.id])
+    dados = CampanhaProspeccaoResponse.model_validate(campanha)
+    dados.prospects_gerados = contagens.get(campanha.id, 0)
+    return dados
+
+
+@router_campanhas.post("/campanhas", status_code=status.HTTP_201_CREATED, response_model=CampanhaProspeccaoResponse)
+async def criar_campanha(
+    dados: CampanhaProspeccaoCreate, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
+) -> CampanhaProspeccaoResponse:
+    campanha = CampanhaProspeccao(
+        organizacao_id=usuario.organizacao_id,
+        nome=dados.nome,
+        descricao=dados.descricao,
+        criterios_busca=dados.criterios_busca.model_dump(mode="json", exclude_none=True),
+        status="rascunho",
+        meta_prospects=dados.meta_prospects,
+        criado_por=usuario.nome or "sistema",
+    )
+    session.add(campanha)
+    _auditar(session, request, usuario, "criar_campanha_prospeccao", "campanha:nova", {"nome": dados.nome})
+    await session.commit()
+    await session.refresh(campanha)
+    return CampanhaProspeccaoResponse.model_validate(campanha)
+
+
+@router_campanhas.post("/campanhas/{campanha_id}/coletar", status_code=status.HTTP_202_ACCEPTED)
+async def coletar_campanha(
+    campanha_id: int, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
+) -> dict:
+    """Enfileira a coleta -- não roda na hora. A RFB não é uma API de consulta
+    sob demanda: quem gera os prospects é o job (app/worker.py), consultando
+    o cache local já pronto (ver migrations/.../98czgjqcsywi_...py)."""
+    campanha = (
+        await session.execute(
+            select(CampanhaProspeccao).where(
+                CampanhaProspeccao.id == campanha_id, CampanhaProspeccao.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if campanha is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Campanha não encontrada")
+    if campanha.status not in ("rascunho", "ativa", "pausada"):
+        raise HTTPException(422, f"Campanha já foi concluída (status atual: {campanha.status}).")
+
+    job = await enfileirar(
+        "prospeccao.coletar_campanha",
+        {"campanha_id": campanha.id, "organizacao_id": usuario.organizacao_id},
+        idempotency_key=f"{campanha.id}:{datetime.now(UTC).date().isoformat()}",
+    )
+    campanha.status = "ativa"
+    _auditar(session, request, usuario, "coletar_campanha_prospeccao", f"campanha:{campanha.id}", {"job_id": job.get("id")})
+    await session.commit()
+    return {"job_id": job.get("id"), "duplicado": job.get("duplicado", False)}

@@ -1583,6 +1583,15 @@ class Prospect(Base):
     duplicado_de_id: Mapped[int | None] = mapped_column(
         ForeignKey("prospects.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Fase 2 do Radar de Prospecção (03/09/2026): de onde veio e em qual
+    # campanha de coleta o prospect nasceu -- ambos nulos quando criado
+    # manualmente (Fase 1, sem campanha).
+    fonte_id: Mapped[int | None] = mapped_column(
+        ForeignKey("prospect_fontes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    campanha_id: Mapped[int | None] = mapped_column(
+        ForeignKey("campanhas_prospeccao.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     dados_brutos: Mapped[dict] = mapped_column(JSON, default=dict)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizado_em: Mapped[datetime] = mapped_column(
@@ -1590,6 +1599,64 @@ class Prospect(Base):
     )
 
     responsavel: Mapped["UsuarioOperacoes | None"] = relationship(foreign_keys=[responsavel_id], lazy="selectin")
+
+
+class ProspectFonte(Base):
+    """Catálogo de fontes de coleta de Prospect (Fase 2 do Radar, 03/09/2026)."""
+
+    __tablename__ = "prospect_fontes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    tipo: Mapped[str] = mapped_column(String(30))
+    nome: Mapped[str] = mapped_column(String(120))
+    configuracao: Mapped[dict] = mapped_column(JSON, default=dict)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CampanhaProspeccao(Base):
+    """Critério de busca que gera prospects em lote (Fase 2 do Radar, 03/09/2026)."""
+
+    __tablename__ = "campanhas_prospeccao"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    nome: Mapped[str] = mapped_column(String(120))
+    descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    criterios_busca: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="rascunho", index=True)
+    meta_prospects: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    criado_por: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    encerrada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CacheEstabelecimentoRFB(Base):
+    """Cache nacional dos Dados Abertos do CNPJ (Receita Federal).
+
+    NÃO é por tenant -- é dado público, compartilhável entre organizações do
+    SaaS, e por isso não tem organizacao_id nem RLS. Alimentado por
+    app/cli/importar_cnpj_rfb.py (ETL fora do request-response da aplicação,
+    rodado por cron quando a RFB publica um novo mês de dados)."""
+
+    __tablename__ = "cache_estabelecimentos_rfb"
+
+    cnpj: Mapped[str] = mapped_column(String(14), primary_key=True)
+    razao_social: Mapped[str] = mapped_column(String(200))
+    nome_fantasia: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    cnae_principal: Mapped[str | None] = mapped_column(String(10), nullable=True, index=True)
+    cnaes_secundarios: Mapped[list[str]] = mapped_column(JSON, default=list)
+    porte: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    situacao_cadastral: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    data_abertura: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    uf: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    cidade: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    telefone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class HistoricoStatusProspect(Base):

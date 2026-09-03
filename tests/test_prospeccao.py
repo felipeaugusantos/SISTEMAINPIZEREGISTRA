@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
-from app.models import Lead, Prospect, StatusLead, StatusProspect
+from app.models import CampanhaProspeccao, Lead, Prospect, StatusLead, StatusProspect
 from tests.conftest import FakeResult, FakeSession, auth_override, usuario_teste
 
 # --- Fase 1 do Radar de Prospecção (03/09/2026, docs/arquitetura-radar-prospeccao-2026-09-03.md) ---
@@ -249,6 +249,106 @@ def test_converter_prospect_ja_processado_retorna_422() -> None:
 
     resposta = TestClient(app).post(
         "/v1/admin/prospects/5/converter-lead", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 422
+
+
+# --- Fase 2 do Radar de Prospecção (03/09/2026) -- fontes e campanhas ------
+
+
+def _campanha(**kwargs: object) -> CampanhaProspeccao:
+    base: dict = {
+        "id": 4,
+        "organizacao_id": 1,
+        "nome": "Padarias em SP capital",
+        "descricao": None,
+        "criterios_busca": {"cnae_principal": "4711302", "uf": "SP"},
+        "status": "rascunho",
+        "meta_prospects": 200,
+        "criado_por": "Admin Teste",
+        "criado_em": datetime(2026, 9, 1, tzinfo=UTC),
+        "encerrada_em": None,
+    }
+    base.update(kwargs)
+    return CampanhaProspeccao(**base)
+
+
+def test_criar_campanha() -> None:
+    session = _sessao_admin()
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/campanhas",
+        json={"nome": "Padarias em SP capital", "criterios_busca": {"cnae_principal": "4711302", "uf": "SP"}},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 201
+    corpo = resposta.json()
+    assert corpo["nome"] == "Padarias em SP capital"
+    assert corpo["status"] == "rascunho"
+    assert corpo["criterios_busca"] == {"cnae_principal": "4711302", "uf": "SP"}
+    assert session.commits == 1
+
+
+def test_listar_campanhas_inclui_contagem_de_prospects_gerados() -> None:
+    campanha = _campanha()
+    session = _sessao_admin(FakeResult(scalar=1), FakeResult(itens=[campanha]), FakeResult(itens=[(4, 7)]))
+
+    resposta = TestClient(app).get("/v1/admin/prospeccao/campanhas")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["total"] == 1
+    assert corpo["itens"][0]["prospects_gerados"] == 7
+    assert len(session.executados) == 3
+
+
+def test_detalhar_campanha_inexistente_retorna_404() -> None:
+    _sessao_admin(FakeResult(scalar=None))
+
+    resposta = TestClient(app).get("/v1/admin/prospeccao/campanhas/999")
+
+    assert resposta.status_code == 404
+
+
+def test_coletar_campanha_enfileira_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    campanha = _campanha(status="rascunho")
+    session = _sessao_admin(FakeResult(scalar=campanha))
+
+    class RedisFalso:
+        def __init__(self) -> None:
+            self.jobs: list[str] = []
+
+        async def set(self, *_args: object, **_kwargs: object) -> bool:
+            return True
+
+        async def rpush(self, _chave: str, valor: str) -> None:
+            self.jobs.append(valor)
+
+        async def hincrby(self, *_args: object) -> int:
+            return 1
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr("app.queueing.cliente_redis", lambda: RedisFalso())
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/campanhas/4/coletar", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 202
+    assert campanha.status == "ativa"
+    assert session.commits == 1
+
+
+def test_coletar_campanha_ja_concluida_retorna_422() -> None:
+    campanha = _campanha(status="concluida")
+    _sessao_admin(FakeResult(scalar=campanha))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/campanhas/4/coletar", headers={"X-CSRF-Token": "csrf-teste"}
     )
 
     assert resposta.status_code == 422

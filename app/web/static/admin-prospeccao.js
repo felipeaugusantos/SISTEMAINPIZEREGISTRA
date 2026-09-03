@@ -1,6 +1,6 @@
 const state = { offset: 0, pageSize: 20, statusLabels: {
   novo: "Novo", aprovado: "Aprovado", rejeitado: "Rejeitado", duplicado: "Duplicado", convertido_lead: "Convertido em lead",
-} };
+}, pollingCampanhas: false };
 const TRIAGEM_LABELS = {
   nao_localizado: "Não localizado", resultado_semelhante: "Resultado semelhante",
   resultado_relevante_localizado: "Resultado relevante localizado", inconclusivo: "Inconclusivo",
@@ -92,13 +92,14 @@ async function loadCampanhas() {
     return;
   }
   tbody.innerHTML = data.itens.map(item => `
-    <tr data-id="${item.id}">
+    <tr data-id="${item.id}" data-status="${escapeHtml(item.status)}">
       <td><strong>${escapeHtml(item.nome)}</strong>${item.descricao ? `<br><small>${escapeHtml(item.descricao)}</small>` : ""}</td>
       <td>${renderCampanhaCriterios(item.criterios_busca || {})}</td>
-      <td><span class="prospeccao-campanha-status is-${escapeHtml(item.status)}">${escapeHtml(campanhaStatusLabel(item.status))}</span></td>
+      <td><span class="prospeccao-campanha-status is-${escapeHtml(item.status)}">${item.status === "ativa" ? `<span class="prospeccao-spinner" aria-hidden="true"></span>` : ""}${escapeHtml(campanhaStatusLabel(item.status))}</span></td>
       <td>${item.prospects_gerados}</td>
-      <td><button class="secondary-button" data-coletar type="button" ${item.status === "concluida" ? "disabled" : ""}>Coletar</button></td>
+      <td><button class="secondary-button" data-coletar type="button" ${item.status === "concluida" || item.status === "ativa" ? "disabled" : ""}>${item.status === "ativa" ? "Coletando…" : "Coletar"}</button></td>
     </tr>`).join("");
+  iniciarPollingCampanhasSeNecessario();
 }
 
 function prospectActions(item) {
@@ -150,6 +151,26 @@ async function loadProspects() {
   renderProspects(data);
 }
 async function reloadAll() { await Promise.all([loadDashboard(), loadProspects()]); }
+
+function iniciarPollingCampanhasSeNecessario() {
+  const temAtiva = document.querySelector('#campanhas-rows [data-status="ativa"]');
+  if (!temAtiva || state.pollingCampanhas) return;
+  state.pollingCampanhas = true;
+  const intervalo = setInterval(async () => {
+    try {
+      await loadCampanhas(); // reentra aqui e chama iniciarPollingCampanhasSeNecessario() de novo -- não faz nada enquanto pollingCampanhas=true
+      if (!document.querySelector('#campanhas-rows [data-status="ativa"]')) {
+        clearInterval(intervalo);
+        state.pollingCampanhas = false;
+        showMessage("Coleta concluída — prospects novos já aparecem na lista.");
+        await reloadAll();
+      }
+    } catch {
+      clearInterval(intervalo);
+      state.pollingCampanhas = false;
+    }
+  }, 4000);
+}
 
 function fatorLabel(regra) {
   return {
@@ -245,6 +266,10 @@ document.querySelector("#prospeccao-next").addEventListener("click", () => { sta
 
 document.querySelector("#close-detalhe").addEventListener("click", () => document.querySelector("#detalhe-dialog").close());
 
+const helpDialog = document.querySelector("#prospeccao-help");
+document.querySelector("#prospeccao-help-open").addEventListener("click", () => helpDialog.showModal());
+document.querySelector("#prospeccao-help-close").addEventListener("click", () => helpDialog.close());
+
 const manualDialog = document.querySelector("#manual-dialog");
 document.querySelector("#open-manual").addEventListener("click", () => { document.querySelector("#manual-form").reset(); manualDialog.showModal(); });
 document.querySelector("#close-manual").addEventListener("click", () => manualDialog.close());
@@ -305,7 +330,7 @@ document.querySelector("#campanhas-rows").addEventListener("click", async event 
   button.disabled = true;
   try {
     await api(`/v1/admin/prospeccao/campanhas/${id}/coletar`, { method: "POST" });
-    showMessage("Coleta agendada — os prospects aparecem na lista assim que o job terminar.");
+    showMessage("Coleta em andamento — acompanhe pelo status \"Coletando/ativa\" na lista abaixo, que atualiza sozinho.");
     await loadCampanhas();
   } catch (error) { showMessage(error.message, "error"); button.disabled = false; }
 });

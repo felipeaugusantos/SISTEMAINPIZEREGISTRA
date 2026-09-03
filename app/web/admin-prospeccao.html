@@ -13,7 +13,7 @@
 <body class="admin-body" data-admin-section="prospeccao">
   <main class="admin-main prospeccao-main">
     <section class="prospeccao-hero">
-      <div><p class="eyebrow">CAPTAÇÃO ATIVA</p><h1>Radar de Prospecção</h1><p>Encontre, qualifique e converta empresas em leads antes que a concorrência chegue primeiro. A triagem de marca é sempre indicativa — nunca uma garantia de disponibilidade para registro.</p></div>
+      <div><p class="eyebrow">CAPTAÇÃO ATIVA</p><div class="prospeccao-title-row"><h1>Radar de Prospecção</h1><button id="prospeccao-help-open" class="help-trigger" type="button" aria-label="Como funciona o Radar de Prospecção">?</button></div><p>Encontre, qualifique e converta empresas em leads antes que a concorrência chegue primeiro. A triagem de marca é sempre indicativa — nunca uma garantia de disponibilidade para registro.</p></div>
       <div class="prospeccao-hero-actions">
         <button id="open-politica" class="secondary-button" type="button">Aprovação automática</button>
         <button id="open-import" class="secondary-button" type="button">Importar CSV</button>
@@ -110,6 +110,38 @@
       <label><span>Score mínimo (0-100)</span><input name="score_minimo_aprovacao" type="number" min="0" max="100"></label>
       <footer><button id="cancel-politica" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Salvar</button></footer>
     </form>
+  </dialog>
+
+  <dialog id="prospeccao-help" class="prospeccao-help-drawer" aria-labelledby="prospeccao-help-title">
+    <header>
+      <div><p class="eyebrow">GUIA OPERACIONAL</p><h2 id="prospeccao-help-title">Como funciona o Radar</h2></div>
+      <button id="prospeccao-help-close" type="button" aria-label="Fechar ajuda">×</button>
+    </header>
+    <div class="prospeccao-help-content">
+      <p class="help-intro">O Radar encontra empresas que ainda não são clientes, qualifica cada uma automaticamente e, só quando fizer sentido, transforma em lead comercial. As etapas abaixo aparecem na ordem em que normalmente acontecem — mas nenhuma delas é obrigatória para seguir para a próxima.</p>
+
+      <details open><summary>1. De onde vem um Prospect</summary><p>Três formas de entrada: <strong>campanha</strong> (você define CNAE, UF, cidade, porte e data de abertura, e o sistema busca no cache local de empresas — atualizado periodicamente a partir dos Dados Abertos do CNPJ — criando um prospect para cada empresa que bater com os critérios), <strong>importação</strong> de planilha CSV/Excel, ou <strong>cadastro manual</strong> avulso. Em todos os casos o sistema já verifica duplicidade: não recria quem já está no radar, nem quem já é lead ou cliente.</p></details>
+
+      <details><summary>2. Enriquecimento — presença digital</summary><p>Botão "Verificar site" na ficha do prospect. O sistema tenta acessar o site cadastrado e registra se está no ar. É um sinal propositalmente simples: só confirma se o site responde, não descobre redes sociais nem nada além disso.</p></details>
+
+      <details><summary>3. Triagem de marca</summary><p>Botão "Triar marca". O sistema pega o nome fantasia (ou a razão social, sem "LTDA"/"ME"/etc.) e roda uma busca no mesmo motor de pesquisa usado nos relatórios formais. <strong>O resultado nunca afirma que uma marca está disponível</strong> — só devolve uma de 5 classificações, sempre acompanhadas de um aviso fixo. Isso é proposital e travado no banco de dados: é uma triagem indicativa, não um parecer jurídico.</p></details>
+
+      <details><summary>4. Score comercial</summary><p>Soma pontos de 4 fatores, todos visíveis na ficha do prospect com o peso de cada um: situação cadastral ativa, tempo de empresa aberta, site respondendo e resultado da triagem de marca (marca "limpa" pontua mais, mas um conflito já localizado não zera o score — ainda pode valer a conversa). Score de 0 a 100, nunca uma caixa-preta.</p></details>
+
+      <details><summary>5. Aprovação → Lead → Cliente</summary><p>Aprovação pode ser manual (botão "Aprovar") ou automática — em "Aprovação automática" no topo da tela, você define um score mínimo e, a partir daí, todo prospect que atingir esse score é aprovado sozinho. Vem desligada por padrão. Depois de aprovado (ou direto de "novo", se preferir pular a etapa), "Converter em lead" joga o prospect no funil comercial de sempre — CRM, propostas, processo no INPI.</p></details>
+
+      <section class="help-glossary">
+        <h3>Classificações da triagem de marca</h3>
+        <dl>
+          <dt>Não localizado</dt><dd>Nenhuma ocorrência parecida encontrada na base.</dd>
+          <dt>Resultado semelhante</dt><dd>Encontrada ocorrência com semelhança parcial.</dd>
+          <dt>Resultado relevante</dt><dd>Encontrada ocorrência com forte semelhança nominativa.</dd>
+          <dt>Inconclusivo</dt><dd>Sinal fraco demais, ou só coincide em termo de uso comum.</dd>
+          <dt>Análise humana</dt><dd>Volume alto demais ou nome sem termo de busca significativo.</dd>
+        </dl>
+      </section>
+      <p class="help-intro">O que roda sozinho: só o cálculo de score, disparado automaticamente assim que a triagem de marca termina (é o último dado que falta para calcular). Coleta de campanha, enriquecimento e a primeira triagem sempre precisam de um clique.</p>
+    </div>
   </dialog>
 
   <dialog id="detalhe-dialog" class="prospeccao-dialog prospeccao-detalhe-dialog">

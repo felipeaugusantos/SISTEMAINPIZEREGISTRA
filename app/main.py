@@ -290,6 +290,15 @@ async def painel_processos_monitorados() -> FileResponse:
 
 
 @app.get(
+    "/admin/prospeccao",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("prospeccao.view"))],
+)
+async def painel_prospeccao() -> FileResponse:
+    return FileResponse(web_dir / "admin-prospeccao.html")
+
+
+@app.get(
     "/admin/operacao-juridica",
     include_in_schema=False,
     dependencies=[Depends(exigir_permissao("legal.view"))],

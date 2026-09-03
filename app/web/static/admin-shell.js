@@ -4,6 +4,7 @@ const adminSections = [
   { id: "figurativa", label: "Busca figurativa", href: "/admin/figurativa", symbol: "BF", permission: "leads.view" },
   { id: "leads", label: "Leads, pesquisas e análises", href: "/admin/pesquisas", symbol: "AN", permission: "leads.view" },
   { id: "crm", label: "CRM", href: "/admin/crm", symbol: "CR", permission: "leads.view" },
+  { id: "prospeccao", label: "Radar de Prospecção", href: "/admin/prospeccao", symbol: "RP", permission: "prospeccao.view" },
   { id: "portfolio", label: "Processos monitorados", href: "/admin/processos-monitorados", symbol: "PM", permission: "portfolio.view" },
   { id: "legal", label: "Operação jurídica", href: "/admin/operacao-juridica", symbol: "OJ", permission: "legal.view" },
   { id: "finance", label: "Financeiro", href: "/admin/financeiro", symbol: "FI", permission: "finance.view" },

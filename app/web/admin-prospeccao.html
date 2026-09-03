@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Radar de Prospecção — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=47">
+  <link rel="stylesheet" href="/static/admin-prospeccao.css?v=1">
+  <script src="/static/admin-shell.js?v=39" defer></script>
+  <script src="/static/admin-prospeccao.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="prospeccao">
+  <main class="admin-main prospeccao-main">
+    <section class="prospeccao-hero">
+      <div><p class="eyebrow">CAPTAÇÃO ATIVA</p><h1>Radar de Prospecção</h1><p>Encontre, qualifique e converta empresas em leads antes que a concorrência chegue primeiro. A triagem de marca é sempre indicativa — nunca uma garantia de disponibilidade para registro.</p></div>
+      <div class="prospeccao-hero-actions">
+        <button id="open-politica" class="secondary-button" type="button">Aprovação automática</button>
+        <button id="open-import" class="secondary-button" type="button">Importar CSV</button>
+        <button id="open-campanha" class="secondary-button" type="button">Nova campanha</button>
+        <button id="open-manual" class="primary-button" type="button">Cadastrar prospect</button>
+      </div>
+    </section>
+
+    <div id="prospeccao-message" class="status-message" role="status" aria-live="polite" hidden></div>
+
+    <section class="prospeccao-metrics" id="prospeccao-metrics" aria-label="Funil de prospecção"></section>
+
+    <section class="prospeccao-card" id="campanhas-section">
+      <header><div><p class="eyebrow">COLETA EM LOTE</p><h2>Campanhas</h2><p>Cada campanha aplica os critérios abaixo contra o cache local de empresas (Dados Abertos do CNPJ) e cria prospects novos, evitando duplicar quem já está no radar ou já é lead/cliente.</p></div></header>
+      <div class="prospeccao-table-wrap"><table><thead><tr><th>Campanha</th><th>Critérios</th><th>Status</th><th>Prospects gerados</th><th><span class="visually-hidden">Ações</span></th></tr></thead><tbody id="campanhas-rows"></tbody></table></div>
+    </section>
+
+    <section class="prospeccao-card">
+      <header class="prospeccao-list-header"><div><p class="eyebrow">RADAR</p><h2>Prospects</h2></div></header>
+      <form id="prospeccao-filter" class="prospeccao-form filter-form">
+        <label class="wide"><span>Buscar</span><input name="busca" placeholder="Razão social, nome fantasia ou CNPJ"></label>
+        <label><span>Status</span><select name="status">
+          <option value="">Todos</option>
+          <option value="novo">Novo</option>
+          <option value="aprovado">Aprovado</option>
+          <option value="rejeitado">Rejeitado</option>
+          <option value="duplicado">Duplicado</option>
+          <option value="convertido_lead">Convertido em lead</option>
+        </select></label>
+        <label><span>UF</span><input name="uf" maxlength="2" placeholder="Ex.: SP"></label>
+        <label><span>Cidade</span><input name="cidade" placeholder="Opcional"></label>
+        <button class="primary-button" type="submit">Filtrar</button>
+      </form>
+      <div id="prospeccao-list" class="prospeccao-list"></div>
+      <nav id="prospeccao-pagination" class="prospeccao-pagination" aria-label="Páginas de prospects" hidden><button id="prospeccao-prev" class="secondary-button" type="button">Anterior</button><span id="prospeccao-page-summary"></span><button id="prospeccao-next" class="secondary-button" type="button">Próxima</button></nav>
+    </section>
+  </main>
+
+  <dialog id="manual-dialog" class="prospeccao-dialog">
+    <form id="manual-form" method="dialog">
+      <header><div><p class="eyebrow">CADASTRO MANUAL</p><h2>Cadastrar prospect</h2></div><button id="close-manual" type="button" aria-label="Fechar">×</button></header>
+      <label><span>Razão social</span><input name="razao_social" minlength="2" maxlength="200" required></label>
+      <label><span>Nome fantasia</span><input name="nome_fantasia" maxlength="200" placeholder="Opcional — melhora a triagem de marca"></label>
+      <label><span>CNPJ</span><input name="cnpj" maxlength="18" placeholder="Opcional"></label>
+      <label><span>UF</span><input name="uf" maxlength="2"></label>
+      <label><span>Cidade</span><input name="cidade" maxlength="120"></label>
+      <label><span>Telefone</span><input name="telefone" maxlength="30"></label>
+      <label><span>E-mail</span><input name="email" type="email" maxlength="254"></label>
+      <label><span>Site</span><input name="site" maxlength="200" placeholder="Opcional"></label>
+      <footer><button id="cancel-manual" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Cadastrar</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="import-dialog" class="prospeccao-dialog">
+    <form id="import-form" method="dialog">
+      <header><div><p class="eyebrow">IMPORTAÇÃO EM LOTE</p><h2>Importar prospects (CSV ou Excel)</h2></div><button id="close-import" type="button" aria-label="Fechar">×</button></header>
+      <div class="import-guide">
+        <p class="import-hint">Monte a planilha com estas colunas na <strong>primeira linha</strong>. Só <strong>razaosocial</strong> é obrigatória:</p>
+        <div class="import-example-wrap">
+          <table class="import-example">
+            <thead><tr><th>razaosocial <em>(obrigatória)</em></th><th>fantasia</th><th>cnpj</th><th>uf</th><th>cidade</th><th>telefone</th><th>email</th></tr></thead>
+            <tbody><tr><td>Padaria do João Ltda</td><td>Padaria do João</td><td>11222333000181</td><td>SP</td><td>São Paulo</td><td>11988887777</td><td>contato@padaria.com.br</td></tr></tbody>
+          </table>
+        </div>
+        <small>Linhas cujo e-mail/telefone/CNPJ já casa com um prospect não resolvido, lead ou cliente existente são marcadas como duplicadas, não recriadas.</small>
+      </div>
+      <label><span>Arquivo (.csv, .xlsx)</span><input id="import-file" name="arquivo" type="file" accept=".csv,.xlsx,.xlsm,text/csv" required></label>
+      <div id="import-result" class="import-result" hidden></div>
+      <footer><button id="cancel-import" class="secondary-button" type="button">Cancelar</button><button id="import-submit" class="primary-button" type="submit">Importar</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="campanha-dialog" class="prospeccao-dialog">
+    <form id="campanha-form" method="dialog">
+      <header><div><p class="eyebrow">NOVA CAMPANHA</p><h2>Coleta por critério</h2></div><button id="close-campanha" type="button" aria-label="Fechar">×</button></header>
+      <label><span>Nome da campanha</span><input name="nome" minlength="2" maxlength="120" required></label>
+      <label><span>Descrição</span><textarea name="descricao" rows="2" maxlength="2000"></textarea></label>
+      <label><span>CNAE principal</span><input name="cnae_principal" maxlength="10" placeholder="Ex.: 4711302"></label>
+      <label><span>UF</span><input name="uf" maxlength="2" placeholder="Ex.: SP"></label>
+      <label><span>Cidade</span><input name="cidade" maxlength="120"></label>
+      <label><span>Porte</span><select name="porte"><option value="">Qualquer</option><option value="micro">Micro</option><option value="pequeno">Pequeno</option><option value="demais">Demais</option></select></label>
+      <label><span>Aberta a partir de</span><input name="data_abertura_de" type="date"></label>
+      <label><span>Meta de prospects</span><input name="meta_prospects" type="number" min="1" max="2000" placeholder="Padrão: 500"></label>
+      <p class="import-hint">A coleta consulta o cache local de empresas (atualizado periodicamente a partir dos Dados Abertos do CNPJ) — não busca nada na hora, por isso o resultado pode demorar alguns segundos após clicar em "Coletar".</p>
+      <footer><button id="cancel-campanha" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Criar campanha</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="politica-dialog" class="prospeccao-dialog">
+    <form id="politica-form" method="dialog">
+      <header><div><p class="eyebrow">CONFIGURAÇÃO</p><h2>Aprovação automática</h2></div><button id="close-politica" type="button" aria-label="Fechar">×</button></header>
+      <p class="import-hint">Quando ativa, um prospect novo é aprovado sozinho assim que o score comercial atinge o mínimo definido — sem passar por revisão manual. Desligada por padrão.</p>
+      <label class="prospeccao-toggle"><input name="aprovacao_automatica_ativa" type="checkbox"><span>Ativar aprovação automática por score</span></label>
+      <label><span>Score mínimo (0-100)</span><input name="score_minimo_aprovacao" type="number" min="0" max="100"></label>
+      <footer><button id="cancel-politica" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Salvar</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="detalhe-dialog" class="prospeccao-dialog prospeccao-detalhe-dialog">
+    <div class="prospeccao-detalhe">
+      <header><div><p class="eyebrow" id="detalhe-status-badge"></p><h2 id="detalhe-nome"></h2></div><button id="close-detalhe" type="button" aria-label="Fechar">×</button></header>
+      <div id="detalhe-corpo"></div>
+    </div>
+  </dialog>
+</body>
+</html>

@@ -640,6 +640,7 @@ class ProspectResponse(BaseModel):
     duplicado_de_id: int | None
     fonte_id: int | None = None
     campanha_id: int | None = None
+    presenca_digital: dict | None = None
     criado_em: datetime
     atualizado_em: datetime
 

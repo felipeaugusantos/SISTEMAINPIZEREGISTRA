@@ -7,7 +7,7 @@ própria migração -- esta fase não antecipa colunas que nenhum código ainda
 preenche.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
@@ -26,6 +26,7 @@ from app.models import (
     HistoricoStatusProspect,
     Lead,
     Prospect,
+    ProspectEnriquecimento,
     ProspectFonte,
     StatusLead,
     StatusProspect,
@@ -599,3 +600,43 @@ async def coletar_campanha(
     _auditar(session, request, usuario, "coletar_campanha_prospeccao", f"campanha:{campanha.id}", {"job_id": job.get("id")})
     await session.commit()
     return {"job_id": job.get("id"), "duplicado": job.get("duplicado", False)}
+
+
+# --- Fase 3 do Radar de Prospecção (03/09/2026) -- enriquecimento ----------
+#
+# Fonte escolhida pelo usuário: só verificar se o site do prospect responde,
+# sem provedor pago (ver app/verificacao_site.py). Cache de JANELA_CACHE_HORAS
+# evita reverificar o mesmo site em sequência.
+
+PROVEDOR_VERIFICACAO_SITE = "verificacao_site"
+JANELA_CACHE_ENRIQUECIMENTO_HORAS = 24
+
+
+@router.post("/{prospect_id}/enriquecer", status_code=status.HTTP_202_ACCEPTED)
+async def enriquecer_prospect(
+    prospect_id: int, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
+) -> dict:
+    prospect = await _buscar_prospect(session, prospect_id, usuario.organizacao_id)
+    recente = (
+        await session.execute(
+            select(ProspectEnriquecimento)
+            .where(
+                ProspectEnriquecimento.prospect_id == prospect.id,
+                ProspectEnriquecimento.provedor == PROVEDOR_VERIFICACAO_SITE,
+                ProspectEnriquecimento.criado_em >= datetime.now(UTC) - timedelta(hours=JANELA_CACHE_ENRIQUECIMENTO_HORAS),
+            )
+            .order_by(ProspectEnriquecimento.criado_em.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if recente is not None:
+        return {"cache": True, "resultado": recente.payload}
+
+    job = await enfileirar(
+        "prospeccao.enriquecer_prospect",
+        {"prospect_id": prospect.id, "organizacao_id": usuario.organizacao_id},
+        idempotency_key=f"{prospect.id}:{PROVEDOR_VERIFICACAO_SITE}:{datetime.now(UTC).date().isoformat()}",
+    )
+    _auditar(session, request, usuario, "enriquecer_prospect", f"prospect:{prospect.id}", {"job_id": job.get("id")})
+    await session.commit()
+    return {"job_id": job.get("id"), "cache": False}

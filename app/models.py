@@ -1592,6 +1592,9 @@ class Prospect(Base):
     campanha_id: Mapped[int | None] = mapped_column(
         ForeignKey("campanhas_prospeccao.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Fase 3 do Radar de Prospecção (03/09/2026): último resultado da
+    # verificação de site (histórico completo fica em ProspectEnriquecimento).
+    presenca_digital: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     dados_brutos: Mapped[dict] = mapped_column(JSON, default=dict)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizado_em: Mapped[datetime] = mapped_column(
@@ -1657,6 +1660,25 @@ class CacheEstabelecimentoRFB(Base):
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class ProspectEnriquecimento(Base):
+    """Histórico de tentativas de enriquecimento de um Prospect (Fase 3 do
+    Radar, 03/09/2026) -- guarda cada execução, não só o último valor
+    (que fica também em Prospect.presenca_digital, denormalizado, para
+    leitura rápida da ficha)."""
+
+    __tablename__ = "prospect_enriquecimentos"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    prospect_id: Mapped[int] = mapped_column(ForeignKey("prospects.id", ondelete="CASCADE"), index=True)
+    provedor: Mapped[str] = mapped_column(String(30))
+    tipo: Mapped[str] = mapped_column(String(30))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    sucesso: Mapped[bool] = mapped_column(Boolean)
+    erro: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 class HistoricoStatusProspect(Base):

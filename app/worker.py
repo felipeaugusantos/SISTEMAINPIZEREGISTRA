@@ -480,6 +480,33 @@ async def processar(tipo: str, payload: dict) -> None:
                 logger.info(
                     "Campanha %s: %d/%d candidatos viraram prospect novo", campanha.id, criados, len(candidatos)
                 )
+        elif tipo == "prospeccao.enriquecer_prospect":
+            # Fase 3 do Radar de Prospecção (03/09/2026): fonte escolhida foi
+            # só verificar se o site responde, sem provedor pago.
+            from app.models import Prospect, ProspectEnriquecimento
+            from app.verificacao_site import verificar_site
+
+            prospect = (
+                await session.execute(
+                    select(Prospect).where(
+                        Prospect.id == payload["prospect_id"], Prospect.organizacao_id == payload["organizacao_id"]
+                    )
+                )
+            ).scalar_one_or_none()
+            if prospect is not None:
+                resultado = await verificar_site(prospect.site)
+                session.add(
+                    ProspectEnriquecimento(
+                        organizacao_id=payload["organizacao_id"],
+                        prospect_id=prospect.id,
+                        provedor="verificacao_site",
+                        tipo="presenca_digital",
+                        payload=resultado,
+                        sucesso=resultado["erro"] is None,
+                        erro=resultado["erro"],
+                    )
+                )
+                prospect.presenca_digital = resultado
         else:
             raise ValueError(f"Tipo de trabalho desconhecido: {tipo}")
         await session.commit()

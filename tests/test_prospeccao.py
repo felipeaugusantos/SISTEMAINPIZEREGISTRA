@@ -352,3 +352,62 @@ def test_coletar_campanha_ja_concluida_retorna_422() -> None:
     )
 
     assert resposta.status_code == 422
+
+
+# --- Fase 3 do Radar de Prospecção (03/09/2026) -- enriquecimento ----------
+
+
+def test_enriquecer_prospect_sem_verificacao_recente_enfileira_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    prospect = _prospect(status=StatusProspect.NOVO.value, site="exemplo.com.br")
+    session = _sessao_admin(FakeResult(scalar=prospect), FakeResult(scalar=None))
+
+    class RedisFalso:
+        async def set(self, *_args: object, **_kwargs: object) -> bool:
+            return True
+
+        async def rpush(self, *_args: object) -> None:
+            return None
+
+        async def hincrby(self, *_args: object) -> int:
+            return 1
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr("app.queueing.cliente_redis", lambda: RedisFalso())
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/enriquecer", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 202
+    corpo = resposta.json()
+    assert corpo["cache"] is False
+    assert session.commits == 1
+
+
+def test_enriquecer_prospect_com_verificacao_recente_usa_cache() -> None:
+    from app.models import ProspectEnriquecimento
+
+    prospect = _prospect(status=StatusProspect.NOVO.value, site="exemplo.com.br")
+    enriquecimento_recente = ProspectEnriquecimento(
+        id=1,
+        organizacao_id=1,
+        prospect_id=5,
+        provedor="verificacao_site",
+        tipo="presenca_digital",
+        payload={"ativo": True, "status_code": 200, "url_final": "https://exemplo.com.br", "erro": None},
+        sucesso=True,
+        criado_em=datetime.now(UTC),
+    )
+    session = _sessao_admin(FakeResult(scalar=prospect), FakeResult(scalar=enriquecimento_recente))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/enriquecer", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 202
+    corpo = resposta.json()
+    assert corpo["cache"] is True
+    assert corpo["resultado"]["ativo"] is True
+    assert session.commits == 0

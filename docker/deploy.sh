@@ -14,14 +14,18 @@ set -eu
 # rodar o deploy.
 #
 # Uso:
-#   ./docker/deploy.sh                  # api worker migrate (default)
+#   ./docker/deploy.sh                  # api worker migrate rpi-sync (default)
 #   ./docker/deploy.sh api               # so o api
-#   ./docker/deploy.sh api worker rpi-sync
+#   ./docker/deploy.sh api worker
+#
+# api, worker e rpi-sync compartilham o mesmo Dockerfile/codigo (app/models.py
+# etc.) -- todos entram no default para nao ficar nenhum rodando uma versao
+# desatualizada sem perceber.
 #
 # Rode a partir da raiz do repositorio (/opt/zeregistra).
 
 MANTER_VERSOES="${MANTER_VERSOES:-10}"
-SERVICOS="${*:-api worker migrate}"
+SERVICOS="${*:-api worker migrate rpi-sync}"
 ARQUIVO_VERSAO=".deploy-version"
 
 cd "$(dirname "$0")/.."

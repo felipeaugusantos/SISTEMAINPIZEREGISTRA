@@ -24,3 +24,5 @@ data/portal/
 tmp_proposta_modelo.pdf
 *.inspect.ndjson
 Apresentacao_treinamento_Ze_Registra/
+# Contador de versao do docker/deploy.sh -- estado local de cada servidor, nao do codigo.
+.deploy-version

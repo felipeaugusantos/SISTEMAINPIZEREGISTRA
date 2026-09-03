@@ -1,10 +1,17 @@
 #!/bin/sh
 set -eu
 
-# Builda, tagueia com o commit atual e reinicia os servicos passados como
-# argumento (default: api worker migrate). Cada build fica guardado sob a tag
-# `<servico>:<sha-curto>` alem de `<servico>:latest`, para permitir voltar
-# para uma versao anterior sem rebuild (ver rollback.sh).
+# Builda, tagueia com um numero de versao (1.0.0, 1.0.1, ...) + a data do dia
+# e reinicia os servicos passados como argumento (default: api worker
+# migrate). Cada build fica guardado sob a tag `<servico>:<versao>-<data>`
+# alem de `<servico>:latest`, para permitir voltar para uma versao anterior
+# sem rebuild (ver rollback.sh).
+#
+# A versao comeca em 1.0.0 e o numero de patch (o ultimo) e incrementado a
+# cada deploy automaticamente -- fica guardado em .deploy-version (nao
+# versionado no git, so nesta copia do repositorio). Para pular pra uma nova
+# minor/major, edite .deploy-version manualmente (ex.: "1.1.0") antes de
+# rodar o deploy.
 #
 # Uso:
 #   ./docker/deploy.sh                  # api worker migrate (default)
@@ -15,22 +22,34 @@ set -eu
 
 MANTER_VERSOES="${MANTER_VERSOES:-10}"
 SERVICOS="${*:-api worker migrate}"
+ARQUIVO_VERSAO=".deploy-version"
 
 cd "$(dirname "$0")/.."
 
 echo "==> git pull"
 git pull origin main
 
-SHA="$(git rev-parse --short HEAD)"
-echo "==> commit atual: $SHA"
+if [ -f "$ARQUIVO_VERSAO" ]; then
+    VERSAO_ANTERIOR="$(cat "$ARQUIVO_VERSAO")"
+    MAJOR="$(echo "$VERSAO_ANTERIOR" | cut -d. -f1)"
+    MINOR="$(echo "$VERSAO_ANTERIOR" | cut -d. -f2)"
+    PATCH="$(echo "$VERSAO_ANTERIOR" | cut -d. -f3)"
+    VERSAO="${MAJOR}.${MINOR}.$((PATCH + 1))"
+else
+    VERSAO="1.0.0"
+fi
+echo "$VERSAO" > "$ARQUIVO_VERSAO"
+DATA="$(date +%Y-%m-%d)"
+TAG_VERSAO="${VERSAO}-${DATA}"
+echo "==> versao: $TAG_VERSAO (commit $(git rev-parse --short HEAD))"
 
 echo "==> build: $SERVICOS"
 docker compose build $SERVICOS
 
 for servico in $SERVICOS; do
     imagem="zeregistra-${servico}"
-    docker tag "${imagem}:latest" "${imagem}:${SHA}"
-    echo "==> ${imagem}:${SHA} marcada"
+    docker tag "${imagem}:latest" "${imagem}:${TAG_VERSAO}"
+    echo "==> ${imagem}:${TAG_VERSAO} marcada"
 done
 
 # migrate roda as migrations pendentes e sai sozinho -- espera terminar antes
@@ -66,6 +85,6 @@ for servico in $SERVICOS; do
     done
 done
 
-echo "==> pronto. api saudavel?"
+echo "==> pronto (versao ${TAG_VERSAO}). api saudavel?"
 sleep 3
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8000/health || true

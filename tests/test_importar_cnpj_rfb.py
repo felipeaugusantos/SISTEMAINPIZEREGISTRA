@@ -124,31 +124,52 @@ def test_baixar_sem_token_nao_envia_autenticacao(monkeypatch) -> None:
 
 
 # --- Callback de progresso (03/09/2026) -- disparo pela tela, superadmin ---
+# --- Índice em disco, não dict em RAM (03/09/2026) -- ver docstring do módulo:
+# um dict com as ~47M empresas do Brasil sozinho consumia ~15,5GB de RAM e
+# derrubava a VPS de produção via OOM-kill em loop. ---
 
 
-async def test_carregar_empresas_chama_progresso_uma_vez_por_arquivo(monkeypatch) -> None:
+def _ler_indice_empresas(caminho, cnpj_basico: str):
+    import sqlite3
+
+    conexao = sqlite3.connect(str(caminho))
+    try:
+        return conexao.execute(
+            "SELECT porte_empresa, razao_social FROM empresas WHERE cnpj_basico = ?", (cnpj_basico,)
+        ).fetchone()
+    finally:
+        conexao.close()
+
+
+async def test_carregar_empresas_chama_progresso_uma_vez_por_arquivo(monkeypatch, tmp_path) -> None:
+    from types import SimpleNamespace
+
     conteudo = _zip_com_csv("K3241.EMPRECSV", ["11222333;Loja Exemplo Ltda;2062;49;0,00;01;"])
     monkeypatch.setattr(modulo, "_baixar", lambda url: conteudo)
+    monkeypatch.setattr(modulo, "get_settings", lambda: SimpleNamespace(rfb_cnpj_cache_dir=str(tmp_path)))
     chamadas = []
 
     async def _progresso(etapa, processados, validos):
         chamadas.append((etapa, processados, validos))
 
-    resultado = await modulo.carregar_empresas_por_cnpj_basico("https://exemplo.com/webdav", "2026-08", _progresso)
+    caminho_indice = await modulo.carregar_empresas_por_cnpj_basico("https://exemplo.com/webdav", "2026-08", _progresso)
 
-    assert resultado == {"11222333": ("01", "Loja Exemplo Ltda")}
+    assert _ler_indice_empresas(caminho_indice, "11222333") == ("01", "Loja Exemplo Ltda")
     assert len(chamadas) == 10
     assert "Carregando empresas 1/10" in chamadas[0][0]
     assert "Carregando empresas 10/10" in chamadas[-1][0]
 
 
-async def test_carregar_empresas_sem_callback_nao_quebra(monkeypatch) -> None:
+async def test_carregar_empresas_sem_callback_nao_quebra(monkeypatch, tmp_path) -> None:
+    from types import SimpleNamespace
+
     conteudo = _zip_com_csv("K3241.EMPRECSV", ["11222333;Loja Exemplo Ltda;2062;49;0,00;01;"])
     monkeypatch.setattr(modulo, "_baixar", lambda url: conteudo)
+    monkeypatch.setattr(modulo, "get_settings", lambda: SimpleNamespace(rfb_cnpj_cache_dir=str(tmp_path)))
 
-    resultado = await modulo.carregar_empresas_por_cnpj_basico("https://exemplo.com/webdav", "2026-08")
+    caminho_indice = await modulo.carregar_empresas_por_cnpj_basico("https://exemplo.com/webdav", "2026-08")
 
-    assert resultado == {"11222333": ("01", "Loja Exemplo Ltda")}
+    assert _ler_indice_empresas(caminho_indice, "11222333") == ("01", "Loja Exemplo Ltda")
 
 
 # --- Cache em disco (03/09/2026) -- esta VPS reinicia sozinha algumas vezes

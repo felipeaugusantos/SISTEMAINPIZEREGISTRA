@@ -416,9 +416,18 @@ async def importar_prospects(
 async def converter_prospect_em_lead(
     prospect_id: int, request: Request, session: SessionDep, usuario: ProspeccaoConvertDep
 ) -> dict:
+    # Achado FASE5-9 da auditoria (04/09/2026): permitia converter direto de
+    # "novo" -- ou seja, sem NUNCA ter passado por aprovar_prospect (manual)
+    # nem pela aprovação automática auditada em app/worker.py (que exige
+    # politica.aprovacao_automatica_ativa explicitamente ligada). Corrigido:
+    # só converte quem já está "aprovado", por um dos dois caminhos.
     prospect = await _buscar_prospect(session, prospect_id, usuario.organizacao_id)
-    if prospect.status not in (StatusProspect.NOVO.value, StatusProspect.APROVADO.value):
-        raise HTTPException(422, f"Prospect já foi processado (status atual: {prospect.status}).")
+    if prospect.status != StatusProspect.APROVADO.value:
+        raise HTTPException(
+            422,
+            f"Prospect precisa estar aprovado antes de virar lead (status atual: {prospect.status}). "
+            "Aprove manualmente ou habilite a aprovação automática por score na política de prospecção.",
+        )
     if not prospect.email and not prospect.telefone:
         raise HTTPException(422, "Prospect sem e-mail ou telefone não pode virar lead.")
 

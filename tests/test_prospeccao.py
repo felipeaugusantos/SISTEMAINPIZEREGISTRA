@@ -199,7 +199,7 @@ def test_importar_prospects_cria_ignora_duplicado_e_invalido() -> None:
 
 
 def test_converter_prospect_em_lead_cria_lead_novo() -> None:
-    prospect = _prospect(status=StatusProspect.NOVO.value, email="empresa@teste.local", telefone="11988887777")
+    prospect = _prospect(status=StatusProspect.APROVADO.value, email="empresa@teste.local", telefone="11988887777")
     session = _sessao_admin(FakeResult(scalar=prospect), FakeResult(scalar=None), FakeResult(scalar=None))
 
     resposta = TestClient(app).post(
@@ -217,7 +217,7 @@ def test_converter_prospect_em_lead_cria_lead_novo() -> None:
 
 
 def test_converter_prospect_em_lead_reaproveita_lead_existente() -> None:
-    prospect = _prospect(status=StatusProspect.NOVO.value, email="empresa@teste.local")
+    prospect = _prospect(status=StatusProspect.APROVADO.value, email="empresa@teste.local")
     lead_existente = Lead(id=42, organizacao_id=1, nome="Empresa Teste Ltda", email="empresa@teste.local", telefone="11988887777", marca="", status=StatusLead.NOVO)
     session = _sessao_admin(FakeResult(scalar=prospect), FakeResult(scalar=lead_existente))
 
@@ -233,7 +233,7 @@ def test_converter_prospect_em_lead_reaproveita_lead_existente() -> None:
 
 
 def test_converter_prospect_sem_contato_retorna_422() -> None:
-    prospect = _prospect(status=StatusProspect.NOVO.value, email=None, telefone=None)
+    prospect = _prospect(status=StatusProspect.APROVADO.value, email=None, telefone=None)
     _sessao_admin(FakeResult(scalar=prospect))
 
     resposta = TestClient(app).post(
@@ -241,6 +241,23 @@ def test_converter_prospect_sem_contato_retorna_422() -> None:
     )
 
     assert resposta.status_code == 422
+
+
+# --- Achado FASE5-9 da auditoria (04/09/2026): a conversao aceitava status
+# "novo" direto, sem NUNCA ter passado por aprovacao manual ou automatica
+# auditada. ---
+
+
+def test_converter_prospect_novo_sem_aprovacao_retorna_422() -> None:
+    prospect = _prospect(status=StatusProspect.NOVO.value, email="empresa@teste.local", telefone="11988887777")
+    _sessao_admin(FakeResult(scalar=prospect))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/converter-lead", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 422
+    assert "aprovado" in resposta.json()["detail"].lower()
 
 
 def test_converter_prospect_ja_processado_retorna_422() -> None:

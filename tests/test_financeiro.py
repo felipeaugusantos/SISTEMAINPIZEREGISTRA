@@ -5,7 +5,9 @@ from fastapi.testclient import TestClient
 
 from app.api.financeiro import (
     STATUS_CLIENTE,
+    _cancelar_comissao_da_parcela,
     _empresa_cliente,
+    _gerar_comissao_se_aplicavel,
     _mes_seguinte,
     _parcelar,
     _validar_parcelamento,
@@ -14,16 +16,19 @@ from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
 from app.models import (
+    ComissaoFinanceira,
     FormaPagamentoFinanceira,
     LancamentoFinanceiro,
+    Lead,
     ParcelaFinanceira,
     Processo,
     StatusLead,
     TipoProcesso,
+    UsuarioOperacoes,
 )
 from app.permissions import PERMISSOES_FINANCEIRO, destino_inicial, permissoes_do_perfil
 from app.plano_contas import CONTAS_PADRAO
-from tests.conftest import FakeResult, auth_override, sessao_override, usuario_teste
+from tests.conftest import FakeResult, FakeSession, auth_override, sessao_override, usuario_teste
 
 
 def test_parcelamento_preserva_total_e_corre_datas() -> None:
@@ -511,3 +516,150 @@ def test_lucratividade_clientes_intervalo_invertido_retorna_422() -> None:
     finally:
         app.dependency_overrides.clear()
     assert resposta.status_code == 422
+
+
+# --- Achado FASE7-7 da auditoria (04/09/2026): comissão de operador sobre
+# receita, gerada na baixa e cancelada no estorno. Testadas diretamente
+# (sem TestClient) por serem funções auxiliares chamadas de dentro de
+# baixar()/estornar(), não endpoints próprios. ---
+
+
+async def test_gerar_comissao_se_aplicavel_cria_quando_responsavel_comissionado() -> None:
+    lancamento = LancamentoFinanceiro(id=1, organizacao_id=1, tipo="receber", lead_id=5)
+    parcela = ParcelaFinanceira(id=10, organizacao_id=1, lancamento_id=1, numero=1, valor_pago=Decimal("1000"))
+    parcela.lancamento = lancamento
+    lead = Lead(id=5, organizacao_id=1, responsavel_id=7)
+    operador = UsuarioOperacoes(id=7, organizacao_id=1, percentual_comissao=Decimal("10.00"))
+    session = FakeSession(objetos_get=[lead, operador])
+
+    await _gerar_comissao_se_aplicavel(session, parcela)
+
+    comissoes = [obj for obj in session.adicionados if isinstance(obj, ComissaoFinanceira)]
+    assert len(comissoes) == 1
+    assert comissoes[0].valor_comissao == Decimal("100.00")
+    assert comissoes[0].usuario_id == 7
+    assert comissoes[0].parcela_id == 10
+
+
+async def test_gerar_comissao_se_aplicavel_nao_cria_para_lancamento_a_pagar() -> None:
+    lancamento = LancamentoFinanceiro(id=1, organizacao_id=1, tipo="pagar", lead_id=5)
+    parcela = ParcelaFinanceira(id=10, organizacao_id=1, lancamento_id=1, numero=1, valor_pago=Decimal("1000"))
+    parcela.lancamento = lancamento
+    session = FakeSession()
+
+    await _gerar_comissao_se_aplicavel(session, parcela)
+
+    assert session.adicionados == []
+
+
+async def test_gerar_comissao_se_aplicavel_nao_cria_sem_lead_vinculado() -> None:
+    lancamento = LancamentoFinanceiro(id=1, organizacao_id=1, tipo="receber", lead_id=None)
+    parcela = ParcelaFinanceira(id=10, organizacao_id=1, lancamento_id=1, numero=1, valor_pago=Decimal("1000"))
+    parcela.lancamento = lancamento
+    session = FakeSession()
+
+    await _gerar_comissao_se_aplicavel(session, parcela)
+
+    assert session.adicionados == []
+
+
+async def test_gerar_comissao_se_aplicavel_nao_cria_sem_percentual_configurado() -> None:
+    lancamento = LancamentoFinanceiro(id=1, organizacao_id=1, tipo="receber", lead_id=5)
+    parcela = ParcelaFinanceira(id=10, organizacao_id=1, lancamento_id=1, numero=1, valor_pago=Decimal("1000"))
+    parcela.lancamento = lancamento
+    lead = Lead(id=5, organizacao_id=1, responsavel_id=7)
+    operador = UsuarioOperacoes(id=7, organizacao_id=1, percentual_comissao=None)
+    session = FakeSession(objetos_get=[lead, operador])
+
+    await _gerar_comissao_se_aplicavel(session, parcela)
+
+    assert session.adicionados == []
+
+
+async def test_cancelar_comissao_da_parcela_marca_como_cancelada() -> None:
+    comissao = ComissaoFinanceira(
+        id=1, organizacao_id=1, usuario_id=7, lancamento_id=1, parcela_id=10,
+        valor_base=Decimal("1000"), percentual=Decimal("10"), valor_comissao=Decimal("100"), status="pendente",
+    )
+    session = FakeSession([FakeResult(scalar=comissao)])
+
+    await _cancelar_comissao_da_parcela(session, 10)
+
+    assert comissao.status == "cancelada"
+
+
+async def test_cancelar_comissao_da_parcela_sem_comissao_nao_faz_nada() -> None:
+    session = FakeSession([FakeResult(scalar=None)])
+
+    await _cancelar_comissao_da_parcela(session, 10)  # não deve levantar exceção
+
+
+def test_listar_comissoes_filtra_por_usuario_e_status() -> None:
+    comissao = ComissaoFinanceira(
+        id=1, organizacao_id=1, usuario_id=7, lancamento_id=1, parcela_id=10,
+        valor_base=Decimal("1000"), percentual=Decimal("10"), valor_comissao=Decimal("100"),
+        status="pendente", pago_em=None, criado_em=date(2026, 1, 1),
+    )
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[comissao]))
+    usuario = usuario_teste("administrador", {"finance.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).get("/v1/admin/financeiro/comissoes?usuario_id=7&status=pendente")
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert len(corpo["itens"]) == 1
+    assert corpo["itens"][0]["valor_comissao"] == "100"
+
+
+def test_pagar_comissao_inexistente_retorna_404() -> None:
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=None))
+    usuario = usuario_teste("administrador", {"finance.approve"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/comissoes/999/pagar", headers={"X-CSRF-Token": "csrf-teste"}
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 404
+
+
+def test_pagar_comissao_ja_paga_retorna_409() -> None:
+    comissao = ComissaoFinanceira(
+        id=1, organizacao_id=1, usuario_id=7, lancamento_id=1, parcela_id=10,
+        valor_base=Decimal("1000"), percentual=Decimal("10"), valor_comissao=Decimal("100"), status="paga",
+    )
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=comissao))
+    usuario = usuario_teste("administrador", {"finance.approve"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/comissoes/1/pagar", headers={"X-CSRF-Token": "csrf-teste"}
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 409
+
+
+def test_pagar_comissao_pendente_com_sucesso() -> None:
+    comissao = ComissaoFinanceira(
+        id=1, organizacao_id=1, usuario_id=7, lancamento_id=1, parcela_id=10,
+        valor_base=Decimal("1000"), percentual=Decimal("10"), valor_comissao=Decimal("100"), status="pendente",
+    )
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=comissao))
+    usuario = usuario_teste("administrador", {"finance.approve"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/comissoes/1/pagar", headers={"X-CSRF-Token": "csrf-teste"}
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 200
+    assert comissao.status == "paga"
+    assert comissao.pago_em == date.today()

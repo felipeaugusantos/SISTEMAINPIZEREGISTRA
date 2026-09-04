@@ -18,6 +18,7 @@ from app.crm import normalizar_empresa, registrar_evento_operacional
 from app.database import get_session
 from app.models import (
     CategoriaFinanceira,
+    ComissaoFinanceira,
     CustoJuridico,
     EmpresaCRM,
     EventoAuditoria,
@@ -31,6 +32,7 @@ from app.models import (
     ProcessoMonitorado,
     RetribuicaoInpi,
     StatusLead,
+    UsuarioOperacoes,
 )
 from app.plano_contas import CONTAS_PADRAO, GRUPOS_DRE, montar_dre
 from app.proxy import cliente_ip
@@ -1161,6 +1163,52 @@ async def _parcela(session: AsyncSession, usuario: UsuarioAutenticado, parcela_i
     return parcela
 
 
+async def _gerar_comissao_se_aplicavel(session: AsyncSession, parcela: ParcelaFinanceira) -> None:
+    """Achado FASE7-7 da auditoria (04/09/2026): gera a comissão do
+    responsável pelo lead quando uma parcela de receita é baixada -- silencioso
+    (não gera nada) se o lançamento não for "receber", não tiver lead
+    vinculado, o lead não tiver responsável, ou o responsável não tiver
+    percentual_comissao configurado (retrocompatível: sem opt-in, nada muda)."""
+    lancamento = parcela.lancamento
+    if lancamento.tipo != "receber" or not lancamento.lead_id:
+        return
+    lead = await session.get(Lead, lancamento.lead_id)
+    if lead is None or not lead.responsavel_id:
+        return
+    operador = await session.get(UsuarioOperacoes, lead.responsavel_id)
+    if operador is None or not operador.percentual_comissao:
+        return
+    valor_comissao = (parcela.valor_pago * operador.percentual_comissao / Decimal(100)).quantize(Decimal("0.01"))
+    session.add(
+        ComissaoFinanceira(
+            organizacao_id=lancamento.organizacao_id,
+            usuario_id=operador.id,
+            lancamento_id=lancamento.id,
+            parcela_id=parcela.id,
+            valor_base=parcela.valor_pago,
+            percentual=operador.percentual_comissao,
+            valor_comissao=valor_comissao,
+        )
+    )
+
+
+async def _cancelar_comissao_da_parcela(session: AsyncSession, parcela_id: int) -> None:
+    """Achado FASE7-7/4 da auditoria: estornar a baixa que gerou uma comissão
+    cancela a comissão (nunca deleta -- mantém rastro de que existiu e foi
+    cancelada). Se a comissão já tinha sido paga, o cancelamento fica
+    registrado mesmo assim -- reconciliar o valor já pago é decisão humana,
+    não automática."""
+    comissao = (
+        await session.execute(
+            select(ComissaoFinanceira).where(
+                ComissaoFinanceira.parcela_id == parcela_id, ComissaoFinanceira.status != "cancelada"
+            )
+        )
+    ).scalar_one_or_none()
+    if comissao is not None:
+        comissao.status = "cancelada"
+
+
 @router.post("/parcelas/{parcela_id}/baixar")
 async def baixar(
     parcela_id: int, dados: BaixaCreate, request: Request, session: SessionDep, usuario: ManageDep
@@ -1179,6 +1227,7 @@ async def baixar(
     parcela.forma_pagamento_id = forma.id
     parcela.observacoes_baixa, parcela.status = (dados.observacoes or "").strip() or None, "paga"
     await _atualizar_status(parcela.lancamento)
+    await _gerar_comissao_se_aplicavel(session, parcela)
     if parcela.lancamento.proposta_id:
         await sincronizar_pagamento_proposta_por_id(session, usuario.organizacao_id, parcela.lancamento.proposta_id)
     _auditar(
@@ -1224,6 +1273,7 @@ async def estornar(
     parcela.forma_pagamento_id = None
     parcela.observacoes_baixa, parcela.status = None, "aberta"
     await _atualizar_status(parcela.lancamento)
+    await _cancelar_comissao_da_parcela(session, parcela.id)
     if parcela.lancamento.proposta_id:
         await sincronizar_pagamento_proposta_por_id(session, usuario.organizacao_id, parcela.lancamento.proposta_id)
     _auditar(
@@ -1603,3 +1653,74 @@ async def obter_lucratividade_clientes(
             "margem_pct": margem_pct_carteira,
         },
     }
+
+
+# --- Achado FASE7-7 da auditoria (04/09/2026): comissão de operador. ---
+
+
+@router.get("/comissoes")
+async def listar_comissoes(
+    session: SessionDep,
+    usuario: ViewDep,
+    usuario_id: Annotated[int | None, Query()] = None,
+    status_comissao: Annotated[str | None, Query(alias="status")] = None,
+) -> dict:
+    filtros = [ComissaoFinanceira.organizacao_id == usuario.organizacao_id]
+    if usuario_id:
+        filtros.append(ComissaoFinanceira.usuario_id == usuario_id)
+    if status_comissao:
+        filtros.append(ComissaoFinanceira.status == status_comissao)
+    itens = (
+        (
+            await session.execute(
+                select(ComissaoFinanceira).where(*filtros).order_by(ComissaoFinanceira.criado_em.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "itens": [
+            {
+                "id": c.id,
+                "usuario_id": c.usuario_id,
+                "usuario_nome": c.usuario.nome if c.usuario else None,
+                "lancamento_id": c.lancamento_id,
+                "parcela_id": c.parcela_id,
+                "valor_base": str(c.valor_base),
+                "percentual": str(c.percentual),
+                "valor_comissao": str(c.valor_comissao),
+                "status": c.status,
+                "pago_em": c.pago_em,
+            }
+            for c in itens
+        ]
+    }
+
+
+@router.post("/comissoes/{comissao_id}/pagar")
+async def pagar_comissao(comissao_id: int, request: Request, session: SessionDep, usuario: ApproveDep) -> dict:
+    comissao = (
+        await session.execute(
+            select(ComissaoFinanceira).where(
+                ComissaoFinanceira.id == comissao_id, ComissaoFinanceira.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if comissao is None:
+        raise HTTPException(404, "Comissão não encontrada")
+    if comissao.status != "pendente":
+        raise HTTPException(409, f"Comissão já está \"{comissao.status}\", não pode ser paga novamente")
+    comissao.status = "paga"
+    comissao.pago_em = date.today()
+    comissao.pago_por = usuario.ator
+    _auditar(
+        session,
+        request,
+        usuario,
+        "pagar_comissao",
+        f"comissao-financeira:{comissao.id}",
+        {"valor": str(comissao.valor_comissao), "usuario_id": comissao.usuario_id},
+    )
+    await session.commit()
+    return {"status": "paga"}

@@ -116,6 +116,10 @@ def test_estornar_parcela_sincroniza_pagamento_da_proposta_vinculada() -> None:
     session = FakeSession(
         [
             FakeResult(scalar=parcela),  # _parcela
+            # Achado FASE7-7 da auditoria (04/09/2026): estornar() agora
+            # também cancela a comissão gerada na baixa (se houver) --
+            # None aqui = nenhuma comissão foi gerada para essa parcela.
+            FakeResult(scalar=None),  # _cancelar_comissao_da_parcela
             FakeResult(scalar=proposta),  # sincronizar_pagamento_proposta_por_id
             FakeResult(itens=["aberto"]),  # calcular_pagamento_status_proposta
             FakeResult(itens=[]),  # _documentacao_protocolavel

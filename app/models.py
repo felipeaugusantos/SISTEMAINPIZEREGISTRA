@@ -245,6 +245,11 @@ class UsuarioOperacoes(Base):
     bloqueado_ate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     ultimo_login_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     criado_por: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    # Achado FASE7-7 da auditoria (04/09/2026): taxa de comissão do operador
+    # sobre receita de leads sob sua responsabilidade -- nulo = sem
+    # comissionamento (padrão atual, retrocompatível). Ver
+    # app/api/financeiro.py::_gerar_comissao_se_aplicavel.
+    percentual_comissao: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -1084,6 +1089,35 @@ class ParcelaFinanceira(Base):
     forma_pagamento: Mapped[str | None] = mapped_column(String(50), nullable=True)
     observacoes_baixa: Mapped[str | None] = mapped_column(Text, nullable=True)
     lancamento: Mapped[LancamentoFinanceiro] = relationship(back_populates="parcelas")
+
+
+class ComissaoFinanceira(Base):
+    """Achado FASE7-7 da auditoria (04/09/2026): comissão de operador sobre
+    receita -- gerada automaticamente quando uma parcela de um lançamento
+    "receber" vinculado a um Lead com responsável comissionado é baixada
+    (ver app/api/financeiro.py::_gerar_comissao_se_aplicavel). Uma linha por
+    parcela baixada, nunca duplicada (unique em parcela_id)."""
+
+    __tablename__ = "comissoes_financeiras"
+    __table_args__ = (UniqueConstraint("parcela_id", name="uq_comissao_financeira_parcela"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    usuario_id: Mapped[int] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="CASCADE"), index=True
+    )
+    lancamento_id: Mapped[int] = mapped_column(
+        ForeignKey("lancamentos_financeiros.id", ondelete="CASCADE"), index=True
+    )
+    parcela_id: Mapped[int] = mapped_column(ForeignKey("parcelas_financeiras.id", ondelete="CASCADE"), index=True)
+    valor_base: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    percentual: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    valor_comissao: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    pago_em: Mapped[date | None] = mapped_column(Date, nullable=True)
+    pago_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    usuario: Mapped["UsuarioOperacoes"] = relationship(lazy="selectin")
 
 
 class HistoricoFinanceiro(Base):

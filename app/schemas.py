@@ -437,6 +437,31 @@ class MotivoPrognosticoResponse(BaseModel):
     referencia: str
 
 
+class MotivoVeredictoResponse(BaseModel):
+    codigo: str
+    descricao: str
+
+
+class VeredictoPublicoResponse(BaseModel):
+    """Fase 1 da auditoria (04/09/2026): ponto único de veredito público,
+    consumido igualmente pela tela e pelo PDF -- ver app/trademarks/veredito.py
+    para as regras formais adotadas. Substitui, para fins de apresentação ao
+    cliente, os 4 vereditos parciais que existiam antes (conclusao,
+    estimativa_registrabilidade, prognostico_registrabilidade,
+    analise_consolidada.situacao) -- esses campos continuam no payload por
+    compatibilidade, mas não devem mais ser lidos como veredito final."""
+
+    veredito: Literal["FAVORAVEL", "DESFAVORAVEL", "INCONCLUSIVO"]
+    motivo_principal: str
+    motivos: list[MotivoVeredictoResponse] = Field(default_factory=list)
+    pontos_atencao: list[MotivoVeredictoResponse] = Field(default_factory=list)
+    origem: Literal["motor_automatico", "parecer_humano"]
+    data_base_rpi: date | None = None
+    versao_regras: str
+    limitacoes: list[str] = Field(default_factory=list)
+    responsavel_validacao: str | None = None
+
+
 class PrognosticoRegistrabilidadeResponse(BaseModel):
     veredito: Literal["favoravel", "atencao", "desfavoravel"]
     titulo: str
@@ -499,6 +524,7 @@ class RelatorioMarcaResponse(BaseModel):
     estimativa_registrabilidade: EstimativaRegistrabilidadeResponse | None = None
     prognostico_registrabilidade: PrognosticoRegistrabilidadeResponse | None = None
     analise_consolidada: dict | None = None
+    veredito_publico: VeredictoPublicoResponse | None = None
 
 
 class DisclaimerEstrategicoResponse(BaseModel):

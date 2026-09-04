@@ -43,6 +43,7 @@ from app.schemas import (
     EstimativaRegistrabilidadeResponse,
     EvidenciasBuscaResponse,
     MarcaRelatorioItem,
+    MotivoVeredictoResponse,
     PesquisaMarcaCreate,
     PesquisaMarcaCriada,
     PrognosticoRegistrabilidadeResponse,
@@ -50,6 +51,7 @@ from app.schemas import (
     RelatorioMarcaResponse,
     ResumoPublicoMarcaResponse,
     TitularResponse,
+    VeredictoPublicoResponse,
 )
 from app.search import buscar_marcas, normalizar_texto, termos_comuns_do_match
 from app.search_ranking import adicionar_contexto_score
@@ -85,6 +87,11 @@ from app.trademarks.risk import (
     regras_para_json,
 )
 from app.trademarks.status import normalizar_despacho
+from app.trademarks.veredito import (
+    VERSAO_MOTOR_VEREDITO,
+    determinar_veredito_publico,
+    montar_entrada_veredito,
+)
 
 router = APIRouter(prefix="/v1/pesquisas-marca", tags=["pesquisas de marcas"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -572,6 +579,13 @@ async def gerar_resumo_pesquisa(session: AsyncSession, pesquisa: PesquisaMarca) 
         nivel_risco=avaliacao.nivel,
         dados_complementares=pesquisa.dados_complementares_registrabilidade or {},
     )
+    # Achado REG-4 da auditoria (04/09/2026): modelo SHADOW/VALIDATION não determina
+    # veredito público -- só um modelo ACTIVE pode influenciar a decisão automática
+    # (registrar_previsao_sombra busca o modelo mais recente independente do status,
+    # de propósito, para permitir avaliação/calibração; quem decide se ele PESA na
+    # decisão é este ponto de chamada).
+    modelo_status = modelo_previsao.status if modelo_previsao is not None else None
+    previsao_ativa = previsao if modelo_status == "ACTIVE" else None
     await registrar_execucao_agente(
         session,
         pesquisa=pesquisa,
@@ -579,7 +593,7 @@ async def gerar_resumo_pesquisa(session: AsyncSession, pesquisa: PesquisaMarca) 
         relatorio=relatorio_payload,
         pontuacao_risco=avaliacao.pontuacao,
         nivel_risco=avaliacao.nivel,
-        previsao=previsao,
+        previsao=previsao_ativa,
         modelo_versao=modelo_previsao.versao if modelo_previsao is not None else None,
     )
     prognostico = construir_prognostico_registrabilidade(matriz_registrabilidade)
@@ -588,6 +602,39 @@ async def gerar_resumo_pesquisa(session: AsyncSession, pesquisa: PesquisaMarca) 
     )
     relatorio.analise_consolidada = construir_analise_consolidada(
         relatorio.model_dump(mode="json"), pesquisa.dados_complementares_registrabilidade or {},
+    )
+    base_identificada = bool(pesquisa.classe_nice) or bool(classes_atividade)
+    entrada_veredito = montar_entrada_veredito(
+        matriz=matriz_registrabilidade,
+        qualidade_bloqueada=qualidade.get("status") == "bloqueada",
+        cobertura_evidencias=float(qualidade.get("pontuacao_qualidade") or 0),
+        base_identificada=base_identificada,
+        nivel_risco=avaliacao.nivel,
+        modelo_status=modelo_status,
+        probabilidade_deferimento=previsao_ativa.probabilidade_deferimento if previsao_ativa is not None else None,
+    )
+    resultado_veredito = determinar_veredito_publico(entrada_veredito)
+    relatorio.veredito_publico = VeredictoPublicoResponse(
+        veredito=resultado_veredito.veredito.value,
+        motivo_principal=resultado_veredito.motivo_principal,
+        motivos=[
+            MotivoVeredictoResponse(codigo=motivo.codigo, descricao=motivo.descricao)
+            for motivo in resultado_veredito.motivos
+        ],
+        pontos_atencao=[
+            MotivoVeredictoResponse(codigo=motivo.codigo, descricao=motivo.descricao)
+            for motivo in resultado_veredito.pontos_atencao
+        ],
+        origem=resultado_veredito.origem,
+        data_base_rpi=qualidade.get("data_ultima_rpi"),
+        versao_regras=VERSAO_MOTOR_VEREDITO,
+        limitacoes=[
+            "Triagem determinística e estatística; não substitui o exame de mérito do INPI.",
+            "Não considera elementos subjetivos avaliados apenas pelo examinador.",
+        ],
+        responsavel_validacao=(
+            pesquisa.validated_by if getattr(pesquisa, "analysis_state", None) == "VALIDATED" else None
+        ),
     )
     relatorio_versionado = await versionar_relatorio(session, relatorio)
     await session.commit()

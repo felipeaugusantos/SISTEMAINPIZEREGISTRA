@@ -355,6 +355,20 @@ async def gerar_relatorio_completo_admin(
                 "Recarregue a página antes de gerar o relatório."
             ),
         )
+    # Achado REG-1 da auditoria Fase 1 (04/09/2026): investigado -- a flag fixada
+    # em True não é um bug isolado. O PDF preliminar já é rotulado com honestidade
+    # (X-Relatorio-Status: preliminar, auditoria registra "preliminar" vs
+    # "validado" -- ver abaixo) e é um recurso deliberado e testado
+    # (test_relatorio_preliminar_e_permitido_enquanto_revisao_esta_pendente).
+    # O risco real (conteúdo apresentado como favorável sem fundamento
+    # suficiente) é resolvido no conteúdo, não bloqueando a emissão: ver
+    # RelatorioMarcaResponse.veredito_publico (app/trademarks/veredito.py),
+    # que nunca retorna FAVORAVEL sem busca concluída, base identificada,
+    # ausência de impedimento e modelo ACTIVE com probabilidade suficiente --
+    # vale tanto para relatório preliminar quanto validado. Mantida
+    # deliberadamente sem uso de config (é sempre True hoje; se um dia a
+    # política mudar para permitir desligar reports preliminares, essa é a
+    # variável a tornar configurável).
     permitir_relatorio_preliminar = True
     if (not permitir_relatorio_preliminar) and (
         pesquisa.analysis_state != EstadoAnalise.VALIDATED.value

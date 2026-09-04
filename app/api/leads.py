@@ -100,16 +100,24 @@ StatusLeadFiltro = Annotated[StatusLead | None, Query(alias="status")]
 LimiteLead = Annotated[int, Query(ge=1, le=200)]
 DeslocamentoLead = Annotated[int, Query(ge=0)]
 
+# Achado CRM-11 da auditoria (04/09/2026): funil expandido de 7 para 10
+# fases -- qualificado ganhou posição própria, pagamento virou duas etapas
+# (aguardando/confirmado) e "ganho" passou a ser uma fase do funil, não só
+# um resultado à parte. Ver FaseLead em app/models.py para a decisão sobre
+# não existir "contrato_assinado" separado de "proposta_aceita".
 KANBAN_ETAPAS = {
     "primeiro_contato": {"label": "Primeiro contato", "fase": "contato_inicial"},
     "aguardando_contato_nosso": {"label": "Aguardando contato nosso", "fase": "contato_inicial"},
+    "qualificado": {"label": "Qualificado", "fase": "qualificado"},
     "aguardando_retorno_cliente": {
         "label": "Aguardando retorno do cliente",
         "fase": "relatorio_enviado",
     },
     "proposta_enviada": {"label": "Proposta enviada", "fase": "proposta_enviada"},
-    "proposta_aceita": {"label": "Proposta aceita / contrato enviado", "fase": "proposta_aceita"},
-    "pagamento_realizado": {"label": "Pagamento realizado", "fase": "pagamento_realizado"},
+    "proposta_aceita": {"label": "Proposta aceita", "fase": "proposta_aceita"},
+    "aguardando_pagamento": {"label": "Aguardando pagamento", "fase": "aguardando_pagamento"},
+    "pagamento_confirmado": {"label": "Pagamento confirmado", "fase": "pagamento_confirmado"},
+    "ganho": {"label": "Ganho", "fase": "ganho"},
     "protocolo_inpi": {"label": "Protocolo no INPI gerado", "fase": "protocolo_inpi"},
     "processo_inpi": {"label": "Processo no INPI", "fase": "processo_inpi"},
 }
@@ -986,7 +994,15 @@ async def mover_lead_kanban(
 # _tempo_medio_ate_proposta_dias) — achado L10 do plano Leads/CRM (Fase 2,
 # 03/09/2026).
 FASES_POS_PROPOSTA: frozenset[str] = frozenset(
-    {"proposta_enviada", "proposta_aceita", "pagamento_realizado", "protocolo_inpi", "processo_inpi"}
+    {
+        "proposta_enviada",
+        "proposta_aceita",
+        "aguardando_pagamento",
+        "pagamento_confirmado",
+        "ganho",
+        "protocolo_inpi",
+        "processo_inpi",
+    }
 )
 
 
@@ -2130,10 +2146,13 @@ async def listar_versoes_documento_lead(
 # Itens sugeridos por etapa — aplicados sob demanda (botão "aplicar padrão").
 CHECKLIST_PADRAO_FASE: dict[str, tuple[str, ...]] = {
     "contato_inicial": ("Registrar dados do cliente", "Entender a necessidade da marca"),
+    "qualificado": ("Confirmar interesse real", "Validar viabilidade preliminar"),
     "relatorio_enviado": ("Gerar relatório de viabilidade", "Enviar relatório ao cliente"),
     "proposta_enviada": ("Elaborar proposta comercial", "Enviar proposta ao cliente"),
     "proposta_aceita": ("Confirmar aceite da proposta", "Coletar dados para a procuração"),
-    "pagamento_realizado": ("Emitir cobrança", "Confirmar pagamento"),
+    "aguardando_pagamento": ("Emitir cobrança",),
+    "pagamento_confirmado": ("Confirmar recebimento do pagamento",),
+    "ganho": ("Registrar oportunidade como ganha",),
     "protocolo_inpi": (
         "Procuração assinada",
         "GRU emitida",
@@ -3301,10 +3320,13 @@ async def rastreio_abertura_cadencia(token: str, session: SessionDep) -> Respons
 
 FASE_LABELS: dict[str, str] = {
     "contato_inicial": "Contato inicial",
+    "qualificado": "Qualificado",
     "relatorio_enviado": "Relatório enviado",
     "proposta_enviada": "Proposta enviada",
     "proposta_aceita": "Proposta aceita",
-    "pagamento_realizado": "Pagamento",
+    "aguardando_pagamento": "Aguardando pagamento",
+    "pagamento_confirmado": "Pagamento confirmado",
+    "ganho": "Ganho",
     "protocolo_inpi": "Protocolo INPI",
     "processo_inpi": "Processo no INPI",
 }

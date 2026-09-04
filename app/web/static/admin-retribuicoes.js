@@ -3,10 +3,13 @@ const retMessage = document.querySelector("#retribuicao-message");
 const retDialog = document.querySelector("#retribuicao-dialog");
 const retForm = document.querySelector("#retribuicao-form");
 const FASE_LABELS = {
+  qualificado: "Qualificado",
   relatorio_enviado: "Relatório enviado",
   proposta_enviada: "Proposta enviada",
   proposta_aceita: "Proposta aceita",
-  pagamento_realizado: "Pagamento",
+  aguardando_pagamento: "Aguardando pagamento",
+  pagamento_confirmado: "Pagamento confirmado",
+  ganho: "Ganho",
   protocolo_inpi: "Protocolo INPI",
   processo_inpi: "Processo no INPI",
 };

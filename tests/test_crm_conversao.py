@@ -43,14 +43,35 @@ def _restaurar_regras_automacao(original) -> None:
 
 
 # --- Achado L9 do plano Leads/CRM (03/09/2026): resultado não acompanhava a conversão automática ---
+# --- Achado CRM-1/CRM-11 da auditoria de CRM/financeiro (04/09/2026):
+# "proposta_aceita" disparava resultado="ganho" -- aceitar a proposta
+# virava "negócio ganho" antes de qualquer pagamento. Corrigido: só a fase
+# "ganho" (nova, depois de pagamento_confirmado) marca a conversão. Os
+# testes abaixo foram reescritos para cobrir o comportamento corrigido --
+# antes, o próprio teste esperava o bug como comportamento certo. ---
 
 
-def test_avancar_fase_lead_para_proposta_aceita_marca_resultado_ganho() -> None:
+def test_avancar_fase_lead_para_proposta_aceita_nao_marca_resultado_ganho() -> None:
     original = _sem_regras_automacao()
     try:
         lead = _lead()
         session = FakeSession([])
         mudou = asyncio.run(avancar_fase_lead(session, lead, "proposta_aceita", "Cliente via link"))
+    finally:
+        _restaurar_regras_automacao(original)
+
+    assert mudou is True
+    assert lead.fase == "proposta_aceita"
+    assert lead.status == StatusLead.QUALIFICADO  # inalterado -- proposta_aceita não mapeia status
+    assert lead.resultado is None
+
+
+def test_avancar_fase_lead_para_ganho_marca_resultado_ganho() -> None:
+    original = _sem_regras_automacao()
+    try:
+        lead = _lead(fase="pagamento_confirmado")
+        session = FakeSession([])
+        mudou = asyncio.run(avancar_fase_lead(session, lead, "ganho", "Cliente via link"))
     finally:
         _restaurar_regras_automacao(original)
 
@@ -64,9 +85,13 @@ def test_avancar_fase_lead_para_proposta_aceita_marca_resultado_ganho() -> None:
 def test_avancar_fase_lead_limpa_motivo_perda_anterior_ao_converter() -> None:
     original = _sem_regras_automacao()
     try:
-        lead = _lead(motivo_perda="sem_resposta", motivo_perda_detalhe="Não retornou os contatos.")
+        lead = _lead(
+            fase="pagamento_confirmado",
+            motivo_perda="sem_resposta",
+            motivo_perda_detalhe="Não retornou os contatos.",
+        )
         session = FakeSession([])
-        asyncio.run(avancar_fase_lead(session, lead, "proposta_aceita", "Cliente via link"))
+        asyncio.run(avancar_fase_lead(session, lead, "ganho", "Cliente via link"))
     finally:
         _restaurar_regras_automacao(original)
 
@@ -75,7 +100,7 @@ def test_avancar_fase_lead_limpa_motivo_perda_anterior_ao_converter() -> None:
     assert lead.motivo_perda_detalhe is None
 
 
-def test_avancar_fase_lead_para_fase_sem_status_convertido_nao_altera_resultado() -> None:
+def test_avancar_fase_lead_para_fase_sem_status_mapeado_nao_altera_status_nem_resultado() -> None:
     original = _sem_regras_automacao()
     try:
         lead = _lead(fase="contato_inicial", status=StatusLead.EM_CONTATO)
@@ -84,14 +109,30 @@ def test_avancar_fase_lead_para_fase_sem_status_convertido_nao_altera_resultado(
     finally:
         _restaurar_regras_automacao(original)
 
+    # relatorio_enviado não mapeia status (achado CRM-11 -- "qualificado" é
+    # quem mapeia StatusLead.QUALIFICADO agora, fase própria e anterior).
+    assert lead.status == StatusLead.EM_CONTATO
+    assert lead.resultado is None
+
+
+def test_avancar_fase_lead_para_qualificado_marca_status_qualificado() -> None:
+    original = _sem_regras_automacao()
+    try:
+        lead = _lead(fase="contato_inicial", status=StatusLead.EM_CONTATO)
+        session = FakeSession([])
+        mudou = asyncio.run(avancar_fase_lead(session, lead, "qualificado", "Operador"))
+    finally:
+        _restaurar_regras_automacao(original)
+
+    assert mudou is True
     assert lead.status == StatusLead.QUALIFICADO
     assert lead.resultado is None
 
 
 def test_avancar_fase_lead_idempotente_quando_ja_convertido() -> None:
+    lead = _lead(fase="ganho", status=StatusLead.CONVERTIDO, resultado="ganho")
     original = _sem_regras_automacao()
     try:
-        lead = _lead(fase="pagamento_realizado", status=StatusLead.CONVERTIDO, resultado="ganho")
         session = FakeSession([])
         mudou = asyncio.run(avancar_fase_lead(session, lead, "protocolo_inpi", "sistema"))
     finally:

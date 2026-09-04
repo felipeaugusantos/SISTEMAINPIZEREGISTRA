@@ -48,7 +48,15 @@ def test_tempo_ate_proposta_ignora_lead_em_fase_anterior() -> None:
 
 def test_tempo_ate_proposta_considera_todas_as_fases_pos_proposta() -> None:
     entradas = {10: datetime(2026, 1, 3, tzinfo=UTC)}
-    for fase in ("proposta_enviada", "proposta_aceita", "pagamento_realizado", "protocolo_inpi", "processo_inpi"):
+    for fase in (
+        "proposta_enviada",
+        "proposta_aceita",
+        "aguardando_pagamento",
+        "pagamento_confirmado",
+        "ganho",
+        "protocolo_inpi",
+        "processo_inpi",
+    ):
         lead = _lead(id=10, fase=fase)
         assert _tempo_medio_ate_proposta_dias([lead], entradas) == [2.0]
 

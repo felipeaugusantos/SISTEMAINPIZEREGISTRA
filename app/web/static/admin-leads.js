@@ -506,12 +506,18 @@ async function openLead(id, selectedResearchId = null) {
 }
 
 // Criação direta: mantém o botão sem prompts e usa os dados já disponíveis.
+// Achado CRM-11 da auditoria (04/09/2026): funil expandido de 7 para 10
+// fases -- mantido em sincronia com FASE_LABELS/KANBAN_ETAPAS em
+// app/api/leads.py.
 const FASE_LABELS = {
   contato_inicial: "Contato inicial",
+  qualificado: "Qualificado",
   relatorio_enviado: "Relatório enviado",
   proposta_enviada: "Proposta enviada",
   proposta_aceita: "Proposta aceita",
-  pagamento_realizado: "Pagamento",
+  aguardando_pagamento: "Aguardando pagamento",
+  pagamento_confirmado: "Pagamento confirmado",
+  ganho: "Ganho",
   protocolo_inpi: "Protocolo INPI",
   processo_inpi: "Processo no INPI",
 };
@@ -524,10 +530,13 @@ const FASE_LABELS = {
 const ETAPA_KANBAN_LABELS = {
   primeiro_contato: "Primeiro contato",
   aguardando_contato_nosso: "Aguardando contato nosso",
+  qualificado: "Qualificado",
   aguardando_retorno_cliente: "Aguardando retorno do cliente",
   proposta_enviada: "Proposta enviada",
-  proposta_aceita: "Proposta aceita / contrato enviado",
-  pagamento_realizado: "Pagamento realizado",
+  proposta_aceita: "Proposta aceita",
+  aguardando_pagamento: "Aguardando pagamento",
+  pagamento_confirmado: "Pagamento confirmado",
+  ganho: "Ganho",
   protocolo_inpi: "Protocolo no INPI gerado",
   processo_inpi: "Processo no INPI",
 };

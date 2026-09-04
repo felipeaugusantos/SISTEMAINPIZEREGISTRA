@@ -327,11 +327,15 @@ async def aplicar_cadencias_automaticas(session: AsyncSession, lead: Lead, event
 # A fase do funil é o eixo mais rico; ao mudar a fase o status espelha o mapa
 # abaixo. A fase "contato_inicial" não força status (novo/em_contato são
 # ambos válidos no começo).
+# Achado CRM-1/CRM-11 da auditoria (04/09/2026): "proposta_aceita" disparava
+# StatusLead.CONVERTIDO (e, mais abaixo, Lead.resultado="ganho") -- ou seja,
+# aceitar a proposta já contava como negócio GANHO, antes de qualquer
+# pagamento. Corrigido: só a fase "ganho" (nova, depois de
+# pagamento_confirmado) marca a oportunidade como convertida/ganha.
 MAPA_FASE_STATUS: dict[str, StatusLead] = {
-    "relatorio_enviado": StatusLead.QUALIFICADO,
+    "qualificado": StatusLead.QUALIFICADO,
     "proposta_enviada": StatusLead.PROPOSTA_ENVIADA,
-    "proposta_aceita": StatusLead.CONVERTIDO,
-    "pagamento_realizado": StatusLead.CONVERTIDO,
+    "ganho": StatusLead.CONVERTIDO,
     "protocolo_inpi": StatusLead.CONVERTIDO,
     "processo_inpi": StatusLead.CONVERTIDO,
 }
@@ -340,9 +344,9 @@ MAPA_FASE_STATUS: dict[str, StatusLead] = {
 MAPA_STATUS_FASE: dict[str, str] = {
     "novo": "contato_inicial",
     "em_contato": "contato_inicial",
-    "qualificado": "relatorio_enviado",
+    "qualificado": "qualificado",
     "proposta_enviada": "proposta_enviada",
-    "convertido": "proposta_aceita",
+    "convertido": "ganho",
 }
 
 

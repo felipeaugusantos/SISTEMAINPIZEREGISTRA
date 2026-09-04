@@ -58,13 +58,29 @@ class StatusProspect(StrEnum):
 
 
 class FaseLead(StrEnum):
-    """Etapa do lead no funil de atendimento (do 1º contato ao processo no INPI)."""
+    """Etapa do lead no funil de atendimento (do 1º contato ao processo no INPI).
+
+    Expandida na auditoria de CRM/financeiro (04/09/2026, achado CRM-11) de 7
+    para 10 fases: "qualificado" passa a ser uma fase própria (antes só
+    existia como StatusLead, sem posição no funil), "pagamento_realizado"
+    virou duas fases (aguardando_pagamento / pagamento_confirmado -- a
+    anterior não distinguia cobrança emitida de pagamento efetivamente
+    recebido), e "ganho" passa a ser uma fase do funil, não só o campo
+    ``Lead.resultado``. Decisão de produto tomada (não implementada): NÃO
+    existe uma fase "contrato_assinado" separada de "proposta_aceita" --
+    neste sistema, assinar a proposta (AssinaturaPropostaComercial) É o
+    próprio ato de aceitá-la, mesmo evento e mesmo timestamp; uma fase
+    própria para isso ficaria sempre vazia (o lead nunca fica "parado" nela).
+    """
 
     CONTATO_INICIAL = "contato_inicial"
+    QUALIFICADO = "qualificado"
     RELATORIO_ENVIADO = "relatorio_enviado"
     PROPOSTA_ENVIADA = "proposta_enviada"
     PROPOSTA_ACEITA = "proposta_aceita"
-    PAGAMENTO_REALIZADO = "pagamento_realizado"
+    AGUARDANDO_PAGAMENTO = "aguardando_pagamento"
+    PAGAMENTO_CONFIRMADO = "pagamento_confirmado"
+    GANHO = "ganho"
     PROTOCOLO_INPI = "protocolo_inpi"
     PROCESSO_INPI = "processo_inpi"
 

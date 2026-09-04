@@ -4,9 +4,9 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import Date, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,7 @@ from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
 from app.models import (
     ContratacaoServico,
+    EmpresaCRM,
     EventoCobrancaSandbox,
     GuiaInpi,
     LancamentoFinanceiro,
@@ -231,39 +232,148 @@ async def contratar_servico(dados: ContratacaoInput, session: SessionDep, usuari
     }
 
 
+FAIXAS_ATRASO: tuple[tuple[str, int, int | None], ...] = (
+    ("1_30", 1, 30),
+    ("31_60", 31, 60),
+    ("61_90", 61, 90),
+    ("acima_90", 91, None),
+)
+
+
+def _faixa_atraso(dias: int) -> str:
+    for nome, minimo, maximo in FAIXAS_ATRASO:
+        if dias >= minimo and (maximo is None or dias <= maximo):
+            return nome
+    return "acima_90"
+
+
 @router.get("/inadimplencia")
 async def listar_inadimplencia(session: SessionDep, usuario: ViewDep) -> dict:
+    """Achado FASE7-12 da auditoria (04/09/2026): corrige um bug real --
+    faltava filtrar tipo=="receber", então contas a PAGAR vencidas (dinheiro
+    que a própria organização deve, não inadimplência de cliente) também
+    entravam na lista. Adiciona agregação por faixa de atraso e por
+    cliente -- antes só existia uma lista plana de parcelas."""
     hoje = date.today()
     itens = (
         (
             await session.execute(
-                select(ParcelaFinanceira)
-                .join(LancamentoFinanceiro)
+                select(ParcelaFinanceira, LancamentoFinanceiro.empresa_id, EmpresaCRM.nome)
+                .join(LancamentoFinanceiro, LancamentoFinanceiro.id == ParcelaFinanceira.lancamento_id)
+                .outerjoin(EmpresaCRM, EmpresaCRM.id == LancamentoFinanceiro.empresa_id)
                 .where(
                     ParcelaFinanceira.organizacao_id == usuario.organizacao_id,
                     LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
-                    ParcelaFinanceira.status == "aberta",
+                    LancamentoFinanceiro.tipo == "receber",
+                    ParcelaFinanceira.status.in_(("aberta", "parcial")),
                     ParcelaFinanceira.vencimento < hoje,
                 )
                 .order_by(ParcelaFinanceira.vencimento)
             )
+        ).all()
+    )
+
+    por_faixa: dict[str, Decimal] = dict.fromkeys((f[0] for f in FAIXAS_ATRASO), Decimal("0"))
+    por_cliente: dict[int | None, dict] = {}
+    linhas = []
+    for parcela, empresa_id, nome_empresa in itens:
+        dias_atraso = (hoje - parcela.vencimento).days
+        faixa = _faixa_atraso(dias_atraso)
+        saldo = Decimal(parcela.valor) - Decimal(parcela.valor_pago or 0)
+        por_faixa[faixa] += saldo
+        entrada_cliente = por_cliente.setdefault(
+            empresa_id, {"empresa_id": empresa_id, "nome": nome_empresa or "(sem cliente vinculado)", "total": Decimal("0"), "parcelas": 0}
         )
-        .scalars()
-        .all()
+        entrada_cliente["total"] += saldo
+        entrada_cliente["parcelas"] += 1
+        linhas.append(
+            {
+                "parcela_id": parcela.id,
+                "lancamento_id": parcela.lancamento_id,
+                "empresa_id": empresa_id,
+                "nome_cliente": nome_empresa,
+                "vencimento": parcela.vencimento,
+                "valor": str(saldo),
+                "dias_atraso": dias_atraso,
+                "faixa_atraso": faixa,
+            }
+        )
+
+    clientes = sorted(
+        (
+            {**c, "total": str(c["total"])}
+            for c in por_cliente.values()
+        ),
+        key=lambda c: Decimal(c["total"]),
+        reverse=True,
     )
     return {
-        "itens": [
-            {
-                "parcela_id": p.id,
-                "lancamento_id": p.lancamento_id,
-                "vencimento": p.vencimento,
-                "valor": p.valor,
-                "dias_atraso": (hoje - p.vencimento).days,
-            }
-            for p in itens
-        ],
-        "total": len(itens),
+        "itens": linhas,
+        "total": len(linhas),
+        "valor_total": str(sum(por_faixa.values(), Decimal("0"))),
+        "por_faixa_atraso": {faixa: str(valor) for faixa, valor in por_faixa.items()},
+        "por_cliente": clientes,
     }
+
+
+@router.get("/previsao-caixa")
+async def obter_previsao_caixa(
+    session: SessionDep, usuario: ViewDep, dias: Annotated[int, Query(ge=7, le=365)] = 90
+) -> dict:
+    """Achado FASE7-11 da auditoria (04/09/2026): não existia nenhuma
+    projeção de fluxo de caixa futuro -- os dados já existiam (vencimento em
+    ParcelaFinanceira), só faltava agregar. Agrupa por semana (ISO), a
+    partir de hoje até `dias` no futuro, entradas (receber) vs saídas
+    (pagar) e saldo acumulado. Não inclui parcelas já vencidas (essas são
+    inadimplência/contas a pagar atrasadas, não previsão -- ver
+    /inadimplencia)."""
+    hoje = date.today()
+    limite = hoje + timedelta(days=dias)
+    linhas = (
+        await session.execute(
+            select(
+                func.date_trunc("week", ParcelaFinanceira.vencimento).cast(Date),
+                LancamentoFinanceiro.tipo,
+                func.coalesce(func.sum(ParcelaFinanceira.valor - ParcelaFinanceira.valor_pago), 0),
+            )
+            .join(LancamentoFinanceiro, LancamentoFinanceiro.id == ParcelaFinanceira.lancamento_id)
+            .where(
+                ParcelaFinanceira.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.status != "cancelado",
+                ParcelaFinanceira.status.in_(("aberta", "parcial")),
+                ParcelaFinanceira.vencimento >= hoje,
+                ParcelaFinanceira.vencimento <= limite,
+            )
+            .group_by(func.date_trunc("week", ParcelaFinanceira.vencimento), LancamentoFinanceiro.tipo)
+            .order_by(func.date_trunc("week", ParcelaFinanceira.vencimento))
+        )
+    ).all()
+
+    por_semana: dict[date, dict[str, Decimal]] = {}
+    for semana, tipo, total in linhas:
+        entrada = por_semana.setdefault(semana, {"entradas": Decimal("0"), "saidas": Decimal("0")})
+        if tipo == "receber":
+            entrada["entradas"] += Decimal(total)
+        else:
+            entrada["saidas"] += Decimal(total)
+
+    saldo_acumulado = Decimal("0")
+    semanas = []
+    for semana in sorted(por_semana):
+        valores = por_semana[semana]
+        saldo_semana = valores["entradas"] - valores["saidas"]
+        saldo_acumulado += saldo_semana
+        semanas.append(
+            {
+                "semana_inicio": semana,
+                "entradas": str(valores["entradas"]),
+                "saidas": str(valores["saidas"]),
+                "saldo_semana": str(saldo_semana),
+                "saldo_acumulado": str(saldo_acumulado),
+            }
+        )
+    return {"gerado_em": hoje, "horizonte_dias": dias, "semanas": semanas}
 
 
 @router.post("/guias", status_code=201)

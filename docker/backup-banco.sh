@@ -6,10 +6,14 @@ set -eu
 # (uso local/Windows), mas roda direto na VPS via docker compose.
 #
 # Uso:
-#   ./docker/backup-banco.sh              # retencao padrao (14 dias)
+#   ./docker/backup-banco.sh              # retencao padrao (7 dias)
 #   RETENCAO_DIAS=30 ./docker/backup-banco.sh
 
-RETENCAO_DIAS="${RETENCAO_DIAS:-14}"
+# Achado 04/09/2026: com o banco em ~30GB (apos a migration wp43q1s5d064
+# adicionar indices faltantes), cada dump comprimido passou de ~1.6GB para
+# ~5.5GB. Com 14 dias de retencao isso sozinho consumiria ~77GB no disco da
+# VPS (193GB total) -- reduzido para 7 dias para caber com folga.
+RETENCAO_DIAS="${RETENCAO_DIAS:-7}"
 
 cd "$(dirname "$0")/.."
 mkdir -p backups

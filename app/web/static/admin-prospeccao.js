@@ -97,7 +97,7 @@ async function loadCampanhas() {
       <td>${renderCampanhaCriterios(item.criterios_busca || {})}</td>
       <td><span class="prospeccao-campanha-status is-${escapeHtml(item.status)}">${item.status === "ativa" ? `<span class="prospeccao-spinner" aria-hidden="true"></span>` : ""}${escapeHtml(campanhaStatusLabel(item.status))}</span></td>
       <td>${item.prospects_gerados}</td>
-      <td><button class="secondary-button" data-coletar type="button" ${item.status === "concluida" || item.status === "ativa" ? "disabled" : ""}>${item.status === "ativa" ? "Coletando…" : "Coletar"}</button></td>
+      <td><button class="secondary-button" data-coletar type="button" ${item.status === "ativa" ? "disabled" : ""}>${item.status === "ativa" ? "Coletando…" : item.status === "concluida" ? "Coletar novamente" : "Coletar"}</button></td>
     </tr>`).join("");
   iniciarPollingCampanhasSeNecessario();
 }

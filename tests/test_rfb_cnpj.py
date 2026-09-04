@@ -4,6 +4,7 @@ from app.rfb_cnpj import (
     cnaes_secundarios_para_lista,
     montar_cnpj,
     montar_registro_cache,
+    normalizar_cidade,
     normalizar_data_rfb,
     normalizar_porte,
     normalizar_situacao_cadastral,
@@ -28,6 +29,16 @@ def test_normalizar_porte_mapeia_codigos_conhecidos() -> None:
     assert normalizar_porte("03") == "pequeno"
     assert normalizar_porte("05") == "demais"
     assert normalizar_porte("00") == "nao_informado"
+
+
+def test_normalizar_cidade_remove_acentos_e_padroniza_espacos() -> None:
+    assert normalizar_cidade("  Ribeirão   Preto ") == "RIBEIRAO PRETO"
+    assert normalizar_cidade("São José d'Ávila") == "SAO JOSE D'AVILA"
+
+
+def test_normalizar_cidade_vazia_retorna_none() -> None:
+    assert normalizar_cidade(None) is None
+    assert normalizar_cidade("   ") is None
 
 
 def test_montar_cnpj_junta_basico_ordem_dv() -> None:
@@ -102,6 +113,17 @@ def test_montar_registro_cache_monta_registro_completo() -> None:
         "telefone": "11988887777",
         "email": "contato@loja.com.br",
     }
+
+
+def test_montar_registro_cache_normaliza_nome_acentuado_do_municipio() -> None:
+    registro = montar_registro_cache(
+        _estabelecimento(),
+        porte_empresa="03",
+        razao_social="Empresa Ribeirão Ltda",
+        municipios={"7107": "Ribeirão Preto"},
+    )
+
+    assert registro["cidade"] == "RIBEIRAO PRETO"
 
 
 def test_montar_registro_cache_cnpj_invalido_retorna_none() -> None:

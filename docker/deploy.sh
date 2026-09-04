@@ -23,10 +23,20 @@ set -eu
 # desatualizada sem perceber.
 #
 # Rode a partir da raiz do repositorio (/opt/zeregistra).
+#
+# Fase 0 (auditoria de 03/09/2026): este script SEMPRE mescla
+# compose.production.yaml -- sem isso, `docker compose` sozinho so le
+# compose.yaml e o ambiente sobe com APP_ENV=development, ADMIN_FORCE_HTTPS
+# desligado e INTEGRATION_AUTH_ENABLED desligado em produção, sem que
+# ninguem percebesse (achado F0-1/F0-2 da auditoria). O script agora falha
+# cedo se o ambiente efetivo resolvido nao for "production", e falha no
+# final se algum dos tres servicos que compartilham codigo (api/worker/
+# rpi-sync) acabar rodando um commit diferente dos outros (achado F0-3).
 
 MANTER_VERSOES="${MANTER_VERSOES:-10}"
 SERVICOS="${*:-api worker migrate rpi-sync}"
 ARQUIVO_VERSAO=".deploy-version"
+COMPOSE="docker compose -f compose.yaml -f compose.production.yaml"
 
 cd "$(dirname "$0")/.."
 
@@ -47,10 +57,18 @@ DATA="$(date +%Y-%m-%d)"
 TAG_VERSAO="${VERSAO}-${DATA}"
 echo "==> versao: $TAG_VERSAO (commit $(git rev-parse --short HEAD))"
 
+echo "==> verificando ambiente efetivo (compose.yaml + compose.production.yaml)"
+AMBIENTE_EFETIVO="$($COMPOSE config 2>/dev/null | grep -m1 '^\s*APP_ENV:' | awk '{print $2}' | tr -d '"')"
+if [ "$AMBIENTE_EFETIVO" != "production" ]; then
+    echo "ERRO: APP_ENV efetivo resolvido e '${AMBIENTE_EFETIVO:-<vazio>}', esperado 'production'." >&2
+    echo "compose.production.yaml nao esta sendo aplicado corretamente -- abortando antes de buildar." >&2
+    exit 1
+fi
+
 echo "==> build: $SERVICOS"
 GIT_SHA="$(git rev-parse HEAD)"
 for servico in $SERVICOS; do
-    docker compose build --build-arg "GIT_SHA=${GIT_SHA}" "$servico"
+    $COMPOSE build --build-arg "GIT_SHA=${GIT_SHA}" "$servico"
 done
 
 for servico in $SERVICOS; do
@@ -62,21 +80,23 @@ done
 # migrate roda as migrations pendentes e sai sozinho -- espera terminar antes
 # de seguir para os servicos de longa duracao. Backup automatico antes de
 # qualquer migration (Fase 0, item 8): se a migration der problema, da pra
-# restaurar com docker/restaurar-banco.sh.
+# restaurar com docker/restaurar-banco.sh. `docker compose wait` propaga o
+# codigo de saida do container de migration -- com `set -eu` isso ja faz o
+# script inteiro falhar se a migration falhar (Fase 0, item 10).
 case " $SERVICOS " in
     *" migrate "*)
         echo "==> backup antes da migration"
         ./docker/backup-banco.sh
         echo "==> aplicando migrations"
-        docker compose up -d migrate
-        docker compose wait migrate
+        $COMPOSE up -d migrate
+        $COMPOSE wait migrate
         ;;
 esac
 
 for servico in $SERVICOS; do
     if [ "$servico" != "migrate" ]; then
         echo "==> subindo $servico"
-        docker compose up -d "$servico"
+        $COMPOSE up -d "$servico"
     fi
 done
 
@@ -96,6 +116,44 @@ for servico in $SERVICOS; do
     done
 done
 
-echo "==> pronto (versao ${TAG_VERSAO}). api saudavel?"
-sleep 3
-curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8000/health || true
+# Fase 0, item 9: api, worker e rpi-sync compartilham o mesmo codigo e devem
+# rodar exatamente o mesmo commit. Compara os tres containers que estiverem
+# de pe agora (nao so os que este deploy tocou) -- pega tambem o caso de
+# "deploy.sh api" deixar worker/rpi-sync desatualizados sem que ninguem note.
+echo "==> verificando consistencia de commit entre api/worker/rpi-sync"
+SHAS_DIVERGENTES=0
+SHA_REFERENCIA=""
+for servico in api worker rpi-sync; do
+    container="zeregistra-${servico}-1"
+    if ! docker inspect "$container" >/dev/null 2>&1; then
+        continue
+    fi
+    sha_servico="$(docker inspect "$container" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+    echo "    ${servico}: ${sha_servico}"
+    if [ -z "$SHA_REFERENCIA" ]; then
+        SHA_REFERENCIA="$sha_servico"
+    elif [ "$sha_servico" != "$SHA_REFERENCIA" ]; then
+        SHAS_DIVERGENTES=1
+    fi
+done
+if [ "$SHAS_DIVERGENTES" -eq 1 ]; then
+    echo "ERRO: api/worker/rpi-sync nao estao no mesmo commit. Rode 'docker/deploy.sh api worker migrate rpi-sync' para alinhar." >&2
+    exit 1
+fi
+
+echo "==> pronto (versao ${TAG_VERSAO}). verificando saude da api"
+SAUDAVEL=0
+for tentativa in 1 2 3 4 5; do
+    sleep 3
+    CODIGO_HTTP="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/health || echo "000")"
+    if [ "$CODIGO_HTTP" = "200" ]; then
+        SAUDAVEL=1
+        break
+    fi
+    echo "    tentativa ${tentativa}: health respondeu ${CODIGO_HTTP}, tentando de novo..."
+done
+if [ "$SAUDAVEL" -ne 1 ]; then
+    echo "ERRO: api nao ficou saudavel apos o deploy (ultimo codigo HTTP: ${CODIGO_HTTP})." >&2
+    exit 1
+fi
+echo "==> api saudavel (200)"

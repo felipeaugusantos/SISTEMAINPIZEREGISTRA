@@ -67,6 +67,7 @@ class FakeSession:
         self._resultados = list(resultados or [])
         self._objetos_get = list(objetos_get or [])
         self.adicionados: list[Any] = []
+        self.deletados: list[Any] = []
         self.executados: list[Any] = []
         self.commits = 0
 
@@ -78,6 +79,9 @@ class FakeSession:
 
     def add(self, obj: Any) -> None:
         self.adicionados.append(obj)
+
+    async def delete(self, obj: Any) -> None:
+        self.deletados.append(obj)
 
     async def commit(self) -> None:
         self.commits += 1

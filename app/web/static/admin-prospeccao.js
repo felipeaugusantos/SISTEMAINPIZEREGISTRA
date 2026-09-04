@@ -97,7 +97,10 @@ async function loadCampanhas() {
       <td>${renderCampanhaCriterios(item.criterios_busca || {})}</td>
       <td><span class="prospeccao-campanha-status is-${escapeHtml(item.status)}">${item.status === "ativa" ? `<span class="prospeccao-spinner" aria-hidden="true"></span>` : ""}${escapeHtml(campanhaStatusLabel(item.status))}</span></td>
       <td>${item.prospects_gerados}</td>
-      <td><button class="secondary-button" data-coletar type="button" ${item.status === "ativa" ? "disabled" : ""}>${item.status === "ativa" ? "Coletando…" : item.status === "concluida" ? "Coletar novamente" : "Coletar"}</button></td>
+      <td>
+        <button class="secondary-button" data-coletar type="button" ${item.status === "ativa" ? "disabled" : ""}>${item.status === "ativa" ? "Coletando…" : item.status === "concluida" ? "Coletar novamente" : "Coletar"}</button>
+        <button class="secondary-button" data-excluir-campanha type="button" ${item.status === "ativa" ? "disabled" : ""} title="${item.status === "ativa" ? "Não é possível excluir com coleta em andamento" : "Excluir campanha"}">Excluir</button>
+      </td>
     </tr>`).join("");
   iniciarPollingCampanhasSeNecessario();
 }
@@ -392,14 +395,30 @@ document.querySelector("#campanha-form").addEventListener("submit", async event 
   } catch (error) { showMessage(error.message, "error"); }
 });
 document.querySelector("#campanhas-rows").addEventListener("click", async event => {
-  const button = event.target.closest("[data-coletar]"); if (!button) return;
-  const id = button.closest("[data-id]").dataset.id;
-  button.disabled = true;
-  try {
-    await api(`/v1/admin/prospeccao/campanhas/${id}/coletar`, { method: "POST" });
-    showMessage("Coleta em andamento — acompanhe pelo status \"Coletando/ativa\" na lista abaixo, que atualiza sozinho.");
-    await loadCampanhas();
-  } catch (error) { showMessage(error.message, "error"); button.disabled = false; }
+  const coletarButton = event.target.closest("[data-coletar]");
+  if (coletarButton) {
+    const id = coletarButton.closest("[data-id]").dataset.id;
+    coletarButton.disabled = true;
+    try {
+      await api(`/v1/admin/prospeccao/campanhas/${id}/coletar`, { method: "POST" });
+      showMessage("Coleta em andamento — acompanhe pelo status \"Coletando/ativa\" na lista abaixo, que atualiza sozinho.");
+      await loadCampanhas();
+    } catch (error) { showMessage(error.message, "error"); coletarButton.disabled = false; }
+    return;
+  }
+  const excluirButton = event.target.closest("[data-excluir-campanha]");
+  if (excluirButton) {
+    const row = excluirButton.closest("[data-id]");
+    const id = row.dataset.id;
+    const nome = row.querySelector("strong")?.textContent || "esta campanha";
+    if (!confirm(`Excluir "${nome}"? Os prospects já gerados por ela permanecem no radar, só perdem o vínculo com a campanha.`)) return;
+    excluirButton.disabled = true;
+    try {
+      await api(`/v1/admin/prospeccao/campanhas/${id}`, { method: "DELETE" });
+      showMessage("Campanha excluída.");
+      await loadCampanhas();
+    } catch (error) { showMessage(error.message, "error"); excluirButton.disabled = false; }
+  }
 });
 
 const politicaDialog = document.querySelector("#politica-dialog");

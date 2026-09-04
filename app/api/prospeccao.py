@@ -581,6 +581,31 @@ async def criar_campanha(
     return CampanhaProspeccaoResponse.model_validate(campanha)
 
 
+@router_campanhas.delete("/campanhas/{campanha_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def excluir_campanha(
+    campanha_id: int, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
+) -> None:
+    """Exclui a campanha. Os prospects já gerados por ela não são apagados --
+    só perdem o vínculo (fk_prospects_campanha_id é ON DELETE SET NULL),
+    continuam no radar normalmente. Bloqueado enquanto a coleta está em
+    andamento (status "ativa") para não apagar a campanha embaixo de um job
+    que ainda vai tentar atualizá-la."""
+    campanha = (
+        await session.execute(
+            select(CampanhaProspeccao).where(
+                CampanhaProspeccao.id == campanha_id, CampanhaProspeccao.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if campanha is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Campanha não encontrada")
+    if campanha.status == "ativa":
+        raise HTTPException(422, "Não é possível excluir uma campanha com coleta em andamento.")
+    _auditar(session, request, usuario, "excluir_campanha_prospeccao", f"campanha:{campanha.id}", {"nome": campanha.nome})
+    await session.delete(campanha)
+    await session.commit()
+
+
 @router_campanhas.post("/campanhas/{campanha_id}/coletar", status_code=status.HTTP_202_ACCEPTED)
 async def coletar_campanha(
     campanha_id: int, request: Request, session: SessionDep, usuario: ProspeccaoManageDep

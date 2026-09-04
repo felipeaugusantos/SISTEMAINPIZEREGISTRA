@@ -390,6 +390,43 @@ def test_coletar_campanha_ativa_retorna_422() -> None:
     assert resposta.status_code == 422
 
 
+# --- Excluir campanha (04/09/2026) -- pedido do usuario, campanha em
+# rascunho esquecida sem forma de remover da lista. ---
+
+
+def test_excluir_campanha_rascunho() -> None:
+    campanha = _campanha(status="rascunho")
+    session = _sessao_admin(FakeResult(scalar=campanha))
+
+    resposta = TestClient(app).delete(
+        "/v1/admin/prospeccao/campanhas/4", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 204
+    assert campanha in session.deletados
+
+
+def test_excluir_campanha_ativa_retorna_422() -> None:
+    campanha = _campanha(status="ativa")
+    _sessao_admin(FakeResult(scalar=campanha))
+
+    resposta = TestClient(app).delete(
+        "/v1/admin/prospeccao/campanhas/4", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 422
+
+
+def test_excluir_campanha_inexistente_retorna_404() -> None:
+    _sessao_admin(FakeResult(scalar=None))
+
+    resposta = TestClient(app).delete(
+        "/v1/admin/prospeccao/campanhas/999", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 404
+
+
 # --- Fase 3 do Radar de Prospecção (03/09/2026) -- enriquecimento ----------
 
 

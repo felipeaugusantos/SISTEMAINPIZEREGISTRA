@@ -4,6 +4,7 @@ import re
 from datetime import UTC, date, datetime, time, timedelta
 from types import SimpleNamespace
 from typing import Annotated, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
@@ -449,7 +450,19 @@ def _movimentacao_posterior(terminal: Movimentacao, origem: Movimentacao) -> boo
     return (terminal.data_rpi, terminal.id or 0) > (origem.data_rpi, origem.id or 0)
 
 
+FUSO_BRASIL = ZoneInfo("America/Sao_Paulo")
+
+
 def calcular_vencimento(data_base: date, dias: int, contagem: str) -> datetime:
+    """Retorna o instante UTC correspondente ao final do dia (23:59:59) em
+    Brasília, não 23:59:59 UTC.
+
+    Achado JUR-1 da auditoria (04/09/2026): a versão anterior rotulava
+    23:59:59 diretamente como UTC (`tzinfo=UTC`), quando `atual` é uma data
+    civil brasileira (calculada com a tabela de feriados nacionais e a
+    Portaria INPI/PR nº 08/2022). Isso adiantava o vencimento em 3 horas
+    (Brasília = UTC-3): das 21h às 23h59 de Brasília no dia do vencimento,
+    o prazo já aparecia como vencido."""
     atual = data_base
     if contagem == "uteis":
         restantes = dias
@@ -463,7 +476,7 @@ def calcular_vencimento(data_base: date, dias: int, contagem: str) -> datetime:
         # para o primeiro dia útil o prazo corrido que vença em sábado,
         # domingo ou feriado nacional.
         atual = _proximo_dia_util(atual)
-    return datetime.combine(atual, time(23, 59, 59), tzinfo=UTC)
+    return datetime.combine(atual, time(23, 59, 59), tzinfo=FUSO_BRASIL).astimezone(UTC)
 
 
 class PrazoInput(BaseModel):
@@ -691,10 +704,15 @@ async def _obter_prazo(session: AsyncSession, usuario: UsuarioAutenticado, prazo
 
 
 def _dias_restantes(vencimento: datetime) -> int:
-    agora = datetime.now(UTC)
+    """Dias corridos até o vencimento, contados pelo calendário civil de
+    Brasília -- não pelo calendário UTC (achado JUR-1, ver calcular_vencimento).
+    Comparar `.date()` em UTC adiantava o vencimento em até 3h todo fim de
+    tarde/noite em Brasília."""
     if vencimento.tzinfo is None:
         vencimento = vencimento.replace(tzinfo=UTC)
-    return (vencimento.date() - agora.date()).days
+    agora_brasil = datetime.now(UTC).astimezone(FUSO_BRASIL)
+    vencimento_brasil = vencimento.astimezone(FUSO_BRASIL)
+    return (vencimento_brasil.date() - agora_brasil.date()).days
 
 
 def _serializar_prazo(row) -> dict:
@@ -912,9 +930,13 @@ async def painel(
         )
     responsavel = UsuarioOperacoes.__table__.alias("responsavel")
     escalacao = UsuarioOperacoes.__table__.alias("escalacao")
-    hoje_inicio = datetime.combine(datetime.now(UTC).date(), time.min, UTC)
-    hoje_fim = datetime.combine(datetime.now(UTC).date(), time.max, UTC)
-    sete_dias_fim = datetime.combine(datetime.now(UTC).date() + timedelta(days=7), time.max, UTC)
+    # Achado JUR-1 da auditoria (04/09/2026): janelas "hoje"/"7 dias" devem
+    # ser calculadas pelo calendário civil de Brasília, não UTC (ver
+    # calcular_vencimento/_dias_restantes para o mesmo achado).
+    hoje_brasil = datetime.now(UTC).astimezone(FUSO_BRASIL).date()
+    hoje_inicio = datetime.combine(hoje_brasil, time.min, FUSO_BRASIL).astimezone(UTC)
+    hoje_fim = datetime.combine(hoje_brasil, time.max, FUSO_BRASIL).astimezone(UTC)
+    sete_dias_fim = datetime.combine(hoje_brasil + timedelta(days=7), time.max, FUSO_BRASIL).astimezone(UTC)
     metricas_row = (
         await session.execute(
             select(

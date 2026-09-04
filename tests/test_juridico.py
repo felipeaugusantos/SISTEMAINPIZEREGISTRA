@@ -4,6 +4,7 @@ import hashlib
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -26,6 +27,7 @@ from app.api.juridico import (
     RegraJuridicaInput,
     _classificar_despacho,
     _classificar_despacho_terminal,
+    _dias_restantes,
     _dispensa_concessao,
     _emails_usuarios,
     _pascoa,
@@ -73,9 +75,55 @@ def _request() -> Request:
     )
 
 
+# --- Achado JUR-1 da auditoria (04/09/2026): calcular_vencimento rotulava
+# 23:59:59 de uma data civil brasileira diretamente como UTC -- prazos
+# apareciam vencidos ate 3h antes da meia-noite real em Brasilia. Os
+# asserts abaixo comparam pela data civil em America/Sao_Paulo (o que
+# `vencimento` de fato representa), nao pelo `.date()` cru em UTC. ---
+FUSO_BRASIL_TESTE = ZoneInfo("America/Sao_Paulo")
+
+
+def _data_brasil(vencimento: datetime) -> date:
+    return vencimento.astimezone(FUSO_BRASIL_TESTE).date()
+
+
 def test_calcula_prazo_em_dias_corridos() -> None:
     vencimento = calcular_vencimento(date(2026, 8, 11), 10, "corridos")
-    assert vencimento.date() == date(2026, 8, 21)
+    assert _data_brasil(vencimento) == date(2026, 8, 21)
+
+
+def test_vencimento_e_o_instante_utc_do_fim_do_dia_em_brasilia() -> None:
+    """23:59:59 em Brasilia (UTC-3, sem horario de verao desde 2019) e
+    02:59:59 UTC do dia SEGUINTE -- nao 23:59:59 UTC do mesmo dia."""
+    vencimento = calcular_vencimento(date(2026, 8, 11), 10, "corridos")
+    assert vencimento == datetime(2026, 8, 22, 2, 59, 59, tzinfo=UTC)
+
+
+def _fixar_agora(monkeypatch, momento_utc: datetime) -> None:
+    class _DatetimeFixo(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return momento_utc if tz else momento_utc.replace(tzinfo=None)
+
+    monkeypatch.setattr("app.api.juridico.datetime", _DatetimeFixo)
+
+
+def test_dias_restantes_nao_marca_vencido_as_22h_de_brasilia_no_dia_do_vencimento(monkeypatch) -> None:
+    """Regressao do achado JUR-1: as 22h de Brasilia (01h UTC do dia
+    seguinte) de 21/08/2026, um prazo que vence nesse mesmo dia (Brasilia)
+    ainda NAO deve estar vencido -- o bug antigo (comparando .date() em UTC
+    direto) já marcaria como vencido (-1 dia) nesse horario."""
+    vencimento = calcular_vencimento(date(2026, 8, 11), 10, "corridos")  # vence 21/08 em Brasilia
+    _fixar_agora(monkeypatch, datetime(2026, 8, 22, 1, 0, 0, tzinfo=UTC))  # 21/08 22h em Brasilia
+
+    assert _dias_restantes(vencimento) == 0
+
+
+def test_dias_restantes_marca_vencido_so_apos_meia_noite_real_em_brasilia(monkeypatch) -> None:
+    vencimento = calcular_vencimento(date(2026, 8, 11), 10, "corridos")  # vence 21/08 em Brasilia
+    _fixar_agora(monkeypatch, datetime(2026, 8, 22, 3, 0, 0, tzinfo=UTC))  # 22/08 00h em Brasilia
+
+    assert _dias_restantes(vencimento) == -1
 
 
 def test_agenda_centralizada_cobre_eventos_de_propriedade_intelectual() -> None:
@@ -84,7 +132,7 @@ def test_agenda_centralizada_cobre_eventos_de_propriedade_intelectual() -> None:
 
 def test_calcula_prazo_em_dias_uteis_sem_contar_fim_de_semana() -> None:
     vencimento = calcular_vencimento(date(2026, 8, 14), 2, "uteis")
-    assert vencimento.date() == date(2026, 8, 18)
+    assert _data_brasil(vencimento) == date(2026, 8, 18)
 
 
 # --- Achado 5.1 da auditoria (01/09/2026): a dispensa da taxa de concessão
@@ -119,13 +167,13 @@ def test_dispensa_concessao_nao_se_aplica_a_outros_tipos_de_prazo() -> None:
 def test_vencimento_corrido_prorroga_quando_cai_em_domingo() -> None:
     # 11/08/2026 + 12 dias corridos = 23/08/2026, um domingo.
     vencimento = calcular_vencimento(date(2026, 8, 11), 12, "corridos")
-    assert vencimento.date() == date(2026, 8, 24)  # segunda-feira seguinte
+    assert _data_brasil(vencimento) == date(2026, 8, 24)  # segunda-feira seguinte
 
 
 def test_vencimento_corrido_prorroga_quando_cai_em_feriado_nacional() -> None:
     # 09/07/2026 + 60 dias corridos = 07/09/2026 (Independência, 2ª-feira).
     vencimento = calcular_vencimento(date(2026, 7, 9), 60, "corridos")
-    assert vencimento.date() == date(2026, 9, 8)  # 1º dia útil seguinte (terça)
+    assert _data_brasil(vencimento) == date(2026, 9, 8)  # 1º dia útil seguinte (terça)
 
 
 def test_pascoa_calcula_data_correta_para_ano_conhecido() -> None:
@@ -138,7 +186,7 @@ def test_pascoa_calcula_data_correta_para_ano_conhecido() -> None:
 def test_vencimento_corrido_prorroga_quando_cai_em_feriado_movel() -> None:
     # 02/02/2026 + 60 dias corridos = 03/04/2026, Sexta-feira Santa.
     vencimento = calcular_vencimento(date(2026, 2, 2), 60, "corridos")
-    assert vencimento.date() == date(2026, 4, 6)  # pula sáb/dom também
+    assert _data_brasil(vencimento) == date(2026, 4, 6)  # pula sáb/dom também
 
 
 def test_motor_reconhece_prazo_numerico_com_texto_por_extenso() -> None:
@@ -365,7 +413,7 @@ def test_criar_prazo_vincula_processo_e_registra_historico() -> None:
     # semana E o feriado de 12/10 (Nossa Senhora Aparecida) até o próximo dia
     # útil, 13/10/2026 (terça). Antes da correção, este teste esperava
     # 10/10/2026 — uma data que caía num sábado.
-    assert prazos[0].vencimento_em.date() == date(2026, 10, 13)
+    assert _data_brasil(prazos[0].vencimento_em) == date(2026, 10, 13)
     assert eventos[0].tipo == "prazo_criado"
     assert session.commits == 1
 

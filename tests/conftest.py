@@ -2,7 +2,21 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
+
 from app.auth import UsuarioAutenticado
+from app.ratelimit import limpar_todos as _limpar_rate_limiters
+
+
+@pytest.fixture(autouse=True)
+def _resetar_rate_limiters() -> Iterator[None]:
+    """Achado FASE5/FASE6 da auditoria: sem isso, requisições mutantes de
+    testes anteriores no mesmo processo pytest se acumulam no contador
+    global de app.auth._limitar_acoes (chave só por usuario.id) e podem
+    estourar o limite em testes tardios sem relação nenhuma com rate limit."""
+    _limpar_rate_limiters()
+    yield
+    _limpar_rate_limiters()
 
 
 def usuario_teste(perfil: str = "administrador", permissoes: set[str] | None = None) -> UsuarioAutenticado:
@@ -67,6 +81,7 @@ class FakeSession:
         self._resultados = list(resultados or [])
         self._objetos_get = list(objetos_get or [])
         self.adicionados: list[Any] = []
+        self.deletados: list[Any] = []
         self.executados: list[Any] = []
         self.commits = 0
 
@@ -78,6 +93,9 @@ class FakeSession:
 
     def add(self, obj: Any) -> None:
         self.adicionados.append(obj)
+
+    async def delete(self, obj: Any) -> None:
+        self.deletados.append(obj)
 
     async def commit(self) -> None:
         self.commits += 1

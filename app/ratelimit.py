@@ -28,6 +28,21 @@ def _obter_cliente_redis():
     return _cliente_redis
 
 
+_TODAS_INSTANCIAS: list["RateLimiter"] = []
+
+
+def limpar_todos() -> None:
+    """Achado FASE5/FASE6 da auditoria: a suíte de testes inteira
+    compartilha o mesmo contador em memória de app.auth._limitar_acoes
+    (chave só por usuario.id, sem isolamento por teste) -- ao rodar todos os
+    testes juntos, uma sequência longa de requisições mutantes com o mesmo
+    usuário de teste podia estourar o limite e fazer testes tardios, sem
+    nenhuma relação com o que estava sendo testado, falharem com 429. Usado
+    por um fixture autouse em tests/conftest.py, nunca em código de produção."""
+    for instancia in _TODAS_INSTANCIAS:
+        instancia.limpar()
+
+
 class RateLimiter:
     """Limitador de taxa por chave com janela deslizante.
 
@@ -49,6 +64,7 @@ class RateLimiter:
         self.escopo = escopo
         self.maximo_chaves = maximo_chaves
         self._acessos: dict[str, deque[float]] = defaultdict(deque)
+        _TODAS_INSTANCIAS.append(self)
 
     def _cliente(self, request: Request) -> str:
         return cliente_ip(request)

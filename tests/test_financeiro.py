@@ -13,7 +13,14 @@ from app.api.financeiro import (
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
-from app.models import FormaPagamentoFinanceira, LancamentoFinanceiro, ParcelaFinanceira, StatusLead
+from app.models import (
+    FormaPagamentoFinanceira,
+    LancamentoFinanceiro,
+    ParcelaFinanceira,
+    Processo,
+    StatusLead,
+    TipoProcesso,
+)
 from app.permissions import PERMISSOES_FINANCEIRO, destino_inicial, permissoes_do_perfil
 from app.plano_contas import CONTAS_PADRAO
 from tests.conftest import FakeResult, auth_override, sessao_override, usuario_teste
@@ -410,6 +417,96 @@ def test_dre_intervalo_invertido_retorna_422() -> None:
     try:
         resposta = TestClient(app).get(
             "/v1/admin/financeiro/dre?competencia_de=2026-02-01&competencia_ate=2026-01-01"
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 422
+
+
+# --- Achado FASE7-8/9 da auditoria (04/09/2026): custo por processo e
+# lucratividade por cliente/carteira. ---
+
+
+def _processo(**kwargs: object) -> Processo:
+    base: dict = {
+        "id": 1,
+        "numero": "923456789",
+        "numero_normalizado": "923456789",
+        "tipo": TipoProcesso.MARCA,
+        "titulo": "Marca Teste",
+    }
+    base.update(kwargs)
+    return Processo(**base)
+
+
+def test_custo_processo_inexistente_retorna_404() -> None:
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=None))
+    usuario = usuario_teste("administrador", {"finance.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).get("/v1/admin/financeiro/custo-processo/999")
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 404
+
+
+def test_custo_processo_agrega_receita_e_custos() -> None:
+    processo = _processo()
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(scalar=processo),
+        FakeResult(scalar=Decimal("5000")),  # receita (lancamentos "receber")
+        FakeResult(scalar=Decimal("1000")),  # custo_lancamentos ("pagar")
+        FakeResult(scalar=Decimal("500")),  # custo_juridico
+    )
+    usuario = usuario_teste("administrador", {"finance.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).get("/v1/admin/financeiro/custo-processo/1")
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["receita"] == "5000"
+    assert corpo["custo_total"] == "1500"
+    assert corpo["margem"] == "3500"
+    assert corpo["margem_pct"] == 0.7
+
+
+def test_lucratividade_clientes_agrega_por_empresa_e_ordena_por_margem() -> None:
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(
+            itens=[
+                (1, "Cliente A", "receber", Decimal("10000")),
+                (1, "Cliente A", "pagar", Decimal("8000")),
+                (2, "Cliente B", "receber", Decimal("5000")),
+                (2, "Cliente B", "pagar", Decimal("1000")),
+            ]
+        )
+    )
+    usuario = usuario_teste("administrador", {"finance.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).get(
+            "/v1/admin/financeiro/lucratividade/clientes?competencia_de=2026-01-01&competencia_ate=2026-01-31"
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    # Cliente B (margem 4000) deve vir antes de Cliente A (margem 2000).
+    assert [c["nome"] for c in corpo["clientes"]] == ["Cliente B", "Cliente A"]
+    assert corpo["carteira"]["receita"] == "15000"
+    assert corpo["carteira"]["custo"] == "9000"
+    assert corpo["carteira"]["margem"] == "6000"
+
+
+def test_lucratividade_clientes_intervalo_invertido_retorna_422() -> None:
+    app.dependency_overrides[get_session] = sessao_override()
+    usuario = usuario_teste("administrador", {"finance.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).get(
+            "/v1/admin/financeiro/lucratividade/clientes?competencia_de=2026-02-01&competencia_ate=2026-01-01"
         )
     finally:
         app.dependency_overrides.clear()

@@ -18,6 +18,7 @@ from app.crm import normalizar_empresa, registrar_evento_operacional
 from app.database import get_session
 from app.models import (
     CategoriaFinanceira,
+    CustoJuridico,
     EmpresaCRM,
     EventoAuditoria,
     FormaPagamentoFinanceira,
@@ -26,6 +27,7 @@ from app.models import (
     Lead,
     ParcelaFinanceira,
     PlanoContas,
+    Processo,
     ProcessoMonitorado,
     RetribuicaoInpi,
     StatusLead,
@@ -1465,3 +1467,139 @@ async def exportar(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="financeiro.csv"'},
     )
+
+
+# --- Achado FASE7-8/9 da auditoria (04/09/2026): custo por processo e
+# lucratividade por cliente/carteira -- reaproveita LancamentoFinanceiro
+# (j\u00e1 tem processo_id/empresa_id) e CustoJuridico (s\u00f3 tem processo_id, n\u00e3o
+# gera LancamentoFinanceiro -- por isso entra separado na soma de custo).
+# ---
+
+
+def _margem(receita: Decimal, custo: Decimal) -> tuple[Decimal, float | None]:
+    margem = receita - custo
+    margem_pct = float(margem / receita) if receita else None
+    return margem, margem_pct
+
+
+@router.get("/custo-processo/{processo_id}")
+async def obter_custo_processo(processo_id: int, session: SessionDep, usuario: ViewDep) -> dict:
+    processo = (
+        await session.execute(select(Processo).where(Processo.id == processo_id))
+    ).scalar_one_or_none()
+    if processo is None:
+        raise HTTPException(404, "Processo n\u00e3o encontrado")
+
+    receita = (
+        await session.execute(
+            select(func.coalesce(func.sum(LancamentoFinanceiro.valor_total), 0)).where(
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.processo_id == processo_id,
+                LancamentoFinanceiro.tipo == "receber",
+                LancamentoFinanceiro.status != "cancelado",
+            )
+        )
+    ).scalar_one()
+    custo_lancamentos = (
+        await session.execute(
+            select(func.coalesce(func.sum(LancamentoFinanceiro.valor_total), 0)).where(
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.processo_id == processo_id,
+                LancamentoFinanceiro.tipo == "pagar",
+                LancamentoFinanceiro.status != "cancelado",
+            )
+        )
+    ).scalar_one()
+    custo_juridico = (
+        await session.execute(
+            select(func.coalesce(func.sum(CustoJuridico.valor), 0)).where(
+                CustoJuridico.organizacao_id == usuario.organizacao_id,
+                CustoJuridico.processo_id == processo_id,
+            )
+        )
+    ).scalar_one()
+
+    receita_d, custo_lanc_d, custo_jur_d = Decimal(receita), Decimal(custo_lancamentos), Decimal(custo_juridico)
+    custo_total = custo_lanc_d + custo_jur_d
+    margem, margem_pct = _margem(receita_d, custo_total)
+    return {
+        "processo_id": processo_id,
+        "numero_processo": processo.numero,
+        "receita": str(receita_d),
+        "custo_lancamentos": str(custo_lanc_d),
+        "custo_juridico": str(custo_jur_d),
+        "custo_total": str(custo_total),
+        "margem": str(margem),
+        "margem_pct": margem_pct,
+    }
+
+
+@router.get("/lucratividade/clientes")
+async def obter_lucratividade_clientes(
+    session: SessionDep,
+    usuario: ViewDep,
+    competencia_de: Annotated[date, Query()],
+    competencia_ate: Annotated[date, Query()],
+) -> dict:
+    if competencia_ate < competencia_de:
+        raise HTTPException(422, "competencia_ate n\u00e3o pode ser anterior a competencia_de")
+    linhas = (
+        await session.execute(
+            select(
+                LancamentoFinanceiro.empresa_id,
+                EmpresaCRM.nome,
+                LancamentoFinanceiro.tipo,
+                func.coalesce(func.sum(LancamentoFinanceiro.valor_total), 0),
+            )
+            .outerjoin(EmpresaCRM, EmpresaCRM.id == LancamentoFinanceiro.empresa_id)
+            .where(
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.status != "cancelado",
+                LancamentoFinanceiro.competencia >= competencia_de,
+                LancamentoFinanceiro.competencia <= competencia_ate,
+            )
+            .group_by(LancamentoFinanceiro.empresa_id, EmpresaCRM.nome, LancamentoFinanceiro.tipo)
+        )
+    ).all()
+
+    por_cliente: dict[int | None, dict] = {}
+    for empresa_id, nome, tipo, total in linhas:
+        entrada = por_cliente.setdefault(
+            empresa_id, {"empresa_id": empresa_id, "nome": nome or "(sem cliente vinculado)", "receita": Decimal("0"), "custo": Decimal("0")}
+        )
+        if tipo == "receber":
+            entrada["receita"] += Decimal(total)
+        else:
+            entrada["custo"] += Decimal(total)
+
+    clientes = []
+    receita_carteira = Decimal("0")
+    custo_carteira = Decimal("0")
+    for entrada in por_cliente.values():
+        margem, margem_pct = _margem(entrada["receita"], entrada["custo"])
+        receita_carteira += entrada["receita"]
+        custo_carteira += entrada["custo"]
+        clientes.append(
+            {
+                "empresa_id": entrada["empresa_id"],
+                "nome": entrada["nome"],
+                "receita": str(entrada["receita"]),
+                "custo": str(entrada["custo"]),
+                "margem": str(margem),
+                "margem_pct": margem_pct,
+            }
+        )
+    clientes.sort(key=lambda item: Decimal(item["margem"]), reverse=True)
+    margem_carteira, margem_pct_carteira = _margem(receita_carteira, custo_carteira)
+
+    return {
+        "competencia_de": competencia_de,
+        "competencia_ate": competencia_ate,
+        "clientes": clientes,
+        "carteira": {
+            "receita": str(receita_carteira),
+            "custo": str(custo_carteira),
+            "margem": str(margem_carteira),
+            "margem_pct": margem_pct_carteira,
+        },
+    }

@@ -895,6 +895,73 @@ class PlanoContas(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ExtratoBancario(Base):
+    """Achado FASE7-3 da auditoria (04/09/2026): um extrato OFX importado --
+    ver app/ofx.py para o parser e app/api/conciliacao.py para o
+    matching automático contra ParcelaFinanceira."""
+
+    __tablename__ = "extratos_bancarios"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    nome_arquivo: Mapped[str] = mapped_column(String(255))
+    total_transacoes: Mapped[int] = mapped_column(Integer, default=0)
+    importado_por: Mapped[str] = mapped_column(String(254))
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class TransacaoBancaria(Base):
+    """Uma linha de extrato bancário (crédito ou débito). status="conciliada"
+    quando casada com uma ParcelaFinanceira (automático, se houver
+    exatamente uma correspondência de valor+data, ou manual pelo
+    operador). fitid é o identificador único do banco para a transação --
+    reimportar o mesmo extrato nunca duplica (UniqueConstraint)."""
+
+    __tablename__ = "transacoes_bancarias"
+    __table_args__ = (UniqueConstraint("organizacao_id", "fitid", name="uq_transacao_bancaria_fitid"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    extrato_id: Mapped[int] = mapped_column(ForeignKey("extratos_bancarios.id", ondelete="CASCADE"), index=True)
+    fitid: Mapped[str] = mapped_column(String(120), index=True)
+    data: Mapped[date] = mapped_column(Date, index=True)
+    valor: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    tipo: Mapped[str] = mapped_column(String(10), index=True)
+    descricao: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    parcela_id: Mapped[int | None] = mapped_column(
+        ForeignKey("parcelas_financeiras.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    conciliado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    conciliado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class NotaFiscalServico(Base):
+    """Achado FASE7-6 da auditoria (04/09/2026): NFS-e emitida (ou tentada)
+    para um lançamento de receita -- ver app/nfse.py para a interface de
+    adaptador. Nunca emitida automaticamente: sempre uma ação explícita do
+    operador para um lançamento específico."""
+
+    __tablename__ = "notas_fiscais_servico"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    lancamento_id: Mapped[int] = mapped_column(
+        ForeignKey("lancamentos_financeiros.id", ondelete="CASCADE"), index=True
+    )
+    adaptador: Mapped[str] = mapped_column(String(30))
+    numero: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    codigo_verificacao: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    valor: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    status: Mapped[str] = mapped_column(String(20), default="emitida", index=True)
+    erro_detalhe: Mapped[str | None] = mapped_column(Text, nullable=True)
+    emitida_por: Mapped[str] = mapped_column(String(254))
+    emitida_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    cancelada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelada_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+
+
 class FornecedorJuridico(Base):
     __tablename__ = "fornecedores_juridicos"
     __table_args__ = (UniqueConstraint("organizacao_id", "documento", name="uq_fornecedor_juridico_org_documento"),)

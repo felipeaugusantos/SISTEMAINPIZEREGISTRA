@@ -18,6 +18,7 @@ from app.api.aprendizado import router as aprendizado_router
 from app.api.auth_routes import router as auth_router
 from app.api.busca_admin import router as busca_admin_router
 from app.api.carteira import router as carteira_router
+from app.api.conciliacao import router as conciliacao_router
 from app.api.confiabilidade import public_router as tenant_router
 from app.api.confiabilidade import router as confiabilidade_router
 from app.api.consulta import router as consulta_router
@@ -32,6 +33,7 @@ from app.api.financeiro import exigir_acesso_log_financeiro
 from app.api.financeiro import router as financeiro_router
 from app.api.juridico import router as juridico_router
 from app.api.leads import router as leads_router
+from app.api.nfse import router as nfse_router
 from app.api.observabilidade import router as observabilidade_router
 from app.api.pagamentos import router_admin as pagamentos_admin_router
 from app.api.pagamentos import router_webhook as pagamentos_webhook_router
@@ -165,6 +167,8 @@ app.include_router(tenant_router)
 app.include_router(observabilidade_router)
 app.include_router(pagamentos_admin_router)
 app.include_router(pagamentos_webhook_router)
+app.include_router(conciliacao_router)
+app.include_router(nfse_router)
 app.mount("/static", StaticFiles(directory=web_dir / "static"), name="static")
 
 

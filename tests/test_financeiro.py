@@ -15,6 +15,7 @@ from app.database import get_session
 from app.main import app
 from app.models import FormaPagamentoFinanceira, LancamentoFinanceiro, ParcelaFinanceira, StatusLead
 from app.permissions import PERMISSOES_FINANCEIRO, destino_inicial, permissoes_do_perfil
+from app.plano_contas import CONTAS_PADRAO
 from tests.conftest import FakeResult, auth_override, sessao_override, usuario_teste
 
 
@@ -312,3 +313,104 @@ def test_edicao_nao_reparcela_conta_que_ja_tem_baixa() -> None:
         app.dependency_overrides.clear()
     assert resposta.status_code == 409
     assert "estorne primeiro" in resposta.json()["detail"]
+
+
+# --- Achado FASE7-13/14 da auditoria (04/09/2026): plano de contas
+# gerencial e DRE. ---
+
+
+def test_criar_conta_plano_com_sucesso() -> None:
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=None))
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/plano-contas",
+            json={"codigo": "3.1", "nome": "Honorários", "natureza": "receita", "grupo_dre": "receita_bruta"},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 201
+    assert resposta.json()["codigo"] == "3.1"
+
+
+def test_criar_conta_plano_com_codigo_duplicado_retorna_409() -> None:
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=1))
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/plano-contas",
+            json={"codigo": "3.1", "nome": "Honorários", "natureza": "receita", "grupo_dre": "receita_bruta"},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 409
+
+
+def test_seed_plano_contas_padrao_cria_todas_quando_vazio() -> None:
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[]))
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/plano-contas/seed-padrao", headers={"X-CSRF-Token": "csrf-teste"}
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 201
+    assert resposta.json()["criadas"] == len(CONTAS_PADRAO)
+
+
+def test_seed_plano_contas_padrao_pula_codigos_ja_existentes() -> None:
+    codigo_ja_existente = CONTAS_PADRAO[0][0]
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[codigo_ja_existente]))
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/plano-contas/seed-padrao", headers={"X-CSRF-Token": "csrf-teste"}
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 201
+    assert resposta.json()["criadas"] == len(CONTAS_PADRAO) - 1
+
+
+def test_dre_agrega_por_grupo_e_calcula_resultado() -> None:
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(itens=[("receita_bruta", "receber", Decimal("1000")), ("custos_diretos", "pagar", Decimal("200"))]),
+        FakeResult(scalar=Decimal("0")),
+    )
+    usuario = usuario_teste("administrador", {"finance.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).get(
+            "/v1/admin/financeiro/dre?competencia_de=2026-01-01&competencia_ate=2026-01-31"
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["receita_bruta"] == "1000"
+    assert corpo["lucro_bruto"] == "800"
+    assert corpo["resultado_liquido"] == "800"
+
+
+def test_dre_intervalo_invertido_retorna_422() -> None:
+    app.dependency_overrides[get_session] = sessao_override()
+    usuario = usuario_teste("administrador", {"finance.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).get(
+            "/v1/admin/financeiro/dre?competencia_de=2026-02-01&competencia_ate=2026-01-01"
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 422

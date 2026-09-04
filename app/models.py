@@ -868,6 +868,28 @@ class CentroCustoFinanceiro(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class PlanoContas(Base):
+    """Achado FASE7-13 da auditoria (04/09/2026): plano de contas gerencial --
+    ver app/plano_contas.py para o seed padrão e a lógica de DRE. Hierarquia
+    simples (conta_pai_id) e um grupo_dre fixo (app.plano_contas.GRUPOS_DRE)
+    que decide onde a conta entra no demonstrativo de resultado."""
+
+    __tablename__ = "plano_contas"
+    __table_args__ = (UniqueConstraint("organizacao_id", "codigo", name="uq_plano_contas_codigo"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    conta_pai_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plano_contas.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    codigo: Mapped[str] = mapped_column(String(20), index=True)
+    nome: Mapped[str] = mapped_column(String(150))
+    natureza: Mapped[str] = mapped_column(String(10))
+    grupo_dre: Mapped[str] = mapped_column(String(30), index=True)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class FornecedorJuridico(Base):
     __tablename__ = "fornecedores_juridicos"
     __table_args__ = (UniqueConstraint("organizacao_id", "documento", name="uq_fornecedor_juridico_org_documento"),)
@@ -1000,6 +1022,12 @@ class LancamentoFinanceiro(Base):
     categoria_id: Mapped[int | None] = mapped_column(
         ForeignKey("categorias_financeiras.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Achado FASE7-13 da auditoria (04/09/2026): classificação contábil
+    # gerencial (ver app/plano_contas.py) -- opcional para não quebrar
+    # lançamentos existentes; sem ela, entra como "sem_classificacao" no DRE.
+    conta_contabil_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plano_contas.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     forma_pagamento_id: Mapped[int | None] = mapped_column(
         ForeignKey("formas_pagamento_financeiras.id", ondelete="SET NULL"),
         nullable=True,
@@ -1027,6 +1055,7 @@ class LancamentoFinanceiro(Base):
         back_populates="lancamentos_financeiros", lazy="selectin"
     )
     categoria: Mapped[CategoriaFinanceira | None] = relationship(lazy="selectin")
+    conta_contabil: Mapped["PlanoContas | None"] = relationship(lazy="selectin")
     forma_pagamento: Mapped[FormaPagamentoFinanceira | None] = relationship(lazy="selectin")
     parcelas: Mapped[list["ParcelaFinanceira"]] = relationship(
         back_populates="lancamento",

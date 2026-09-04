@@ -25,10 +25,12 @@ from app.models import (
     LancamentoFinanceiro,
     Lead,
     ParcelaFinanceira,
+    PlanoContas,
     ProcessoMonitorado,
     RetribuicaoInpi,
     StatusLead,
 )
+from app.plano_contas import CONTAS_PADRAO, GRUPOS_DRE, montar_dre
 from app.proxy import cliente_ip
 
 router = APIRouter(prefix="/v1/admin/financeiro", tags=["financeiro"])
@@ -55,6 +57,14 @@ class CategoriaCreate(BaseModel):
     tipo: Literal["pagar", "receber", "ambos"] = "ambos"
 
 
+class PlanoContasCreate(BaseModel):
+    codigo: str = Field(min_length=1, max_length=20)
+    nome: str = Field(min_length=2, max_length=150)
+    natureza: Literal["receita", "despesa"]
+    grupo_dre: Literal[*GRUPOS_DRE]  # type: ignore[valid-type]
+    conta_pai_id: int | None = None
+
+
 class FormaPagamentoCreate(BaseModel):
     nome: str = Field(min_length=2, max_length=120)
     tipo: Literal["pix", "boleto", "transferencia", "cartao_credito", "cartao_debito", "dinheiro", "outro"] = "outro"
@@ -73,6 +83,7 @@ class LancamentoCreate(BaseModel):
     quantidade_parcelas: int = Field(default=1, ge=1, le=120)
     empresa_id: int | None = None
     categoria_id: int | None = None
+    conta_contabil_id: int | None = None
     forma_pagamento_id: int | None = None
     observacoes: str | None = Field(default=None, max_length=4000)
 
@@ -95,6 +106,7 @@ class LancamentoUpdate(BaseModel):
     quantidade_parcelas: int = Field(default=1, ge=1, le=120)
     empresa_id: int | None = None
     categoria_id: int | None = None
+    conta_contabil_id: int | None = None
     forma_pagamento_id: int | None = None
     observacoes: str | None = Field(default=None, max_length=4000)
 
@@ -232,6 +244,7 @@ async def _validar_referencias(
     tipo: str,
     empresa_id: int | None,
     categoria_id: int | None,
+    conta_contabil_id: int | None = None,
 ) -> None:
     if empresa_id:
         filtros_empresa = [
@@ -261,6 +274,17 @@ async def _validar_referencias(
             raise HTTPException(404, "Categoria não encontrada")
         if categoria.tipo not in {"ambos", tipo}:
             raise HTTPException(422, "Categoria incompatível com o tipo do lançamento")
+    if conta_contabil_id:
+        conta = (
+            await session.execute(
+                select(PlanoContas.id).where(
+                    PlanoContas.id == conta_contabil_id,
+                    PlanoContas.organizacao_id == usuario.organizacao_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not conta:
+            raise HTTPException(404, "Conta contábil não encontrada")
 
 
 async def _atualizar_status(lancamento: LancamentoFinanceiro) -> None:
@@ -762,15 +786,188 @@ async def criar_categoria(dados: CategoriaCreate, request: Request, session: Ses
     return {"id": categoria.id, "nome": categoria.nome, "tipo": categoria.tipo}
 
 
+# --- Achado FASE7-13/14 da auditoria (04/09/2026): plano de contas gerencial
+# e DRE -- ver app/plano_contas.py. ---
+
+
+@router.get("/plano-contas")
+async def listar_plano_contas(session: SessionDep, usuario: ViewDep) -> dict:
+    contas = (
+        (
+            await session.execute(
+                select(PlanoContas)
+                .where(PlanoContas.organizacao_id == usuario.organizacao_id, PlanoContas.ativo.is_(True))
+                .order_by(PlanoContas.codigo)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "itens": [
+            {
+                "id": c.id,
+                "codigo": c.codigo,
+                "nome": c.nome,
+                "natureza": c.natureza,
+                "grupo_dre": c.grupo_dre,
+                "conta_pai_id": c.conta_pai_id,
+            }
+            for c in contas
+        ]
+    }
+
+
+@router.post("/plano-contas", status_code=201)
+async def criar_conta_plano(dados: PlanoContasCreate, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
+    existente = (
+        await session.execute(
+            select(PlanoContas.id).where(
+                PlanoContas.organizacao_id == usuario.organizacao_id, PlanoContas.codigo == dados.codigo
+            )
+        )
+    ).scalar_one_or_none()
+    if existente:
+        raise HTTPException(409, "Já existe uma conta com esse código")
+    if dados.conta_pai_id:
+        pai = (
+            await session.execute(
+                select(PlanoContas.id).where(
+                    PlanoContas.id == dados.conta_pai_id, PlanoContas.organizacao_id == usuario.organizacao_id
+                )
+            )
+        ).scalar_one_or_none()
+        if not pai:
+            raise HTTPException(404, "Conta pai não encontrada")
+    conta = PlanoContas(
+        organizacao_id=usuario.organizacao_id,
+        conta_pai_id=dados.conta_pai_id,
+        codigo=dados.codigo.strip(),
+        nome=dados.nome.strip(),
+        natureza=dados.natureza,
+        grupo_dre=dados.grupo_dre,
+    )
+    session.add(conta)
+    await session.flush()
+    _auditar(session, request, usuario, "criar_conta_pc", f"plano-contas:{conta.id}", {"codigo": conta.codigo})
+    await session.commit()
+    return {"id": conta.id, "codigo": conta.codigo}
+
+
+@router.post("/plano-contas/seed-padrao", status_code=201)
+async def semear_plano_contas_padrao(request: Request, session: SessionDep, usuario: ManageDep) -> dict:
+    """Cria o conjunto padrão de contas (app.plano_contas.CONTAS_PADRAO) --
+    idempotente: só cria os códigos que ainda não existem para a organização,
+    nunca sobrescreve o que já foi customizado."""
+    existentes = set(
+        (
+            await session.execute(
+                select(PlanoContas.codigo).where(PlanoContas.organizacao_id == usuario.organizacao_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    criadas = 0
+    for codigo, nome, natureza, grupo_dre in CONTAS_PADRAO:
+        if codigo in existentes:
+            continue
+        session.add(
+            PlanoContas(
+                organizacao_id=usuario.organizacao_id,
+                codigo=codigo,
+                nome=nome,
+                natureza=natureza,
+                grupo_dre=grupo_dre,
+            )
+        )
+        criadas += 1
+    _auditar(session, request, usuario, "seed_plano_contas", "plano-contas:seed", {"criadas": criadas})
+    await session.commit()
+    return {"criadas": criadas}
+
+
+@router.get("/dre")
+async def obter_dre(
+    session: SessionDep,
+    usuario: ViewDep,
+    competencia_de: Annotated[date, Query()],
+    competencia_ate: Annotated[date, Query()],
+) -> dict:
+    if competencia_ate < competencia_de:
+        raise HTTPException(422, "competencia_ate não pode ser anterior a competencia_de")
+    linhas = (
+        await session.execute(
+            select(
+                PlanoContas.grupo_dre,
+                LancamentoFinanceiro.tipo,
+                func.coalesce(func.sum(LancamentoFinanceiro.valor_total), 0),
+            )
+            .join(PlanoContas, PlanoContas.id == LancamentoFinanceiro.conta_contabil_id)
+            .where(
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.status != "cancelado",
+                LancamentoFinanceiro.competencia >= competencia_de,
+                LancamentoFinanceiro.competencia <= competencia_ate,
+            )
+            .group_by(PlanoContas.grupo_dre, LancamentoFinanceiro.tipo)
+        )
+    ).all()
+    totais_por_grupo: dict[str, tuple[Decimal, Decimal]] = {}
+    for grupo, tipo, total in linhas:
+        receitas, despesas = totais_por_grupo.get(grupo, (Decimal("0"), Decimal("0")))
+        if tipo == "receber":
+            receitas += Decimal(total)
+        else:
+            despesas += Decimal(total)
+        totais_por_grupo[grupo] = (receitas, despesas)
+
+    valor_sem_classificacao = (
+        await session.execute(
+            select(func.coalesce(func.sum(LancamentoFinanceiro.valor_total), 0)).where(
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.status != "cancelado",
+                LancamentoFinanceiro.conta_contabil_id.is_(None),
+                LancamentoFinanceiro.competencia >= competencia_de,
+                LancamentoFinanceiro.competencia <= competencia_ate,
+            )
+        )
+    ).scalar_one()
+
+    resultado = montar_dre(
+        competencia_de=competencia_de,
+        competencia_ate=competencia_ate,
+        totais_por_grupo=totais_por_grupo,
+        valor_sem_classificacao=Decimal(valor_sem_classificacao),
+    )
+    return {
+        "competencia_de": resultado.competencia_de,
+        "competencia_ate": resultado.competencia_ate,
+        "linhas": [
+            {"grupo": linha.grupo, "receitas": str(linha.receitas), "despesas": str(linha.despesas), "saldo": str(linha.saldo)}
+            for linha in resultado.linhas
+        ],
+        "receita_bruta": str(resultado.receita_bruta),
+        "receita_liquida": str(resultado.receita_liquida),
+        "lucro_bruto": str(resultado.lucro_bruto),
+        "resultado_operacional": str(resultado.resultado_operacional),
+        "resultado_liquido": str(resultado.resultado_liquido),
+        "valor_sem_classificacao": str(resultado.valor_sem_classificacao),
+    }
+
+
 @router.post("/lancamentos", status_code=201)
 async def criar_lancamento(dados: LancamentoCreate, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
-    await _validar_referencias(session, usuario, dados.tipo, dados.empresa_id, dados.categoria_id)
+    await _validar_referencias(
+        session, usuario, dados.tipo, dados.empresa_id, dados.categoria_id, dados.conta_contabil_id
+    )
     forma = await _forma_pagamento(session, usuario, dados.forma_pagamento_id)
     _validar_parcelamento(forma, dados.quantidade_parcelas)
     lancamento = LancamentoFinanceiro(
         organizacao_id=usuario.organizacao_id,
         empresa_id=dados.empresa_id,
         categoria_id=dados.categoria_id,
+        conta_contabil_id=dados.conta_contabil_id,
         forma_pagamento_id=dados.forma_pagamento_id,
         tipo=dados.tipo,
         descricao=dados.descricao.strip(),
@@ -846,7 +1043,9 @@ async def editar_lancamento(
     if lancamento.status == "cancelado":
         raise HTTPException(409, "Lançamento cancelado não pode ser alterado")
 
-    await _validar_referencias(session, usuario, lancamento.tipo, dados.empresa_id, dados.categoria_id)
+    await _validar_referencias(
+        session, usuario, lancamento.tipo, dados.empresa_id, dados.categoria_id, dados.conta_contabil_id
+    )
     forma = await _forma_pagamento(session, usuario, dados.forma_pagamento_id)
     _validar_parcelamento(forma, dados.quantidade_parcelas)
     parcelas_pagas = any(parcela.status == "paga" for parcela in lancamento.parcelas)
@@ -872,6 +1071,7 @@ async def editar_lancamento(
     lancamento.competencia = dados.competencia
     lancamento.empresa_id = dados.empresa_id
     lancamento.categoria_id = dados.categoria_id
+    lancamento.conta_contabil_id = dados.conta_contabil_id
     lancamento.forma_pagamento_id = dados.forma_pagamento_id
     lancamento.observacoes = (dados.observacoes or "").strip() or None
     lancamento.atualizado_em = datetime.now(UTC)

@@ -401,3 +401,27 @@ async def enviar_alerta_prazo_juridico(destinatario: str, titulo: str, mensagem_
         await asyncio.to_thread(_enviar_smtp, mensagem, settings)
     except Exception:
         logger.exception("Falha ao enviar alerta de prazo jurídico por e-mail")
+
+
+async def enviar_alerta_plataforma(codigo: str, severidade: str, mensagem_texto: str) -> None:
+    """Avisa os admins por e-mail sobre um alerta de infraestrutura/plataforma
+    (fila de falhas, RPI desatualizada, backup ausente, latência/erro de API
+    etc -- achado FASE6-9 da auditoria, 04/09/2026).
+
+    O registro em AlertaSistema (organizacao_id=None) é sempre a fonte de
+    referência -- este e-mail é reforço best-effort, igual ao alerta de
+    prazo jurídico: se o próprio SMTP estiver fora do ar (item 9g), o alerta
+    continua visível no painel mesmo que este e-mail nunca chegue.
+    """
+    settings = get_settings()
+    if not settings.email_enabled or not settings.admin_email:
+        return
+    mensagem = EmailMessage()
+    mensagem["Subject"] = f"[Zé Registra] [{severidade.upper()}] {codigo}"
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = settings.admin_email
+    mensagem.set_content(mensagem_texto)
+    try:
+        await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+    except Exception:
+        logger.exception("Falha ao enviar alerta de plataforma por e-mail (codigo=%s)", codigo)

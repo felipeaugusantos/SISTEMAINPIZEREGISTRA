@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     rpi_stale_hours: float = 12.0
     rpi_minimum_record_ratio: float = 0.50
     rpi_anomaly_reference_minimum: int = 1_000
+    # Achado FASE6-9 da auditoria (04/09/2026): limiares de alerta de
+    # plataforma (fila de falhas, taxa de erro e latência da API) --
+    # verificados por app.alertas_plataforma.verificar_saude_plataforma.
+    alerta_fila_falhas_limite: int = 5
+    alerta_api_taxa_erro_limite: float = 0.05
+    alerta_api_latencia_media_ms_limite: float = 2000.0
     default_organization_slug: str = "ze-registra"
     default_organization_id: int = 1
     cors_allowed_origins: str = "*"

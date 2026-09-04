@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy import exists, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from app.alertas_plataforma import verificar_saude_plataforma
 from app.api.juridico import executar_motor_organizacao
 from app.cadencia_email import processar_envios_cadencia_pendentes
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
@@ -623,6 +624,11 @@ async def processar(tipo: str, payload: dict) -> None:
                 execucao.total_processados = resultado["processados"]
                 execucao.total_validos = resultado["validos"]
                 execucao.concluido_em = datetime.now(UTC)
+        elif tipo == "plataforma.verificar_saude":
+            # Achado FASE6-9 da auditoria (04/09/2026): fila de falhas, RPI
+            # desatualizada e latência/erro de API viravam número num painel,
+            # sem ninguém ser avisado -- ver app/alertas_plataforma.py.
+            await verificar_saude_plataforma(session)
         else:
             raise ValueError(f"Tipo de trabalho desconhecido: {tipo}")
         await session.commit()
@@ -649,60 +655,45 @@ async def processar_rastreado(tipo: str, payload: dict, request_id: str | None =
         restaurar_request_id(token_contexto)
 
 
-async def main() -> None:
-    redis = cliente_redis()
-    # Recupera trabalhos que ficaram em processamento apos encerramento abrupto.
-    while await redis.llen(PROCESSING_KEY):
-        bruto_pendente = await redis.rpop(PROCESSING_KEY)
-        if bruto_pendente:
-            await redis.lpush(QUEUE_KEY, bruto_pendente)
-    proxima_manutencao = datetime.now(UTC)
-    proximo_alto_renome = datetime.now(UTC)
+TAREFAS_MANUTENCAO_HORARIA: tuple[str, ...] = (
+    "assinaturas.verificar",
+    "privacidade.verificar_retencao",
+    "crm.reengajamento_inatividade",
+    "crm.gerar_renovacoes_marca",
+    "cadencia.enviar_emails_pendentes",
+    "cadencia.verificar_respostas_email",
+    "registrabilidade.reconciliar_resultados",
+    "juridico.executar_motor",
+    "vigilancia.executar_semanal",
+    "plataforma.verificar_saude",
+)
+INTERVALO_MANUTENCAO_HORARIA = timedelta(hours=1)
+INTERVALO_ALTO_RENOME = timedelta(days=7)
+
+
+async def _executar_tarefa_manutencao(redis, tarefa: str) -> None:
+    try:
+        await processar_rastreado(tarefa, {})
+    except Exception as exc:
+        await redis.rpush(
+            FAILED_KEY,
+            json.dumps(
+                {
+                    "job": tarefa,
+                    "erro": str(exc) or type(exc).__name__,
+                    "falhou_em": datetime.now(UTC).isoformat(),
+                }
+            ),
+        )
+
+
+async def _loop_fila_principal(redis) -> None:
+    """Consome QUEUE_KEY -- jobs sob demanda (disparados por ação do
+    usuário: enriquecer_prospect, calcular_score etc)."""
     while True:
         await promover_retentativas(redis)
         bruto = await redis.brpoplpush(QUEUE_KEY, PROCESSING_KEY, timeout=5)
         if not bruto:
-            if datetime.now(UTC) >= proxima_manutencao:
-                for tarefa in (
-                    "assinaturas.verificar",
-                    "privacidade.verificar_retencao",
-                    "crm.reengajamento_inatividade",
-                    "crm.gerar_renovacoes_marca",
-                    "cadencia.enviar_emails_pendentes",
-                    "cadencia.verificar_respostas_email",
-                    "registrabilidade.reconciliar_resultados",
-                    "juridico.executar_motor",
-                    "vigilancia.executar_semanal",
-                ):
-                    try:
-                        await processar_rastreado(tarefa, {})
-                    except Exception as exc:
-                        await redis.rpush(
-                            FAILED_KEY,
-                            json.dumps(
-                                {
-                                    "job": tarefa,
-                                    "erro": str(exc),
-                                    "falhou_em": datetime.now(UTC).isoformat(),
-                                }
-                            ),
-                        )
-                proxima_manutencao = datetime.now(UTC) + timedelta(hours=1)
-            if datetime.now(UTC) >= proximo_alto_renome:
-                try:
-                    await processar_rastreado("alto_renome.sincronizar", {})
-                except Exception as exc:
-                    await redis.rpush(
-                        FAILED_KEY,
-                        json.dumps(
-                            {
-                                "job": "alto_renome.sincronizar",
-                                "erro": type(exc).__name__,
-                                "falhou_em": datetime.now(UTC).isoformat(),
-                            }
-                        ),
-                    )
-                proximo_alto_renome = datetime.now(UTC) + timedelta(days=7)
             continue
         try:
             job = json.loads(bruto)
@@ -736,6 +727,44 @@ async def main() -> None:
             else:
                 await redis.rpush(FAILED_KEY, json.dumps(job))
                 await redis.hincrby(METRICS_KEY, "falhas", 1)
+
+
+async def _loop_manutencao(redis) -> None:
+    """Achado FASE6-6/7/8 da auditoria (04/09/2026): antes, motor jurídico,
+    cadências, retenção, vigilância e alto renome só rodavam dentro do "if
+    not bruto" de _loop_fila_principal -- ou seja, só quando QUEUE_KEY ficava
+    vazia por 5s seguidos. Se a fila de jobs sob demanda nunca esvaziasse,
+    essas tarefas nunca rodariam. Loop independente, com seu próprio
+    agendamento (sleep fixo), roda em paralelo via asyncio.gather em main() e
+    nunca depende do estado da fila principal.
+
+    Não usamos uma fila Redis própria para o AGENDAMENTO em si (a lista de
+    tarefas é fixa e enumerada, não produzida dinamicamente por alguém) --
+    FAILED_KEY continua sendo a fila de falhas compartilhada, para manter uma
+    única fonte de "jobs que falharam" em vez de duas.
+    """
+    proxima_manutencao = datetime.now(UTC)
+    proximo_alto_renome = datetime.now(UTC)
+    while True:
+        agora = datetime.now(UTC)
+        if agora >= proxima_manutencao:
+            for tarefa in TAREFAS_MANUTENCAO_HORARIA:
+                await _executar_tarefa_manutencao(redis, tarefa)
+            proxima_manutencao = datetime.now(UTC) + INTERVALO_MANUTENCAO_HORARIA
+        if agora >= proximo_alto_renome:
+            await _executar_tarefa_manutencao(redis, "alto_renome.sincronizar")
+            proximo_alto_renome = datetime.now(UTC) + INTERVALO_ALTO_RENOME
+        await asyncio.sleep(30)
+
+
+async def main() -> None:
+    redis = cliente_redis()
+    # Recupera trabalhos que ficaram em processamento apos encerramento abrupto.
+    while await redis.llen(PROCESSING_KEY):
+        bruto_pendente = await redis.rpop(PROCESSING_KEY)
+        if bruto_pendente:
+            await redis.lpush(QUEUE_KEY, bruto_pendente)
+    await asyncio.gather(_loop_fila_principal(redis), _loop_manutencao(redis))
 
 
 if __name__ == "__main__":

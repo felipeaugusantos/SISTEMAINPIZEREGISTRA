@@ -581,6 +581,31 @@ async def criar_campanha(
     return CampanhaProspeccaoResponse.model_validate(campanha)
 
 
+@router_campanhas.delete("/campanhas/{campanha_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def excluir_campanha(
+    campanha_id: int, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
+) -> None:
+    """Exclui a campanha. Os prospects já gerados por ela não são apagados --
+    só perdem o vínculo (fk_prospects_campanha_id é ON DELETE SET NULL),
+    continuam no radar normalmente. Bloqueado enquanto a coleta está em
+    andamento (status "ativa") para não apagar a campanha embaixo de um job
+    que ainda vai tentar atualizá-la."""
+    campanha = (
+        await session.execute(
+            select(CampanhaProspeccao).where(
+                CampanhaProspeccao.id == campanha_id, CampanhaProspeccao.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if campanha is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Campanha não encontrada")
+    if campanha.status == "ativa":
+        raise HTTPException(422, "Não é possível excluir uma campanha com coleta em andamento.")
+    _auditar(session, request, usuario, "excluir_campanha_prospeccao", f"campanha:{campanha.id}", {"nome": campanha.nome})
+    await session.delete(campanha)
+    await session.commit()
+
+
 @router_campanhas.post("/campanhas/{campanha_id}/coletar", status_code=status.HTTP_202_ACCEPTED)
 async def coletar_campanha(
     campanha_id: int, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
@@ -597,15 +622,24 @@ async def coletar_campanha(
     ).scalar_one_or_none()
     if campanha is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Campanha não encontrada")
-    if campanha.status not in ("rascunho", "ativa", "pausada"):
-        raise HTTPException(422, f"Campanha já foi concluída (status atual: {campanha.status}).")
+    if campanha.status == "ativa":
+        raise HTTPException(422, "Campanha já está sendo coletada.")
+    if campanha.status not in ("rascunho", "pausada", "concluida"):
+        raise HTTPException(422, f"Campanha não pode ser coletada no status atual: {campanha.status}.")
+
+    # Uma campanha concluída pode ser executada novamente depois que o cache da
+    # RFB for atualizado ou seus filtros forem corrigidos. A data da conclusão
+    # anterior diferencia o novo job do primeiro disparo do mesmo dia, enquanto
+    # o status "ativa" acima impede dois disparos concorrentes.
+    versao_execucao = campanha.encerrada_em.isoformat() if campanha.encerrada_em else datetime.now(UTC).date().isoformat()
 
     job = await enfileirar(
         "prospeccao.coletar_campanha",
         {"campanha_id": campanha.id, "organizacao_id": usuario.organizacao_id},
-        idempotency_key=f"{campanha.id}:{datetime.now(UTC).date().isoformat()}",
+        idempotency_key=f"{campanha.id}:{versao_execucao}",
     )
     campanha.status = "ativa"
+    campanha.encerrada_em = None
     _auditar(session, request, usuario, "coletar_campanha_prospeccao", f"campanha:{campanha.id}", {"job_id": job.get("id")})
     await session.commit()
     return {"job_id": job.get("id"), "duplicado": job.get("duplicado", False)}

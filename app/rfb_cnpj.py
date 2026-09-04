@@ -12,6 +12,7 @@ já lida) -- testáveis sem baixar nada da RFB. O download e a orquestração
 do ETL completo ficam em app/cli/importar_cnpj_rfb.py.
 """
 
+import unicodedata
 from datetime import date
 
 # Ordem exata das colunas de cada arquivo (sem cabeçalho na origem).
@@ -84,6 +85,23 @@ def normalizar_porte(codigo: str | None) -> str | None:
     return _PORTE_EMPRESA.get((codigo or "").strip())
 
 
+def normalizar_cidade(valor: str | None) -> str | None:
+    """Produz a forma canônica usada pelo cache e pelos filtros de campanha.
+
+    A tabela de municípios da RFB atualmente fornece nomes em caixa alta e
+    sem acentos (por exemplo, ``RIBEIRAO PRETO``), enquanto a interface aceita
+    a grafia natural (``Ribeirão Preto``). PostgreSQL ``ILIKE`` ignora caixa,
+    mas não acentos; sem esta normalização uma campanha válida retorna zero.
+    """
+    texto = " ".join((valor or "").strip().split())
+    if not texto:
+        return None
+    sem_acentos = "".join(
+        caractere for caractere in unicodedata.normalize("NFKD", texto) if not unicodedata.combining(caractere)
+    )
+    return sem_acentos.upper()
+
+
 def montar_cnpj(cnpj_basico: str, cnpj_ordem: str, cnpj_dv: str) -> str | None:
     cnpj_basico = (cnpj_basico or "").strip()
     cnpj_ordem = (cnpj_ordem or "").strip()
@@ -144,7 +162,7 @@ def montar_registro_cache(
         "situacao_cadastral": normalizar_situacao_cadastral(estabelecimento.get("situacao_cadastral")),
         "data_abertura": normalizar_data_rfb(estabelecimento.get("data_inicio_atividade")),
         "uf": (estabelecimento.get("uf") or "").strip() or None,
-        "cidade": municipios.get((estabelecimento.get("municipio") or "").strip()),
+        "cidade": normalizar_cidade(municipios.get((estabelecimento.get("municipio") or "").strip())),
         "telefone": _montar_telefone(estabelecimento.get("ddd_1"), estabelecimento.get("telefone_1")),
         "email": (estabelecimento.get("correio_eletronico") or "").strip().lower() or None,
     }

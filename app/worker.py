@@ -429,6 +429,7 @@ async def processar(tipo: str, payload: dict) -> None:
             # app/cli/importar_cnpj_rfb.py. Nunca baixa nada da RFB aqui.
             from app.api.prospeccao import _criar_prospect, obter_ou_criar_fonte_cnae_publico
             from app.models import CacheEstabelecimentoRFB, CampanhaProspeccao
+            from app.rfb_cnpj import normalizar_cidade
             from app.schemas import ProspectCreate
 
             organizacao_id = payload["organizacao_id"]
@@ -448,7 +449,9 @@ async def processar(tipo: str, payload: dict) -> None:
                 if criterios.get("uf"):
                     filtros_cache.append(CacheEstabelecimentoRFB.uf == criterios["uf"])
                 if criterios.get("cidade"):
-                    filtros_cache.append(CacheEstabelecimentoRFB.cidade.ilike(f"%{criterios['cidade']}%"))
+                    cidade_normalizada = normalizar_cidade(criterios["cidade"])
+                    if cidade_normalizada:
+                        filtros_cache.append(CacheEstabelecimentoRFB.cidade.ilike(f"%{cidade_normalizada}%"))
                 if criterios.get("porte"):
                     filtros_cache.append(CacheEstabelecimentoRFB.porte == criterios["porte"])
                 if criterios.get("data_abertura_de"):

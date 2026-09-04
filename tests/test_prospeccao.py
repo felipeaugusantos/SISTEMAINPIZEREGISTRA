@@ -343,8 +343,44 @@ def test_coletar_campanha_enfileira_job(monkeypatch: pytest.MonkeyPatch) -> None
     assert session.commits == 1
 
 
-def test_coletar_campanha_ja_concluida_retorna_422() -> None:
-    campanha = _campanha(status="concluida")
+def test_coletar_campanha_concluida_enfileira_nova_execucao(monkeypatch: pytest.MonkeyPatch) -> None:
+    encerrada_em = datetime(2026, 9, 4, 12, 22, tzinfo=UTC)
+    campanha = _campanha(status="concluida", encerrada_em=encerrada_em)
+    session = _sessao_admin(FakeResult(scalar=campanha))
+
+    class RedisFalso:
+        def __init__(self) -> None:
+            self.jobs: list[str] = []
+
+        async def set(self, *_args: object, **_kwargs: object) -> bool:
+            return True
+
+        async def rpush(self, _chave: str, valor: str) -> None:
+            self.jobs.append(valor)
+
+        async def hincrby(self, *_args: object) -> int:
+            return 1
+
+        async def aclose(self) -> None:
+            return None
+
+    redis = RedisFalso()
+    monkeypatch.setattr("app.queueing.cliente_redis", lambda: redis)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/campanhas/4/coletar", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 202
+    assert campanha.status == "ativa"
+    assert campanha.encerrada_em is None
+    assert session.commits == 1
+    assert len(redis.jobs) == 1
+    assert encerrada_em.isoformat() in redis.jobs[0]
+
+
+def test_coletar_campanha_ativa_retorna_422() -> None:
+    campanha = _campanha(status="ativa")
     _sessao_admin(FakeResult(scalar=campanha))
 
     resposta = TestClient(app).post(
@@ -352,6 +388,43 @@ def test_coletar_campanha_ja_concluida_retorna_422() -> None:
     )
 
     assert resposta.status_code == 422
+
+
+# --- Excluir campanha (04/09/2026) -- pedido do usuario, campanha em
+# rascunho esquecida sem forma de remover da lista. ---
+
+
+def test_excluir_campanha_rascunho() -> None:
+    campanha = _campanha(status="rascunho")
+    session = _sessao_admin(FakeResult(scalar=campanha))
+
+    resposta = TestClient(app).delete(
+        "/v1/admin/prospeccao/campanhas/4", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 204
+    assert campanha in session.deletados
+
+
+def test_excluir_campanha_ativa_retorna_422() -> None:
+    campanha = _campanha(status="ativa")
+    _sessao_admin(FakeResult(scalar=campanha))
+
+    resposta = TestClient(app).delete(
+        "/v1/admin/prospeccao/campanhas/4", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 422
+
+
+def test_excluir_campanha_inexistente_retorna_404() -> None:
+    _sessao_admin(FakeResult(scalar=None))
+
+    resposta = TestClient(app).delete(
+        "/v1/admin/prospeccao/campanhas/999", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 404
 
 
 # --- Fase 3 do Radar de Prospecção (03/09/2026) -- enriquecimento ----------

@@ -1,13 +1,11 @@
 """API versionada para departamentos jurídicos e custos operacionais."""
 
 import csv
-import hashlib
-import hmac
 import io
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -20,12 +18,9 @@ from app.models import (
     CustoJuridico,
     DepartamentoFinanceiro,
     FornecedorJuridico,
-    WebhookFinanceiro,
 )
-from app.settings import get_settings
 
 router = APIRouter(prefix="/v1/admin/escritorio", tags=["escritorio juridico"])
-webhook_router = APIRouter(prefix="/v1/webhooks/escritorio", tags=["webhooks escritorio"])
 SessionDep = Annotated[object, Depends(get_session)]
 ViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("finance.view"))]
 ManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("finance.manage"))]
@@ -68,13 +63,6 @@ class CustoInput(BaseModel):
     processo_id: int | None = None
     responsaveis: list[int] = Field(default_factory=list, max_length=20)
     idempotency_key: str = Field(min_length=8, max_length=120)
-
-
-class WebhookInput(BaseModel):
-    organizacao_id: int
-    referencia: str = Field(min_length=2, max_length=150)
-    evento: str = Field(min_length=2, max_length=80)
-    payload: dict = Field(default_factory=dict)
 
 
 def _admin(usuario: UsuarioAutenticado) -> bool:
@@ -342,58 +330,14 @@ async def relatorio_executivo(session: SessionDep, usuario: ViewDep) -> dict:
     }
 
 
-@router.post("/webhooks/{webhook_id}/reprocessar")
-async def reprocessar_webhook(webhook_id: int, session: SessionDep, usuario: ManageDep) -> dict:
-    evento = (
-        await session.execute(
-            select(WebhookFinanceiro).where(
-                WebhookFinanceiro.id == webhook_id,
-                WebhookFinanceiro.organizacao_id == usuario.organizacao_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if evento is None:
-        raise HTTPException(status_code=404, detail="Webhook nao encontrado")
-    evento.tentativas += 1
-    evento.status = "reprocessado"
-    await session.commit()
-    return {"id": evento.id, "status": evento.status, "tentativas": evento.tentativas}
-
-
-@webhook_router.post("/financeiro")
-async def receber_webhook(
-    dados: WebhookInput,
-    request: Request,
-    session: SessionDep,
-    x_signature: str | None = Header(default=None),
-) -> dict:
-    segredo = get_settings().gateway_webhook_secret
-    corpo = await request.body()
-    esperado = hmac.new(segredo.encode(), corpo, hashlib.sha256).hexdigest() if segredo else ""
-    if not segredo or not x_signature or not hmac.compare_digest(x_signature, esperado):
-        raise HTTPException(status_code=401, detail="Assinatura do webhook invalida")
-    existente = (
-        await session.execute(
-            select(WebhookFinanceiro).where(
-                WebhookFinanceiro.organizacao_id == dados.organizacao_id,
-                WebhookFinanceiro.referencia == dados.referencia,
-            )
-        )
-    ).scalar_one_or_none()
-    if existente:
-        existente.tentativas += 1
-        await session.commit()
-        return {"id": existente.id, "idempotente": True, "status": existente.status}
-    evento = WebhookFinanceiro(
-        organizacao_id=dados.organizacao_id,
-        referencia=dados.referencia,
-        evento=dados.evento,
-        payload=dados.payload,
-    )
-    session.add(evento)
-    try:
-        await session.commit()
-    except IntegrityError:
-        await session.rollback()
-        return {"idempotente": True}
-    return {"id": evento.id, "idempotente": False, "status": evento.status}
+# Achado FASE7-1/2 da auditoria (04/09/2026): o webhook público que existia
+# aqui (POST /v1/webhooks/escritorio/financeiro) só logava o evento --
+# nunca baixava a parcela nem gerava comissão, ao contrário do outro
+# handler que existia em app/api/contratacoes.py (esse sim, funcional).
+# Dois caminhos divergentes para o mesmo tipo de evento é risco de
+# inconsistência -- unificados em app/api/pagamentos.py (POST
+# /v1/webhooks/pagamentos/{adaptador}), atrás da interface de adaptador
+# (app/pagamentos.py). O endpoint de reprocessamento manual que existia
+# aqui também foi removido -- era um no-op (só incrementava um contador,
+# nunca reexecutava o processamento de verdade); reprocessamento real
+# fica como item em aberto, não implementado nem aqui nem no substituto.

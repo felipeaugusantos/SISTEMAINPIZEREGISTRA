@@ -1,22 +1,18 @@
-import hashlib
-import hmac
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Date, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.leads import sincronizar_pagamento_proposta_por_id
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
 from app.models import (
     ContratacaoServico,
     EmpresaCRM,
-    EventoCobrancaSandbox,
     GuiaInpi,
     LancamentoFinanceiro,
     ParcelaFinanceira,
@@ -25,8 +21,6 @@ from app.models import (
     RenovacaoFinanceira,
     ServicoFinanceiro,
 )
-from app.settings import get_settings
-from app.tenancy import aplicar_contexto_tenant
 
 router = APIRouter(prefix="/v1/admin/financeiro", tags=["contratacoes financeiras"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -50,14 +44,6 @@ class ContratacaoInput(BaseModel):
     parcelas: int = Field(default=1, ge=1, le=60)
     primeiro_vencimento: date | None = None
     idempotency_key: str = Field(min_length=8, max_length=120)
-
-
-class GatewayWebhookInput(BaseModel):
-    organizacao_id: int = Field(ge=1)
-    referencia: str = Field(min_length=8, max_length=100)
-    parcela_id: int = Field(ge=1)
-    status: str = Field(pattern="^(paid|failed|refunded)$")
-    valor: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
 
 
 class GuiaFinanceiraInput(BaseModel):
@@ -449,76 +435,12 @@ async def emitir_recibo(parcela_id: int, session: SessionDep, usuario: ManageDep
     return {"id": recibo.id, "numero": recibo.numero, "idempotente": False}
 
 
-@router.post("/gateway/webhook")
-async def receber_webhook_gateway(
-    dados: GatewayWebhookInput,
-    request: Request,
-    session: SessionDep,
-    x_gateway_signature: str | None = Header(default=None),
-) -> dict:
-    """Concilia eventos assinados do gateway sem duplicar baixas."""
-    segredo = get_settings().gateway_webhook_secret
-    if not segredo:
-        raise HTTPException(status_code=503, detail="Gateway nao configurado")
-    corpo = await request.body()
-    esperado = hmac.new(segredo.encode(), corpo, hashlib.sha256).hexdigest()
-    if not x_gateway_signature or not hmac.compare_digest(x_gateway_signature, esperado):
-        raise HTTPException(status_code=401, detail="Assinatura do gateway invalida")
-    await aplicar_contexto_tenant(session, dados.organizacao_id)
-    evento = (
-        await session.execute(
-            select(EventoCobrancaSandbox).where(
-                EventoCobrancaSandbox.organizacao_id == dados.organizacao_id,
-                EventoCobrancaSandbox.referencia == dados.referencia,
-            )
-        )
-    ).scalar_one_or_none()
-    if evento is not None:
-        return {"idempotente": True, "status": evento.status}
-    parcela = (
-        await session.execute(
-            select(ParcelaFinanceira)
-            .where(
-                ParcelaFinanceira.id == dados.parcela_id,
-                ParcelaFinanceira.organizacao_id == dados.organizacao_id,
-            )
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if parcela is None:
-        raise HTTPException(status_code=404, detail="Parcela nao encontrada")
-    evento = EventoCobrancaSandbox(
-        organizacao_id=dados.organizacao_id,
-        tipo="gateway",
-        status=dados.status,
-        referencia=dados.referencia,
-        detalhes={"parcela_id": dados.parcela_id, "valor": str(dados.valor)},
-    )
-    session.add(evento)
-    if dados.status == "paid":
-        if Decimal(parcela.valor) != dados.valor:
-            raise HTTPException(status_code=422, detail="Valor do gateway diverge da parcela")
-        parcela.valor_pago = dados.valor
-        parcela.pago_em = datetime.now(UTC).date()
-        parcela.status = "paga"
-        parcela.lancamento.status = (
-            "pago" if all(item.status == "paga" for item in parcela.lancamento.parcelas) else "parcial"
-        )
-        if parcela.lancamento.proposta_id:
-            await sincronizar_pagamento_proposta_por_id(session, dados.organizacao_id, parcela.lancamento.proposta_id)
-    try:
-        await session.commit()
-    except IntegrityError:
-        await session.rollback()
-        repetido = (
-            await session.execute(
-                select(EventoCobrancaSandbox).where(
-                    EventoCobrancaSandbox.organizacao_id == dados.organizacao_id,
-                    EventoCobrancaSandbox.referencia == dados.referencia,
-                )
-            )
-        ).scalar_one_or_none()
-        if repetido is not None:
-            return {"idempotente": True, "status": repetido.status}
-        raise
-    return {"idempotente": False, "status": dados.status, "parcela_id": parcela.id}
+# Achado FASE7-1/2 da auditoria (04/09/2026): POST /gateway/webhook que
+# existia aqui era o único dos dois handlers de webhook que realmente
+# baixava a parcela -- mas só entendia o payload específico de
+# EventoCobrancaSandbox, sem nenhuma abstração de adaptador (acoplado ao
+# "gateway" simulado). Unificado com o outro handler divergente (que só
+# logava, em app/api/escritorio.py, também removido) em
+# app/api/pagamentos.py::receber_webhook_pagamento, atrás da interface de
+# adaptador (app/pagamentos.py) -- mesma lógica de baixa, mesma
+# idempotência, agora em UM caminho só, plugável a qualquer PSP no futuro.

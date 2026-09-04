@@ -24,7 +24,6 @@ from app.api.consulta import router as consulta_router
 from app.api.contratacoes import router as contratacoes_router
 from app.api.crm_admin import router as crm_router
 from app.api.escritorio import router as escritorio_router
-from app.api.escritorio import webhook_router as escritorio_webhook_router
 from app.api.exclusoes import router as exclusoes_router
 from app.api.fase2 import router as fase2_router
 from app.api.fase3 import router as fase3_router
@@ -34,6 +33,8 @@ from app.api.financeiro import router as financeiro_router
 from app.api.juridico import router as juridico_router
 from app.api.leads import router as leads_router
 from app.api.observabilidade import router as observabilidade_router
+from app.api.pagamentos import router_admin as pagamentos_admin_router
+from app.api.pagamentos import router_webhook as pagamentos_webhook_router
 from app.api.painel import router as painel_router
 from app.api.pesquisas import router as pesquisas_router
 from app.api.portal_cliente import router as portal_cliente_router
@@ -153,7 +154,6 @@ app.include_router(vigilancia_router)
 app.include_router(crm_router)
 app.include_router(exclusoes_router)
 app.include_router(escritorio_router)
-app.include_router(escritorio_webhook_router)
 app.include_router(financeiro_router)
 app.include_router(auth_router)
 app.include_router(social_auth_router)
@@ -163,6 +163,8 @@ app.include_router(confiabilidade_router)
 app.include_router(contratacoes_router)
 app.include_router(tenant_router)
 app.include_router(observabilidade_router)
+app.include_router(pagamentos_admin_router)
+app.include_router(pagamentos_webhook_router)
 app.mount("/static", StaticFiles(directory=web_dir / "static"), name="static")
 
 

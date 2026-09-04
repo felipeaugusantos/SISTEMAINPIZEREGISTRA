@@ -41,9 +41,12 @@ def test_custo_idempotente_por_tenant() -> None:
 
 
 def test_webhook_sem_assinatura_e_rejeitado() -> None:
+    # Achado FASE7-1/2 da auditoria (04/09/2026): webhook financeiro
+    # unificado -- ver app/api/pagamentos.py (antes havia dois handlers
+    # divergentes, um deles neste arquivo).
     resposta = TestClient(app).post(
-        "/v1/webhooks/escritorio/financeiro",
-        json={"organizacao_id": 1, "referencia": "evt-1", "evento": "paid", "payload": {}},
+        "/v1/webhooks/pagamentos/sandbox",
+        json={"organizacao_id": 1, "referencia": "evt-1", "parcela_id": 1, "status": "paid", "valor": "100.00"},
     )
     assert resposta.status_code == 401
 

@@ -111,6 +111,18 @@ def test_upsert_publico_mesma_marca_atualiza_lead_existente() -> None:
     assert lead.marca == "acme"
 
 
+def test_upsert_publico_nao_sobrescreve_a_origem_original_do_lead() -> None:
+    """Achado CRM-5 da auditoria (04/09/2026): a origem do lead virava a do
+    reenvio (aqui "processo"), perdendo de onde a oportunidade realmente
+    veio na primeira vez ("resultados", ver _lead_existente). O last-touch
+    de UTM já tinha proteção equivalente -- só a origem estava sem."""
+    lead = _lead_existente()
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+    resposta = TestClient(app).post("/v1/leads", json=_payload(marca="acme", origem="processo"))
+    assert resposta.status_code == 201
+    assert lead.origem == "resultados"
+
+
 def test_upsert_publico_mascara_documento_mesmo_atualizando_no_lugar() -> None:
     # Vazamento pré-existente descoberto ao mexer nesta função: o reenvio do
     # formulário público devolvia o documento (CPF/CNPJ) do lead em claro.

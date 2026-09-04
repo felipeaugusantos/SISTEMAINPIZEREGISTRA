@@ -639,7 +639,12 @@ class EmpresaCRM(Base):
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
-    contatos_pessoa: Mapped[list["Contato"]] = relationship(back_populates="empresa", cascade="all, delete-orphan")
+    # Achado CRM-10 da auditoria (04/09/2026): cascade="all, delete-orphan"
+    # apagava em cascata todos os contatos e o historico da empresa quando
+    # a empresa era removida. Sem cascade de exclusao: contatos sobrevivem
+    # (empresa_id vira NULL, ver FK em Contato) e o dono do dado decide o
+    # que fazer com eles.
+    contatos_pessoa: Mapped[list["Contato"]] = relationship(back_populates="empresa")
     leads: Mapped[list["Lead"]] = relationship(back_populates="empresa_registro")
     pesquisas: Mapped[list["PesquisaMarca"]] = relationship(back_populates="empresa_registro")
     contatos: Mapped[list["ContatoLead"]] = relationship(back_populates="empresa_registro")
@@ -648,13 +653,23 @@ class EmpresaCRM(Base):
 
 
 class Contato(Base):
-    """Pessoa de contato de uma empresa (separada da oportunidade/lead)."""
+    """Pessoa de contato, opcionalmente vinculada a uma empresa (separada da
+    oportunidade/lead).
+
+    Achados CRM-9/CRM-10 da auditoria (04/09/2026): ``empresa_id`` era
+    obrigatório (impossível cadastrar contato de cliente pessoa física, sem
+    empresa) e a FK usava ``ondelete="CASCADE"`` (apagar a empresa apagava o
+    contato e seu histórico junto). Agora ``empresa_id`` é opcional e a
+    remoção da empresa só desvincula o contato (``SET NULL``), nunca o apaga.
+    """
 
     __tablename__ = "contatos"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
-    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas_crm.id", ondelete="CASCADE"), index=True)
+    empresa_id: Mapped[int | None] = mapped_column(
+        ForeignKey("empresas_crm.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     nome: Mapped[str] = mapped_column(String(150), index=True)
     email: Mapped[str | None] = mapped_column(String(254), nullable=True, index=True)
     telefone: Mapped[str | None] = mapped_column(String(30), nullable=True)
@@ -665,7 +680,7 @@ class Contato(Base):
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
-    empresa: Mapped["EmpresaCRM"] = relationship(back_populates="contatos_pessoa")
+    empresa: Mapped["EmpresaCRM | None"] = relationship(back_populates="contatos_pessoa")
 
 
 class RegraAutomacao(Base):

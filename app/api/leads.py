@@ -525,7 +525,11 @@ async def criar_lead(
         existente.telefone = dados.telefone
         existente.marca = dados.marca or existente.marca
         existente.processo_numero = dados.processo_numero or existente.processo_numero
-        existente.origem = dados.origem
+        # Achado CRM-5 da auditoria (04/09/2026): a origem original de um lead
+        # nao pode ser sobrescrita quando ele reaparece (ex.: reenvio do
+        # formulario por outro canal) -- e a mesma logica ja aplicada acima
+        # para marca/processo_numero. A origem do NOVO touch, se precisar
+        # ficar visivel, mora no last-touch (utm_*_ultimo abaixo).
         existente.tipo_interesse = dados.tipo_interesse or existente.tipo_interesse
         existente.utm_source_ultimo = dados.utm_source or existente.utm_source_ultimo
         existente.utm_medium_ultimo = dados.utm_medium or existente.utm_medium_ultimo
@@ -1163,8 +1167,25 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         for item in propostas
         if item.aceito_em and item.enviado_em
     ]
-    pagas = sum(1 for item in propostas if item.pagamento_status == "confirmado")
-    protocoladas = sum(1 for item in propostas if item.protocolo_em)
+    # Achado CRM-2/CRM-3 da auditoria (04/09/2026): taxa_pagamento e
+    # taxa_protocolo usavam TODAS as propostas nao-rascunho (inclusive
+    # recusadas/expiradas/canceladas) como denominador -- inflava a taxa
+    # para baixo, ja que proposta recusada nunca teria pagamento nem
+    # protocolo por definicao. O universo elegivel para essas duas etapas
+    # e so as propostas ACEITAS. taxa_aceite (nova) usa o universo de
+    # propostas enviadas (todas nao-rascunho), que e a base correta para
+    # medir taxa de aceite.
+    #
+    # "taxa_contrato" (pedida na auditoria) nao foi adicionada como metrica
+    # separada: neste produto, assinar_proposta_portal (app/api/
+    # portal_cliente.py) registra a assinatura eletronica (Assinatura
+    # PropostaComercial) NO MESMO ATO em que a proposta e aceita -- nao ha
+    # uma etapa de "assinar o contrato" distinta e posterior ao aceite hoje.
+    # Uma metrica de "taxa_contrato" separada da taxa_aceite seria
+    # redundante (sempre igual) e enganosa.
+    propostas_aceitas = [item for item in propostas if item.status == "aceita"]
+    pagas = sum(1 for item in propostas_aceitas if item.pagamento_status == "confirmado")
+    protocoladas = sum(1 for item in propostas_aceitas if item.protocolo_em)
 
     return {
         "funil": funil,
@@ -1184,8 +1205,9 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         if tempo_primeiro_atendimento
         else 0,
         "leads_sem_atendimento": sem_atendimento,
-        "taxa_pagamento": round(pagas / len(propostas), 4) if propostas else 0,
-        "taxa_protocolo": round(protocoladas / len(propostas), 4) if propostas else 0,
+        "taxa_aceite": round(len(propostas_aceitas) / len(propostas), 4) if propostas else 0,
+        "taxa_pagamento": round(pagas / len(propostas_aceitas), 4) if propostas_aceitas else 0,
+        "taxa_protocolo": round(protocoladas / len(propostas_aceitas), 4) if propostas_aceitas else 0,
         "atualizado_em": agora,
     }
 

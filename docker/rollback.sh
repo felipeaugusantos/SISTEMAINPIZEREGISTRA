@@ -52,7 +52,11 @@ if [ "$SERVICO" = "api" ]; then
     SAUDAVEL=0
     for tentativa in 1 2 3; do
         sleep 3
-        CODIGO_HTTP="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/health || echo "000")"
+        CODIGO_HTTP="$(
+            curl -s -o /dev/null -w '%{http_code}' \
+                -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-For: 127.0.0.1' \
+                http://localhost:8000/health || echo "000"
+        )"
         if [ "$CODIGO_HTTP" = "200" ]; then
             SAUDAVEL=1
             break

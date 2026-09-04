@@ -142,10 +142,19 @@ if [ "$SHAS_DIVERGENTES" -eq 1 ]; then
 fi
 
 echo "==> pronto (versao ${TAG_VERSAO}). verificando saude da api"
+# Com ADMIN_FORCE_HTTPS=true (agora realmente aplicado -- achado F0-1/F0-2),
+# a api redireciona (307) requisicoes que nao parecem vir de HTTPS. O
+# healthcheck do proprio container (compose.production.yaml) ja manda esses
+# cabecalhos; aqui precisa do mesmo, senao o curl direto sempre bate no
+# redirect e nunca ve o 200 de verdade.
 SAUDAVEL=0
 for tentativa in 1 2 3 4 5; do
     sleep 3
-    CODIGO_HTTP="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/health || echo "000")"
+    CODIGO_HTTP="$(
+        curl -s -o /dev/null -w '%{http_code}' \
+            -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-For: 127.0.0.1' \
+            http://localhost:8000/health || echo "000"
+    )"
     if [ "$CODIGO_HTTP" = "200" ]; then
         SAUDAVEL=1
         break

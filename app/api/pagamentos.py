@@ -27,7 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.financeiro import _gerar_comissao_se_aplicavel
+from app.api.financeiro import _cancelar_comissao_da_parcela, _gerar_comissao_se_aplicavel
 from app.api.leads import sincronizar_pagamento_proposta_por_id
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
@@ -111,6 +111,37 @@ async def receber_webhook_pagamento(
                 "pago" if all(item.status == "paga" for item in parcela.lancamento.parcelas) else "parcial"
             )
             await _gerar_comissao_se_aplicavel(session, parcela)
+            if parcela.lancamento.proposta_id:
+                await sincronizar_pagamento_proposta_por_id(
+                    session, evento.organizacao_id, parcela.lancamento.proposta_id
+                )
+    elif evento.status == "estornado":
+        # Achado FASE7-4 da auditoria (04/09/2026): o PSP também pode
+        # notificar um estorno depois do "pago" -- reverte a baixa (mesma
+        # lógica de app/api/financeiro.py::estornar, aplicada aqui porque o
+        # estorno veio do próprio gateway, não de uma ação manual de
+        # operador). Idempotente: se a parcela já não estava paga, não faz
+        # nada (não existe o que reverter).
+        parcela = (
+            await session.execute(
+                select(ParcelaFinanceira)
+                .where(
+                    ParcelaFinanceira.id == evento.parcela_id,
+                    ParcelaFinanceira.organizacao_id == evento.organizacao_id,
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if parcela is None:
+            raise HTTPException(status_code=404, detail="Parcela não encontrada")
+        if parcela.status == "paga":
+            parcela.valor_pago, parcela.pago_em, parcela.forma_pagamento = Decimal(0), None, None
+            parcela.forma_pagamento_id = None
+            parcela.status = "aberta"
+            parcela.lancamento.status = (
+                "pago" if all(item.status == "paga" for item in parcela.lancamento.parcelas) else "parcial"
+            )
+            await _cancelar_comissao_da_parcela(session, parcela.id)
             if parcela.lancamento.proposta_id:
                 await sincronizar_pagamento_proposta_por_id(
                     session, evento.organizacao_id, parcela.lancamento.proposta_id

@@ -149,6 +149,38 @@ def test_webhook_valor_divergente_retorna_422() -> None:
         assert exc.status_code == 422
 
 
+def test_webhook_estornado_reverte_parcela_paga() -> None:
+    parcela = _parcela(status="paga", valor_pago=Decimal("500.00"), pago_em=date(2026, 1, 5))
+    corpo = json.dumps(
+        {"referencia": "ref-estorno-1", "organizacao_id": 1, "parcela_id": 5, "status": "refunded", "valor": "500.00"}
+    ).encode()
+    session = FakeSession([FakeResult(scalar=None), FakeResult(scalar=parcela), FakeResult(scalar=None)])
+
+    resultado = asyncio.run(
+        receber_webhook_pagamento("sandbox", _request_com_corpo(corpo), session, _assinar(corpo))
+    )
+
+    assert resultado == {"idempotente": False, "status": "estornado"}
+    assert parcela.status == "aberta"
+    assert parcela.valor_pago == Decimal(0)
+    assert parcela.pago_em is None
+
+
+def test_webhook_estornado_de_parcela_ja_aberta_nao_faz_nada() -> None:
+    parcela = _parcela(status="aberta")
+    corpo = json.dumps(
+        {"referencia": "ref-estorno-2", "organizacao_id": 1, "parcela_id": 5, "status": "refunded", "valor": "500.00"}
+    ).encode()
+    session = FakeSession([FakeResult(scalar=None), FakeResult(scalar=parcela)])
+
+    resultado = asyncio.run(
+        receber_webhook_pagamento("sandbox", _request_com_corpo(corpo), session, _assinar(corpo))
+    )
+
+    assert resultado == {"idempotente": False, "status": "estornado"}
+    assert parcela.status == "aberta"
+
+
 # --- Criação de cobrança (Pix/boleto) ---
 
 

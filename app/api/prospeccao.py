@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.leads import _garantir_proxima_acao_padrao
 from app.api.saas import SuperAdminDep
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
-from app.crm import registrar_consentimento_operador
+from app.crm import registrar_consentimento_prospeccao_comercial
 from app.database import get_session
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
 from app.models import (
@@ -34,6 +34,7 @@ from app.models import (
     ProspectTriagem,
     StatusLead,
     StatusProspect,
+    SupressaoProspeccao,
 )
 from app.prospeccao_triagem import DISCLAIMER_TRIAGEM
 from app.proxy import cliente_ip
@@ -50,6 +51,8 @@ from app.schemas import (
     ProspectListResponse,
     ProspectResponse,
     ProspectStatusUpdate,
+    SupressaoProspeccaoCreate,
+    SupressaoProspeccaoResponse,
 )
 
 router = APIRouter(prefix="/v1/admin/prospects", tags=["prospeccao"])
@@ -65,6 +68,7 @@ MOTIVOS_DESCARTE_PROSPECT: tuple[str, ...] = (
     "sem_contato_valido",
     "cnae_incompativel",
     "outro",
+    "opt_out_lgpd",
 )
 
 
@@ -171,6 +175,25 @@ async def _correspondencia_crm(
     return lead_id, empresa_crm_id
 
 
+async def _esta_suprimido(session: AsyncSession, organizacao_id: int, cnpj: str | None, email: str) -> bool:
+    """Achado FASE5-5 da auditoria (04/09/2026): opt-out de prospecção --
+    quem está na lista de supressão nunca vira Prospect de novo nessa
+    organização, mesmo reaparecendo numa nova importação/campanha."""
+    condicoes = []
+    if cnpj:
+        condicoes.append(SupressaoProspeccao.cnpj == cnpj)
+    if email:
+        condicoes.append(SupressaoProspeccao.email == email)
+    if not condicoes:
+        return False
+    resultado = await session.execute(
+        select(SupressaoProspeccao.id)
+        .where(SupressaoProspeccao.organizacao_id == organizacao_id, or_(*condicoes))
+        .limit(1)
+    )
+    return resultado.scalar_one_or_none() is not None
+
+
 async def _criar_prospect(
     session: AsyncSession,
     organizacao_id: int,
@@ -179,14 +202,17 @@ async def _criar_prospect(
     *,
     fonte_id: int | None = None,
     campanha_id: int | None = None,
-) -> tuple[Prospect, bool]:
-    """Cria um Prospect aplicando as duas camadas de dedup. Devolve
-    (prospect, criado) -- criado=False quando reaproveitou um já existente."""
+) -> tuple[Prospect | None, str]:
+    """Cria um Prospect aplicando as duas camadas de dedup e a lista de
+    supressão (opt-out). Devolve (prospect, resultado), resultado em
+    {"criado", "duplicado", "suprimido"} -- prospect é None quando suprimido."""
     telefone_digitos = _digitos(dados.telefone)
     email = (dados.email or "").lower()
+    if await _esta_suprimido(session, organizacao_id, dados.cnpj, email):
+        return None, "suprimido"
     existente = await _prospect_duplicado(session, organizacao_id, dados.cnpj, telefone_digitos, email)
     if existente is not None:
-        return existente, False
+        return existente, "duplicado"
 
     lead_id, empresa_crm_id = await _correspondencia_crm(session, organizacao_id, dados.cnpj, telefone_digitos, email)
     prospect = Prospect(
@@ -216,7 +242,7 @@ async def _criar_prospect(
             organizacao_id=organizacao_id, prospect_id=prospect.id, status=StatusProspect.NOVO.value, por=por
         )
     )
-    return prospect, True
+    return prospect, "criado"
 
 
 @router.get("", response_model=ProspectListResponse)
@@ -300,14 +326,16 @@ async def timeline_prospect(prospect_id: int, session: SessionDep, usuario: Pros
 async def criar_prospect(
     dados: ProspectCreate, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
 ) -> ProspectResponse:
-    prospect, criado = await _criar_prospect(session, usuario.organizacao_id, dados, usuario.nome or "sistema")
+    prospect, resultado = await _criar_prospect(session, usuario.organizacao_id, dados, usuario.nome or "sistema")
+    if prospect is None:
+        raise HTTPException(422, "Este CNPJ/e-mail está na lista de supressão de prospecção (opt-out).")
     _auditar(
         session,
         request,
         usuario,
         "criar_prospect",
         f"prospect:{prospect.id}",
-        {"criado": criado, "razao_social": dados.razao_social},
+        {"resultado": resultado, "razao_social": dados.razao_social},
     )
     await session.commit()
     await session.refresh(prospect)
@@ -379,6 +407,7 @@ async def importar_prospects(
     criados = 0
     duplicados = 0
     invalidos = 0
+    suprimidos = 0
     for registro in registros:
         razao_social = valor_coluna(registro, COLUNAS_RAZAO_SOCIAL)
         if not razao_social:
@@ -400,13 +429,21 @@ async def importar_prospects(
         except ValueError:
             invalidos += 1
             continue
-        _, criado = await _criar_prospect(session, usuario.organizacao_id, dados, usuario.nome or "sistema")
-        if criado:
+        _, resultado_item = await _criar_prospect(session, usuario.organizacao_id, dados, usuario.nome or "sistema")
+        if resultado_item == "criado":
             criados += 1
+        elif resultado_item == "suprimido":
+            suprimidos += 1
         else:
             duplicados += 1
 
-    resultado = {"total_linhas": len(registros), "criados": criados, "duplicados": duplicados, "invalidos": invalidos}
+    resultado = {
+        "total_linhas": len(registros),
+        "criados": criados,
+        "duplicados": duplicados,
+        "invalidos": invalidos,
+        "suprimidos": suprimidos,
+    }
     _auditar(session, request, usuario, "importar_prospects", f"prospects:importacao:{arquivo.filename}", resultado)
     await session.commit()
     return resultado
@@ -463,7 +500,7 @@ async def converter_prospect_em_lead(
             status=StatusLead.NOVO,
             responsavel_id=prospect.responsavel_id,
         )
-        registrar_consentimento_operador(lead, usuario.id)
+        registrar_consentimento_prospeccao_comercial(lead, usuario.id)
         session.add(lead)
         await _garantir_proxima_acao_padrao(session, lead)
         criado_novo = True
@@ -922,3 +959,119 @@ async def listar_importacoes_cnpj_rfb(
         .all()
     )
     return [ImportacaoCnpjRfbResponse.model_validate(item) for item in execucoes]
+
+
+# --- Fase 5 do Radar de Prospecção (04/09/2026) -- opt-out de prospecção ---
+#
+# Achado FASE5-5 da auditoria (04/09/2026): não existia nenhum mecanismo para
+# alguém pedir pra não ser mais contatado por prospecção comercial (só Lead
+# tinha isso, via app/api/privacidade.py). Quem entra aqui nunca mais vira
+# Prospect nessa organização (checado em _esta_suprimido, chamado por
+# _criar_prospect -- único ponto de criação, usado por criar_prospect,
+# importar_prospects e o job prospeccao.coletar_campanha). Prospects já
+# existentes que casarem são rejeitados e têm os dados de contato apagados
+# na hora, igual à anonimização de Lead.
+
+
+def _anonimizar_prospect(prospect: Prospect) -> None:
+    prospect.telefone = None
+    prospect.email = None
+    prospect.site = None
+    prospect.endereco = None
+
+
+@router_campanhas.post(
+    "/supressoes", status_code=status.HTTP_201_CREATED, response_model=SupressaoProspeccaoResponse
+)
+async def criar_supressao_prospeccao(
+    dados: SupressaoProspeccaoCreate, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
+) -> SupressaoProspeccaoResponse:
+    supressao = SupressaoProspeccao(
+        organizacao_id=usuario.organizacao_id,
+        cnpj=dados.cnpj,
+        email=dados.email,
+        motivo=dados.motivo,
+        criado_por=usuario.nome or "sistema",
+    )
+    session.add(supressao)
+    await session.flush()
+
+    condicoes = []
+    if dados.cnpj:
+        condicoes.append(Prospect.cnpj == dados.cnpj)
+    if dados.email:
+        condicoes.append(func.lower(Prospect.email) == dados.email)
+    afetados = 0
+    if condicoes:
+        prospects = (
+            (
+                await session.execute(
+                    select(Prospect).where(Prospect.organizacao_id == usuario.organizacao_id, or_(*condicoes))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for prospect in prospects:
+            if prospect.status not in (StatusProspect.CONVERTIDO_LEAD.value,):
+                prospect.status = StatusProspect.REJEITADO.value
+                prospect.motivo_descarte = "opt_out_lgpd"
+            _anonimizar_prospect(prospect)
+            session.add(
+                HistoricoStatusProspect(
+                    organizacao_id=usuario.organizacao_id,
+                    prospect_id=prospect.id,
+                    status=prospect.status,
+                    por=f"opt_out:{usuario.nome or 'sistema'}",
+                )
+            )
+            afetados += 1
+
+    _auditar(
+        session,
+        request,
+        usuario,
+        "criar_supressao",
+        f"supressao_prospeccao:{supressao.id}",
+        {"prospects_afetados": afetados},
+    )
+    await session.commit()
+    await session.refresh(supressao)
+    return SupressaoProspeccaoResponse.model_validate(supressao)
+
+
+@router_campanhas.get("/supressoes", response_model=list[SupressaoProspeccaoResponse])
+async def listar_supressoes_prospeccao(
+    session: SessionDep, usuario: ProspeccaoViewDep, limite: Annotated[int, Query(ge=1, le=200)] = 50
+) -> list[SupressaoProspeccaoResponse]:
+    itens = (
+        (
+            await session.execute(
+                select(SupressaoProspeccao)
+                .where(SupressaoProspeccao.organizacao_id == usuario.organizacao_id)
+                .order_by(SupressaoProspeccao.criado_em.desc())
+                .limit(limite)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [SupressaoProspeccaoResponse.model_validate(item) for item in itens]
+
+
+@router_campanhas.delete("/supressoes/{supressao_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remover_supressao_prospeccao(
+    supressao_id: int, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
+) -> None:
+    supressao = (
+        await session.execute(
+            select(SupressaoProspeccao).where(
+                SupressaoProspeccao.id == supressao_id, SupressaoProspeccao.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if supressao is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Supressão não encontrada")
+    await session.delete(supressao)
+    _auditar(session, request, usuario, "remover_supressao", f"supressao_prospeccao:{supressao_id}", {})
+    await session.commit()

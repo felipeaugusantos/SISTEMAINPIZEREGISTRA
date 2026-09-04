@@ -4,7 +4,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.auth import hash_token, obter_usuario_atual
-from app.crm import registrar_consentimento_operador, registrar_consentimento_titular
+from app.crm import (
+    registrar_consentimento_operador,
+    registrar_consentimento_prospeccao_comercial,
+    registrar_consentimento_titular,
+)
 from app.database import get_session
 from app.main import app
 from app.models import ArquivoClientePortal, Lead, Organizacao, SolicitacaoAnonimizacaoLead
@@ -53,6 +57,20 @@ def test_registrar_consentimento_operador_nao_grava_versao_de_termo() -> None:
     assert lead.consentimento_base_legal == "interesse_legitimo_atendimento"
     assert lead.consentimento_versao_termo is None
     assert lead.consentimento_registrado_por == 42
+    assert lead.consentimento_em is not None
+
+
+def test_registrar_consentimento_prospeccao_comercial_usa_base_legal_propria() -> None:
+    # Achado FASE5-4/6 da auditoria (04/09/2026): converter_prospect_em_lead
+    # usava registrar_consentimento_operador ("interesse_legitimo_atendimento"),
+    # que afirma que o CONTATO pediu atendimento -- falso para um Prospect
+    # (dado de origem RFB, contatado por iniciativa nossa, cold prospecting).
+    lead = _lead()
+    registrar_consentimento_prospeccao_comercial(lead, operador_id=7)
+    assert lead.consentimento_base_legal == "interesse_legitimo_prospeccao_comercial"
+    assert lead.consentimento_base_legal != "interesse_legitimo_atendimento"
+    assert lead.consentimento_versao_termo is None
+    assert lead.consentimento_registrado_por == 7
     assert lead.consentimento_em is not None
 
 

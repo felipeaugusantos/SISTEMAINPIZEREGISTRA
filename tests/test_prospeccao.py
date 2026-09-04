@@ -89,7 +89,11 @@ def test_detalhar_prospect_inexistente_retorna_404() -> None:
 
 
 def test_criar_prospect_cria_novo_quando_nao_ha_correspondencia() -> None:
-    session = _sessao_admin(FakeResult(scalar=None), FakeResult(scalar=None), FakeResult(scalar=None))
+    # FASE5-5 (04/09/2026): _criar_prospect agora checa a lista de supressão
+    # antes de tudo -- 1º resultado é essa checagem (None = não suprimido).
+    session = _sessao_admin(
+        FakeResult(scalar=None), FakeResult(scalar=None), FakeResult(scalar=None), FakeResult(scalar=None)
+    )
 
     resposta = TestClient(app).post(
         "/v1/admin/prospects", json=PAYLOAD_BASE, headers={"X-CSRF-Token": "csrf-teste"}
@@ -106,7 +110,7 @@ def test_criar_prospect_cria_novo_quando_nao_ha_correspondencia() -> None:
 
 def test_criar_prospect_duplicado_no_radar_nao_cria_novo() -> None:
     existente = _prospect(id=9, cnpj="11222333000181")
-    session = _sessao_admin(FakeResult(scalar=existente))
+    session = _sessao_admin(FakeResult(scalar=None), FakeResult(scalar=existente))
 
     resposta = TestClient(app).post(
         "/v1/admin/prospects", json=PAYLOAD_BASE, headers={"X-CSRF-Token": "csrf-teste"}
@@ -118,7 +122,9 @@ def test_criar_prospect_duplicado_no_radar_nao_cria_novo() -> None:
 
 
 def test_criar_prospect_marca_empresa_crm_existente() -> None:
-    _sessao_admin(FakeResult(scalar=None), FakeResult(scalar=None), FakeResult(scalar=77))
+    _sessao_admin(
+        FakeResult(scalar=None), FakeResult(scalar=None), FakeResult(scalar=None), FakeResult(scalar=77)
+    )
 
     resposta = TestClient(app).post(
         "/v1/admin/prospects", json=PAYLOAD_BASE, headers={"X-CSRF-Token": "csrf-teste"}
@@ -183,7 +189,17 @@ def test_importar_prospects_cria_ignora_duplicado_e_invalido() -> None:
         "Beta Ltda;beta@example.com;11977776666\n"
     )
     existente = _prospect(id=3, email="beta@example.com")
-    session = _sessao_admin(FakeResult(scalar=None), FakeResult(scalar=None), FakeResult(scalar=existente))
+    # FASE5-5 (04/09/2026): cada linha válida agora checa supressão antes do
+    # dedup -- Alpha: suprimido(None), duplicado(None), lead_id(None) (sem
+    # cnpj, empresa_crm não é consultado). Beta: suprimido(None), duplicado
+    # já casa com `existente` (encerra ali, sem consultar lead/empresa_crm).
+    session = _sessao_admin(
+        FakeResult(scalar=None),
+        FakeResult(scalar=None),
+        FakeResult(scalar=None),
+        FakeResult(scalar=None),
+        FakeResult(scalar=existente),
+    )
 
     resposta = TestClient(app).post(
         "/v1/admin/prospects/importar", files=_csv_upload(csv_conteudo), headers={"X-CSRF-Token": "csrf-teste"}
@@ -195,6 +211,7 @@ def test_importar_prospects_cria_ignora_duplicado_e_invalido() -> None:
     assert corpo["criados"] == 1
     assert corpo["duplicados"] == 1
     assert corpo["invalidos"] == 1
+    assert corpo["suprimidos"] == 0
     assert session.commits == 1
 
 
@@ -752,6 +769,139 @@ def test_disparar_importacao_exige_superadmin() -> None:
     )
 
     assert resposta.status_code == 403
+
+
+# --- Fase 5 do Radar de Prospecção (04/09/2026) -- opt-out (FASE5-5) -------
+
+
+def test_criar_prospect_suprimido_retorna_422_e_nao_cria() -> None:
+    from app.models import SupressaoProspeccao
+
+    supressao = SupressaoProspeccao(
+        id=1, organizacao_id=1, cnpj="11222333000181", email=None, motivo=None, criado_por="Admin",
+        criado_em=datetime(2026, 9, 4, tzinfo=UTC),
+    )
+    session = _sessao_admin(FakeResult(scalar=supressao.id))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects", json=PAYLOAD_BASE, headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 422
+    assert "supress" in resposta.json()["detail"].lower()
+    assert [obj for obj in session.adicionados if isinstance(obj, Prospect)] == []
+
+
+def test_importar_prospects_conta_suprimidos_separado_de_duplicados() -> None:
+    csv_conteudo = "Razao Social;Email\nAlpha Ltda;alpha@example.com\n"
+    # 1ª consulta = checagem de supressão -> casa (id != None) -> linha vira "suprimido".
+    session = _sessao_admin(FakeResult(scalar=1))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/importar", files=_csv_upload(csv_conteudo), headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 201
+    corpo = resposta.json()
+    assert corpo["criados"] == 0
+    assert corpo["duplicados"] == 0
+    assert corpo["suprimidos"] == 1
+    assert [obj for obj in session.adicionados if isinstance(obj, Prospect)] == []
+
+
+def test_criar_supressao_rejeita_e_anonimiza_prospects_existentes() -> None:
+    prospect_existente = _prospect(id=42, cnpj="11222333000181", status=StatusProspect.NOVO.value)
+    session = _sessao_admin(FakeResult(itens=[prospect_existente]))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/supressoes",
+        json={"cnpj": "11.222.333/0001-81", "motivo": "pedido do titular"},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 201
+    corpo = resposta.json()
+    assert corpo["cnpj"] == "11222333000181"
+    assert prospect_existente.status == StatusProspect.REJEITADO.value
+    assert prospect_existente.motivo_descarte == "opt_out_lgpd"
+    assert prospect_existente.email is None
+    assert prospect_existente.telefone is None
+    assert session.commits == 1
+
+
+def test_criar_supressao_nao_reabre_prospect_ja_convertido_em_lead() -> None:
+    prospect_convertido = _prospect(
+        id=43, cnpj="11222333000181", status=StatusProspect.CONVERTIDO_LEAD.value, lead_id=9
+    )
+    session = _sessao_admin(FakeResult(itens=[prospect_convertido]))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/supressoes",
+        json={"cnpj": "11222333000181"},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 201
+    # Já virou Lead -- não regride o status do Prospect, mas ainda apaga os
+    # dados de contato dele (o Lead segue seu próprio fluxo de exclusão,
+    # ver app/api/privacidade.py).
+    assert prospect_convertido.status == StatusProspect.CONVERTIDO_LEAD.value
+    assert prospect_convertido.email is None
+    assert session.commits == 1
+
+
+def test_criar_supressao_sem_cnpj_nem_email_retorna_422() -> None:
+    _sessao_admin()
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/supressoes", json={}, headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 422
+
+
+def test_listar_supressoes_prospeccao() -> None:
+    from app.models import SupressaoProspeccao
+
+    item = SupressaoProspeccao(
+        id=1, organizacao_id=1, cnpj="11222333000181", email=None, motivo="pedido do titular",
+        criado_por="Admin", criado_em=datetime(2026, 9, 4, tzinfo=UTC),
+    )
+    _sessao_admin(FakeResult(itens=[item]))
+
+    resposta = TestClient(app).get("/v1/admin/prospeccao/supressoes")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert len(corpo) == 1
+    assert corpo[0]["cnpj"] == "11222333000181"
+
+
+def test_remover_supressao_prospeccao() -> None:
+    from app.models import SupressaoProspeccao
+
+    item = SupressaoProspeccao(
+        id=1, organizacao_id=1, cnpj="11222333000181", email=None, motivo=None,
+        criado_por="Admin", criado_em=datetime(2026, 9, 4, tzinfo=UTC),
+    )
+    session = _sessao_admin(FakeResult(scalar=item))
+
+    resposta = TestClient(app).delete(
+        "/v1/admin/prospeccao/supressoes/1", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 204
+    assert session.deletados == [item]
+
+
+def test_remover_supressao_inexistente_retorna_404() -> None:
+    _sessao_admin(FakeResult(scalar=None))
+
+    resposta = TestClient(app).delete(
+        "/v1/admin/prospeccao/supressoes/999", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 404
 
 
 def test_listar_importacoes_cnpj_rfb() -> None:

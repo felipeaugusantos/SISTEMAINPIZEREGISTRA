@@ -635,6 +635,45 @@ class ProspectCreate(BaseModel):
         return digitos
 
 
+class SupressaoProspeccaoCreate(BaseModel):
+    """Achado FASE5-5 da auditoria (04/09/2026): opt-out de prospecção --
+    pelo menos cnpj ou email precisa vir preenchido."""
+
+    cnpj: str | None = Field(default=None, max_length=18)
+    email: str | None = Field(default=None, max_length=254)
+    motivo: str | None = Field(default=None, max_length=200)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _normalizar_email(cls, valor: object) -> object:
+        return valor.strip().lower() or None if isinstance(valor, str) else valor
+
+    @field_validator("cnpj")
+    @classmethod
+    def _validar_cnpj(cls, valor: str | None) -> str | None:
+        if valor is None:
+            return None
+        digitos = "".join(item for item in valor if item.isdigit())
+        return digitos or None
+
+    @model_validator(mode="after")
+    def _exige_identificador(self) -> "SupressaoProspeccaoCreate":
+        if not self.cnpj and not self.email:
+            raise ValueError("Informe cnpj ou email para suprimir.")
+        return self
+
+
+class SupressaoProspeccaoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    cnpj: str | None
+    email: str | None
+    motivo: str | None
+    criado_por: str
+    criado_em: datetime
+
+
 class ProspectStatusUpdate(BaseModel):
     status: Literal["rejeitado"]
     motivo_descarte: str = Field(min_length=2, max_length=30)

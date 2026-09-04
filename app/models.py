@@ -1646,6 +1646,28 @@ class Prospect(Base):
     responsavel: Mapped["UsuarioOperacoes | None"] = relationship(foreign_keys=[responsavel_id], lazy="selectin")
 
 
+class SupressaoProspeccao(Base):
+    """Lista de opt-out do Radar de Prospecção (Fase 5, 04/09/2026) -- quem
+    pediu pra não ser contatado por prospecção comercial nunca mais entra
+    como Prospect nessa organização, mesmo reaparecendo em uma nova
+    importação/campanha (RFB, planilha manual). Achado FASE5-5 da auditoria
+    (04/09/2026): antes não existia nenhum mecanismo de opt-out para dados de
+    prospecção (só para Lead, via app/api/privacidade.py)."""
+
+    __tablename__ = "supressoes_prospeccao"
+    __table_args__ = (
+        CheckConstraint("cnpj IS NOT NULL OR email IS NOT NULL", name="ck_supressao_prospeccao_identificador"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    cnpj: Mapped[str | None] = mapped_column(String(18), nullable=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True, index=True)
+    motivo: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    criado_por: Mapped[str] = mapped_column(String(150))
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class PoliticaProspeccao(Base):
     """Regras de aprovação automática do Radar por organização (Fase 5,
     03/09/2026) -- mesmo padrão de PoliticaCRM. Desligada por padrão: só

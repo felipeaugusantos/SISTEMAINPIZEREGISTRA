@@ -44,6 +44,18 @@ def registrar_consentimento_operador(lead: Lead, operador_id: int) -> None:
     lead.consentimento_registrado_por = operador_id
 
 
+def registrar_consentimento_prospeccao_comercial(lead: Lead, operador_id: int) -> None:
+    """Lead criado a partir da conversão de um Prospect do Radar de Prospecção
+    (dado de origem RFB, contatado por iniciativa nossa) -- diferente de
+    registrar_consentimento_operador: ali o CONTATO já tinha pedido
+    atendimento; aqui não pediu nada, então usar "interesse_legitimo_atendimento"
+    seria uma base legal incorreta (afirmaria uma solicitação que não existiu).
+    Achado FASE5-4/6 da auditoria (04/09/2026)."""
+    lead.consentimento_em = datetime.now(UTC)
+    lead.consentimento_base_legal = "interesse_legitimo_prospeccao_comercial"
+    lead.consentimento_registrado_por = operador_id
+
+
 def registrar_evento_operacional(
     session: AsyncSession,
     *,

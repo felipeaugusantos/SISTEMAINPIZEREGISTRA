@@ -485,7 +485,7 @@ async def processar(tipo: str, payload: dict) -> None:
                         telefone=candidato.telefone,
                         email=candidato.email,
                     )
-                    _, criado = await _criar_prospect(
+                    _, resultado_item = await _criar_prospect(
                         session,
                         organizacao_id,
                         dados,
@@ -493,7 +493,7 @@ async def processar(tipo: str, payload: dict) -> None:
                         fonte_id=fonte.id,
                         campanha_id=campanha.id,
                     )
-                    if criado:
+                    if resultado_item == "criado":
                         criados += 1
                 campanha.status = "concluida"
                 campanha.encerrada_em = datetime.now(UTC)

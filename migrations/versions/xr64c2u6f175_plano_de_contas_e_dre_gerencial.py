@@ -1,7 +1,7 @@
 """plano de contas gerencial e classificacao contabil de lancamentos (FASE7-13/14)
 
 Revision ID: xr64c2u6f175
-Revises: wp43q1s5d064
+Revises: hk08e5rgstck
 
 Achado FASE7-13/14 da auditoria (04/09/2026): o financeiro tinha dimensoes
 analiticas soltas (CategoriaFinanceira, CentroCustoFinanceiro) mas nenhum
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "xr64c2u6f175"
-down_revision: str | None = "wp43q1s5d064"
+down_revision: str | None = "hk08e5rgstck"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

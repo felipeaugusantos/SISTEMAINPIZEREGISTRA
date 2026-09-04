@@ -517,6 +517,13 @@ class PoliticaJuridicaUpdate(BaseModel):
 
 
 async def obter_politica_juridica(session: AsyncSession, organizacao_id: int) -> PoliticaJuridica:
+    """Sem linha em ``politicas_juridicas``, cai no padrão desligado (False)
+    -- decisão original (achado 5.3 da auditoria de 01/09/2026, mantida
+    aqui): não travar retroativamente organizações que já operam sem essas
+    exigências. Achado FASE3-1 da auditoria (04/09/2026): organizações
+    NOVAS devem nascer com o padrão seguro (True) -- ver
+    ``criar_politica_juridica_padrao`` em app/crm.py, chamada na criação da
+    organização, que grava essa linha explicitamente desde o início."""
     politica = (
         await session.execute(select(PoliticaJuridica).where(PoliticaJuridica.organizacao_id == organizacao_id))
     ).scalar_one_or_none()
@@ -890,7 +897,10 @@ async def painel(
     responsavel_id: int | None = Query(default=None, ge=1),
     inicio: date | None = None,
     fim: date | None = None,
-    limite: int = Query(default=10, ge=1, le=10),
+    # Achado FASE3-7/8 da auditoria (04/09/2026): limite travado em no
+    # máximo 10 -- uma organização com mais clientes/prazos ativos nunca
+    # conseguia ver mais que isso por página, mesmo pedindo explicitamente.
+    limite: int = Query(default=10, ge=1, le=100),
     deslocamento: int = Query(default=0, ge=0),
     prioridade: str | None = Query(default=None, max_length=10),
     cliente_id: int | None = Query(default=None, ge=1),
@@ -1293,6 +1303,22 @@ async def atualizar_prazo(
     if dados.status == "cancelado" and not (dados.descricao_evento and dados.descricao_evento.strip()):
         raise HTTPException(422, "Informe a justificativa do cancelamento")
     if dados.status == "concluido" and anterior in STATUS_ATIVOS:
+        # Achado FASE3-2 da auditoria (04/09/2026): nada impedia concluir um
+        # prazo com itens do checklist ainda pendentes -- só evidência de
+        # entrega e segunda-pessoa eram checadas. Checklist vazio (nenhum
+        # item aplicado) não bloqueia, já que ele é opcional (botão "aplicar
+        # padrão").
+        pendentes = (
+            await session.execute(
+                select(func.count())
+                .select_from(ItemChecklistPrazo)
+                .where(ItemChecklistPrazo.prazo_id == prazo.id, ItemChecklistPrazo.concluido.is_(False))
+            )
+        ).scalar_one()
+        if pendentes:
+            raise HTTPException(
+                422, f"Há {pendentes} item(ns) do checklist ainda pendente(s) -- conclua-os antes de fechar o prazo."
+            )
         politica = await obter_politica_juridica(session, usuario.organizacao_id)
         if politica.exigir_evidencia_conclusao:
             entrega_existente = (

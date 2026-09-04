@@ -598,7 +598,9 @@ def test_conclusao_exige_evidencia_quando_politica_ativa() -> None:
 def test_conclusao_permitida_quando_ha_entrega_registrada() -> None:
     prazo = _prazo_ativo()
     politica = PoliticaJuridica(organizacao_id=1, exigir_evidencia_conclusao=True, exigir_segunda_pessoa_critico=False)
-    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=politica), FakeResult(scalar=1)])
+    session = FakeSession(
+        [FakeResult(scalar=prazo), FakeResult(scalar=0), FakeResult(scalar=politica), FakeResult(scalar=1)]
+    )
     resultado = asyncio.run(atualizar_prazo(9, PrazoUpdate(status="concluido"), _request(), session, usuario_teste()))
     assert resultado["status"] == "concluido"
 
@@ -607,7 +609,7 @@ def test_conclusao_de_prazo_critico_exige_segunda_pessoa_quando_politica_ativa()
     usuario = usuario_teste()
     prazo = _prazo_ativo(prioridade="critica", confirmado_por_id=usuario.id)
     politica = PoliticaJuridica(organizacao_id=1, exigir_evidencia_conclusao=False, exigir_segunda_pessoa_critico=True)
-    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=politica)])
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=0), FakeResult(scalar=politica)])
     try:
         asyncio.run(atualizar_prazo(9, PrazoUpdate(status="concluido"), _request(), session, usuario))
         raise AssertionError("Esperava HTTPException 422 por falta de segunda pessoa na conclusão")
@@ -619,8 +621,32 @@ def test_conclusao_de_prazo_critico_permitida_quando_outra_pessoa_confirmou() ->
     usuario = usuario_teste()
     prazo = _prazo_ativo(prioridade="critica", confirmado_por_id=usuario.id + 1)
     politica = PoliticaJuridica(organizacao_id=1, exigir_evidencia_conclusao=False, exigir_segunda_pessoa_critico=True)
-    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=politica)])
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=0), FakeResult(scalar=politica)])
     resultado = asyncio.run(atualizar_prazo(9, PrazoUpdate(status="concluido"), _request(), session, usuario))
+    assert resultado["status"] == "concluido"
+
+
+# --- Achado FASE3-2 da auditoria (04/09/2026): nada bloqueava concluir um
+# prazo com itens do checklist ainda pendentes. ---
+
+
+def test_conclusao_bloqueada_quando_ha_item_de_checklist_pendente() -> None:
+    prazo = _prazo_ativo()
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=2)])
+    try:
+        asyncio.run(atualizar_prazo(9, PrazoUpdate(status="concluido"), _request(), session, usuario_teste()))
+        raise AssertionError("Esperava HTTPException 422 por checklist pendente")
+    except HTTPException as erro:
+        assert erro.status_code == 422
+        assert "checklist" in erro.detail.lower()
+
+
+def test_conclusao_permitida_quando_checklist_esta_vazio() -> None:
+    """Checklist vazio (nenhum item aplicado) não bloqueia -- é opcional."""
+    prazo = _prazo_ativo()
+    politica = PoliticaJuridica(organizacao_id=1, exigir_evidencia_conclusao=False, exigir_segunda_pessoa_critico=False)
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=0), FakeResult(scalar=politica)])
+    resultado = asyncio.run(atualizar_prazo(9, PrazoUpdate(status="concluido"), _request(), session, usuario_teste()))
     assert resultado["status"] == "concluido"
 
 

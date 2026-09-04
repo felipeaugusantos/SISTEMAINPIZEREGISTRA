@@ -32,6 +32,7 @@ from app.models import (
     Organizacao,
     PesquisaMarca,
     PlanoSaas,
+    PoliticaJuridica,
     SessaoOperacoes,
     UsuarioOperacoes,
 )
@@ -285,6 +286,18 @@ async def criar_organizacao(dados: OrganizacaoInput, session: SessionDep, ator: 
     )
     session.add(org)
     await session.flush()
+    # Achado FASE3-1 da auditoria (04/09/2026): organizações sem linha em
+    # politicas_juridicas caem no padrão desligado (False) em
+    # obter_politica_juridica -- decisão antiga (achado 5.3, 01/09/2026)
+    # para não travar retroativamente quem já operava sem essas exigências.
+    # Organização NOVA não tem esse problema: nasce com o padrão seguro.
+    session.add(
+        PoliticaJuridica(
+            organizacao_id=org.id,
+            exigir_evidencia_conclusao=True,
+            exigir_segunda_pessoa_critico=True,
+        )
+    )
     senha = _senha_temporaria()
     admin = UsuarioOperacoes(
         organizacao_id=org.id,

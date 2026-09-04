@@ -219,6 +219,10 @@ services:
       # reinicia sozinha algumas vezes por dia, por motivo ainda não
       # identificado nos logs).
       - ./data:/app/data
+      # Achado FASE6-9d da auditoria (04/09/2026): plataforma.verificar_saude
+      # (app/alertas_plataforma.py) precisa checar se o backup do banco está
+      # rodando -- somente leitura, o worker nunca escreve em backups/.
+      - ./backups:/app/backups:ro
     depends_on:
       db:
         condition: service_healthy

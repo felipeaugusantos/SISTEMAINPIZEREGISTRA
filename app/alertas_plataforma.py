@@ -13,6 +13,7 @@ recriar linha a cada ciclo de manutenção enquanto o problema persiste.
 """
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,16 @@ from app.models import AlertaSistema, EventoOperacional, RpiImportacao, RpiSyncE
 from app.queueing import status_fila
 from app.rpi.health import avaliar_saude_rpi
 from app.settings import get_settings
+
+
+def _backup_mais_recente(diretorio: Path) -> datetime | None:
+    if not diretorio.is_dir():
+        return None
+    dumps = list(diretorio.glob("inpi-*.dump"))
+    if not dumps:
+        return None
+    mais_recente = max(dumps, key=lambda caminho: caminho.stat().st_mtime)
+    return datetime.fromtimestamp(mais_recente.stat().st_mtime, UTC)
 
 
 async def registrar_alerta_plataforma(
@@ -84,12 +95,13 @@ async def verificar_saude_plataforma(session: AsyncSession) -> None:
 
     - 9a) fila de falhas do worker (FAILED_KEY);
     - 9b) RPI desatualizada (mesmo cálculo de GET /health/rpi);
+    - 9d) backup ausente/atrasado (backups/ montado somente leitura no
+      worker, ver compose.yaml);
     - 9f) taxa de erro / latência média da API nas últimas 24h.
 
-    9d (backup ausente) e 9g (SMTP/IMAP) não entram aqui -- 9d exige acesso
-    ao diretório de backups do host, que hoje não é montado no container do
-    worker (decisão registrada para tratar à parte); 9g já é verificado nos
-    próprios pontos de envio (app/emailing.py, app/imap_polling.py).
+    9g (SMTP/IMAP) não entra aqui -- já é sinalizado nos próprios pontos de
+    envio (app/emailing.py, app/imap_polling.py), não faz sentido duplicar
+    a checagem aqui.
     """
     settings = get_settings()
 
@@ -155,6 +167,34 @@ async def verificar_saude_plataforma(session: AsyncSession) -> None:
         )
     elif status_rpi == "ok":
         await resolver_alerta_plataforma(session, codigo="RPI_DESATUALIZADA")
+
+    # Só em produção: dev/test não têm backups/ montado (compose.yaml só
+    # monta no worker de produção), o que geraria alerta falso todo ciclo.
+    if settings.app_env.lower() == "production":
+        ultimo_backup = _backup_mais_recente(Path(settings.backups_dir))
+        if ultimo_backup is None:
+            await registrar_alerta_plataforma(
+                session,
+                codigo="BACKUP_AUSENTE",
+                severidade="critico",
+                mensagem=f"Nenhum backup encontrado em {settings.backups_dir} (padrão inpi-*.dump).",
+                detalhes={"diretorio": settings.backups_dir},
+            )
+        else:
+            idade_horas_backup = (datetime.now(UTC) - ultimo_backup).total_seconds() / 3600
+            if idade_horas_backup > settings.alerta_backup_max_horas:
+                await registrar_alerta_plataforma(
+                    session,
+                    codigo="BACKUP_AUSENTE",
+                    severidade="critico",
+                    mensagem=(
+                        f"Último backup tem {idade_horas_backup:.1f}h "
+                        f"(limite {settings.alerta_backup_max_horas:.0f}h)."
+                    ),
+                    detalhes={"idade_horas": idade_horas_backup},
+                )
+            else:
+                await resolver_alerta_plataforma(session, codigo="BACKUP_AUSENTE")
 
     desde = datetime.now(UTC) - timedelta(hours=24)
     metricas = (

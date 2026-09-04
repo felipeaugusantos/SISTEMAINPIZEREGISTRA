@@ -89,6 +89,78 @@ async def promover_retentativas(redis: Redis, agora: float | None = None) -> int
     return promovidos
 
 
+async def listar_falhas(*, limite: int = 50, deslocamento: int = 0) -> list[dict]:
+    """Achado FASE6-4 da auditoria (04/09/2026): FAILED_KEY (dead-letter
+    queue) só era exposta como contagem (status_fila) -- ninguém conseguia
+    ver O QUE falhou nem reprocessar/descartar sem acessar redis-cli
+    diretamente. Devolve os jobs mais recentes primeiro (LPUSH empurra no
+    início, então lrange do começo já é do mais novo pro mais velho)."""
+    redis = cliente_redis()
+    try:
+        brutos = await redis.lrange(FAILED_KEY, deslocamento, deslocamento + limite - 1)
+    finally:
+        await redis.aclose()
+    itens = []
+    for bruto in brutos:
+        try:
+            job = json.loads(bruto)
+        except (TypeError, json.JSONDecodeError):
+            job = {"job": None, "erro": "payload_invalido"}
+        job["_bruto"] = bruto
+        itens.append(job)
+    return itens
+
+
+async def reprocessar_falha(job_id: str) -> bool:
+    """Remove UM job da fila de falhas (por id, seja 'id' de job sob demanda
+    ou 'job' de tarefa de manutenção) e o reenvia para QUEUE_KEY com o
+    contador de tentativas zerado. Devolve False se não achou o job (já
+    reprocessado/removido por outra chamada)."""
+    redis = cliente_redis()
+    try:
+        brutos = await redis.lrange(FAILED_KEY, 0, -1)
+        for bruto in brutos:
+            try:
+                job = json.loads(bruto)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if job.get("id") == job_id or job.get("job") == job_id:
+                removido = await redis.lrem(FAILED_KEY, 1, bruto)
+                if not removido:
+                    return False
+                job["tentativas"] = 0
+                job.pop("ultimo_erro", None)
+                job.pop("ultima_falha_em", None)
+                if "id" not in job:
+                    job["id"] = str(uuid4())
+                if "tipo" not in job and "job" in job:
+                    job["tipo"] = job.pop("job")
+                job.setdefault("payload", {})
+                await redis.rpush(QUEUE_KEY, json.dumps(job))
+                await redis.hincrby(METRICS_KEY, "reenfileirados_apos_falha", 1)
+                return True
+        return False
+    finally:
+        await redis.aclose()
+
+
+async def descartar_falha(job_id: str) -> bool:
+    """Remove UM job da fila de falhas permanentemente, sem reprocessar."""
+    redis = cliente_redis()
+    try:
+        brutos = await redis.lrange(FAILED_KEY, 0, -1)
+        for bruto in brutos:
+            try:
+                job = json.loads(bruto)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if job.get("id") == job_id or job.get("job") == job_id:
+                return bool(await redis.lrem(FAILED_KEY, 1, bruto))
+        return False
+    finally:
+        await redis.aclose()
+
+
 async def status_fila() -> dict:
     redis = cliente_redis()
     try:

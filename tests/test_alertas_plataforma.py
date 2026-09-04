@@ -153,6 +153,119 @@ async def test_verificar_saude_plataforma_api_com_amostra_pequena_nao_alerta(
     assert "API_LATENCIA_ERRO_ALTA" not in codigos_alertados
 
 
+def _settings_producao(tmp_path, **overrides: object) -> SimpleNamespace:
+    base = {
+        "alerta_fila_falhas_limite": 5,
+        "rpi_stale_hours": 12.0,
+        "app_env": "production",
+        "backups_dir": str(tmp_path),
+        "alerta_backup_max_horas": 26.0,
+        "alerta_api_taxa_erro_limite": 0.05,
+        "alerta_api_latencia_media_ms_limite": 2000.0,
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+async def test_verificar_saude_plataforma_producao_sem_backup_alerta_critico(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr("app.alertas_plataforma.status_fila", _fila_ok(falhas=0))
+    monkeypatch.setattr("app.alertas_plataforma.get_settings", lambda: _settings_producao(tmp_path))
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # resolver FILA_INDISPONIVEL
+            FakeResult(itens=[]),  # resolver FILA_FALHAS_ALTA
+            FakeResult(scalar=_ultima_rpi_ok()),  # select RpiImportacao
+            FakeResult(itens=[]),  # resolver RPI_DESATUALIZADA
+            FakeResult(scalar=None),  # registrar BACKUP_AUSENTE (dedup check) -- tmp_path vazio, sem dump
+            FakeResult(itens=[(0, 0, 0.0)]),  # métricas API
+            FakeResult(itens=[]),  # resolver API_LATENCIA_ERRO_ALTA
+        ],
+        objetos_get=[_estado_rpi_ok()],
+    )
+    await verificar_saude_plataforma(session)
+    alertas = {obj.codigo: obj for obj in session.adicionados if isinstance(obj, AlertaSistema)}
+    assert "BACKUP_AUSENTE" in alertas
+    assert alertas["BACKUP_AUSENTE"].severidade == "critico"
+
+
+async def test_verificar_saude_plataforma_producao_backup_recente_nao_alerta(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    (tmp_path / "inpi-20260904-100000.dump").write_bytes(b"conteudo")
+    monkeypatch.setattr("app.alertas_plataforma.status_fila", _fila_ok(falhas=0))
+    monkeypatch.setattr("app.alertas_plataforma.get_settings", lambda: _settings_producao(tmp_path))
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # resolver FILA_INDISPONIVEL
+            FakeResult(itens=[]),  # resolver FILA_FALHAS_ALTA
+            FakeResult(scalar=_ultima_rpi_ok()),  # select RpiImportacao
+            FakeResult(itens=[]),  # resolver RPI_DESATUALIZADA
+            FakeResult(itens=[]),  # resolver BACKUP_AUSENTE -- dump recente
+            FakeResult(itens=[(0, 0, 0.0)]),  # métricas API
+            FakeResult(itens=[]),  # resolver API_LATENCIA_ERRO_ALTA
+        ],
+        objetos_get=[_estado_rpi_ok()],
+    )
+    await verificar_saude_plataforma(session)
+    codigos_alertados = [obj.codigo for obj in session.adicionados if isinstance(obj, AlertaSistema)]
+    assert "BACKUP_AUSENTE" not in codigos_alertados
+
+
+async def test_verificar_saude_plataforma_producao_backup_antigo_alerta(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import os
+    import time
+
+    antigo = tmp_path / "inpi-20260101-000000.dump"
+    antigo.write_bytes(b"conteudo")
+    os.utime(antigo, (time.time() - 30 * 3600, time.time() - 30 * 3600))  # 30h atrás
+    monkeypatch.setattr("app.alertas_plataforma.status_fila", _fila_ok(falhas=0))
+    monkeypatch.setattr("app.alertas_plataforma.get_settings", lambda: _settings_producao(tmp_path))
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # resolver FILA_INDISPONIVEL
+            FakeResult(itens=[]),  # resolver FILA_FALHAS_ALTA
+            FakeResult(scalar=_ultima_rpi_ok()),  # select RpiImportacao
+            FakeResult(itens=[]),  # resolver RPI_DESATUALIZADA
+            FakeResult(scalar=None),  # registrar BACKUP_AUSENTE (dedup check) -- dump velho
+            FakeResult(itens=[(0, 0, 0.0)]),  # métricas API
+            FakeResult(itens=[]),  # resolver API_LATENCIA_ERRO_ALTA
+        ],
+        objetos_get=[_estado_rpi_ok()],
+    )
+    await verificar_saude_plataforma(session)
+    alertas = {obj.codigo: obj for obj in session.adicionados if isinstance(obj, AlertaSistema)}
+    assert "BACKUP_AUSENTE" in alertas
+
+
+async def test_verificar_saude_plataforma_dev_nao_checa_backup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Fora de produção, backups/ não é montado -- não deve nem tentar checar
+    (evita alerta falso/erro em dev e nos próprios testes)."""
+    monkeypatch.setattr("app.alertas_plataforma.status_fila", _fila_ok(falhas=0))
+    monkeypatch.setattr(
+        "app.alertas_plataforma.get_settings", lambda: _settings_producao(tmp_path, app_env="development")
+    )
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # resolver FILA_INDISPONIVEL
+            FakeResult(itens=[]),  # resolver FILA_FALHAS_ALTA
+            FakeResult(scalar=_ultima_rpi_ok()),  # select RpiImportacao
+            FakeResult(itens=[]),  # resolver RPI_DESATUALIZADA
+            FakeResult(itens=[(0, 0, 0.0)]),  # métricas API (sem checagem de backup no meio)
+            FakeResult(itens=[]),  # resolver API_LATENCIA_ERRO_ALTA
+        ],
+        objetos_get=[_estado_rpi_ok()],
+    )
+    await verificar_saude_plataforma(session)
+    codigos_alertados = [obj.codigo for obj in session.adicionados if isinstance(obj, AlertaSistema)]
+    assert "BACKUP_AUSENTE" not in codigos_alertados
+
+
 async def test_verificar_saude_plataforma_api_com_amostra_grande_e_erro_alto_alerta(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -52,6 +52,20 @@ class Settings(BaseSettings):
     alerta_fila_falhas_limite: int = 5
     alerta_api_taxa_erro_limite: float = 0.05
     alerta_api_latencia_media_ms_limite: float = 2000.0
+    # Achado FASE6-9d: diretório montado (somente leitura) com os dumps de
+    # docker/backup-banco.sh -- 26h de folga sobre o cron diário (item
+    # FASE6-11) cobre um atraso ocasional sem gerar alerta a cada execução.
+    backups_dir: str = "/app/backups"
+    alerta_backup_max_horas: float = 26.0
+    # Achado FASE6-13 da auditoria (04/09/2026): varredura de malware nos
+    # uploads do portal do cliente (app/api/portal_cliente.py). Desligado
+    # por padrão -- só liga quando o serviço clamav estiver disponível
+    # (compose.yaml); quando ligado e o scan falhar/der erro, o upload é
+    # recusado (falha fechada -- nunca aceita um arquivo sem confirmação).
+    clamav_enabled: bool = False
+    clamav_host: str = "clamav"
+    clamav_port: int = 3310
+    clamav_timeout_seconds: float = 15.0
     default_organization_slug: str = "ze-registra"
     default_organization_id: int = 1
     cors_allowed_origins: str = "*"

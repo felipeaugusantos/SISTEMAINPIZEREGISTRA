@@ -1,15 +1,16 @@
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import UsuarioAutenticado, exigir_permissao
+from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import engine, get_session
-from app.models import EventoOperacional, Organizacao, RpiImportacao, RpiSyncEstado, RpiSyncExecucao
-from app.queueing import status_fila
+from app.models import EventoAuditoria, EventoOperacional, Organizacao, RpiImportacao, RpiSyncEstado, RpiSyncExecucao
+from app.proxy import cliente_ip
+from app.queueing import descartar_falha, listar_falhas, reprocessar_falha, status_fila
 from app.rpi.health import avaliar_saude_rpi
 from app.security_ext import proteger_segredo
 from app.settings import get_settings
@@ -84,6 +85,64 @@ def _exigir_acesso_tech(usuario: UsuarioAutenticado) -> UsuarioAutenticado:
     if not (usuario.superadmin or usuario.perfil in {"administrador", "tech"}):
         raise HTTPException(status_code=403, detail="Acesso restrito ao departamento de Tech")
     return usuario
+
+
+def _auditar_fila(session: AsyncSession, request: Request, usuario: UsuarioAutenticado, acao: str, job_id: str) -> None:
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
+            ator=usuario.ator,
+            acao=acao[:20],
+            recurso=f"fila_falha:{job_id}"[:180],
+            sucesso=True,
+            status_http=200,
+            ip_hash=hash_ip(cliente_ip(request)),
+            detalhes={},
+        )
+    )
+
+
+# --- Achado FASE6-4 da auditoria (04/09/2026): a dead-letter queue (jobs
+# que esgotaram as tentativas, FAILED_KEY em app/queueing.py) só era
+# exposta como uma contagem (status_fila) -- ninguém conseguia ver o que
+# tinha falhado nem reprocessar/descartar sem acessar redis-cli
+# diretamente na VPS. ---
+
+
+@router.get("/fila/falhas")
+async def listar_fila_falhas(
+    usuario: TechDep, limite: Annotated[int, Query(ge=1, le=200)] = 50, deslocamento: Annotated[int, Query(ge=0)] = 0
+) -> dict:
+    _exigir_acesso_tech(usuario)
+    itens = await listar_falhas(limite=limite, deslocamento=deslocamento)
+    for item in itens:
+        item.pop("_bruto", None)
+    return {"itens": itens, "limite": limite, "deslocamento": deslocamento}
+
+
+@router.post("/fila/falhas/{job_id}/reprocessar")
+async def reprocessar_fila_falha(
+    job_id: str, request: Request, session: SessionDep, usuario: TechDep
+) -> dict:
+    _exigir_acesso_tech(usuario)
+    encontrado = await reprocessar_falha(job_id)
+    if not encontrado:
+        raise HTTPException(404, "Job não encontrado na fila de falhas (já reprocessado ou removido).")
+    _auditar_fila(session, request, usuario, "reprocessar_falha", job_id)
+    await session.commit()
+    return {"reprocessado": True}
+
+
+@router.delete("/fila/falhas/{job_id}")
+async def descartar_fila_falha(job_id: str, request: Request, session: SessionDep, usuario: TechDep) -> dict:
+    _exigir_acesso_tech(usuario)
+    encontrado = await descartar_falha(job_id)
+    if not encontrado:
+        raise HTTPException(404, "Job não encontrado na fila de falhas (já reprocessado ou removido).")
+    _auditar_fila(session, request, usuario, "descartar_falha", job_id)
+    await session.commit()
+    return {"descartado": True}
 
 
 @router.get("/observabilidade")

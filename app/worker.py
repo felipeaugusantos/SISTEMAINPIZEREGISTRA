@@ -91,25 +91,36 @@ async def processar(tipo: str, payload: dict) -> None:
             agora = datetime.now(UTC)
             for org in orgs:
                 limite = agora - timedelta(days=org.retencao_dados_dias)
-                total = len(
-                    list(
-                        (
-                            await session.execute(
-                                select(Lead.id).where(Lead.organizacao_id == org.id, Lead.criado_em < limite)
-                            )
-                        ).scalars()
-                    )
-                )
-                if total:
-                    existente = (
+                # Achado FASE6-14 da auditoria (04/09/2026): faltava excluir
+                # os já anonimizados -- sem isso "total" nunca chegava a
+                # zero, então o alerta nunca se resolvia sozinho mesmo depois
+                # de um humano descartar todos os leads vencidos (ver
+                # app/api/privacidade.py::descartar_lead_por_retencao).
+                lead_ids = list(
+                    (
                         await session.execute(
-                            select(AlertaSistema.id).where(
-                                AlertaSistema.organizacao_id == org.id,
-                                AlertaSistema.codigo == "RETENCAO_PENDENTE",
-                                AlertaSistema.resolvido_em.is_(None),
+                            select(Lead.id)
+                            .where(
+                                Lead.organizacao_id == org.id,
+                                Lead.criado_em < limite,
+                                Lead.anonimizado_em.is_(None),
                             )
+                            .order_by(Lead.criado_em.asc())
+                            .limit(200)
                         )
-                    ).scalar_one_or_none()
+                    ).scalars()
+                )
+                total = len(lead_ids)
+                existente = (
+                    await session.execute(
+                        select(AlertaSistema).where(
+                            AlertaSistema.organizacao_id == org.id,
+                            AlertaSistema.codigo == "RETENCAO_PENDENTE",
+                            AlertaSistema.resolvido_em.is_(None),
+                        )
+                    )
+                ).scalar_one_or_none()
+                if total:
                     if not existente:
                         session.add(
                             AlertaSistema(
@@ -117,9 +128,13 @@ async def processar(tipo: str, payload: dict) -> None:
                                 severidade="aviso",
                                 codigo="RETENCAO_PENDENTE",
                                 mensagem=(f"{total} lead(s) excedem a política de retenção e aguardam revisão humana."),
-                                detalhes={"total": total},
+                                detalhes={"total": total, "lead_ids": lead_ids},
                             )
                         )
+                    else:
+                        existente.detalhes = {"total": total, "lead_ids": lead_ids}
+                elif existente:
+                    existente.resolvido_em = agora
         elif tipo == "crm.reengajamento_inatividade":
             # Achado da auditoria do CRM: a política de "próxima ação obrigatória"
             # (app/crm.py::aplicar_politica_oportunidade) só é aplicada quando

@@ -1,13 +1,20 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
-from app.auth import hash_token
+from app.auth import hash_token, obter_usuario_atual
 from app.crm import registrar_consentimento_operador, registrar_consentimento_titular
 from app.database import get_session
 from app.main import app
-from app.models import Lead, SolicitacaoAnonimizacaoLead
-from tests.conftest import FakeResult, sessao_override
+from app.models import ArquivoClientePortal, Lead, Organizacao, SolicitacaoAnonimizacaoLead
+from tests.conftest import FakeResult, FakeSession, auth_override, sessao_override, usuario_teste
+
+
+@pytest.fixture(autouse=True)
+def _limpar_overrides():
+    yield
+    app.dependency_overrides.clear()
 
 # --- Achado L13/L14 do plano Leads/CRM (03/09/2026): aceite_privacidade era um
 # bool unico sem data, versao do termo ou base legal, e nao havia autoatendimento
@@ -107,3 +114,83 @@ def test_confirmar_exclusao_anonimiza_todos_os_leads_do_email() -> None:
         assert lead.anonimizado_em is not None
     assert solicitacao.usado_em is not None
     assert solicitacao.leads_anonimizados == 2
+
+
+# --- Achado FASE6-14 da auditoria (04/09/2026): descarte seguro por
+# retenção -- antes o alerta de retenção só avisava, sem nenhum jeito de um
+# humano confirmar o descarte (nem apagar o arquivo físico, não só a linha
+# do banco). ---
+
+
+def _sessao_admin(*resultados: FakeResult, objetos_get: list = None) -> FakeSession:
+    session = FakeSession(list(resultados), objetos_get=objetos_get)
+
+    async def _gen():
+        yield session
+
+    usuario = usuario_teste(perfil="administrador")
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = _gen
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    return session
+
+
+def test_descartar_lead_inexistente_retorna_404() -> None:
+    _sessao_admin(FakeResult(scalar=None))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/privacidade/leads/9/descartar", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 404
+
+
+def test_descartar_lead_ja_anonimizado_retorna_422() -> None:
+    lead = _lead(anonimizado_em=datetime.now(UTC))
+    _sessao_admin(FakeResult(scalar=lead))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/privacidade/leads/9/descartar", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 422
+
+
+def test_descartar_lead_dentro_do_prazo_de_retencao_retorna_422() -> None:
+    lead = _lead(criado_em=datetime.now(UTC) - timedelta(days=5), anonimizado_em=None)
+    org = Organizacao(id=1, retencao_dados_dias=365)
+    session = _sessao_admin(FakeResult(scalar=lead), objetos_get=[org])
+
+    resposta = TestClient(app).post(
+        "/v1/admin/privacidade/leads/9/descartar", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 422
+    assert session.adicionados == []
+
+
+def test_descartar_lead_vencido_anonimiza_e_apaga_arquivos(monkeypatch: pytest.MonkeyPatch) -> None:
+    caminhos_apagados = []
+    monkeypatch.setattr("app.api.privacidade.delete_object", lambda caminho: caminhos_apagados.append(caminho))
+
+    lead = _lead(criado_em=datetime.now(UTC) - timedelta(days=400), anonimizado_em=None)
+    org = Organizacao(id=1, retencao_dados_dias=365)
+    arquivo = ArquivoClientePortal(
+        id=1, organizacao_id=1, lead_id=9, cliente_id=1, nome="comprovante.pdf",
+        caminho="data/uploads/comprovante.pdf", content_type="application/pdf", tamanho=100,
+    )
+    session = _sessao_admin(
+        FakeResult(scalar=lead), FakeResult(itens=[arquivo]), objetos_get=[org]
+    )
+
+    resposta = TestClient(app).post(
+        "/v1/admin/privacidade/leads/9/descartar", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo == {"anonimizado": True, "arquivos_removidos": 1}
+    assert caminhos_apagados == ["data/uploads/comprovante.pdf"]
+    assert session.deletados == [arquivo]
+    assert lead.anonimizado_em is not None
+    assert session.commits == 1

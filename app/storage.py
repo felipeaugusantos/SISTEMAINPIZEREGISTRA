@@ -64,3 +64,29 @@ def read_bytes(location: str) -> bytes:
         aws_secret_access_key=os.getenv("STORAGE_S3_SECRET_KEY") or None,
     )
     return client.get_object(Bucket=bucket, Key=key)["Body"].read()
+
+
+def delete_object(location: str) -> None:
+    """Achado FASE6-14 da auditoria (04/09/2026): descarte de documento por
+    retenção precisa remover o arquivo físico, não só a linha do banco --
+    até aqui não existia nenhuma função de exclusão nesta camada. Silencioso
+    se o arquivo já não existir (idempotente -- pode ser chamado de novo sem
+    quebrar)."""
+    if not location.startswith("s3://"):
+        Path(location).unlink(missing_ok=True)
+        return
+    try:
+        import boto3
+    except ImportError as exc:
+        raise StorageError("Instale boto3 para usar STORAGE_BACKEND=s3") from exc
+    bucket, _, key = location[5:].partition("/")
+    if not bucket or not key:
+        raise StorageError("Localizacao S3 invalida")
+    client = boto3.client(
+        "s3",
+        endpoint_url=os.getenv("STORAGE_S3_ENDPOINT") or None,
+        region_name=os.getenv("STORAGE_S3_REGION", "us-east-1"),
+        aws_access_key_id=os.getenv("STORAGE_S3_ACCESS_KEY") or None,
+        aws_secret_access_key=os.getenv("STORAGE_S3_SECRET_KEY") or None,
+    )
+    client.delete_object(Bucket=bucket, Key=key)

@@ -7,21 +7,24 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import hash_token
+from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip, hash_token
 from app.database import get_session
 from app.emailing import enviar_confirmacao_exclusao
-from app.models import Lead, SolicitacaoAnonimizacaoLead
+from app.models import ArquivoClientePortal, EventoAuditoria, Lead, Organizacao, SolicitacaoAnonimizacaoLead
+from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
 from app.settings import get_settings
+from app.storage import delete_object
 from app.tenancy import OrganizacaoPublicaDep
 
 router = APIRouter(tags=["privacidade"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+LeadsDeleteDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.delete"))]
 limitar_privacidade = RateLimiter(limite=5, janela_segundos=300, escopo="privacidade")
 
 RESPOSTA_GENERICA = {"status": "ok", "mensagem": "Se o e-mail existir na nossa base, você vai receber instruções."}
@@ -130,3 +133,65 @@ async def confirmar_exclusao(
     solicitacao.leads_anonimizados = len(leads)
     await session.commit()
     return {"status": "ok", "mensagem": "Seus dados foram removidos.", "registros_afetados": len(leads)}
+
+
+# --- Achado FASE6-14 da auditoria (04/09/2026): retenção -- app/worker.py
+# (tarefa "privacidade.verificar_retencao") já detecta leads que excedem
+# Organizacao.retencao_dados_dias e cria um AlertaSistema("RETENCAO_PENDENTE")
+# para revisão humana, mas não existia nenhum jeito de um humano CONFIRMAR o
+# descarte -- nem via API. "Descarte seguro" aqui significa dois passos:
+# anonimizar o Lead (mesmo _anonimizar_lead do autoatendimento) e apagar de
+# verdade os arquivos físicos do portal do cliente vinculados a ele (não só
+# a linha do banco) via app.storage.delete_object. Nunca automático: sempre
+# um humano confirmando um lead por vez, e só depois do prazo de retenção já
+# ter vencido de verdade (verificado no servidor, não confiado do cliente).
+# ---
+
+
+@router.post("/v1/admin/privacidade/leads/{lead_id}/descartar")
+async def descartar_lead_por_retencao(
+    lead_id: int, request: Request, session: SessionDep, usuario: LeadsDeleteDep
+) -> dict:
+    lead = (
+        await session.execute(
+            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(404, "Lead não encontrado")
+    if lead.anonimizado_em is not None:
+        raise HTTPException(422, "Lead já foi anonimizado.")
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    limite = datetime.now(UTC) - timedelta(days=org.retencao_dados_dias)
+    if lead.criado_em >= limite:
+        raise HTTPException(
+            422,
+            "Lead ainda está dentro do prazo de retenção configurado -- descarte manual só é "
+            "permitido depois que o prazo vence.",
+        )
+
+    arquivos = (
+        (await session.execute(select(ArquivoClientePortal).where(ArquivoClientePortal.lead_id == lead_id)))
+        .scalars()
+        .all()
+    )
+    for arquivo in arquivos:
+        delete_object(arquivo.caminho)
+        await session.delete(arquivo)
+
+    _anonimizar_lead(lead)
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
+            ator=usuario.ator,
+            acao="descartar_lead",
+            recurso=f"lead:{lead_id}",
+            sucesso=True,
+            status_http=200,
+            ip_hash=hash_ip(cliente_ip(request)),
+            detalhes={"arquivos_removidos": len(arquivos)},
+        )
+    )
+    await session.commit()
+    return {"anonimizado": True, "arquivos_removidos": len(arquivos)}

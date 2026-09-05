@@ -417,47 +417,71 @@ async function openLead(id, selectedResearchId = null) {
     `<option value="${escapeHtml(item.id)}">${escapeHtml(item.marca)} · ${formatDate(item.criado_em, false)}</option>`
   ).join("");
   document.querySelector("#lead-dialog-title").textContent = lead.nome;
+  const ABAS_LEAD = [
+    ["atendimento", "Atendimento Comercial"],
+    ["empresa", "Empresa"],
+    ["funil", "Funil do Lead"],
+    ["timeline", "Linha do tempo"],
+    ["documentos", "Documentos do atendimento"],
+    ["guias", "Guias do INPI"],
+    ["propostas", "Proposta de registro"],
+  ];
   dialogContent.innerHTML = `
     <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div></section>
-    ${lead.empresa_id ? `<section class="lead-empresa lg-full" id="lead-empresa" data-empresa-id="${lead.empresa_id}" data-contato-id="${lead.contato_id || ""}"><p class="lead-funil-loading">Carregando empresa…</p></section>` : ""}
-    <div class="lead-dialog-grid">
-    <section class="lead-funil lg-full" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
-    <section class="lead-relacionados lg-full" id="lead-relacionados" hidden></section>
-    <section class="lead-cadencia lg-full" id="lead-cadencia" hidden></section>
-    <section class="lead-history lg-full"><header><div><p class="eyebrow">${selectedResearchId ? "Pesquisa selecionada" : "Histórico"}</p><h3>${pesquisasExibidas.length} pesquisa${pesquisasExibidas.length === 1 ? "" : "s"}</h3></div></header>${pesquisasExibidas.length ? pesquisasExibidas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
-    <details class="lead-collapsible lg-full"><summary>Documentos do atendimento</summary><section class="lead-documentos lg-full" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section></details>
-    <details class="lead-collapsible lg-full"><summary>Guias do INPI (GRU)</summary><section class="lead-guias" id="lead-guias"><p class="lead-funil-loading">Carregando guias do INPI…</p></section></details>
-    <details class="lead-collapsible lg-full"><summary>Propostas de registro</summary><section class="lead-propostas" id="lead-propostas"><p class="lead-funil-loading">Carregando propostas…</p></section></details>
-    <details class="lead-collapsible"><summary>Checklist da etapa</summary><section class="lead-checklist" id="lead-checklist"><p class="lead-funil-loading">Carregando checklist…</p></section></details>
-    ${state.canManage ? `<form id="lead-crm-form" data-lead-id="${lead.id}" class="lead-crm-form">
-      <label><span>Status</span><select name="status">${statusOptions(lead.status)}</select></label>
-      <div class="lead-motivo-perda" id="lead-motivo-perda"${lead.status === "descartado" ? "" : " hidden"}>
-        <label><span>Motivo da perda</span><select name="motivo_perda">${motivoPerdaOptions(lead.motivo_perda)}</select></label>
-        <label><span>Detalhe (opcional)</span><input name="motivo_perda_detalhe" maxlength="500" value="${escapeHtml(lead.motivo_perda_detalhe || "")}" placeholder="Ex.: fechou com concorrente X" /></label>
-      </div>
-      <label><span>Responsável</span><select name="responsavel_id">${ownerOptions(lead.responsavel_id)}</select></label>
-      <label><span>Próxima ação</span><input name="proxima_acao_em" type="datetime-local" value="${lead.proxima_acao_em ? new Date(lead.proxima_acao_em).toISOString().slice(0, 16) : ""}" /></label>
-      <label><span>Tags, separadas por vírgula</span><input name="tags" maxlength="400" value="${escapeHtml((lead.tags || []).join(", "))}" /></label>
-      ${state.canPii ? `<label><span>CPF/CNPJ</span><input name="documento" inputmode="numeric" maxlength="18" value="${escapeHtml(lead.documento || "")}" placeholder="Somente para cadastro interno" /></label>` : ""}
-      <label class="lead-notes"><span>Anotações internas</span><textarea name="notas" maxlength="4000" rows="5">${escapeHtml(lead.notas || "")}</textarea></label>
-      <div><button class="primary-button" type="submit">Salvar atendimento</button><a class="secondary-button" href="/admin/crm?lead_id=${lead.id}">Criar lembrete</a><span id="lead-save-message" role="status"></span></div>
-    </form>` : `<section class="lead-readonly-note">Você possui acesso somente para consulta.</section>`}
-    </div><aside class="lead-dialog-aside">
-    <details class="lead-collapsible"><summary>Linha do tempo</summary><section class="lead-timeline" id="lead-timeline"><p class="lead-funil-loading">Carregando linha do tempo…</p></section></details>
-    <section class="lead-contact-log">
-      <header><div><p class="eyebrow">CRM</p><h3>Contatos realizados</h3></div><span id="lead-contact-count">0 registros</span></header>
-      <label class="lead-contact-filter"><span>Filtrar pela pesquisa</span><select id="lead-contact-filter"><option value="">Todas as pesquisas desta empresa</option>${researchOptions}</select></label>
-      ${state.canManage && lead.pesquisas.length ? `<form id="lead-contact-form" data-lead-id="${lead.id}" class="lead-contact-form">
-        <label><span>Pesquisa relacionada</span><select name="pesquisa_id" required><option value="">Selecione a pesquisa</option>${researchOptions}</select></label>
-        <label><span>Canal</span><select name="canal"><option value="telefone">Telefone</option><option value="whatsapp">WhatsApp</option><option value="email">E-mail</option><option value="reuniao">Reunião</option><option value="outro">Outro</option></select></label>
-        <label><span>Resultado</span><input name="resultado" maxlength="150" placeholder="Ex.: proposta enviada" /></label>
-        <label class="lead-contact-observation-field"><span>Observações do contato</span><textarea name="observacao" maxlength="2000" rows="3" placeholder="Registre o que foi conversado e a próxima orientação."></textarea></label>
-        <div><button class="primary-button" type="submit">Registrar contato</button><span id="contact-save-message" role="status"></span></div>
-      </form>` : ""}
-      <ol id="lead-contact-history" class="lead-contact-history"><li class="lead-contact-empty">Carregando contatos...</li></ol>
-    </section>
-    </aside>`;
-  dialogContent.querySelector(".lead-dialog-aside > .lead-contact-log")?.remove();
+    <nav class="lead-tabs" role="tablist">${ABAS_LEAD.map(([id, label], i) => `<button type="button" class="lead-tab${i === 0 ? " active" : ""}" role="tab" aria-selected="${i === 0}" data-tab="${id}">${label}</button>`).join("")}</nav>
+    <div class="lead-tab-panel" data-panel="atendimento">
+      <section class="lead-history lg-full"><header><div><p class="eyebrow">${selectedResearchId ? "Pesquisa selecionada" : "Histórico"}</p><h3>${pesquisasExibidas.length} pesquisa${pesquisasExibidas.length === 1 ? "" : "s"}</h3></div></header>${pesquisasExibidas.length ? pesquisasExibidas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
+      <section class="lead-relacionados lg-full" id="lead-relacionados" hidden></section>
+      <section class="lead-cadencia lg-full" id="lead-cadencia" hidden></section>
+      ${state.canManage ? `<form id="lead-crm-form" data-lead-id="${lead.id}" class="lead-crm-form">
+        <label><span>Status</span><select name="status">${statusOptions(lead.status)}</select></label>
+        <div class="lead-motivo-perda" id="lead-motivo-perda"${lead.status === "descartado" ? "" : " hidden"}>
+          <label><span>Motivo da perda</span><select name="motivo_perda">${motivoPerdaOptions(lead.motivo_perda)}</select></label>
+          <label><span>Detalhe (opcional)</span><input name="motivo_perda_detalhe" maxlength="500" value="${escapeHtml(lead.motivo_perda_detalhe || "")}" placeholder="Ex.: fechou com concorrente X" /></label>
+        </div>
+        <label><span>Responsável</span><select name="responsavel_id">${ownerOptions(lead.responsavel_id)}</select></label>
+        <label><span>Próxima ação</span><input name="proxima_acao_em" type="datetime-local" value="${lead.proxima_acao_em ? new Date(lead.proxima_acao_em).toISOString().slice(0, 16) : ""}" /></label>
+        <label><span>Tags, separadas por vírgula</span><input name="tags" maxlength="400" value="${escapeHtml((lead.tags || []).join(", "))}" /></label>
+        ${state.canPii ? `<label><span>CPF/CNPJ</span><input name="documento" inputmode="numeric" maxlength="18" value="${escapeHtml(lead.documento || "")}" placeholder="Somente para cadastro interno" /></label>` : ""}
+        <label class="lead-notes"><span>Anotações internas</span><textarea name="notas" maxlength="4000" rows="5">${escapeHtml(lead.notas || "")}</textarea></label>
+        <div><button class="primary-button" type="submit">Salvar atendimento</button><a class="secondary-button" href="/admin/crm?lead_id=${lead.id}">Criar lembrete</a><span id="lead-save-message" role="status"></span></div>
+      </form>` : `<section class="lead-readonly-note">Você possui acesso somente para consulta.</section>`}
+      <section class="lead-contact-log">
+        <header><div><p class="eyebrow">CRM</p><h3>Contatos realizados</h3></div><span id="lead-contact-count">0 registros</span></header>
+        <label class="lead-contact-filter"><span>Filtrar pela pesquisa</span><select id="lead-contact-filter"><option value="">Todas as pesquisas desta empresa</option>${researchOptions}</select></label>
+        ${state.canManage && lead.pesquisas.length ? `<form id="lead-contact-form" data-lead-id="${lead.id}" class="lead-contact-form">
+          <label><span>Pesquisa relacionada</span><select name="pesquisa_id" required><option value="">Selecione a pesquisa</option>${researchOptions}</select></label>
+          <label><span>Canal</span><select name="canal"><option value="telefone">Telefone</option><option value="whatsapp">WhatsApp</option><option value="email">E-mail</option><option value="reuniao">Reunião</option><option value="outro">Outro</option></select></label>
+          <label><span>Resultado</span><input name="resultado" maxlength="150" placeholder="Ex.: proposta enviada" /></label>
+          <label class="lead-contact-observation-field"><span>Observações do contato</span><textarea name="observacao" maxlength="2000" rows="3" placeholder="Registre o que foi conversado e a próxima orientação."></textarea></label>
+          <div><button class="primary-button" type="submit">Registrar contato</button><span id="contact-save-message" role="status"></span></div>
+        </form>` : ""}
+        <ol id="lead-contact-history" class="lead-contact-history"><li class="lead-contact-empty">Carregando contatos...</li></ol>
+      </section>
+    </div>
+    <div class="lead-tab-panel" data-panel="empresa" hidden>
+      ${lead.empresa_id ? `<section class="lead-empresa lg-full" id="lead-empresa" data-empresa-id="${lead.empresa_id}" data-contato-id="${lead.contato_id || ""}"><p class="lead-funil-loading">Carregando empresa…</p></section>` : `<p class="lead-empresa-vazia">Este lead ainda não está vinculado a uma empresa.</p>`}
+    </div>
+    <div class="lead-tab-panel" data-panel="funil" hidden>
+      <section class="lead-funil lg-full" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
+      <section class="lead-checklist" id="lead-checklist"><p class="lead-funil-loading">Carregando checklist…</p></section>
+    </div>
+    <div class="lead-tab-panel" data-panel="timeline" hidden>
+      <section class="lead-timeline" id="lead-timeline"><p class="lead-funil-loading">Carregando linha do tempo…</p></section>
+    </div>
+    <div class="lead-tab-panel" data-panel="documentos" hidden>
+      <section class="lead-documentos lg-full" id="lead-documentos"><p class="lead-funil-loading">Carregando documentos…</p></section>
+    </div>
+    <div class="lead-tab-panel" data-panel="guias" hidden>
+      <section class="lead-guias" id="lead-guias"><p class="lead-funil-loading">Carregando guias do INPI…</p></section>
+    </div>
+    <div class="lead-tab-panel" data-panel="propostas" hidden>
+      <section class="lead-propostas" id="lead-propostas"><p class="lead-funil-loading">Carregando propostas…</p></section>
+    </div>`;
+  dialogContent.querySelectorAll(".lead-tab").forEach(botao => botao.addEventListener("click", () => {
+    dialogContent.querySelectorAll(".lead-tab").forEach(b => { const ativa = b === botao; b.classList.toggle("active", ativa); b.setAttribute("aria-selected", String(ativa)); });
+    dialogContent.querySelectorAll(".lead-tab-panel").forEach(p => { p.hidden = p.dataset.panel !== botao.dataset.tab; });
+  }));
   if (state.canManage) {
     const portalCard = document.createElement("section");
     portalCard.className = "lead-portal-access";
@@ -490,9 +514,6 @@ async function openLead(id, selectedResearchId = null) {
     }).catch(error => { const mensagem = error.status === 403 ? "Sem permissão ou este lead não está sob sua responsabilidade." : error.status === 401 ? "Sua sessão expirou. Atualize a página e entre novamente." : (error.message || "Não foi possível verificar o acesso."); portalCard.innerHTML = `<strong>Portal do cliente</strong><p>${mensagem}</p>`; });
     renderPortalMessages(lead);
   }
-  const crmFormCard = dialogContent.querySelector("#lead-crm-form");
-  const contactSummaryCard = dialogContent.querySelector(".lead-contact-summary");
-  if (crmFormCard && contactSummaryCard) contactSummaryCard.after(crmFormCard);
   await renderEmpresa(lead);
   await renderCadenciaLead(lead);
   await loadLeadContacts(lead.id);

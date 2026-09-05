@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>Comissões — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=48"><link rel="stylesheet" href="/static/admin-financeiro.css?v=8">
+  <link rel="stylesheet" href="/static/styles.css?v=48"><link rel="stylesheet" href="/static/admin-financeiro.css?v=9">
   <script src="/static/admin-shell.js?v=40" defer></script><script src="/static/admin-financeiro-comissoes.js?v=1" defer></script>
 </head>
 <body class="admin-body" data-admin-section="finance">
@@ -21,7 +21,7 @@
         <label><span>Status</span><select name="status"><option value="">Todos</option><option value="pendente">Pendente</option><option value="paga">Paga</option><option value="cancelada">Cancelada</option></select></label>
         <button class="primary-button" type="submit">Filtrar</button>
       </form>
-      <div style="overflow-x:auto"><table class="finance-table">
+      <div class="finance-table-scroll"><table class="finance-table">
         <thead><tr><th>Operador</th><th class="num">Base</th><th class="num">%</th><th class="num">Comissão</th><th>Status</th><th></th></tr></thead>
         <tbody id="comissao-tbody"><tr><td colspan="6">Carregando…</td></tr></tbody>
       </table></div>

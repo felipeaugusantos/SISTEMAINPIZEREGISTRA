@@ -205,3 +205,10 @@
 .finance-badge.pendente{color:#8a6d1f;background:#fbf0d6}
 .finance-badge.paga,.finance-badge.emitida,.finance-badge.conciliada{color:#086c4e;background:#dff3e9}
 .finance-badge.cancelada,.finance-badge.ignorada,.finance-badge.erro{color:#777;background:#ececec}
+.finance-table-scroll{overflow-x:auto}
+.finance-table-scroll.spaced{margin-top:14px}
+.dre-line.header-row{background:#f1f6f2;font-weight:800}
+.mt-10{margin-top:10px}
+.mt-12{margin-top:12px}
+.mt-14{margin-top:14px}
+.processo-detalhe{color:var(--muted);font-size:.82rem}

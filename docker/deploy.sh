@@ -83,13 +83,25 @@ done
 # restaurar com docker/restaurar-banco.sh. `docker compose wait` propaga o
 # codigo de saida do container de migration -- com `set -eu` isso ja faz o
 # script inteiro falhar se a migration falhar (Fase 0, item 10).
+#
+# Achado 05/09/2026: o backup rodava incondicionalmente aqui mesmo quando
+# nao havia NENHUMA migration pendente (ex.: deploy so de frontend) --
+# com o banco em ~30GB isso gerava um dump de ~5.5GB por deploy, varias
+# vezes ao dia. Agora so faz backup quando a revisao atual do banco
+# diverge do topo das migrations da imagem que acabou de ser buildada.
 case " $SERVICOS " in
     *" migrate "*)
-        echo "==> backup antes da migration"
-        ./docker/backup-banco.sh
-        echo "==> aplicando migrations"
-        $COMPOSE up -d migrate
-        $COMPOSE wait migrate
+        ATUAL="$($COMPOSE run --rm --entrypoint /app/.venv/bin/alembic migrate current 2>/dev/null | awk 'NF{print $1; exit}')"
+        TOPO="$($COMPOSE run --rm --entrypoint /app/.venv/bin/alembic migrate heads 2>/dev/null | awk 'NF{print $1; exit}')"
+        if [ -n "$ATUAL" ] && [ "$ATUAL" = "$TOPO" ]; then
+            echo "==> nenhuma migration pendente (banco ja em $ATUAL) -- pulando backup"
+        else
+            echo "==> backup antes da migration"
+            ./docker/backup-banco.sh
+            echo "==> aplicando migrations"
+            $COMPOSE up -d migrate
+            $COMPOSE wait migrate
+        fi
         ;;
 esac
 

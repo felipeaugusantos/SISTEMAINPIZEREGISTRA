@@ -1831,8 +1831,8 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
 .admin-body .admin-heading h1 {
   max-width: none;
   margin-bottom: 9px;
-  font-size: clamp(2.5rem, 4.5vw, 4rem);
-  line-height: 0.98;
+  font-size: clamp(1.9rem, 3vw, 2.9rem);
+  line-height: 1.05;
 }
 
 .admin-body .admin-heading > div > p:last-child {
@@ -1883,8 +1883,8 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
 
 .admin-overview-hero h1 {
   margin: 0 0 12px;
-  font-size: clamp(3rem, 5vw, 4.7rem);
-  line-height: 0.94;
+  font-size: clamp(2.1rem, 3.2vw, 3.2rem);
+  line-height: 1.05;
 }
 
 .admin-overview-hero p:last-child {

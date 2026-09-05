@@ -864,11 +864,16 @@
   .lead-crm-form > div { align-items: stretch; flex-direction: column; }
 }
 
-/* Detalhe do lead: largura integral e componentes responsivos. */
-.lead-dialog-content {
-  grid-template-columns: minmax(0, 1fr);
-}
-
+/* Detalhe do lead: colunas internas empilhadas dentro de cada lado do
+   grid de 2 colunas (definido em .lead-dialog-content, acima). Achado
+   04/09/2026: a regra ".lead-dialog-content { grid-template-columns:
+   minmax(0, 1fr) }" ficou aqui sem media query, sobrescrevendo sempre a
+   definicao de 2 colunas e forcando rolagem unica gigante mesmo em telas
+   largas -- removida (o colapso para 1 coluna em telas estreitas ja existe
+   corretamente em @media (max-width: 940px) mais abaixo). Tambem
+   ".lead-dialog-aside" estava incluido no seletor de "grid-column: 1/-1"
+   por engano, fazendo a coluna da direita (linha do tempo + contatos)
+   ocupar as duas colunas em vez de ficar ao lado da coluna principal. */
 .lead-dialog-grid {
   display: grid;
   min-width: 0;
@@ -876,8 +881,7 @@
   gap: 22px;
 }
 
-.lead-dialog-grid > *,
-.lead-dialog-aside {
+.lead-dialog-grid > * {
   grid-column: 1 / -1;
   grid-row: auto;
 }

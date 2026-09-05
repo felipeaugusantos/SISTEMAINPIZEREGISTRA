@@ -169,7 +169,7 @@ function renderCacheRfbStatus(execucoes) {
     ultima.periodo ? `Período: ${escapeHtml(ultima.periodo)}` : null,
     ultima.etapa_atual ? `Etapa: ${escapeHtml(ultima.etapa_atual)}` : null,
     ultima.total_processados ? `${ultima.total_processados.toLocaleString("pt-BR")} processados, ${ultima.total_validos.toLocaleString("pt-BR")} válidos` : null,
-    ultima.erro ? `<span class="status-message error" style="display:inline-block">${escapeHtml(ultima.erro)}</span>` : null,
+    ultima.erro ? `<span class="status-message error inline">${escapeHtml(ultima.erro)}</span>` : null,
     `Solicitado por ${escapeHtml(ultima.solicitado_por || "—")} em ${formatDateTime(ultima.solicitado_em)}${ultima.concluido_em ? ` · concluído em ${formatDateTime(ultima.concluido_em)}` : ""}`,
   ].filter(Boolean);
   alvo.innerHTML = linhas.join("<br>");

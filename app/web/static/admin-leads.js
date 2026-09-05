@@ -1373,5 +1373,7 @@ async function visualizarProposta(id) {
   if (!response.ok) return alert("Não foi possível abrir a proposta.");
   const data = await response.json();
   const win = window.open("", "_blank", "noopener,noreferrer");
-  if (win) win.document.write(`<pre style="white-space:pre-wrap;font:16px/1.5 Arial;padding:32px">${escapeHtml(data.texto)}</pre>`);
+  // Janela em branco herda o CSP style-src estrito da página que a abriu:
+  // o CSS vem de um link 'self', nunca de um atributo style="" inline.
+  if (win) win.document.write(`<link rel="stylesheet" href="/static/print-proposta.css"><pre class="proposta-texto">${escapeHtml(data.texto)}</pre>`);
 }

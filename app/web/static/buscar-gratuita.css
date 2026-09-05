@@ -1,0 +1,18 @@
+:root{font-family:Inter,system-ui,sans-serif;color:#16352c;background:#f2f6f1}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}
+.card{max-width:760px;width:100%;background:#fffdf9;border:1px solid #d7dfd7;border-radius:24px;padding:clamp(28px,6vw,64px);box-shadow:0 20px 60px #16352c16}
+.eyebrow{letter-spacing:.16em;text-transform:uppercase;color:#08734f;font-size:12px;font-weight:700}
+h1{font-family:Georgia,serif;font-size:clamp(36px,6vw,64px);line-height:1;margin:12px 0}
+p{line-height:1.6;color:#52625c}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:28px}
+@media(max-width:620px){.grid{grid-template-columns:1fr}}
+label{display:grid;gap:7px;font-size:13px;font-weight:700}
+input{border:1px solid #cbd7cd;border-radius:12px;padding:13px 14px;font:inherit;background:white}
+button{margin-top:22px;border:0;border-radius:12px;padding:14px 22px;background:#08734f;color:white;font-weight:800;cursor:pointer}
+button:disabled{opacity:.6}
+.status{margin-top:16px;padding:12px;border-radius:10px;background:#edf5ef;display:none}
+.status.visible{display:block}
+.honeypot{position:absolute;left:-10000px}
+.consent-label{display:flex;gap:8px;align-items:center;margin-top:18px;font-weight:500}
+.consent-checkbox{width:auto}

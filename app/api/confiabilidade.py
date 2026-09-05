@@ -1,8 +1,9 @@
 import hashlib
+import re
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,6 +56,21 @@ async def branding_publico(request: Request, session: SessionDep) -> dict:
     if settings.integration_auth_enabled and settings.inpi_integration_token:
         resposta["chave_integracao"] = settings.inpi_integration_token
     return resposta
+
+
+_COR_HEX_VALIDA = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+@public_router.get("/branding.css")
+async def branding_css(request: Request, session: SessionDep) -> Response:
+    from app.tenancy import resolver_organizacao_publica
+
+    org = await resolver_organizacao_publica(request, session)
+    cor = (org.branding or {}).get("cor_primaria")
+    css = f":root{{--forest:{cor}}}" if cor and _COR_HEX_VALIDA.fullmatch(cor) else ""
+    # CSS servido como recurso 'self' (nao inline) para respeitar o CSP
+    # style-src estrito, que bloqueia style="" e element.style.* sem 'unsafe-inline'.
+    return Response(content=css, media_type="text/css", headers={"Cache-Control": "no-store"})
 
 
 class ConfiguracaoTenantInput(BaseModel):

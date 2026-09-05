@@ -2,6 +2,14 @@ const overviewMessage = document.querySelector("#overview-message");
 const rpiActionMessage = document.querySelector("#rpi-action-message");
 const syncNowButton = document.querySelector("#rpi-sync-now");
 
+// Evita style.width inline (bloqueado pelo CSP style-src estrito): arredonda
+// para o multiplo de 5 mais proximo e aplica a classe utilitaria .w-pct-N.
+function setBarWidth(el, percentual) {
+  const passo = Math.min(100, Math.max(0, Math.round((Number(percentual) || 0) / 5) * 5));
+  el.className = el.className.replace(/\bw-pct-\d+\b/g, "").trim();
+  el.classList.add(`w-pct-${passo}`);
+}
+
 async function configureRecentExecutions() {
   const response = await fetch("/v1/auth/me");
   if (!response.ok) return;
@@ -225,7 +233,7 @@ function renderCurrent(item) {
     ? `Importando RPI ${item.rpi_atual} · ${interval}`
     : interval;
   document.querySelector("#rpi-current-progress").textContent = `${item.progresso_percentual}%`;
-  document.querySelector("#rpi-progress-bar").style.width = `${item.progresso_percentual}%`;
+  setBarWidth(document.querySelector("#rpi-progress-bar"), item.progresso_percentual);
   document.querySelector("#rpi-current-message").textContent = item.mensagem || statusLabel(item.status);
   document.querySelector("#rpi-count-editions").textContent = `${item.edicoes_processadas}/${item.edicoes_total}`;
   document.querySelector("#rpi-count-records").textContent = formatNumber(item.registros_processados);

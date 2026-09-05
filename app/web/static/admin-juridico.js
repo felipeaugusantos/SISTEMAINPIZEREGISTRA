@@ -1,3 +1,11 @@
+// Evita style.width inline (bloqueado pelo CSP style-src estrito): arredonda
+// para o multiplo de 5 mais proximo e aplica a classe utilitaria .w-pct-N.
+function setBarWidth(el, percentual) {
+  const passo = Math.min(100, Math.max(0, Math.round((Number(percentual) || 0) / 5) * 5));
+  el.className = el.className.replace(/\bw-pct-\d+\b/g, "").trim();
+  el.classList.add(`w-pct-${passo}`);
+}
+
 const legalState = { references: null, canManage: false, checklists: {}, offset: 0, pageSize: 10 };
 const legalMessage = document.querySelector("#legal-message");
 const deadlineDialog = document.querySelector("#deadline-dialog");
@@ -345,7 +353,7 @@ let checklistPrazoId = null;
 function renderChecklist(data) {
   document.querySelector("#checklist-empty").hidden = data.total > 0;
   const pct = data.total ? Math.round((data.concluidos / data.total) * 100) : 0;
-  document.querySelector("#checklist-bar").style.width = `${pct}%`;
+  setBarWidth(document.querySelector("#checklist-bar"), pct);
   document.querySelector("#checklist-progress-label").textContent = `${data.concluidos}/${data.total} concluídas`;
   document.querySelector("#checklist-items").innerHTML = data.itens.map((item) =>
     `<li class="${item.concluido ? "done" : ""}"><label><input type="checkbox" data-item="${item.id}" ${item.concluido ? "checked" : ""} ${legalState.canManage ? "" : "disabled"}><span>${escapeHtml(item.descricao)}</span></label>${legalState.canManage ? `<button class="checklist-remove" data-item="${item.id}" type="button" aria-label="Remover etapa">×</button>` : ""}</li>`

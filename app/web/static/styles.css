@@ -791,6 +791,10 @@ input::placeholder {
   padding: 36px 0;
 }
 
+.status-message.inline {
+  display: inline-block;
+}
+
 .status-message.error {
   padding: 18px 20px;
   border: 1px solid #e2b5ac;
@@ -5196,3 +5200,28 @@ h1,h2,h3,h4,h5 { font-family:var(--font-display); font-weight:var(--fw-semibold)
 @media (min-width:768px) { .section { padding-block:7rem; } }
 @media (pointer:coarse) { .btn { min-height:2.75rem; } }
 .dark { --background:#003d1a; --foreground:#f0f4f2; --ink-soft:#b3c6bc; --card:#2d4036; --muted:#b3c6bc; --accent:#005927; --cream:#2d4036; --primary:#00d15c; --primary-deep:#008037; --border:rgb(255 255 255 / .12); --input:rgb(255 255 255 / .14); --ring:#00d15c; --destructive:#ff5470; --paper:#003d1a; --surface:#2d4036; }
+
+/* Larguras de barra discretizadas (5 em 5%) para evitar style="width:..." inline, */
+/* bloqueado pelo CSP style-src estrito (sem 'unsafe-inline'). Uso: JS arredonda o */
+/* percentual calculado para o multiplo de 5 mais proximo e aplica a classe .w-pct-N. */
+.w-pct-0 { width: 0%; }
+.w-pct-5 { width: 5%; }
+.w-pct-10 { width: 10%; }
+.w-pct-15 { width: 15%; }
+.w-pct-20 { width: 20%; }
+.w-pct-25 { width: 25%; }
+.w-pct-30 { width: 30%; }
+.w-pct-35 { width: 35%; }
+.w-pct-40 { width: 40%; }
+.w-pct-45 { width: 45%; }
+.w-pct-50 { width: 50%; }
+.w-pct-55 { width: 55%; }
+.w-pct-60 { width: 60%; }
+.w-pct-65 { width: 65%; }
+.w-pct-70 { width: 70%; }
+.w-pct-75 { width: 75%; }
+.w-pct-80 { width: 80%; }
+.w-pct-85 { width: 85%; }
+.w-pct-90 { width: 90%; }
+.w-pct-95 { width: 95%; }
+.w-pct-100 { width: 100%; }

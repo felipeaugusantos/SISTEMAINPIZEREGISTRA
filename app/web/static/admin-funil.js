@@ -6,6 +6,9 @@ async function funilApi(url) {
 function funilEsc(v) { const s = document.createElement("span"); s.textContent = v ?? ""; return s.innerHTML; }
 function funilMsg(text) { const m = document.querySelector("#funil-message"); m.hidden = false; m.textContent = text; m.className = "status-message error"; }
 function funilPct(x) { return (x * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%"; }
+// Evita style="width:...%" inline (bloqueado pelo CSP style-src estrito): arredonda
+// para o multiplo de 5 mais proximo e retorna a classe utilitaria w-pct-N.
+function funilPctClass(value) { return `w-pct-${Math.min(100, Math.max(0, Math.round((Number(value) || 0) / 5) * 5))}`; }
 
 function funilRender(d) {
   const r = d.resultado || {};
@@ -22,7 +25,7 @@ function funilRender(d) {
   const funil = d.funil || [];
   const max = Math.max(1, ...funil.map(f => f.total));
   document.querySelector("#funil-bars").innerHTML = funil
-    .map(f => `<div class="funil-bar"><span class="funil-bar-label">${funilEsc(f.label)}</span><div class="funil-bar-track"><div class="funil-bar-fill" style="width:${(f.total / max * 100).toFixed(1)}%"></div></div><strong class="funil-bar-total">${funilEsc(String(f.total))}</strong></div>`)
+    .map(f => `<div class="funil-bar"><span class="funil-bar-label">${funilEsc(f.label)}</span><div class="funil-bar-track"><div class="funil-bar-fill ${funilPctClass(f.total / max * 100)}"></div></div><strong class="funil-bar-total">${funilEsc(String(f.total))}</strong></div>`)
     .join("");
 
   const motivos = d.perdas_por_motivo || [];

@@ -49,7 +49,7 @@ def test_pagina_financeira_e_protegida_por_permissao() -> None:
         assert response.status_code == 200
         assert "Controle contas a pagar e receber" in response.text
         assert "Novo lançamento" in response.text
-        assert "admin-financeiro.css?v=6" in response.text
+        assert "admin-financeiro.css?v=7" in response.text
         assert "admin-financeiro.js?v=8" in response.text
     finally:
         app.dependency_overrides.pop(obter_usuario_atual, None)
@@ -82,6 +82,43 @@ def test_tela_de_formas_de_pagamento_usa_permissao_financeira() -> None:
         assert "Formas de pagamento" in response.text
         assert "Máximo de parcelas" in response.text
         assert "admin-financeiro-formas.js?v=1" in response.text
+    finally:
+        app.dependency_overrides.pop(obter_usuario_atual, None)
+
+
+# --- Achado 04/09/2026: a FASE7 implementou plano de contas/DRE, lucratividade,
+# comissoes, conciliacao bancaria e NFS-e so como API -- sem nenhuma tela no
+# admin, o usuario nao tinha como acessar nada disso pelo sistema. ---
+
+
+def test_telas_da_fase7_existem_e_sao_protegidas_por_permissao_financeira() -> None:
+    paginas = [
+        ("/admin/financeiro/plano-contas", "Plano de contas"),
+        ("/admin/financeiro/lucratividade", "Lucratividade"),
+        ("/admin/financeiro/comissoes", "Comissões"),
+        ("/admin/financeiro/conciliacao", "Conciliação bancária"),
+        ("/admin/financeiro/nfse", "NFS-e"),
+    ]
+    app.dependency_overrides[obter_usuario_atual] = auth_override(
+        usuario_teste(perfil="financeiro", permissoes={"finance.view"})
+    )
+    try:
+        with TestClient(app) as client:
+            for rota, titulo in paginas:
+                resposta = client.get(rota)
+                assert resposta.status_code == 200, rota
+                assert titulo in resposta.text, rota
+    finally:
+        app.dependency_overrides.pop(obter_usuario_atual, None)
+
+    app.dependency_overrides[obter_usuario_atual] = auth_override(
+        usuario_teste(perfil="operador", permissoes=set())
+    )
+    try:
+        with TestClient(app) as client:
+            for rota, _titulo in paginas:
+                resposta = client.get(rota, follow_redirects=False)
+                assert resposta.status_code == 403, rota
     finally:
         app.dependency_overrides.pop(obter_usuario_atual, None)
 

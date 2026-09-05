@@ -177,3 +177,31 @@
 .history-entry{padding:7px 11px;border:1px solid #b8c5bd;border-radius:8px;background:#fff;color:var(--green);cursor:pointer;font-size:.75rem;font-weight:800}
 .history-entry:hover{background:#eef6f1}
 @media(max-width:800px){.payment-method-list{grid-template-columns:1fr}.payment-method-card{grid-template-columns:44px minmax(0,1fr)}.payment-method-card>button{grid-column:1/-1}.finance-history-item header{flex-direction:column}}
+
+/* FASE7: plano de contas, DRE, lucratividade, comissoes, conciliacao, NFS-e */
+.finance-table{width:100%;border-collapse:collapse;font-size:.85rem}
+.finance-table th{padding:9px 10px;border-bottom:2px solid var(--line);text-align:left;font-size:.68rem;font-weight:850;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.finance-table td{padding:10px;border-bottom:1px solid #e6eae7;vertical-align:middle}
+.finance-table tr:last-child td{border-bottom:0}
+.finance-table td.num,.finance-table th.num{text-align:right;font-variant-numeric:tabular-nums}
+.finance-table tfoot td{border-top:2px solid var(--line);border-bottom:0;font-weight:800}
+.margem-pos{color:#086c4e;font-weight:800}
+.margem-neg{color:#a53a2e;font-weight:800}
+.finance-period-form{display:flex;flex-wrap:wrap;align-items:end;gap:10px;margin-bottom:18px}
+.finance-period-form label{display:grid;gap:6px}
+.finance-period-form span{font-size:.74rem;font-weight:800}
+.finance-period-form input{padding:11px;border:1px solid #cbd4cd;border-radius:11px;background:#fff;font:inherit}
+.dre-waterfall{display:grid;gap:0;border:1px solid #d8dfd9;border-radius:16px;overflow:hidden}
+.dre-line{display:grid;grid-template-columns:1fr 140px 140px 140px;gap:12px;align-items:center;padding:13px 17px;border-bottom:1px solid #e6eae7;font-size:.86rem}
+.dre-line:last-child{border-bottom:0}
+.dre-line.total{background:#f7faf8;font-weight:800}
+.dre-line.total.negative strong{color:#a53a2e}
+.dre-line b{font-weight:700}
+.dre-line span{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+.dre-line span.destaque{color:var(--ink);font-weight:750}
+.upload-drop{display:grid;gap:10px;padding:22px;border:2px dashed #cbd4cd;border-radius:14px;text-align:center;background:#fbfdfb}
+.upload-drop input{margin:0 auto}
+.finance-badge{display:inline-flex;padding:5px 9px;border-radius:999px;font-size:.68rem;font-weight:900;text-transform:uppercase}
+.finance-badge.pendente{color:#8a6d1f;background:#fbf0d6}
+.finance-badge.paga,.finance-badge.emitida,.finance-badge.conciliada{color:#086c4e;background:#dff3e9}
+.finance-badge.cancelada,.finance-badge.ignorada,.finance-badge.erro{color:#777;background:#ececec}

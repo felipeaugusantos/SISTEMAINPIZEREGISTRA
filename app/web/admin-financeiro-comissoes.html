@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+  <title>Comissões — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=47"><link rel="stylesheet" href="/static/admin-financeiro.css?v=7">
+  <script src="/static/admin-shell.js?v=39" defer></script><script src="/static/admin-financeiro-comissoes.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="finance">
+  <main class="admin-main finance-main">
+    <section class="finance-hero">
+      <div><p class="eyebrow">EQUIPE COMERCIAL</p><h1>Comissões</h1><p>Comissão gerada automaticamente na baixa de parcelas de operadores com percentual configurado (Usuários → percentual de comissão).</p></div>
+      <div class="hero-actions"><a class="secondary-button" href="/admin/financeiro">← Voltar ao painel</a></div>
+    </section>
+    <nav class="finance-tabs" aria-label="Áreas do financeiro"><a href="/admin/financeiro">Visão geral</a><a href="/admin/financeiro/contas-a-pagar">Contas a pagar</a><a href="/admin/financeiro/contas-a-receber">Contas a receber</a><a href="/admin/financeiro/formas-pagamento">Formas de pagamento</a><a href="/admin/financeiro/plano-contas">Plano de contas &amp; DRE</a><a href="/admin/financeiro/lucratividade">Lucratividade</a><a class="active" href="/admin/financeiro/comissoes" aria-current="page">Comissões</a><a href="/admin/financeiro/conciliacao">Conciliação</a><a href="/admin/financeiro/nfse">NFS-e</a></nav>
+    <div id="comissao-message" class="status-message" hidden role="status" aria-live="polite"></div>
+
+    <section class="finance-card">
+      <header class="finance-list-heading"><div><p class="eyebrow">LANÇAMENTOS DE COMISSÃO</p><h2>Comissões geradas</h2><p>Uma comissão pendente é cancelada automaticamente se a parcela de origem for estornada.</p></div><strong id="comissao-count">0 registros</strong></header>
+      <form id="comissao-filter" class="finance-period-form">
+        <label><span>Status</span><select name="status"><option value="">Todos</option><option value="pendente">Pendente</option><option value="paga">Paga</option><option value="cancelada">Cancelada</option></select></label>
+        <button class="primary-button" type="submit">Filtrar</button>
+      </form>
+      <div style="overflow-x:auto"><table class="finance-table">
+        <thead><tr><th>Operador</th><th class="num">Base</th><th class="num">%</th><th class="num">Comissão</th><th>Status</th><th></th></tr></thead>
+        <tbody id="comissao-tbody"><tr><td colspan="6">Carregando…</td></tr></tbody>
+      </table></div>
+    </section>
+  </main>
+</body></html>

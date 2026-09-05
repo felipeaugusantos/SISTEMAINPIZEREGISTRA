@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+  <title>Conciliação bancária — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=47"><link rel="stylesheet" href="/static/admin-financeiro.css?v=7">
+  <script src="/static/admin-shell.js?v=39" defer></script><script src="/static/admin-financeiro-conciliacao.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="finance">
+  <main class="admin-main finance-main">
+    <section class="finance-hero">
+      <div><p class="eyebrow">FLUXO BANCÁRIO</p><h1>Conciliação bancária</h1><p>Importe um extrato OFX do banco e concilie com as parcelas já baixadas no sistema. Créditos com valor e data compatíveis (±3 dias) com uma única parcela paga são conciliados automaticamente.</p></div>
+      <div class="hero-actions"><a class="secondary-button" href="/admin/financeiro">← Voltar ao painel</a></div>
+    </section>
+    <nav class="finance-tabs" aria-label="Áreas do financeiro"><a href="/admin/financeiro">Visão geral</a><a href="/admin/financeiro/contas-a-pagar">Contas a pagar</a><a href="/admin/financeiro/contas-a-receber">Contas a receber</a><a href="/admin/financeiro/formas-pagamento">Formas de pagamento</a><a href="/admin/financeiro/plano-contas">Plano de contas &amp; DRE</a><a href="/admin/financeiro/lucratividade">Lucratividade</a><a href="/admin/financeiro/comissoes">Comissões</a><a class="active" href="/admin/financeiro/conciliacao" aria-current="page">Conciliação</a><a href="/admin/financeiro/nfse">NFS-e</a></nav>
+    <div id="conc-message" class="status-message" hidden role="status" aria-live="polite"></div>
+
+    <section class="finance-card">
+      <header class="finance-list-heading"><div><p class="eyebrow">IMPORTAR</p><h2>Extrato OFX</h2><p>Arquivo .ofx exportado do internet banking. Máximo 5 MB.</p></div></header>
+      <form id="upload-form" class="upload-drop">
+        <input name="arquivo" type="file" accept=".ofx" required>
+        <button class="primary-button" type="submit">Importar extrato</button>
+      </form>
+    </section>
+
+    <section class="finance-card">
+      <header class="finance-list-heading"><div><p class="eyebrow">TRANSAÇÕES</p><h2>Extrato importado</h2><p>Concilie manualmente as transações que não casaram automaticamente.</p></div><strong id="transacoes-count">0 registros</strong></header>
+      <form id="conc-filter" class="finance-period-form">
+        <label><span>Status</span><select name="status"><option value="">Todos</option><option value="pendente">Pendente</option><option value="conciliada">Conciliada</option><option value="ignorada">Ignorada</option></select></label>
+        <button class="primary-button" type="submit">Filtrar</button>
+      </form>
+      <div style="overflow-x:auto"><table class="finance-table">
+        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th class="num">Valor</th><th>Status</th><th></th></tr></thead>
+        <tbody id="transacoes-tbody"><tr><td colspan="6">Carregando…</td></tr></tbody>
+      </table></div>
+    </section>
+  </main>
+
+  <dialog id="conciliar-dialog" class="finance-dialog compact"><form id="conciliar-form">
+    <header><div><p class="eyebrow">CONCILIAÇÃO MANUAL</p><h2>Vincular parcela</h2></div><button type="button" data-close="conciliar-dialog" aria-label="Fechar">×</button></header>
+    <input name="transacao_id" type="hidden">
+    <label><span>ID da parcela financeira</span><input name="parcela_id" type="number" min="1" required></label>
+    <p class="finance-dialog-help">O valor da parcela precisa ser exatamente igual ao da transação para confirmar.</p>
+    <footer><button class="secondary-button" type="button" data-close="conciliar-dialog">Cancelar</button><button class="primary-button" type="submit">Conciliar</button></footer>
+  </form></dialog>
+</body></html>

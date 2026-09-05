@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+  <title>Plano de contas e DRE — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=47"><link rel="stylesheet" href="/static/admin-financeiro.css?v=7">
+  <script src="/static/admin-shell.js?v=39" defer></script><script src="/static/admin-financeiro-contabil.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="finance">
+  <main class="admin-main finance-main">
+    <section class="finance-hero">
+      <div><p class="eyebrow">CONTABILIDADE GERENCIAL</p><h1>Plano de contas &amp; DRE</h1><p>Classifique lançamentos por conta contábil e acompanhe o resultado gerencial por período. Não substitui a contabilidade fiscal/societária.</p></div>
+      <div class="hero-actions"><a class="secondary-button" href="/admin/financeiro">← Voltar ao painel</a><button id="seed-plano" class="secondary-button" type="button">Semear plano padrão</button><button id="new-conta" class="primary-button" type="button">Nova conta</button></div>
+    </section>
+    <nav class="finance-tabs" aria-label="Áreas do financeiro"><a href="/admin/financeiro">Visão geral</a><a href="/admin/financeiro/contas-a-pagar">Contas a pagar</a><a href="/admin/financeiro/contas-a-receber">Contas a receber</a><a href="/admin/financeiro/formas-pagamento">Formas de pagamento</a><a class="active" href="/admin/financeiro/plano-contas" aria-current="page">Plano de contas &amp; DRE</a><a href="/admin/financeiro/lucratividade">Lucratividade</a><a href="/admin/financeiro/comissoes">Comissões</a><a href="/admin/financeiro/conciliacao">Conciliação</a><a href="/admin/financeiro/nfse">NFS-e</a></nav>
+    <div id="contabil-message" class="status-message" hidden role="status" aria-live="polite"></div>
+
+    <section class="finance-card">
+      <header class="finance-list-heading"><div><p class="eyebrow">PLANO DE CONTAS</p><h2>Contas contábeis</h2><p>Cada lançamento pode ser classificado numa conta para compor o DRE.</p></div><strong id="plano-count">0 contas</strong></header>
+      <div style="overflow-x:auto"><table class="finance-table">
+        <thead><tr><th>Código</th><th>Nome</th><th>Natureza</th><th>Grupo DRE</th></tr></thead>
+        <tbody id="plano-tbody"><tr><td colspan="4">Carregando…</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <section class="finance-card">
+      <header class="finance-list-heading"><div><p class="eyebrow">DEMONSTRATIVO</p><h2>DRE gerencial</h2><p>Resultado por competência, agrupado por grupo de conta contábil.</p></div></header>
+      <form id="dre-form" class="finance-period-form">
+        <label><span>Competência inicial</span><input name="competencia_de" type="date" required></label>
+        <label><span>Competência final</span><input name="competencia_ate" type="date" required></label>
+        <button class="primary-button" type="submit">Gerar DRE</button>
+      </form>
+      <div id="dre-result"></div>
+    </section>
+  </main>
+
+  <dialog id="conta-dialog" class="finance-dialog compact"><form id="conta-form">
+    <header><div><p class="eyebrow">PLANO DE CONTAS</p><h2>Nova conta</h2></div><button type="button" data-close="conta-dialog" aria-label="Fechar">×</button></header>
+    <label><span>Código</span><input name="codigo" minlength="1" maxlength="20" placeholder="Ex.: 3.1.01" required></label>
+    <label><span>Nome</span><input name="nome" minlength="2" maxlength="160" required></label>
+    <label><span>Natureza</span><select name="natureza"><option value="receita">Receita</option><option value="despesa">Despesa</option></select></label>
+    <label><span>Grupo do DRE</span><select name="grupo_dre">
+      <option value="receita_bruta">Receita bruta</option>
+      <option value="deducoes_receita">Deduções da receita</option>
+      <option value="custos_diretos">Custos diretos</option>
+      <option value="despesas_operacionais">Despesas operacionais</option>
+      <option value="despesas_administrativas">Despesas administrativas</option>
+      <option value="resultado_financeiro">Resultado financeiro</option>
+    </select></label>
+    <label><span>Conta pai (opcional)</span><select name="conta_pai_id"><option value="">Nenhuma</option></select></label>
+    <footer><button class="secondary-button" type="button" data-close="conta-dialog">Cancelar</button><button class="primary-button" type="submit">Salvar conta</button></footer>
+  </form></dialog>
+</body></html>

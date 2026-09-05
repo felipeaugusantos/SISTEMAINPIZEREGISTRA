@@ -368,6 +368,51 @@ async def painel_retribuicoes() -> FileResponse:
 
 
 @app.get(
+    "/admin/financeiro/plano-contas",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("finance.view"))],
+)
+async def painel_plano_contas() -> FileResponse:
+    return FileResponse(web_dir / "admin-financeiro-contabil.html")
+
+
+@app.get(
+    "/admin/financeiro/lucratividade",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("finance.view"))],
+)
+async def painel_lucratividade() -> FileResponse:
+    return FileResponse(web_dir / "admin-financeiro-lucratividade.html")
+
+
+@app.get(
+    "/admin/financeiro/comissoes",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("finance.view"))],
+)
+async def painel_comissoes() -> FileResponse:
+    return FileResponse(web_dir / "admin-financeiro-comissoes.html")
+
+
+@app.get(
+    "/admin/financeiro/conciliacao",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("finance.view"))],
+)
+async def painel_conciliacao() -> FileResponse:
+    return FileResponse(web_dir / "admin-financeiro-conciliacao.html")
+
+
+@app.get(
+    "/admin/financeiro/nfse",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("finance.view"))],
+)
+async def painel_nfse() -> FileResponse:
+    return FileResponse(web_dir / "admin-financeiro-nfse.html")
+
+
+@app.get(
     "/admin/configuracao/regras-automaticas",
     include_in_schema=False,
     dependencies=[Depends(exigir_permissao("leads.view"))],

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+  <title>Notas fiscais de serviço — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=47"><link rel="stylesheet" href="/static/admin-financeiro.css?v=7">
+  <script src="/static/admin-shell.js?v=39" defer></script><script src="/static/admin-financeiro-nfse.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="finance">
+  <main class="admin-main finance-main">
+    <section class="finance-hero">
+      <div><p class="eyebrow">FISCAL</p><h1>NFS-e</h1><p>Emissão de nota fiscal de serviço eletrônica para lançamentos a receber. Adaptador atual: sandbox (não emite nota fiscal real).</p></div>
+      <div class="hero-actions"><a class="secondary-button" href="/admin/financeiro">← Voltar ao painel</a><button id="new-nota" class="primary-button" type="button">Emitir NFS-e</button></div>
+    </section>
+    <nav class="finance-tabs" aria-label="Áreas do financeiro"><a href="/admin/financeiro">Visão geral</a><a href="/admin/financeiro/contas-a-pagar">Contas a pagar</a><a href="/admin/financeiro/contas-a-receber">Contas a receber</a><a href="/admin/financeiro/formas-pagamento">Formas de pagamento</a><a href="/admin/financeiro/plano-contas">Plano de contas &amp; DRE</a><a href="/admin/financeiro/lucratividade">Lucratividade</a><a href="/admin/financeiro/comissoes">Comissões</a><a href="/admin/financeiro/conciliacao">Conciliação</a><a class="active" href="/admin/financeiro/nfse" aria-current="page">NFS-e</a></nav>
+    <div id="nfse-message" class="status-message" hidden role="status" aria-live="polite"></div>
+
+    <section class="finance-card">
+      <header class="finance-list-heading"><div><p class="eyebrow">NOTAS EMITIDAS</p><h2>Histórico</h2></div><strong id="nfse-count">0 registros</strong></header>
+      <div style="overflow-x:auto"><table class="finance-table">
+        <thead><tr><th>Número</th><th>Lançamento</th><th class="num">Valor</th><th>Status</th><th>Emitida em</th><th></th></tr></thead>
+        <tbody id="nfse-tbody"><tr><td colspan="6">Carregando…</td></tr></tbody>
+      </table></div>
+    </section>
+  </main>
+
+  <dialog id="nota-dialog" class="finance-dialog compact"><form id="nota-form">
+    <header><div><p class="eyebrow">NFS-e</p><h2>Emitir nota</h2></div><button type="button" data-close="nota-dialog" aria-label="Fechar">×</button></header>
+    <label><span>ID do lançamento (tipo "a receber")</span><input name="lancamento_id" type="number" min="1" required></label>
+    <p class="finance-dialog-help">O cliente vinculado ao lançamento precisa ter CPF/CNPJ cadastrado.</p>
+    <footer><button class="secondary-button" type="button" data-close="nota-dialog">Cancelar</button><button class="primary-button" type="submit">Emitir</button></footer>
+  </form></dialog>
+</body></html>

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+  <title>Lucratividade — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=47"><link rel="stylesheet" href="/static/admin-financeiro.css?v=7">
+  <script src="/static/admin-shell.js?v=39" defer></script><script src="/static/admin-financeiro-lucratividade.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="finance">
+  <main class="admin-main finance-main">
+    <section class="finance-hero">
+      <div><p class="eyebrow">ANÁLISE GERENCIAL</p><h1>Lucratividade</h1><p>Margem por cliente/carteira e custo consolidado por processo (lançamentos financeiros + custos jurídicos).</p></div>
+      <div class="hero-actions"><a class="secondary-button" href="/admin/financeiro">← Voltar ao painel</a></div>
+    </section>
+    <nav class="finance-tabs" aria-label="Áreas do financeiro"><a href="/admin/financeiro">Visão geral</a><a href="/admin/financeiro/contas-a-pagar">Contas a pagar</a><a href="/admin/financeiro/contas-a-receber">Contas a receber</a><a href="/admin/financeiro/formas-pagamento">Formas de pagamento</a><a href="/admin/financeiro/plano-contas">Plano de contas &amp; DRE</a><a class="active" href="/admin/financeiro/lucratividade" aria-current="page">Lucratividade</a><a href="/admin/financeiro/comissoes">Comissões</a><a href="/admin/financeiro/conciliacao">Conciliação</a><a href="/admin/financeiro/nfse">NFS-e</a></nav>
+    <div id="lucro-message" class="status-message" hidden role="status" aria-live="polite"></div>
+
+    <section class="finance-card">
+      <header class="finance-list-heading"><div><p class="eyebrow">CARTEIRA DE CLIENTES</p><h2>Margem por cliente</h2><p>Receita e custo (lançamentos financeiros) somados por período de competência.</p></div></header>
+      <form id="lucro-form" class="finance-period-form">
+        <label><span>Competência inicial</span><input name="competencia_de" type="date" required></label>
+        <label><span>Competência final</span><input name="competencia_ate" type="date" required></label>
+        <button class="primary-button" type="submit">Calcular</button>
+      </form>
+      <div id="lucro-carteira"></div>
+      <div style="overflow-x:auto;margin-top:14px"><table class="finance-table">
+        <thead><tr><th>Cliente</th><th class="num">Receita</th><th class="num">Custo</th><th class="num">Margem</th><th class="num">Margem %</th></tr></thead>
+        <tbody id="lucro-tbody"><tr><td colspan="5">Selecione um período e clique em Calcular.</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <section class="finance-card">
+      <header class="finance-list-heading"><div><p class="eyebrow">POR PROCESSO</p><h2>Custo de um processo específico</h2><p>Inclui lançamentos financeiros vinculados e custos jurídicos registrados.</p></div></header>
+      <form id="processo-form" class="finance-period-form">
+        <label><span>ID do processo</span><input name="processo_id" type="number" min="1" required></label>
+        <button class="primary-button" type="submit">Consultar</button>
+      </form>
+      <div id="processo-result"></div>
+    </section>
+  </main>
+</body></html>

@@ -183,13 +183,46 @@ def test_leads_exibe_status_e_acao_do_relatorio_completo() -> None:
     assert 'form.elements.notas.value = ""' in script
     assert "Formulário pronto para um novo registro" in script
     assert 'data-label="Observações"' in script
-    assert ".lead-dialog-grid" in styles
-    assert ".lead-dialog-grid > *" in styles
     assert '<section class="lead-history lg-full">' in script
-    assert script.index('class="lead-history lg-full"') < script.index('class="lead-documentos lg-full"')
-    assert "grid-row: auto" in styles
     assert "table.lead-docs td::before" in styles
     assert ".chk-actions > .chk-padrao" in styles
+
+
+def test_painel_do_lead_usa_abas() -> None:
+    # Achado 05/09/2026: pedido do usuario para trocar a lista longa e
+    # empilhada por abas -- Atendimento Comercial, Empresa, Funil do Lead,
+    # Linha do tempo, Documentos do atendimento, Guias do INPI e Proposta de
+    # registro, com o card de identificacao e o Portal do cliente fixos no
+    # topo (fora das abas).
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
+
+    for aba in [
+        "Atendimento Comercial",
+        "Empresa",
+        "Funil do Lead",
+        "Linha do tempo",
+        "Documentos do atendimento",
+        "Guias do INPI",
+        "Proposta de registro",
+    ]:
+        assert aba in script
+
+    assert 'class="lead-tabs"' in script
+    assert 'data-panel="atendimento"' in script
+    assert 'data-panel="empresa"' in script
+    assert 'data-panel="funil"' in script
+    assert 'data-panel="timeline"' in script
+    assert 'data-panel="documentos"' in script
+    assert 'data-panel="guias"' in script
+    assert 'data-panel="propostas"' in script
+    assert script.index('class="lead-contact-summary"') < script.index('class="lead-tabs"')
+    # Checklist entra na aba do funil, Contatos realizados na aba de atendimento.
+    assert script.index('data-panel="atendimento"') < script.index('class="lead-contact-log"')
+    assert script.index('data-panel="funil"') < script.index('id="lead-checklist"')
+    assert ".lead-tabs" in styles
+    assert ".lead-tab.active" in styles
+    assert ".lead-tab-panel" in styles
 
 
 def test_dossie_envia_e_exibe_parecer_unico() -> None:

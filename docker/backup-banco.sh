@@ -6,8 +6,9 @@ set -eu
 # (uso local/Windows), mas roda direto na VPS via docker compose.
 #
 # Uso:
-#   ./docker/backup-banco.sh              # retencao padrao (7 dias)
+#   ./docker/backup-banco.sh              # retencao padrao (7 dias), no maximo 1x/dia
 #   RETENCAO_DIAS=30 ./docker/backup-banco.sh
+#   FORCAR=1 ./docker/backup-banco.sh     # ignora o limite de 1x/dia
 
 # Achado 04/09/2026: com o banco em ~30GB (apos a migration wp43q1s5d064
 # adicionar indices faltantes), cada dump comprimido passou de ~1.6GB para
@@ -17,6 +18,15 @@ RETENCAO_DIAS="${RETENCAO_DIAS:-7}"
 
 cd "$(dirname "$0")/.."
 mkdir -p backups
+
+# Achado 05/09/2026: mesmo so rodando quando ha migration pendente
+# (docker/deploy.sh), varios deploys com migration no mesmo dia ainda
+# geravam varios dumps de ~5.5GB. O usuario pediu explicitamente no
+# maximo 1 backup por dia -- se ja existe um dump de hoje, pula.
+if [ "${FORCAR:-}" != "1" ] && ls "backups/inpi-$(date +%Y%m%d)-"*.dump >/dev/null 2>&1; then
+    echo "Ja existe um backup de hoje em backups/ -- pulando (use FORCAR=1 para forcar)."
+    exit 0
+fi
 
 DATA="$(date +%Y%m%d-%H%M%S)"
 NOME="inpi-${DATA}.dump"

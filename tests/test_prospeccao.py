@@ -914,3 +914,130 @@ def test_listar_importacoes_cnpj_rfb() -> None:
     corpo = resposta.json()
     assert corpo[0]["status"] == "concluido"
     assert corpo[0]["total_validos"] == 90
+
+
+# --- Fase 1 do roadmap pos-auditoria do CRM (06/09/2026): central de
+# duplicidades e mesclagem assistida. Prospect.duplicado_de_id e
+# StatusProspect.DUPLICADO existiam desde 03/09/2026 mas nenhum codigo os
+# escrevia (achado da auditoria completa do CRM). ---
+
+
+def test_listar_duplicatas_agrupa_por_cnpj() -> None:
+    duplicado_a = _prospect(id=10, cnpj="11222333000181", email=None, telefone=None)
+    duplicado_b = _prospect(id=11, cnpj="11222333000181", email=None, telefone=None)
+    session = _sessao_admin(
+        FakeResult(itens=[("11222333000181", duplicado_a), ("11222333000181", duplicado_b)]),
+        FakeResult(itens=[]),
+        FakeResult(itens=[]),
+    )
+
+    resposta = TestClient(app).get("/v1/admin/prospects/duplicatas")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert len(corpo["grupos"]) == 1
+    assert corpo["grupos"][0]["criterio"] == "cnpj"
+    assert corpo["grupos"][0]["valor"] == "11222333000181"
+    assert {item["id"] for item in corpo["grupos"][0]["itens"]} == {10, 11}
+    assert session.commits == 0
+
+
+def test_listar_duplicatas_sem_nenhuma_retorna_vazio() -> None:
+    _sessao_admin(FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(itens=[]))
+
+    resposta = TestClient(app).get("/v1/admin/prospects/duplicatas")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["grupos"] == []
+
+
+def test_mesclar_prospect_preenche_campos_vazios_e_marca_duplicado() -> None:
+    primario = _prospect(id=5, telefone=None, email=None, uf=None)
+    duplicado = _prospect(id=6, telefone="11988887777", email="duplicado@teste.local", uf="SP")
+    session = _sessao_admin(
+        FakeResult(scalar=primario),
+        FakeResult(scalar=duplicado),
+        FakeResult(),  # UPDATE prospect_triagens
+        FakeResult(),  # UPDATE prospect_enriquecimentos
+        FakeResult(),  # UPDATE historico_status_prospect
+    )
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/mesclar",
+        json={"duplicado_id": 6},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["telefone"] == "11988887777"
+    assert corpo["email"] == "duplicado@teste.local"
+    assert corpo["uf"] == "SP"
+    assert duplicado.status == "duplicado"
+    assert duplicado.duplicado_de_id == 5
+    assert session.commits == 1
+    assert any(
+        getattr(item, "status", None) == "duplicado" and getattr(item, "prospect_id", None) == 6
+        for item in session.adicionados
+    )
+
+
+def test_mesclar_prospect_nao_sobrescreve_campo_ja_preenchido() -> None:
+    primario = _prospect(id=5, telefone="11900000000")
+    duplicado = _prospect(id=6, telefone="11988887777")
+    _sessao_admin(
+        FakeResult(scalar=primario),
+        FakeResult(scalar=duplicado),
+        FakeResult(),
+        FakeResult(),
+        FakeResult(),
+    )
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/mesclar",
+        json={"duplicado_id": 6},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.json()["telefone"] == "11900000000"
+
+
+def test_mesclar_prospect_com_ele_mesmo_retorna_422() -> None:
+    _sessao_admin()
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/mesclar",
+        json={"duplicado_id": 5},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 422
+
+
+def test_mesclar_prospect_ja_convertido_em_lead_retorna_422() -> None:
+    primario = _prospect(id=5)
+    duplicado = _prospect(id=6, status=StatusProspect.CONVERTIDO_LEAD.value, lead_id=42)
+    _sessao_admin(FakeResult(scalar=primario), FakeResult(scalar=duplicado))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/mesclar",
+        json={"duplicado_id": 6},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 422
+
+
+def test_mesclar_prospect_ja_mesclado_retorna_422() -> None:
+    primario = _prospect(id=5)
+    duplicado = _prospect(id=6, status=StatusProspect.DUPLICADO.value, duplicado_de_id=99)
+    _sessao_admin(FakeResult(scalar=primario), FakeResult(scalar=duplicado))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/mesclar",
+        json={"duplicado_id": 6},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 422

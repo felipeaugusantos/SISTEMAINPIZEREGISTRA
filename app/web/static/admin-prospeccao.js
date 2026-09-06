@@ -464,4 +464,58 @@ document.querySelector("#politica-form").addEventListener("submit", async event 
   } catch (error) { showMessage(error.message, "error"); }
 });
 
+// --- Fase 1 do roadmap pos-auditoria do CRM (06/09/2026): central de
+// duplicidades e mesclagem assistida. ---
+
+const CRITERIO_DUPLICATA_LABELS = { cnpj: "CNPJ", email: "E-mail", telefone: "Telefone" };
+
+function renderDuplicatas(data) {
+  const alvo = document.querySelector("#duplicatas-lista");
+  if (!data.grupos.length) {
+    alvo.innerHTML = `<p class="prospeccao-empty">Nenhuma duplicidade encontrada entre os prospects em aberto.</p>`;
+    return;
+  }
+  alvo.innerHTML = data.grupos.map((grupo, indiceGrupo) => `
+    <article class="prospeccao-duplicata-grupo">
+      <h4>${escapeHtml(CRITERIO_DUPLICATA_LABELS[grupo.criterio] || grupo.criterio)}: ${escapeHtml(grupo.valor)}</h4>
+      <ul class="prospeccao-duplicata-itens">
+        ${grupo.itens.map(item => `
+          <li>
+            <div>
+              <strong>${escapeHtml(item.nome_fantasia || item.razao_social)}</strong>
+              <small>${escapeHtml(item.razao_social)}${item.cnpj ? ` · ${escapeHtml(item.cnpj)}` : ""} · ${escapeHtml(item.email || "sem e-mail")} · ${escapeHtml(item.telefone || "sem telefone")}</small>
+            </div>
+            <button class="secondary-button" type="button" data-manter-grupo="${indiceGrupo}" data-manter-id="${item.id}">Manter este e mesclar os outros</button>
+          </li>`).join("")}
+      </ul>
+    </article>`).join("");
+  alvo.dataset.grupos = JSON.stringify(data.grupos);
+}
+
+async function loadDuplicatas() {
+  const data = await api("/v1/admin/prospects/duplicatas");
+  renderDuplicatas(data);
+}
+
+document.querySelector("#duplicatas-verificar").addEventListener("click", async () => {
+  try { await loadDuplicatas(); } catch (error) { showMessage(error.message, "error"); }
+});
+
+document.querySelector("#duplicatas-lista").addEventListener("click", async event => {
+  const botao = event.target.closest("button[data-manter-id]");
+  if (!botao) return;
+  const grupos = JSON.parse(document.querySelector("#duplicatas-lista").dataset.grupos || "[]");
+  const grupo = grupos[Number(botao.dataset.manterGrupo)];
+  const primarioId = Number(botao.dataset.manterId);
+  const outrosIds = grupo.itens.map(item => item.id).filter(id => id !== primarioId);
+  if (!confirm(`Mesclar ${outrosIds.length} prospect(s) dentro de "${grupo.itens.find(item => item.id === primarioId).razao_social}"? Os dados vazios do principal serão completados com os do(s) duplicado(s); o histórico é preservado.`)) return;
+  try {
+    for (const duplicadoId of outrosIds) {
+      await api(`/v1/admin/prospects/${primarioId}/mesclar`, { method: "POST", body: JSON.stringify({ duplicado_id: duplicadoId }) });
+    }
+    showMessage("Prospects mesclados.");
+    await Promise.all([loadDuplicatas(), loadProspects(), loadDashboard()]);
+  } catch (error) { showMessage(error.message, "error"); }
+});
+
 Promise.all([loadDashboard(), loadCampanhas(), loadProspects(), loadCacheRfbStatus(), configurarBotaoImportarCnpjRfb()]).catch(error => showMessage(error.message, "error"));

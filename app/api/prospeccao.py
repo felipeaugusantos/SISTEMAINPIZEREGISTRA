@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.juridico import FUSO_BRASIL
@@ -44,8 +44,11 @@ from app.schemas import (
     CampanhaProspeccaoCreate,
     CampanhaProspeccaoListResponse,
     CampanhaProspeccaoResponse,
+    DuplicatasProspectResponse,
+    GrupoDuplicataProspect,
     ImportacaoCnpjRfbResponse,
     ImportacaoCnpjRfbTrigger,
+    MesclarProspectRequest,
     PoliticaProspeccaoResponse,
     PoliticaProspeccaoUpdate,
     ProspectCreate,
@@ -294,6 +297,124 @@ async def listar_prospects(
     return ProspectListResponse(
         total=total, limite=limite, deslocamento=deslocamento, itens=[_prospect_response(item) for item in itens]
     )
+
+
+# --- Fase 1 do roadmap pos-auditoria do CRM (06/09/2026): central de
+# duplicidades e mesclagem assistida -- Prospect.duplicado_de_id e
+# StatusProspect.DUPLICADO existiam desde a Fase 1 do Radar (03/09/2026) mas
+# nenhum codigo os escrevia (achado da auditoria completa do CRM,
+# publicada em 06/09/2026). Escopo desta entrega: so Prospect -- Lead ja
+# tem sua propria dedup na criacao (ver _prospect_duplicado acima e
+# app/api/leads.py), mas nao tinha tela de revisao/merge para casos que a
+# dedup automatica na entrada nao pegou (ex.: telefone cadastrado depois).
+
+STATUS_ATIVOS_PARA_DUPLICATA = (StatusProspect.NOVO.value, StatusProspect.APROVADO.value)
+
+
+async def _duplicatas_por(
+    session: AsyncSession, organizacao_id: int, expressao, criterio: str
+) -> list[GrupoDuplicataProspect]:
+    """Agrupa prospects ainda acionaveis (novo/aprovado) que compartilham o
+    mesmo valor normalizado de `expressao` -- so relevante quando 2+
+    prospects caem na mesma chave. Agrupamento feito em Python (nao HAVING
+    no SQL) porque `expressao` pode ser uma coluna computada (ex.: digitos
+    do telefone), mais simples de reconciliar com os objetos ORM assim."""
+    linhas = (
+        await session.execute(
+            select(expressao.label("chave"), Prospect)
+            .where(
+                Prospect.organizacao_id == organizacao_id,
+                Prospect.status.in_(STATUS_ATIVOS_PARA_DUPLICATA),
+                expressao.isnot(None),
+                expressao != "",
+            )
+            .order_by(expressao, Prospect.criado_em.asc())
+        )
+    ).all()
+    agrupado: dict[str, list[Prospect]] = {}
+    for chave, prospect in linhas:
+        agrupado.setdefault(chave, []).append(prospect)
+    return [
+        GrupoDuplicataProspect(criterio=criterio, valor=chave, itens=[_prospect_response(p) for p in itens])
+        for chave, itens in agrupado.items()
+        if len(itens) > 1
+    ]
+
+
+@router.get("/duplicatas", response_model=DuplicatasProspectResponse)
+async def listar_duplicatas_prospect(session: SessionDep, usuario: ProspeccaoViewDep) -> DuplicatasProspectResponse:
+    org = usuario.organizacao_id
+    grupos = [
+        *(await _duplicatas_por(session, org, Prospect.cnpj, "cnpj")),
+        *(await _duplicatas_por(session, org, func.lower(Prospect.email), "email")),
+        *(await _duplicatas_por(session, org, func.regexp_replace(Prospect.telefone, r"\D", "", "g"), "telefone")),
+    ]
+    return DuplicatasProspectResponse(grupos=grupos)
+
+
+# Campos preenchidos no sobrevivente só quando estiverem vazios -- a fusão
+# nunca sobrescreve um dado que o operador já confirmou no primário, só
+# completa o que falta a partir do duplicado (mesclagem assistida, não
+# substituição cega).
+CAMPOS_PREENCHIVEIS_NA_MESCLA = (
+    "cnpj",
+    "nome_fantasia",
+    "cnae_principal",
+    "porte",
+    "situacao_cadastral",
+    "data_abertura",
+    "uf",
+    "cidade",
+    "endereco",
+    "telefone",
+    "email",
+    "site",
+)
+
+
+@router.post("/{primario_id}/mesclar", response_model=ProspectResponse)
+async def mesclar_prospect(
+    primario_id: int, dados: MesclarProspectRequest, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
+) -> ProspectResponse:
+    if primario_id == dados.duplicado_id:
+        raise HTTPException(422, "Não é possível mesclar um prospect com ele mesmo.")
+    primario = await _buscar_prospect(session, primario_id, usuario.organizacao_id)
+    duplicado = await _buscar_prospect(session, dados.duplicado_id, usuario.organizacao_id)
+    if duplicado.status == StatusProspect.CONVERTIDO_LEAD.value:
+        raise HTTPException(422, "Este prospect já foi convertido em lead -- não pode ser mesclado como duplicado.")
+    if duplicado.status == StatusProspect.DUPLICADO.value:
+        raise HTTPException(422, "Este prospect já foi mesclado anteriormente.")
+
+    campos_preenchidos = []
+    for campo in CAMPOS_PREENCHIVEIS_NA_MESCLA:
+        if getattr(primario, campo) in (None, "") and getattr(duplicado, campo) not in (None, ""):
+            setattr(primario, campo, getattr(duplicado, campo))
+            campos_preenchidos.append(campo)
+
+    for modelo in (ProspectTriagem, ProspectEnriquecimento, HistoricoStatusProspect):
+        await session.execute(update(modelo).where(modelo.prospect_id == duplicado.id).values(prospect_id=primario.id))
+
+    duplicado.duplicado_de_id = primario.id
+    duplicado.status = StatusProspect.DUPLICADO.value
+    session.add(
+        HistoricoStatusProspect(
+            organizacao_id=usuario.organizacao_id,
+            prospect_id=duplicado.id,
+            status=StatusProspect.DUPLICADO.value,
+            por=usuario.nome or "sistema",
+        )
+    )
+    _auditar(
+        session,
+        request,
+        usuario,
+        "mesclar_prospect",
+        f"prospect:{primario.id}",
+        {"duplicado_id": duplicado.id, "campos_preenchidos": campos_preenchidos},
+    )
+    await session.commit()
+    await session.refresh(primario)
+    return _prospect_response(primario)
 
 
 @router.get("/{prospect_id}", response_model=ProspectResponse)

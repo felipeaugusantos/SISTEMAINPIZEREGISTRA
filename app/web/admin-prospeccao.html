@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Radar de Prospecção — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=51">
-  <link rel="stylesheet" href="/static/admin-prospeccao.css?v=2">
+  <link rel="stylesheet" href="/static/admin-prospeccao.css?v=3">
   <script src="/static/admin-shell.js?v=40" defer></script>
-  <script src="/static/admin-prospeccao.js?v=6" defer></script>
+  <script src="/static/admin-prospeccao.js?v=7" defer></script>
 </head>
 <body class="admin-body" data-admin-section="prospeccao">
   <main class="admin-main prospeccao-main">
@@ -31,6 +31,13 @@
         <button id="importar-cnpj-rfb" class="secondary-button" type="button" hidden>Importar agora</button>
       </header>
       <div id="cache-rfb-status" class="prospeccao-cache-status">Carregando…</div>
+    </section>
+
+    <section class="prospeccao-card" id="duplicatas-section">
+      <header><div><p class="eyebrow">QUALIDADE DO RADAR</p><h2>Duplicidades</h2><p>Prospects ainda em aberto (novo/aprovado) que compartilham o mesmo CNPJ, e-mail ou telefone — normalmente entram por campanhas ou importações diferentes antes de a deduplicação automática conseguir cruzar os dados.</p></div>
+        <button id="duplicatas-verificar" class="secondary-button" type="button">Verificar duplicidades</button>
+      </header>
+      <div id="duplicatas-lista"></div>
     </section>
 
     <section class="prospeccao-card" id="campanhas-section">

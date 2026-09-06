@@ -722,6 +722,26 @@ class ProspectListResponse(BaseModel):
     itens: list[ProspectResponse]
 
 
+# --- Fase 1 do roadmap pos-auditoria do CRM (06/09/2026): central de
+# duplicidades -- os campos Prospect.duplicado_de_id/StatusProspect.DUPLICADO
+# ja existiam no schema desde a Fase 1 do Radar (03/09/2026), mas nenhum
+# codigo jamais os escrevia (achado da auditoria completa do CRM). ---
+
+
+class GrupoDuplicataProspect(BaseModel):
+    criterio: Literal["cnpj", "email", "telefone"]
+    valor: str
+    itens: list[ProspectResponse]
+
+
+class DuplicatasProspectResponse(BaseModel):
+    grupos: list[GrupoDuplicataProspect]
+
+
+class MesclarProspectRequest(BaseModel):
+    duplicado_id: int = Field(..., ge=1)
+
+
 # --- Fase 2 do Radar de Prospecção (03/09/2026) -- fontes e campanhas -------
 
 

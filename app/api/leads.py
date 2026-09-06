@@ -1293,6 +1293,32 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         )
         entrada_anterior = entrada_atual
 
+    # Achado item 48 da auditoria completa do CRM (06/09/2026): não existia
+    # nenhuma soma do valor de propostas ainda em aberto -- só receita já
+    # faturada (financeiro.py), nunca o que está "na mesa" esperando
+    # decisão do cliente. Universo elegível são propostas enviadas/
+    # visualizadas (enviadas ao cliente, ainda sem aceite/recusa/expiração/
+    # cancelamento) -- mesmo critério de "aberta" usado no resto do
+    # dashboard.
+    propostas_abertas = [item for item in propostas if item.status in ("enviada", "visualizada")]
+    pipeline_previsto = sum((item.honorarios or 0) + (item.taxa_gru or 0) for item in propostas_abertas)
+
+    # Achado item 49 (só depois do 48, pré-requisito do roteiro): pondera
+    # cada proposta aberta pela chance histórica de um lead na mesma fase
+    # atual chegar a "ganho" -- reaproveita taxa_acumulada já calculada
+    # acima (item 43) em vez de inventar um segundo modelo de probabilidade.
+    # Sem histórico suficiente (taxa_acumulada de "ganho" ainda zerada),
+    # o forecast cai para 0 em vez de uma probabilidade inventada.
+    acumulada_por_fase = {item["fase"]: item["taxa_acumulada"] for item in conversao_por_etapa}
+    taxa_final_historica = acumulada_por_fase.get(FaseLead.GANHO.value, 0)
+    leads_por_id = {item.id: item for item in leads}
+    forecast_ponderado = Decimal("0")
+    for item in propostas_abertas:
+        lead_da_proposta = leads_por_id.get(item.lead_id)
+        taxa_da_fase_atual = acumulada_por_fase.get(lead_da_proposta.fase, 0) if lead_da_proposta else 0
+        probabilidade = min(1.0, taxa_final_historica / taxa_da_fase_atual) if taxa_da_fase_atual else 0
+        forecast_ponderado += ((item.honorarios or 0) + (item.taxa_gru or 0)) * Decimal(str(probabilidade))
+
     return {
         "funil": funil,
         "resultado": {"aberto": aberto, "ganho": ganho, "perdido": perdido},
@@ -1302,6 +1328,8 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         "leads_por_origem": {origem or "nao_informado": int(total) for origem, total in por_origem.items()},
         "conversao_por_origem": conversao_por_origem,
         "conversao_por_etapa": conversao_por_etapa,
+        "pipeline_previsto": pipeline_previsto,
+        "forecast_ponderado": round(forecast_ponderado, 2),
         "atrasos": atrasados,
         "tempo_medio_ate_proposta_dias": round(sum(tempo_ate_proposta) / len(tempo_ate_proposta), 2)
         if tempo_ate_proposta

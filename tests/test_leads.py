@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -1171,3 +1172,90 @@ async def test_dashboard_calcula_conversao_por_etapa_usando_historico() -> None:
     assert por_fase["proposta_enviada"]["taxa_acumulada"] == round(5 / 10, 4)
     assert por_fase["processo_inpi"]["entradas"] == 1
     assert por_fase["processo_inpi"]["taxa_da_etapa_anterior"] == round(1 / 2, 4)
+
+
+# --- Itens 48-49 da auditoria completa do CRM (06/09/2026): não existia
+# nenhuma soma do valor de propostas ainda em aberto (só receita já
+# faturada), nem forecast ponderado pela chance histórica de fechamento --
+# forecast_ponderado reaproveita a taxa_acumulada calculada nos itens
+# 41-43 acima em vez de inventar um segundo modelo de probabilidade. ---
+
+
+@pytest.mark.asyncio
+async def test_dashboard_calcula_pipeline_previsto_e_forecast_ponderado() -> None:
+    leads_fake = [
+        SimpleNamespace(
+            id=1,
+            status=StatusLead.NOVO,
+            proxima_acao_em=None,
+            criado_em=None,
+            atualizado_em=None,
+            fase="proposta_enviada",
+        ),
+        SimpleNamespace(
+            id=2,
+            status=StatusLead.NOVO,
+            proxima_acao_em=None,
+            criado_em=None,
+            atualizado_em=None,
+            fase="qualificado",
+        ),
+    ]
+    propostas_fake = [
+        SimpleNamespace(
+            lead_id=1,
+            status="enviada",
+            honorarios=Decimal("1000"),
+            taxa_gru=Decimal("200"),
+            pagamento_status="pendente",
+            protocolo_em=None,
+            aceito_em=None,
+            enviado_em=None,
+        ),
+        SimpleNamespace(
+            lead_id=2,
+            status="visualizada",
+            honorarios=Decimal("500"),
+            taxa_gru=None,
+            pagamento_status="pendente",
+            protocolo_em=None,
+            aceito_em=None,
+            enviado_em=None,
+        ),
+        SimpleNamespace(
+            lead_id=1,
+            status="aceita",
+            honorarios=Decimal("999"),
+            taxa_gru=None,
+            pagamento_status="pendente",
+            protocolo_em=None,
+            aceito_em=None,
+            enviado_em=None,
+        ),
+    ]
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # por_fase
+            FakeResult(itens=[]),  # por_resultado
+            FakeResult(itens=[]),  # motivos
+            FakeResult(itens=[]),  # prod
+            FakeResult(itens=[]),  # por_origem
+            FakeResult(itens=[]),  # por_origem_resultado
+            FakeResult(itens=leads_fake),  # leads
+            FakeResult(itens=[]),  # entradas_proposta
+            FakeResult(itens=[]),  # primeiro_contato
+            FakeResult(itens=propostas_fake),  # propostas
+            FakeResult(itens=[("qualificado", 2), ("proposta_enviada", 1), ("ganho", 1)]),  # entradas_por_fase
+        ]
+    )
+
+    resultado = await dashboard_funil_produtividade(session, usuario_teste())
+
+    # Só as 2 propostas enviada/visualizada entram no pipeline -- a aceita
+    # (999) já é receita em outro estágio, não "aberta" esperando decisão.
+    assert resultado["pipeline_previsto"] == Decimal("1700")
+    # lead 1 está em proposta_enviada (acumulada 1/2=0.5, igual à acumulada
+    # de "ganho") -> probabilidade 1.0 -> 1200*1.0 = 1200.
+    # lead 2 está em qualificado (acumulada 2/2=1.0) -> probabilidade
+    # 0.5/1.0=0.5 -> 500*0.5 = 250.
+    assert resultado["forecast_ponderado"] == Decimal("1450.00")

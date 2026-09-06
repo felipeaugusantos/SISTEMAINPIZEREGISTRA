@@ -6,6 +6,7 @@ async function funilApi(url) {
 function funilEsc(v) { const s = document.createElement("span"); s.textContent = v ?? ""; return s.innerHTML; }
 function funilMsg(text) { const m = document.querySelector("#funil-message"); m.hidden = false; m.textContent = text; m.className = "status-message error"; }
 function funilPct(x) { return (x * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%"; }
+function funilMoeda(x) { return Number(x || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
 // Evita style="width:...%" inline (bloqueado pelo CSP style-src estrito): arredonda
 // para o multiplo de 5 mais proximo e retorna a classe utilitaria w-pct-N.
 function funilPctClass(value) { return `w-pct-${Math.min(100, Math.max(0, Math.round((Number(value) || 0) / 5) * 5))}`; }
@@ -17,6 +18,12 @@ function funilRender(d) {
     ["Ganhos", r.ganho ?? 0],
     ["Perdidos", r.perdido ?? 0],
     ["Conversão", funilPct(d.taxa_conversao || 0)],
+    // Itens 48-49 da auditoria completa do CRM (06/09/2026): pipeline_previsto
+    // soma o valor de propostas enviadas/visualizadas ainda sem decisão;
+    // forecast_ponderado pondera cada uma pela chance histórica de fechar,
+    // dado a fase atual do lead -- nenhum dos dois existia antes.
+    ["Pipeline em aberto", funilMoeda(d.pipeline_previsto)],
+    ["Forecast ponderado", funilMoeda(d.forecast_ponderado)],
   ];
   document.querySelector("#funil-tiles").innerHTML = tiles
     .map(([l, v]) => `<article class="funil-tile"><span>${funilEsc(l)}</span><strong>${funilEsc(String(v))}</strong></article>`)

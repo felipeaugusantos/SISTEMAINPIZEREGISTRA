@@ -99,9 +99,14 @@ limitar_pesquisas = RateLimiter(limite=10, janela_segundos=60, escopo="pesquisas
 
 
 async def detectar_pesquisa_duplicada(
-    session: AsyncSession, organizacao_id: int, lead_id: int | None, marca: str
+    session: AsyncSession, organizacao_id: int, lead_id: int | None, marca: str, *, classe_nice: str | None = None
 ) -> str | None:
-    """Id da 1ª pesquisa do mesmo lead com a mesma marca (case-insensitive), se existir."""
+    """Id da 1ª pesquisa do mesmo lead com a mesma marca (case-insensitive) NA
+    MESMA CLASSE NICE, se existir. Achado da auditoria completa do CRM
+    (06/09/2026, item 4): sem o filtro por classe, pedir uma segunda análise
+    da mesma marca numa classe diferente (ex.: classe 25 depois da 35) seria
+    incorretamente marcado como "duplicada" e escondido da análise -- classes
+    diferentes são pedidos comerciais distintos, não repetição."""
     if lead_id is None:
         return None
     return (
@@ -111,6 +116,7 @@ async def detectar_pesquisa_duplicada(
                 PesquisaMarca.organizacao_id == organizacao_id,
                 PesquisaMarca.lead_id == lead_id,
                 func.lower(PesquisaMarca.marca) == marca.strip().lower(),
+                PesquisaMarca.classe_nice == classe_nice,
             )
             .order_by(PesquisaMarca.criado_em)
             .limit(1)

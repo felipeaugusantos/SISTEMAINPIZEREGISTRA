@@ -35,6 +35,18 @@ api("/v1/auth/me").then(usuario => {
   atualizarAcaoExclusao();
 }).catch(() => {});
 
+// Achado da auditoria completa do CRM (06/09/2026, item 4): classe Nice
+// agora é capturada aqui e usada de verdade pelo motor de busca/risco.
+api("/v1/admin/consulta/classes-nice").then(classes => {
+  const select = document.querySelector("#consulta-classe-nice");
+  for (const { codigo, titulo } of classes) {
+    const option = document.createElement("option");
+    option.value = codigo;
+    option.textContent = `${codigo} — ${titulo}`;
+    select.append(option);
+  }
+}).catch(() => {});
+
 function card(valor, rotulo) {
   const article = document.createElement("article");
   const strong = document.createElement("strong");
@@ -96,6 +108,7 @@ function renderRelatorio(data) {
     card(data.total, "Ocorrências"),
     card(data.risco_nivel || "—", "Nível de risco"),
     card(data.ultima_rpi ? `RPI ${data.ultima_rpi}` : "—", "Base até"),
+    card(data.classe_nice ? `Classe ${data.classe_nice}` : "Todas", "Classe pesquisada"),
     card((data.classes_atividade || []).length, "Classes sugeridas"),
   );
   renderPrognostico(data.prognostico_registrabilidade);
@@ -204,6 +217,7 @@ form.addEventListener("submit", async event => {
   event.preventDefault();
   const dados = Object.fromEntries(new FormData(form));
   dados.atividade = dados.atividade.trim() || null;
+  dados.classe_nice = dados.classe_nice || null;
   setStatus("Registrando consulta…", "loading");
   try {
     const criada = await api("/v1/admin/consulta", { method: "POST", body: JSON.stringify(dados) });

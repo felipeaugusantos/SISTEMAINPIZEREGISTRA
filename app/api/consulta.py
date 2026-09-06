@@ -18,6 +18,7 @@ from app.models import (
     TipoProcesso,
 )
 from app.schemas import PesquisaMarcaCriada, ResumoPublicoMarcaResponse
+from app.trademarks.nice import CLASSES_NICE
 
 router = APIRouter(prefix="/v1/admin/consulta", tags=["consulta interna"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -27,6 +28,13 @@ OperadorDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view
 class ConsultaOperadorInput(BaseModel):
     marca: str = Field(min_length=2, max_length=200)
     atividade: str | None = Field(default=None, max_length=500)
+    # Achado da auditoria completa do CRM (06/09/2026, item 4): classe_nice
+    # existia no modelo e já era usada pelo motor de busca/risco
+    # (gerar_resumo_pesquisa -> buscar_marcas), mas nenhum fluxo comercial
+    # jamais capturava um valor real -- sempre None. Opcional de propósito:
+    # a busca continua funcionando sem classe (varre todas), só fica mais
+    # precisa quando o operador souber a classe pretendida.
+    classe_nice: str | None = Field(default=None, max_length=2)
     # Nome e e-mail sao obrigatorios: toda consulta interna vira lead, para o
     # comercial poder dar sequencia (ver app.api.consulta.criar_consulta).
     nome: str = Field(min_length=2, max_length=150)
@@ -43,6 +51,19 @@ class ConsultaOperadorInput(BaseModel):
     @classmethod
     def limpar_atividade(cls, valor: str | None) -> str | None:
         return (valor or "").strip() or None
+
+    @field_validator("classe_nice")
+    @classmethod
+    def validar_classe_nice(cls, valor: str | None) -> str | None:
+        valor = (valor or "").strip() or None
+        if valor is not None and valor not in CLASSES_NICE:
+            raise ValueError(f"Classe Nice inválida: {valor}")
+        return valor
+
+
+@router.get("/classes-nice")
+async def listar_classes_nice(operador: OperadorDep) -> list[dict]:
+    return [{"codigo": codigo, "titulo": titulo} for codigo, (titulo, _palavras_chave) in CLASSES_NICE.items()]
 
 
 @router.post("", response_model=PesquisaMarcaCriada, status_code=status.HTTP_201_CREATED)
@@ -97,7 +118,7 @@ async def criar_consulta(
         lead.responsavel_id = lead.responsavel_id or operador.id
 
     original = await detectar_pesquisa_duplicada(
-        session, operador.organizacao_id, lead.id if lead else None, dados.marca
+        session, operador.organizacao_id, lead.id if lead else None, dados.marca, classe_nice=dados.classe_nice
     )
     pesquisa = PesquisaMarca(
         organizacao_id=operador.organizacao_id,
@@ -106,7 +127,7 @@ async def criar_consulta(
         marca=dados.marca,
         atividade=dados.atividade,
         tipo_pesquisa="completa",
-        classe_nice=None,
+        classe_nice=dados.classe_nice,
         duplicada=original is not None,
         pesquisa_original_id=original,
     )

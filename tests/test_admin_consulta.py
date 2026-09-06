@@ -43,38 +43,65 @@ def test_formulario_admin_nao_exige_atividade() -> None:
 
 # --- Achado da auditoria completa do CRM (06/09/2026, item 4): classe_nice
 # existia no modelo e já era usada pelo motor de busca/risco, mas nenhum
-# fluxo comercial jamais capturava um valor real. ---
+# fluxo comercial jamais capturava um valor real. Decisão do usuário: várias
+# classes viram várias PesquisaMarca (uma por classe), todas no mesmo lead --
+# não uma lista dentro de uma única pesquisa. ---
 
 
-def test_consulta_interna_aceita_classe_nice_valida() -> None:
+class SessaoConsultaComId(FakeSession):
+    """Simula o id gerado (uuid4, client-side default) que só session.refresh
+    (não flush) preenche de forma confiável nos testes -- um contador
+    incremental para distinguir várias pesquisas da mesma requisição."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self._proximo_id = 1
+
+    async def refresh(self, obj: object) -> None:
+        if isinstance(obj, PesquisaMarca):
+            obj.id = f"pesquisa-{self._proximo_id}"
+            self._proximo_id += 1
+
+
+def test_consulta_interna_aceita_classes_nice_validas() -> None:
     dados = ConsultaOperadorInput.model_validate(
-        {"marca": "NORTE STUDIO", "classe_nice": "25", "nome": "Cliente Teste", "email": "cliente@example.com"}
+        {
+            "marca": "NORTE STUDIO",
+            "classes_nice": ["25", "35"],
+            "nome": "Cliente Teste",
+            "email": "cliente@example.com",
+        }
     )
 
-    assert dados.classe_nice == "25"
+    assert dados.classes_nice == ["25", "35"]
 
 
 def test_consulta_interna_rejeita_classe_nice_invalida() -> None:
     with pytest.raises(ValueError):
         ConsultaOperadorInput.model_validate(
-            {"marca": "NORTE STUDIO", "classe_nice": "99", "nome": "Cliente Teste", "email": "cliente@example.com"}
+            {"marca": "NORTE STUDIO", "classes_nice": ["99"], "nome": "Cliente Teste", "email": "cliente@example.com"}
         )
 
 
-def test_consulta_interna_classe_nice_vazia_vira_none() -> None:
+def test_consulta_interna_remove_classes_repetidas_e_vazias() -> None:
     dados = ConsultaOperadorInput.model_validate(
-        {"marca": "NORTE STUDIO", "classe_nice": "  ", "nome": "Cliente Teste", "email": "cliente@example.com"}
+        {
+            "marca": "NORTE STUDIO",
+            "classes_nice": ["25", "25", " ", "35"],
+            "nome": "Cliente Teste",
+            "email": "cliente@example.com",
+        }
     )
 
-    assert dados.classe_nice is None
+    assert dados.classes_nice == ["25", "35"]
 
 
-def test_consulta_interna_sem_classe_nice_e_opcional() -> None:
+def test_consulta_interna_sem_classes_nice_e_opcional() -> None:
     dados = ConsultaOperadorInput.model_validate(
         {"marca": "NORTE STUDIO", "nome": "Cliente Teste", "email": "cliente@example.com"}
     )
 
-    assert dados.classe_nice is None
+    assert dados.classes_nice == []
 
 
 @pytest.mark.asyncio
@@ -86,31 +113,38 @@ async def test_listar_classes_nice_devolve_catalogo_completo() -> None:
 
 
 @pytest.mark.asyncio
-async def test_consulta_propaga_classe_nice_para_a_pesquisa() -> None:
-    class SessaoConsulta(FakeSession):
-        async def refresh(self, obj: object) -> None:
-            if isinstance(obj, PesquisaMarca):
-                obj.id = "pesquisa-com-classe"
+async def test_consulta_sem_classes_cria_uma_unica_pesquisa_sem_recorte() -> None:
+    session = SessaoConsultaComId()
 
-    session = SessaoConsulta()
+    dados = ConsultaOperadorInput(marca="NORTE STUDIO", nome="Cliente Teste", email="cliente@example.com")
+    resultado = await criar_consulta(dados, session, usuario_teste())
+
+    pesquisas = [item for item in session.adicionados if isinstance(item, PesquisaMarca)]
+    assert len(pesquisas) == 1
+    assert pesquisas[0].classe_nice is None
+    assert len(resultado.itens) == 1
+
+
+@pytest.mark.asyncio
+async def test_consulta_com_varias_classes_cria_uma_pesquisa_por_classe() -> None:
+    session = SessaoConsultaComId()
 
     dados = ConsultaOperadorInput(
-        marca="NORTE STUDIO", classe_nice="25", nome="Cliente Teste", email="cliente@example.com"
+        marca="NORTE STUDIO", classes_nice=["25", "35"], nome="Cliente Teste", email="cliente@example.com"
     )
-    await criar_consulta(dados, session, usuario_teste())
+    resultado = await criar_consulta(dados, session, usuario_teste())
 
-    pesquisa = next(item for item in session.adicionados if isinstance(item, PesquisaMarca))
-    assert pesquisa.classe_nice == "25"
+    pesquisas = [item for item in session.adicionados if isinstance(item, PesquisaMarca)]
+    assert len(pesquisas) == 2
+    assert {p.classe_nice for p in pesquisas} == {"25", "35"}
+    assert all(p.lead_id == pesquisas[0].lead_id for p in pesquisas)
+    assert len(resultado.itens) == 2
+    assert {item.id for item in resultado.itens} == {"pesquisa-1", "pesquisa-2"}
 
 
 @pytest.mark.asyncio
 async def test_consulta_sempre_cria_lead_para_o_comercial() -> None:
-    class SessaoConsulta(FakeSession):
-        async def refresh(self, obj: object) -> None:
-            if isinstance(obj, PesquisaMarca):
-                obj.id = "pesquisa-com-lead"
-
-    session = SessaoConsulta()
+    session = SessaoConsultaComId()
 
     dados = ConsultaOperadorInput(marca="NORTE STUDIO", nome="Cliente Teste", email="cliente@example.com")
     await criar_consulta(dados, session, usuario_teste())

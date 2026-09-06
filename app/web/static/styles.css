@@ -616,6 +616,18 @@ input::placeholder {
   transform: none;
 }
 
+.consulta-classes-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 16px;
+}
+
+.consulta-classes-tabs .secondary-button {
+  min-height: 40px;
+  padding: 0 16px;
+}
+
 .type-filter {
   display: flex;
   flex-wrap: wrap;

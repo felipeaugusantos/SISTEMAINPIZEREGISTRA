@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>Consulta de marcas — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=51">
+  <link rel="stylesheet" href="/static/styles.css?v=52">
   <script src="/static/admin-shell.js?v=40" defer></script>
-  <script src="/static/admin-consulta.js?v=5" defer></script>
+  <script src="/static/admin-consulta.js?v=6" defer></script>
 </head>
 <body class="admin-body" data-admin-section="consulta">
   <main class="admin-main admin-dashboard">
@@ -32,11 +32,9 @@
               <small>(opcional)</small>
               <input name="atividade" maxlength="500" placeholder="Ex.: cafeteria e torrefação">
             </label>
-            <label>Classe Nice pretendida
-              <small>(opcional) — deixe em branco para pesquisar em todas</small>
-              <select name="classe_nice" id="consulta-classe-nice">
-                <option value="">Todas as classes</option>
-              </select>
+            <label>Classes Nice pretendidas
+              <small>(opcional) — segure Ctrl/Cmd para marcar mais de uma; nenhuma selecionada pesquisa em todas. Cada classe gera sua própria pesquisa, todas nesta mesma oportunidade.</small>
+              <select name="classes_nice" id="consulta-classe-nice" multiple size="6"></select>
             </label>
           </div>
         </fieldset>
@@ -56,6 +54,7 @@
 
     <section id="resultado" class="overview-section" hidden>
       <header><div><p class="eyebrow">Resultado</p><h2 id="res-marca"></h2></div></header>
+      <div id="res-outras-classes" class="consulta-classes-tabs" hidden></div>
       <p id="res-duplicada" class="dup-badge" hidden></p>
       <div id="res-metrics" class="overview-primary-metrics"></div>
       <div id="res-prognostico"></div>

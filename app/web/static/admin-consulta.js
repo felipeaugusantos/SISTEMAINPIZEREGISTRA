@@ -213,21 +213,52 @@ contatoForm.addEventListener("submit", async event => {
   }
 });
 
+// Achado da auditoria completa do CRM (06/09/2026, item 4): cada classe
+// marcada vira sua própria pesquisa -- renderiza abas para trocar entre elas
+// sem sair da tela, todas da mesma consulta/oportunidade.
+function renderOutrasClasses(itens) {
+  const container = document.querySelector("#res-outras-classes");
+  if (itens.length < 2) {
+    container.hidden = true;
+    container.replaceChildren();
+    return;
+  }
+  container.hidden = false;
+  container.replaceChildren(
+    ...itens.map((item, indice) => {
+      const botao = document.createElement("button");
+      botao.type = "button";
+      botao.className = "secondary-button";
+      botao.textContent = `Classe ${indice + 1}`;
+      botao.addEventListener("click", async () => {
+        pesquisaAtual = item.id;
+        history.pushState(null, "", item.relatorio_url);
+        mostrarDuplicada(item);
+        await carregarRelatorio(item.id);
+      });
+      return botao;
+    }),
+  );
+}
+
 form.addEventListener("submit", async event => {
   event.preventDefault();
-  const dados = Object.fromEntries(new FormData(form));
+  const formData = new FormData(form);
+  const dados = Object.fromEntries(formData);
   dados.atividade = dados.atividade.trim() || null;
-  dados.classe_nice = dados.classe_nice || null;
+  dados.classes_nice = formData.getAll("classes_nice");
   setStatus("Registrando consulta…", "loading");
   try {
-    const criada = await api("/v1/admin/consulta", { method: "POST", body: JSON.stringify(dados) });
-    pesquisaAtual = criada.id;
+    const resultado = await api("/v1/admin/consulta", { method: "POST", body: JSON.stringify(dados) });
+    const primeira = resultado.itens[0];
+    pesquisaAtual = primeira.id;
     exclusaoPendente = false;
     atualizarAcaoExclusao();
-    history.pushState(null, "", criada.relatorio_url);
-    mostrarDuplicada(criada);
-    await carregarRelatorio(criada.id);
-    await abrirContatos(criada.lead_id);
+    history.pushState(null, "", primeira.relatorio_url);
+    mostrarDuplicada(primeira);
+    renderOutrasClasses(resultado.itens);
+    await carregarRelatorio(primeira.id);
+    await abrirContatos(resultado.lead_id);
   } catch (error) {
     setStatus(error.message, "error");
   }

@@ -31,10 +31,14 @@ class ConsultaOperadorInput(BaseModel):
     # Achado da auditoria completa do CRM (06/09/2026, item 4): classe_nice
     # existia no modelo e já era usada pelo motor de busca/risco
     # (gerar_resumo_pesquisa -> buscar_marcas), mas nenhum fluxo comercial
-    # jamais capturava um valor real -- sempre None. Opcional de propósito:
-    # a busca continua funcionando sem classe (varre todas), só fica mais
-    # precisa quando o operador souber a classe pretendida.
-    classe_nice: str | None = Field(default=None, max_length=2)
+    # jamais capturava um valor real -- sempre None. Lista vazia mantém o
+    # comportamento de sempre (uma única pesquisa sem recorte, buscando em
+    # todas as classes); uma ou mais classes cria uma PesquisaMarca PARA
+    # CADA classe, todas ligadas ao mesmo lead -- decisão do usuário de
+    # tratar "várias classes" como "várias pesquisas da mesma oportunidade"
+    # em vez de redesenhar o motor de busca/risco (pensado para 1 classe
+    # por vez) para aceitar uma lista.
+    classes_nice: list[str] = Field(default_factory=list, max_length=45)
     # Nome e e-mail sao obrigatorios: toda consulta interna vira lead, para o
     # comercial poder dar sequencia (ver app.api.consulta.criar_consulta).
     nome: str = Field(min_length=2, max_length=150)
@@ -52,13 +56,14 @@ class ConsultaOperadorInput(BaseModel):
     def limpar_atividade(cls, valor: str | None) -> str | None:
         return (valor or "").strip() or None
 
-    @field_validator("classe_nice")
+    @field_validator("classes_nice")
     @classmethod
-    def validar_classe_nice(cls, valor: str | None) -> str | None:
-        valor = (valor or "").strip() or None
-        if valor is not None and valor not in CLASSES_NICE:
-            raise ValueError(f"Classe Nice inválida: {valor}")
-        return valor
+    def validar_classes_nice(cls, valores: list[str]) -> list[str]:
+        limpas = list(dict.fromkeys(valor.strip() for valor in valores if valor.strip()))
+        invalidas = [valor for valor in limpas if valor not in CLASSES_NICE]
+        if invalidas:
+            raise ValueError(f"Classe Nice inválida: {', '.join(invalidas)}")
+        return limpas
 
 
 @router.get("/classes-nice")
@@ -66,10 +71,15 @@ async def listar_classes_nice(operador: OperadorDep) -> list[dict]:
     return [{"codigo": codigo, "titulo": titulo} for codigo, (titulo, _palavras_chave) in CLASSES_NICE.items()]
 
 
-@router.post("", response_model=PesquisaMarcaCriada, status_code=status.HTTP_201_CREATED)
+class ConsultaMultiplaCriada(BaseModel):
+    lead_id: int | None = None
+    itens: list[PesquisaMarcaCriada]
+
+
+@router.post("", response_model=ConsultaMultiplaCriada, status_code=status.HTTP_201_CREATED)
 async def criar_consulta(
     dados: ConsultaOperadorInput, session: SessionDep, operador: OperadorDep
-) -> PesquisaMarcaCriada:
+) -> ConsultaMultiplaCriada:
     empresa = await obter_ou_criar_empresa(session, operador.organizacao_id, dados.empresa)
     email = dados.email.strip().lower()
     lead = await buscar_lead_ativo_por_email(session, operador.organizacao_id, email)
@@ -117,30 +127,43 @@ async def criar_consulta(
             lead.atividade = dados.atividade
         lead.responsavel_id = lead.responsavel_id or operador.id
 
-    original = await detectar_pesquisa_duplicada(
-        session, operador.organizacao_id, lead.id if lead else None, dados.marca, classe_nice=dados.classe_nice
-    )
-    pesquisa = PesquisaMarca(
-        organizacao_id=operador.organizacao_id,
-        lead_id=lead.id if lead else None,
-        empresa_id=empresa.id if empresa else (lead.empresa_id if lead else None),
-        marca=dados.marca,
-        atividade=dados.atividade,
-        tipo_pesquisa="completa",
-        classe_nice=dados.classe_nice,
-        duplicada=original is not None,
-        pesquisa_original_id=original,
-    )
-    session.add(pesquisa)
+    # Lista vazia = uma única pesquisa sem recorte de classe (comportamento
+    # de sempre); cada classe informada vira sua própria PesquisaMarca,
+    # todas no mesmo lead -- a "oportunidade" continua sendo o lead, não
+    # precisa de nenhuma entidade de agrupamento nova.
+    classes_para_pesquisar: list[str | None] = list(dados.classes_nice) or [None]
+    pesquisas: list[PesquisaMarca] = []
+    for classe_nice in classes_para_pesquisar:
+        original = await detectar_pesquisa_duplicada(
+            session, operador.organizacao_id, lead.id if lead else None, dados.marca, classe_nice=classe_nice
+        )
+        pesquisa = PesquisaMarca(
+            organizacao_id=operador.organizacao_id,
+            lead_id=lead.id if lead else None,
+            empresa_id=empresa.id if empresa else (lead.empresa_id if lead else None),
+            marca=dados.marca,
+            atividade=dados.atividade,
+            tipo_pesquisa="completa",
+            classe_nice=classe_nice,
+            duplicada=original is not None,
+            pesquisa_original_id=original,
+        )
+        session.add(pesquisa)
+        pesquisas.append(pesquisa)
     await session.commit()
-    await session.refresh(pesquisa)
-    return PesquisaMarcaCriada(
-        id=pesquisa.id,
-        relatorio_url=f"/admin/consulta/{pesquisa.id}",
-        lead_id=lead.id if lead else None,
-        duplicada=pesquisa.duplicada,
-        pesquisa_original_id=pesquisa.pesquisa_original_id,
-    )
+    itens: list[PesquisaMarcaCriada] = []
+    for pesquisa in pesquisas:
+        await session.refresh(pesquisa)
+        itens.append(
+            PesquisaMarcaCriada(
+                id=pesquisa.id,
+                relatorio_url=f"/admin/consulta/{pesquisa.id}",
+                lead_id=lead.id if lead else None,
+                duplicada=pesquisa.duplicada,
+                pesquisa_original_id=pesquisa.pesquisa_original_id,
+            )
+        )
+    return ConsultaMultiplaCriada(lead_id=lead.id if lead else None, itens=itens)
 
 
 @router.get("/{pesquisa_id}/contexto")

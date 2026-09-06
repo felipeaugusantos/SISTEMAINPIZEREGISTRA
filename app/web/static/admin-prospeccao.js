@@ -127,6 +127,7 @@ function renderProspects(data) {
         <h3>${escapeHtml(item.nome_fantasia || item.razao_social)}</h3>
         <p>${escapeHtml(item.razao_social)}${item.cnpj ? ` · ${escapeHtml(item.cnpj)}` : ""}</p>
         <small>${[item.cidade, item.uf].filter(Boolean).map(escapeHtml).join("/") || "Localização não informada"}${item.cnae_principal ? ` · CNAE ${escapeHtml(item.cnae_principal)}` : ""}</small>
+        <small class="prospeccao-contato">${item.email ? escapeHtml(item.email) : "Sem e-mail"} · ${item.telefone ? escapeHtml(item.telefone) : "Sem telefone"}</small>
       </div>
       <div class="prospeccao-sinais">
         ${statusBadge(item.status)}
@@ -276,6 +277,12 @@ async function abrirDetalhe(id) {
     const timelineItens = timeline.itens.map(item => `<li><strong>${escapeHtml(state.statusLabels[item.status] || item.status)}</strong> — ${formatDateTime(item.entrou_em)}${item.por ? ` · ${escapeHtml(item.por)}` : ""}</li>`).join("");
 
     corpo.innerHTML = `
+      <section class="prospeccao-detalhe-bloco">
+        <h3>Contato</h3>
+        <p>E-mail: ${prospect.email ? escapeHtml(prospect.email) : "não informado"}</p>
+        <p>Telefone: ${prospect.telefone ? escapeHtml(prospect.telefone) : "não informado"}</p>
+        <p>Site: ${prospect.site ? escapeHtml(prospect.site) : "não informado"}</p>
+      </section>
       <section class="prospeccao-detalhe-bloco">
         <h3>Presença digital</h3><p>${escapeHtml(presenca)}</p>
       </section>

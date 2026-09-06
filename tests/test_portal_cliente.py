@@ -5,8 +5,16 @@ from datetime import UTC, date, datetime
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from app.api.portal_cliente import assinar_proposta_portal, listar_prazos_portal, webhook_clicksign
-from app.models import AssinaturaPropostaComercial, ClientePortal, Lead, PrazoJuridico, Processo, PropostaComercial
+from app.api.portal_cliente import assinar_proposta_portal, listar_prazos_portal, listar_processos_portal, webhook_clicksign
+from app.models import (
+    AssinaturaPropostaComercial,
+    ClientePortal,
+    Lead,
+    PrazoJuridico,
+    Processo,
+    ProcessoMonitorado,
+    PropostaComercial,
+)
 from tests.conftest import FakeResult, FakeSession
 
 
@@ -31,21 +39,15 @@ def _cliente() -> ClientePortal:
 # --- Achado 5.4 da auditoria (02/09/2026): portal do cliente sem conexão com prazos (Fase 9) ---
 
 
-def test_listar_prazos_portal_sem_processo_numero_devolve_lista_vazia() -> None:
-    lead = Lead(id=9, organizacao_id=1, processo_numero=None)
-    session = FakeSession([FakeResult(scalar=lead)])
-    resultado = asyncio.run(listar_prazos_portal(_request(), _cliente(), session))
-    assert resultado == {"prazos": []}
-
-
 def test_listar_prazos_portal_sem_processo_monitorado_devolve_lista_vazia() -> None:
-    lead = Lead(id=9, organizacao_id=1, processo_numero="BR512345678")
-    processo = Processo(id=5, numero="BR512345678", titulo="Marca Exemplo")
+    # Achado "Ruptura 2" da auditoria completa do CRM (06/09/2026): a busca
+    # agora é por ProcessoMonitorado.lead_id (FK real), não mais por
+    # igualdade de string entre lead.processo_numero e Processo.numero.
+    lead = Lead(id=9, organizacao_id=1)
     session = FakeSession(
         [
             FakeResult(scalar=lead),
-            FakeResult(scalar=processo),
-            FakeResult(itens=[]),  # nenhum ProcessoMonitorado para essa organização
+            FakeResult(itens=[]),  # nenhum ProcessoMonitorado vinculado a este lead
         ]
     )
     resultado = asyncio.run(listar_prazos_portal(_request(), _cliente(), session))
@@ -53,8 +55,9 @@ def test_listar_prazos_portal_sem_processo_monitorado_devolve_lista_vazia() -> N
 
 
 def test_listar_prazos_portal_expoe_apenas_campos_seguros() -> None:
-    lead = Lead(id=9, organizacao_id=1, processo_numero="BR512345678")
+    lead = Lead(id=9, organizacao_id=1)
     processo = Processo(id=5, numero="BR512345678", titulo="Marca Exemplo")
+    monitorado = ProcessoMonitorado(id=7, organizacao_id=1, processo_id=5, lead_id=9, vinculado_por="teste")
     prazo = PrazoJuridico(
         id=42,
         organizacao_id=1,
@@ -78,8 +81,7 @@ def test_listar_prazos_portal_expoe_apenas_campos_seguros() -> None:
     session = FakeSession(
         [
             FakeResult(scalar=lead),
-            FakeResult(scalar=processo),
-            FakeResult(itens=[7]),
+            FakeResult(itens=[(monitorado, processo)]),
             FakeResult(itens=[prazo]),
         ]
     )
@@ -100,6 +102,27 @@ def test_listar_prazos_portal_expoe_apenas_campos_seguros() -> None:
     assert "responsavel_id" not in campos_expostos
     assert "confirmado_por" not in campos_expostos
     assert "confirmacao_observacoes" not in campos_expostos
+
+
+def test_listar_processos_portal_mostra_varios_processos_do_mesmo_lead() -> None:
+    # Achado "Ruptura 2" da auditoria completa do CRM (06/09/2026): antes só
+    # dava para ver 1 processo por lead (lead.processo_numero era um campo
+    # de texto solto); agora aparecem todos os ProcessoMonitorado vinculados.
+    lead = Lead(id=9, organizacao_id=1)
+    processo_a = Processo(id=5, numero="BR512345678", titulo="Marca A", situacao="deferido")
+    processo_b = Processo(id=6, numero="BR987654321", titulo="Marca B", situacao="em tramitação")
+    monitorado_a = ProcessoMonitorado(id=7, organizacao_id=1, processo_id=5, lead_id=9, vinculado_por="teste")
+    monitorado_b = ProcessoMonitorado(id=8, organizacao_id=1, processo_id=6, lead_id=9, vinculado_por="teste")
+    session = FakeSession(
+        [
+            FakeResult(scalar=lead),
+            FakeResult(itens=[(monitorado_a, processo_a), (monitorado_b, processo_b)]),
+        ]
+    )
+
+    resultado = asyncio.run(listar_processos_portal(_request(), _cliente(), session))
+
+    assert [item["numero"] for item in resultado["processos"]] == ["BR512345678", "BR987654321"]
 
 
 # --- Fase 1 do plano proposta-financeiro (03/09/2026): blindar o aceite ---

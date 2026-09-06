@@ -265,6 +265,28 @@ def _cliente_dict(cliente: ClientePortal) -> dict:
     }
 
 
+async def _processos_monitorados_do_lead(
+    session: AsyncSession, lead_id: int, organizacao_id: int
+) -> list[tuple[ProcessoMonitorado, Processo]]:
+    """Acha os processos do INPI vinculados a este lead pelo FK real
+    (ProcessoMonitorado.lead_id) -- achado "Ruptura 2" da auditoria completa
+    do CRM (06/09/2026): antes o portal resolvia por igualdade de string
+    entre lead.processo_numero e Processo.numero, que (a) falhava
+    silenciosamente -- lista vazia, sem erro -- em qualquer divergência de
+    formatação, e (b) só enxergava 1 processo por lead mesmo quando a
+    oportunidade tinha várias marcas monitoradas. Não filtra por status:
+    o cliente deve ver também processos já concluídos/encerrados."""
+    linhas = (
+        await session.execute(
+            select(ProcessoMonitorado, Processo)
+            .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+            .where(ProcessoMonitorado.lead_id == lead_id, ProcessoMonitorado.organizacao_id == organizacao_id)
+            .order_by(ProcessoMonitorado.criado_em)
+        )
+    ).all()
+    return [(monitorado, processo) for monitorado, processo in linhas]
+
+
 @router.post("/v1/portal/login")
 async def login_cliente(dados: ClienteLogin, request: Request, response: Response, session: SessionDep) -> dict:
     cliente = (
@@ -714,19 +736,10 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
         .scalars()
         .all()
     )
-    processos = []
-    if lead.processo_numero:
-        processo = (
-            await session.execute(select(Processo).where(Processo.numero == lead.processo_numero))
-        ).scalar_one_or_none()
-        if processo:
-            processos.append(
-                {
-                    "numero": processo.numero,
-                    "titulo": processo.titulo,
-                    "situacao": processo.situacao,
-                }
-            )
+    processos = [
+        {"numero": processo.numero, "titulo": processo.titulo, "situacao": processo.situacao}
+        for _monitorado, processo in await _processos_monitorados_do_lead(session, lead.id, cliente.organizacao_id)
+    ]
     _auditar_cliente(session, cliente, request, "consultar_resumo", "portal:resumo")
     await session.commit()
     return {
@@ -942,22 +955,17 @@ async def listar_processos_portal(request: Request, cliente: ClientDep, session:
             select(Lead).where(Lead.id == cliente.lead_id, Lead.organizacao_id == cliente.organizacao_id)
         )
     ).scalar_one()
-    processos = []
-    if lead.processo_numero:
-        processo = (
-            await session.execute(select(Processo).where(Processo.numero == lead.processo_numero))
-        ).scalar_one_or_none()
-        if processo:
-            processos.append(
-                {
-                    "id": processo.id,
-                    "numero": processo.numero,
-                    "titulo": processo.titulo,
-                    "situacao": processo.situacao,
-                    "situacao_normalizada": processo.situacao_normalizada,
-                    "fonte": processo.fonte,
-                }
-            )
+    processos = [
+        {
+            "id": processo.id,
+            "numero": processo.numero,
+            "titulo": processo.titulo,
+            "situacao": processo.situacao,
+            "situacao_normalizada": processo.situacao_normalizada,
+            "fonte": processo.fonte,
+        }
+        for _monitorado, processo in await _processos_monitorados_do_lead(session, lead.id, cliente.organizacao_id)
+    ]
     _auditar_cliente(session, cliente, request, "consultar_processos", "portal:processos")
     await session.commit()
     return {"processos": processos}
@@ -992,52 +1000,38 @@ async def listar_prazos_portal(request: Request, cliente: ClientDep, session: Se
         )
     ).scalar_one()
     prazos: list[dict] = []
-    if lead.processo_numero:
-        processo = (
-            await session.execute(select(Processo).where(Processo.numero == lead.processo_numero))
-        ).scalar_one_or_none()
-        if processo:
-            monitorados = (
-                (
-                    await session.execute(
-                        select(ProcessoMonitorado.id).where(
-                            ProcessoMonitorado.processo_id == processo.id,
-                            ProcessoMonitorado.organizacao_id == cliente.organizacao_id,
-                        )
+    monitorados = [
+        monitorado.id for monitorado, _processo in await _processos_monitorados_do_lead(session, lead.id, cliente.organizacao_id)
+    ]
+    if monitorados:
+        linhas = (
+            (
+                await session.execute(
+                    select(PrazoJuridico)
+                    .where(
+                        PrazoJuridico.processo_monitorado_id.in_(monitorados),
+                        PrazoJuridico.organizacao_id == cliente.organizacao_id,
+                        PrazoJuridico.status.in_(STATUS_PRAZO_VISIVEL_CLIENTE),
                     )
+                    .order_by(PrazoJuridico.vencimento_em)
                 )
-                .scalars()
-                .all()
             )
-            if monitorados:
-                linhas = (
-                    (
-                        await session.execute(
-                            select(PrazoJuridico)
-                            .where(
-                                PrazoJuridico.processo_monitorado_id.in_(monitorados),
-                                PrazoJuridico.organizacao_id == cliente.organizacao_id,
-                                PrazoJuridico.status.in_(STATUS_PRAZO_VISIVEL_CLIENTE),
-                            )
-                            .order_by(PrazoJuridico.vencimento_em)
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-                prazos = [
-                    {
-                        "id": prazo.id,
-                        "tipo": prazo.tipo,
-                        "tipo_descricao": TIPOS_PRAZO.get(prazo.tipo, prazo.tipo),
-                        "titulo": prazo.titulo,
-                        "status": prazo.status,
-                        "prioridade": prazo.prioridade,
-                        "vencimento_em": prazo.vencimento_em,
-                        "concluido_em": prazo.concluido_em,
-                    }
-                    for prazo in linhas
-                ]
+            .scalars()
+            .all()
+        )
+        prazos = [
+            {
+                "id": prazo.id,
+                "tipo": prazo.tipo,
+                "tipo_descricao": TIPOS_PRAZO.get(prazo.tipo, prazo.tipo),
+                "titulo": prazo.titulo,
+                "status": prazo.status,
+                "prioridade": prazo.prioridade,
+                "vencimento_em": prazo.vencimento_em,
+                "concluido_em": prazo.concluido_em,
+            }
+            for prazo in linhas
+        ]
     _auditar_cliente(session, cliente, request, "consultar_prazos", "portal:prazos")
     await session.commit()
     return {"prazos": prazos}

@@ -1259,3 +1259,39 @@ async def test_dashboard_calcula_pipeline_previsto_e_forecast_ponderado() -> Non
     # lead 2 está em qualificado (acumulada 2/2=1.0) -> probabilidade
     # 0.5/1.0=0.5 -> 500*0.5 = 250.
     assert resultado["forecast_ponderado"] == Decimal("1450.00")
+
+
+# --- Item 30 da auditoria completa do CRM (06/09/2026): endpoint dedicado de
+# score de lead (ver app.crm.calcular_score_lead para a lógica). ---
+
+
+def test_endpoint_score_lead_devolve_score_calculado() -> None:
+    lead = Lead(
+        id=7,
+        organizacao_id=1,
+        email="cliente@example.test",
+        telefone="11999999999",
+        criado_em=datetime.now(UTC) - timedelta(days=1),
+    )
+    _sessao_admin(
+        FakeResult(scalar=lead),
+        FakeResult(scalar=None),  # sem proposta perdida
+        FakeResult(scalar=None),  # sem contato registrado
+        FakeResult(scalar=None),  # sem resposta de e-mail
+    )
+
+    resposta = TestClient(app).get("/v1/admin/leads/7/score")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["fit_base"] == 40
+    assert corpo["engajamento_bruto"] == 0
+    assert corpo["score"] == 40
+
+
+def test_endpoint_score_lead_404_quando_lead_nao_existe() -> None:
+    _sessao_admin(FakeResult(scalar=None))
+
+    resposta = TestClient(app).get("/v1/admin/leads/999/score")
+
+    assert resposta.status_code == 404

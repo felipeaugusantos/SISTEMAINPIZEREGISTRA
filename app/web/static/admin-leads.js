@@ -427,7 +427,7 @@ async function openLead(id, selectedResearchId = null) {
     ["propostas", "Proposta de registro"],
   ];
   dialogContent.innerHTML = `
-    <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div></section>
+    <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div></section>
     <nav class="lead-tabs" role="tablist">${ABAS_LEAD.map(([id, label], i) => `<button type="button" class="lead-tab${i === 0 ? " active" : ""}" role="tab" aria-selected="${i === 0}" data-tab="${id}">${label}</button>`).join("")}</nav>
     <div class="lead-tab-panel" data-panel="atendimento">
       <section class="lead-history lg-full"><header><div><p class="eyebrow">${selectedResearchId ? "Pesquisa selecionada" : "Histórico"}</p><h3>${pesquisasExibidas.length} pesquisa${pesquisasExibidas.length === 1 ? "" : "s"}</h3></div></header>${pesquisasExibidas.length ? pesquisasExibidas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
@@ -515,6 +515,20 @@ async function openLead(id, selectedResearchId = null) {
     }).catch(error => { const mensagem = error.status === 403 ? "Sem permissão ou este lead não está sob sua responsabilidade." : error.status === 401 ? "Sua sessão expirou. Atualize a página e entre novamente." : (error.message || "Não foi possível verificar o acesso."); portalCard.innerHTML = `<strong>Portal do cliente</strong><p>${mensagem}</p>`; });
     renderPortalMessages(lead);
   }
+  // Item 30 da auditoria completa do CRM (06/09/2026): score calculado sob
+  // demanda (endpoint dedicado, não vem no payload do lead) -- busca à
+  // parte, sem travar a abertura do modal se demorar ou falhar.
+  fetch(`/v1/admin/leads/${lead.id}/score`).then(r => r.ok ? r.json() : Promise.reject())
+    .then(dadosScore => {
+      const badge = document.querySelector("#lead-score-badge");
+      if (!badge) return;
+      badge.textContent = `${dadosScore.score}/100`;
+      const dias = dadosScore.dias_sem_interacao;
+      badge.title = dias === null
+        ? "Sem nenhuma interação registrada ainda"
+        : `${dias} dia${dias === 1 ? "" : "s"} sem interação · fator de decaimento ${(dadosScore.fator_decaimento * 100).toFixed(0)}%`;
+    })
+    .catch(() => { const badge = document.querySelector("#lead-score-badge"); if (badge) badge.textContent = "Indisponível"; });
   await renderEmpresa(lead);
   await renderCadenciaLead(lead);
   await loadLeadContacts(lead.id);

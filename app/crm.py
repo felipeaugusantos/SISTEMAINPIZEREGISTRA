@@ -20,7 +20,9 @@ from app.models import (
     LembreteCRM,
     PoliticaCRM,
     ProcessoMonitorado,
+    PropostaComercial,
     RegraAutomacao,
+    RespostaEmailLead,
     StatusLead,
     Titular,
     UsuarioOperacoes,
@@ -212,6 +214,87 @@ async def gerar_lembretes_sla_primeiro_atendimento(session: AsyncSession) -> int
             if inserido is not None:
                 criados += 1
     return criados
+
+
+# Faixas de decaimento por tempo sem interação (item 32 da auditoria completa
+# do CRM, 06/09/2026): quanto mais tempo desde o último sinal de engajamento,
+# menos o score confia nele -- um lead que respondeu e-mail há 6 meses não
+# deveria pontuar igual a um que respondeu ontem.
+_FAIXAS_DECAIMENTO_SCORE: tuple[tuple[int, float], ...] = (
+    (7, 1.0),
+    (15, 0.8),
+    (30, 0.6),
+    (60, 0.35),
+)
+_FATOR_DECAIMENTO_MINIMO = 0.15
+
+
+async def calcular_score_lead(session: AsyncSession, lead: Lead) -> dict:
+    """Score simples de fit + engajamento, calculado sob demanda.
+
+    Achado item 30 da auditoria completa do CRM (06/09/2026): Lead nunca
+    teve nenhum score -- o único score do sistema pertencia a Prospect (fase
+    anterior à conversão) e não sobrevivia à conversão em Lead. Decisão do
+    usuário: usar só sinais já capturados pelo sistema (completude de
+    contato, ausência de proposta perdida, contato humano registrado,
+    resposta de e-mail de cadência) -- sem inventar peso de origem, porte ou
+    setor, que exigiriam dados que o sistema não coleta hoje.
+
+    Calculado sob demanda, não persistido: o decaimento depende de "agora",
+    então um valor salvo em coluna ficaria desatualizado sem um job de
+    recálculo dedicado -- mais uma fonte de verdade divergente (o mesmo tipo
+    de problema já documentado para fase/status do lead).
+    """
+    fit_base = 0
+    if lead.email and lead.telefone:
+        fit_base += 20
+    tem_proposta_perdida = (
+        await session.execute(
+            select(PropostaComercial.id)
+            .where(PropostaComercial.lead_id == lead.id, PropostaComercial.status.in_(("recusada", "expirada")))
+            .limit(1)
+        )
+    ).scalar_one_or_none() is not None
+    if not tem_proposta_perdida:
+        fit_base += 20
+
+    ultimo_contato = (
+        await session.execute(select(func.max(ContatoLead.criado_em)).where(ContatoLead.lead_id == lead.id))
+    ).scalar_one_or_none()
+    ultima_resposta = (
+        await session.execute(
+            select(func.max(RespostaEmailLead.recebido_em)).where(RespostaEmailLead.lead_id == lead.id)
+        )
+    ).scalar_one_or_none()
+
+    engajamento_bruto = 0
+    if ultimo_contato is not None:
+        engajamento_bruto += 30
+    if ultima_resposta is not None:
+        engajamento_bruto += 30
+
+    eventos = [d for d in (ultimo_contato, ultima_resposta, lead.criado_em) if d is not None]
+    ultimo_evento = max(eventos) if eventos else None
+    dias_sem_interacao = (datetime.now(UTC) - ultimo_evento).days if ultimo_evento else None
+
+    fator_decaimento = _FATOR_DECAIMENTO_MINIMO
+    if dias_sem_interacao is not None:
+        for limite_dias, fator in _FAIXAS_DECAIMENTO_SCORE:
+            if dias_sem_interacao <= limite_dias:
+                fator_decaimento = fator
+                break
+
+    score = fit_base + round(engajamento_bruto * fator_decaimento)
+    return {
+        "score": score,
+        "fit_base": fit_base,
+        "engajamento_bruto": engajamento_bruto,
+        "fator_decaimento": fator_decaimento,
+        "dias_sem_interacao": dias_sem_interacao,
+        "tem_proposta_perdida": tem_proposta_perdida,
+        "teve_contato_humano": ultimo_contato is not None,
+        "respondeu_email": ultima_resposta is not None,
+    }
 
 
 # --- Regras de automação embutidas (Terceira entrega, item 2) --------------

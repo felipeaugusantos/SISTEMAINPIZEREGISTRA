@@ -25,6 +25,7 @@ from app.crm import (
     aplicar_politica_oportunidade,
     aplicar_regras_automacao,
     avancar_fase_lead,
+    calcular_score_lead,
     obter_politica_crm,
     registrar_consentimento_operador,
     registrar_consentimento_titular,
@@ -1826,6 +1827,21 @@ async def funil_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -
         "ordem": list(ORDEM_FASE_LEAD),
         "historico": [{"fase": f, "entrou_em": e, "por": p} for f, e, p in historico],
     }
+
+
+@router.get("/v1/admin/leads/{lead_id}/score")
+async def score_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
+    """Score simples de fit + engajamento (item 30 da auditoria completa do
+    CRM, 06/09/2026). Endpoint dedicado (em vez de campo no LeadResponse
+    usado pela lista/kanban) de propósito: calcular exige consultas extras
+    por lead (contatos, respostas de e-mail, propostas) -- expor no
+    LeadResponse causaria N+1 em toda listagem de leads."""
+    lead = (
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    return await calcular_score_lead(session, lead)
 
 
 @router.get("/v1/admin/leads/{lead_id}/relacionados")

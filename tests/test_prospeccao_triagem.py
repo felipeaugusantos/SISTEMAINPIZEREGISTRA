@@ -25,14 +25,18 @@ def test_classificacao_nunca_inclui_disponivel_ou_livre() -> None:
         "resultado_relevante_localizado",
         "inconclusivo",
         "analise_humana_necessaria",
+        "ja_e_titular",
     }
 
 
-def _ocorrencia(titulo: str, numero: str, criterios: list[str], similaridade: float = 0.5, **kwargs) -> OcorrenciaBusca:
+def _ocorrencia(
+    titulo: str, numero: str, criterios: list[str], similaridade: float = 0.5, titulares: list | None = None, **kwargs
+) -> OcorrenciaBusca:
     score = calcular_score_nominativo(
         criterios=criterios, similaridade=similaridade, processo=numero, titulo=titulo, **kwargs
     )
-    return OcorrenciaBusca(processo=SimpleNamespace(titulo=titulo, numero=numero), criterios=criterios, score=score)
+    processo = SimpleNamespace(titulo=titulo, numero=numero, titulares=titulares or [])
+    return OcorrenciaBusca(processo=processo, criterios=criterios, score=score)
 
 
 def test_extrair_marca_candidata_prefere_nome_fantasia() -> None:
@@ -54,13 +58,6 @@ def test_classificar_zero_resultados_e_nao_localizado() -> None:
     classificacao, justificativa = classificar(0, [], "Marca Nova")
     assert classificacao == ClassificacaoTriagemProspect.NAO_LOCALIZADO
     assert "Marca Nova" in justificativa
-
-
-def test_classificar_muitos_resultados_pede_analise_humana() -> None:
-    ocorrencias = [_ocorrencia("ALGO", "111", ["Aproximação nominativa"])]
-    classificacao, justificativa = classificar(LIMITE_BUSCA_TRIAGEM + 1, ocorrencias, "Termo Genérico")
-    assert classificacao == ClassificacaoTriagemProspect.ANALISE_HUMANA_NECESSARIA
-    assert "50" in justificativa or str(LIMITE_BUSCA_TRIAGEM) in justificativa
 
 
 def test_classificar_nome_identico_e_resultado_relevante() -> None:
@@ -103,3 +100,76 @@ def test_classificar_match_so_por_termo_comum_rebaixa_para_inconclusivo(monkeypa
 
     assert classificacao == ClassificacaoTriagemProspect.INCONCLUSIVO
     assert "plus" in justificativa.lower()
+
+
+# --- Achado de 05/09/2026: gate de volume mais preciso e nova classificação
+# factual "já é titular" (não afeta app.search.buscar_marcas, usado também
+# pela pesquisa formal -- escopo só da triagem do Radar). ---
+
+
+def test_classificar_volume_alto_explicado_por_termo_comum_e_nao_localizado(monkeypatch) -> None:
+    # Antes: >50 ocorrências ia direto para "análise humana necessária", sem
+    # olhar para a ocorrência mais relevante. Agora, se a mais próxima só
+    # coincide em termo de uso comum (ex.: "MOCOCA" -- radical de alta
+    # frequência no corpus), o volume alto é explicado e vira não_localizado.
+    from app import prospeccao_triagem as modulo
+
+    monkeypatch.setattr(modulo, "termos_comuns_do_match", lambda titulo, marca: ("mococ",))
+    ocorrencias = [_ocorrencia("LATICINIOS MOCOCA", "900123456", ["Radical semelhante"], similaridade=0.2)]
+    classificacao, justificativa = modulo.classificar(LIMITE_BUSCA_TRIAGEM + 1, ocorrencias, "ALEA MOCOCA II")
+
+    assert classificacao == ClassificacaoTriagemProspect.NAO_LOCALIZADO
+    assert "mococ" in justificativa.lower()
+
+
+def test_classificar_volume_alto_com_score_forte_ainda_e_relevante(monkeypatch) -> None:
+    # Volume alto não deve mais, por si só, esconder um conflito real: se a
+    # ocorrência mais próxima tem score forte (sem termo comum isolado), a
+    # classificação continua sendo pelo score, não pelo volume.
+    from app import prospeccao_triagem as modulo
+
+    monkeypatch.setattr(modulo, "termos_comuns_do_match", lambda titulo, marca: ())
+    ocorrencias = [_ocorrencia("PADARIA DO JOAO", "900123456", ["Nome idêntico"], similaridade=1.0)]
+    classificacao, _ = modulo.classificar(LIMITE_BUSCA_TRIAGEM + 1, ocorrencias, "PADARIA DO JOAO")
+
+    assert classificacao == ClassificacaoTriagemProspect.RESULTADO_RELEVANTE_LOCALIZADO
+
+
+def test_classificar_volume_alto_e_score_fraco_ainda_pede_analise_humana(monkeypatch) -> None:
+    # Ambíguo de verdade (não é só termo comum, mas também não é forte o
+    # bastante) com volume alto continua pedindo análise humana.
+    from app import prospeccao_triagem as modulo
+
+    monkeypatch.setattr(modulo, "termos_comuns_do_match", lambda titulo, marca: ())
+    ocorrencias = [_ocorrencia("ALGO", "111", ["Aproximação nominativa"])]
+    classificacao, justificativa = modulo.classificar(LIMITE_BUSCA_TRIAGEM + 1, ocorrencias, "Termo Genérico")
+
+    assert classificacao == ClassificacaoTriagemProspect.ANALISE_HUMANA_NECESSARIA
+    assert str(LIMITE_BUSCA_TRIAGEM) in justificativa
+
+
+def test_classificar_prospect_ja_e_titular() -> None:
+    titular = SimpleNamespace(nome="Padaria do João Ltda")
+    ocorrencias = [
+        _ocorrencia("PADARIA DO JOAO", "900123456", ["Nome idêntico"], similaridade=1.0, titulares=[titular])
+    ]
+    classificacao, justificativa = classificar(1, ocorrencias, "Padaria do João", razao_social="Padaria do João Ltda")
+
+    assert classificacao == ClassificacaoTriagemProspect.JA_E_TITULAR
+    assert "900123456" in justificativa
+
+
+def test_classificar_titular_diferente_nao_e_ja_titular() -> None:
+    titular = SimpleNamespace(nome="Outra Empresa Ltda")
+    ocorrencias = [
+        _ocorrencia("PADARIA DO JOAO", "900123456", ["Nome idêntico"], similaridade=1.0, titulares=[titular])
+    ]
+    classificacao, _ = classificar(1, ocorrencias, "Padaria do João", razao_social="Padaria do João Ltda")
+
+    assert classificacao == ClassificacaoTriagemProspect.RESULTADO_RELEVANTE_LOCALIZADO
+
+
+def test_classificar_sem_razao_social_nao_quebra() -> None:
+    ocorrencias = [_ocorrencia("PADARIA DO JOAO", "900123456", ["Nome idêntico"], similaridade=1.0)]
+    classificacao, _ = classificar(1, ocorrencias, "Padaria do João")
+    assert classificacao == ClassificacaoTriagemProspect.RESULTADO_RELEVANTE_LOCALIZADO

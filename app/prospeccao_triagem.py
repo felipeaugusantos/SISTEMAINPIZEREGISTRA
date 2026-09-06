@@ -4,9 +4,11 @@ docs/arquitetura-radar-prospeccao-2026-09-03.md).
 
 IMPORTANTE (exigência explícita do usuário): este módulo NUNCA pode afirmar
 que uma marca está disponível para registro. As únicas classificações
-possíveis são as 5 do enum abaixo -- "disponível"/"livre" não existe nesse
+possíveis são as do enum abaixo -- "disponível"/"livre" não existe nesse
 vocabulário de propósito, não é uma regra de UI que pode ser esquecida, é a
-única coisa que o enum permite devolver.
+única coisa que o enum permite devolver. A exceção é JA_E_TITULAR, que não é
+um parecer de registrabilidade e sim um fato de banco de dados (o próprio
+prospect já consta como titular de um processo com esse nome).
 
 Reaproveita o motor de busca já existente (app.search.buscar_marcas) e o
 léxico de peso semântico (app.trademarks.lexico, via
@@ -17,6 +19,7 @@ from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.crm import normalizar_empresa
 from app.search import OcorrenciaBusca, buscar_marcas, termos_comuns_do_match
 
 
@@ -26,6 +29,12 @@ class ClassificacaoTriagemProspect(StrEnum):
     RESULTADO_RELEVANTE_LOCALIZADO = "resultado_relevante_localizado"
     INCONCLUSIVO = "inconclusivo"
     ANALISE_HUMANA_NECESSARIA = "analise_humana_necessaria"
+    # Achado da sessão de 05/09/2026: sinal factual (não é parecer de
+    # registrabilidade) -- o próprio prospect já consta como titular de um
+    # processo com nome idêntico ao pesquisado. Diferente das outras 5
+    # classificações, esta habilita descarte rápido na tela ("já tem marca
+    # registrada, não precisa da gente").
+    JA_E_TITULAR = "ja_e_titular"
 
 
 DISCLAIMER_TRIAGEM = (
@@ -66,17 +75,52 @@ def _melhor_ocorrencia_e_justificativa(
     return melhor, f'"{melhor.processo.titulo}" (processo {melhor.processo.numero})'
 
 
+def _prospect_e_titular(ocorrencias: list[OcorrenciaBusca], razao_social: str) -> OcorrenciaBusca | None:
+    """Acha a primeira ocorrência em que o próprio prospect (pela razão social)
+    já consta como titular -- sinal factual (não é parecer de registrabilidade),
+    usado só para oferecer descarte rápido na tela ("já tem marca, não precisa
+    da gente"). Compara nome normalizado (mesmo padrão de
+    verificar_conflito_interesse, app/crm.py) -- falso negativo (grafia muito
+    diferente) é seguro, cai na classificação normal; falso positivo é raro
+    porque exige nome completo idêntico após normalização."""
+    razao_normalizada = normalizar_empresa(razao_social or "")
+    if not razao_normalizada:
+        return None
+    for ocorrencia in ocorrencias:
+        titulares = getattr(ocorrencia.processo, "titulares", None) or []
+        if any(normalizar_empresa(titular.nome or "") == razao_normalizada for titular in titulares):
+            return ocorrencia
+    return None
+
+
 def classificar(
-    total_resultados: int, ocorrencias: list[OcorrenciaBusca], marca_candidata: str
+    total_resultados: int,
+    ocorrencias: list[OcorrenciaBusca],
+    marca_candidata: str,
+    razao_social: str | None = None,
 ) -> tuple[ClassificacaoTriagemProspect, str]:
     """Decide a classificação a partir do resultado já calculado por
-    buscar_marcas() -- não roda nenhuma query, só interpreta."""
-    if total_resultados > LIMITE_BUSCA_TRIAGEM:
-        return (
-            ClassificacaoTriagemProspect.ANALISE_HUMANA_NECESSARIA,
-            f'A busca por "{marca_candidata}" encontrou mais de {LIMITE_BUSCA_TRIAGEM} ocorrências -- '
-            "volume alto demais para uma triagem automática confiável.",
-        )
+    buscar_marcas() -- não roda nenhuma query, só interpreta.
+
+    O gate de volume (`total_resultados > LIMITE_BUSCA_TRIAGEM`) usava a
+    contagem BRUTA de buscar_marcas -- que inclui radicais fonéticos via
+    ILIKE '%termo%' sem limite de palavra (ex.: o radical "MOCOC" de "MOCOCA"
+    bate em qualquer título que contenha essa sequência). Uma marca/empresa
+    com um termo de alta frequência no corpus estourava os 50 resultados e
+    caía direto em "análise humana necessária", mesmo quando a ocorrência
+    mais relevante (já ordenada e pontuada com o desconto de termo comum) não
+    indica conflito real. Achado de 05/09/2026, escopo só desta triagem (não
+    mexe em app.search.buscar_marcas, usado também pela pesquisa formal).
+    """
+    if ocorrencias and razao_social:
+        titular_match = _prospect_e_titular(ocorrencias, razao_social)
+        if titular_match is not None:
+            return (
+                ClassificacaoTriagemProspect.JA_E_TITULAR,
+                f'O próprio prospect já consta como titular do processo {titular_match.processo.numero} '
+                f'("{titular_match.processo.titulo}") -- confirme antes de descartar, mas pode já ter a '
+                "marca registrada e não precisar de um novo depósito.",
+            )
     if total_resultados == 0:
         return (
             ClassificacaoTriagemProspect.NAO_LOCALIZADO,
@@ -88,9 +132,18 @@ def classificar(
             "A busca indicou resultados, mas não foi possível analisá-los automaticamente.",
         )
 
+    volume_alto = total_resultados > LIMITE_BUSCA_TRIAGEM
     melhor, referencia = _melhor_ocorrencia_e_justificativa(ocorrencias)
     termos_comuns = termos_comuns_do_match(melhor.processo.titulo, marca_candidata)
     if termos_comuns and melhor.score.total < LIMIAR_RESULTADO_RELEVANTE:
+        if volume_alto:
+            return (
+                ClassificacaoTriagemProspect.NAO_LOCALIZADO,
+                f'A busca por "{marca_candidata}" encontrou mais de {LIMITE_BUSCA_TRIAGEM} ocorrências, mas a '
+                f"mais próxima ({referencia}) só coincide em termo(s) de uso comum "
+                f"({', '.join(termos_comuns)}) -- volume alto explicado por termo comum, sem indício de "
+                "conflito real.",
+            )
         return (
             ClassificacaoTriagemProspect.INCONCLUSIVO,
             f"A ocorrência mais próxima ({referencia}) só coincide em termo(s) de uso comum "
@@ -106,6 +159,12 @@ def classificar(
         return (
             ClassificacaoTriagemProspect.RESULTADO_SEMELHANTE,
             f"Encontrada ocorrência com semelhança parcial: {referencia}.",
+        )
+    if volume_alto:
+        return (
+            ClassificacaoTriagemProspect.ANALISE_HUMANA_NECESSARIA,
+            f'A busca por "{marca_candidata}" encontrou mais de {LIMITE_BUSCA_TRIAGEM} ocorrências e a mais '
+            f"próxima ({referencia}) tem semelhança fraca -- volume alto demais para descartar automaticamente.",
         )
     return (
         ClassificacaoTriagemProspect.INCONCLUSIVO,
@@ -130,7 +189,7 @@ async def triar_marca_prospect(session: AsyncSession, razao_social: str, nome_fa
     total, ocorrencias, _evidencias = await buscar_marcas(
         session, marca_candidata, tipo_pesquisa="completa", classe_nice=None, limite=LIMITE_BUSCA_TRIAGEM
     )
-    classificacao, justificativa = classificar(total, ocorrencias, marca_candidata)
+    classificacao, justificativa = classificar(total, ocorrencias, marca_candidata, razao_social)
     return {
         "marca_pesquisada": marca_candidata[:200],
         "classificacao": classificacao.value,

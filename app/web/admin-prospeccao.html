@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/static/styles.css?v=51">
   <link rel="stylesheet" href="/static/admin-prospeccao.css?v=2">
   <script src="/static/admin-shell.js?v=40" defer></script>
-  <script src="/static/admin-prospeccao.js?v=5" defer></script>
+  <script src="/static/admin-prospeccao.js?v=6" defer></script>
 </head>
 <body class="admin-body" data-admin-section="prospeccao">
   <main class="admin-main prospeccao-main">
@@ -131,7 +131,7 @@
 
       <details><summary>2. Enriquecimento — presença digital</summary><p>Botão "Verificar site" na ficha do prospect. O sistema tenta acessar o site cadastrado e registra se está no ar. É um sinal propositalmente simples: só confirma se o site responde, não descobre redes sociais nem nada além disso.</p></details>
 
-      <details><summary>3. Triagem de marca</summary><p>Botão "Triar marca". O sistema pega o nome fantasia (ou a razão social, sem "LTDA"/"ME"/etc.) e roda uma busca no mesmo motor de pesquisa usado nos relatórios formais. <strong>O resultado nunca afirma que uma marca está disponível</strong> — só devolve uma de 5 classificações, sempre acompanhadas de um aviso fixo. Isso é proposital e travado no banco de dados: é uma triagem indicativa, não um parecer jurídico.</p></details>
+      <details><summary>3. Triagem de marca</summary><p>Botão "Triar marca". O sistema pega o nome fantasia (ou a razão social, sem "LTDA"/"ME"/etc.) e roda uma busca no mesmo motor de pesquisa usado nos relatórios formais. <strong>O resultado nunca afirma que uma marca está disponível</strong> — só devolve uma classificação indicativa (nunca um parecer jurídico), sempre acompanhada de um aviso fixo. Uma classificação à parte, "já é titular", é factual: identifica quando o próprio prospect já consta como titular de um processo com esse nome e libera o botão "Descartar (já tem marca)" direto no card.</p></details>
 
       <details><summary>4. Score comercial</summary><p>Soma pontos de 4 fatores, todos visíveis na ficha do prospect com o peso de cada um: situação cadastral ativa, tempo de empresa aberta, site respondendo e resultado da triagem de marca (marca "limpa" pontua mais, mas um conflito já localizado não zera o score — ainda pode valer a conversa). Score de 0 a 100, nunca uma caixa-preta.</p></details>
 

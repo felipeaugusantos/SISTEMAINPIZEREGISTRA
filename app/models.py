@@ -1964,7 +1964,7 @@ class ProspectTriagem(Base):
     """Histórico de tentativas de triagem de marca de um Prospect (Fase 4 do
     Radar, 03/09/2026) -- SOMENTE indicativo, nunca definitivo (ver
     app/prospeccao_triagem.py). classificacao é restrita por CHECK CONSTRAINT
-    às 5 classificações do enum -- "disponível" nunca existe nesse vocabulário."""
+    às classificações do enum -- "disponível" nunca existe nesse vocabulário."""
 
     __tablename__ = "prospect_triagens"
 

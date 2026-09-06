@@ -69,6 +69,9 @@ MOTIVOS_DESCARTE_PROSPECT: tuple[str, ...] = (
     "cnae_incompativel",
     "outro",
     "opt_out_lgpd",
+    # Achado de 05/09/2026: triagem de marca com classificação "ja_e_titular"
+    # (app/prospeccao_triagem.py) habilita descarte direto na tela.
+    "ja_possui_marca_registrada",
 )
 
 

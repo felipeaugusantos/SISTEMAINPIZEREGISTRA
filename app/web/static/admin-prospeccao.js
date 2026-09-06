@@ -4,11 +4,12 @@ const state = { offset: 0, pageSize: 20, statusLabels: {
 const TRIAGEM_LABELS = {
   nao_localizado: "Não localizado", resultado_semelhante: "Resultado semelhante",
   resultado_relevante_localizado: "Resultado relevante localizado", inconclusivo: "Inconclusivo",
-  analise_humana_necessaria: "Análise humana necessária",
+  analise_humana_necessaria: "Análise humana necessária", ja_e_titular: "Já é titular da marca",
 };
 const MOTIVOS_DESCARTE = [
   ["ja_e_cliente", "Já é cliente"], ["fora_do_perfil", "Fora do perfil"],
-  ["sem_contato_valido", "Sem contato válido"], ["cnae_incompativel", "CNAE incompatível"], ["outro", "Outro"],
+  ["sem_contato_valido", "Sem contato válido"], ["cnae_incompativel", "CNAE incompatível"],
+  ["ja_possui_marca_registrada", "Já possui marca registrada"], ["outro", "Outro"],
 ];
 const message = document.querySelector("#prospeccao-message");
 
@@ -113,6 +114,9 @@ function prospectActions(item) {
   if (item.triagem_marca_status && item.score === null) botoes.push(`<button class="secondary-button" data-score type="button">Calcular score</button>`);
   if (item.status === "novo") {
     botoes.push(`<button class="secondary-button" data-aprovar type="button">Aprovar</button>`);
+    if (item.triagem_marca_status === "ja_e_titular") {
+      botoes.push(`<button class="secondary-button" data-descartar-ja-titular type="button" title="Prospect já consta como titular dessa marca -- confirme antes de descartar">Descartar (já tem marca)</button>`);
+    }
     botoes.push(`<button class="secondary-button" data-rejeitar type="button">Rejeitar</button>`);
   }
   if (item.status === "novo" || item.status === "aprovado") botoes.push(`<button class="primary-button" data-converter type="button">Converter em lead</button>`);
@@ -314,6 +318,11 @@ document.querySelector("#prospeccao-list").addEventListener("click", async event
     else if (button.dataset.triar !== undefined) { await api(`/v1/admin/prospects/${id}/triar-marca`, { method: "POST" }); showMessage("Triagem de marca agendada."); }
     else if (button.dataset.score !== undefined) { await api(`/v1/admin/prospects/${id}/calcular-score`, { method: "POST" }); showMessage("Cálculo de score agendado."); }
     else if (button.dataset.aprovar !== undefined) { await api(`/v1/admin/prospects/${id}/aprovar`, { method: "POST" }); showMessage("Prospect aprovado."); }
+    else if (button.dataset.descartarJaTitular !== undefined) {
+      if (!confirm("O prospect já consta como titular dessa marca -- descartar mesmo assim?")) return;
+      await api(`/v1/admin/prospects/${id}`, { method: "PATCH", body: JSON.stringify({ status: "rejeitado", motivo_descarte: "ja_possui_marca_registrada" }) });
+      showMessage("Prospect descartado (já possui marca registrada).");
+    }
     else if (button.dataset.rejeitar !== undefined) {
       const motivo = prompt(`Motivo do descarte:\n${MOTIVOS_DESCARTE.map(([valor, label]) => `${valor} — ${label}`).join("\n")}`, "fora_do_perfil");
       if (!motivo) return;

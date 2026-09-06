@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.alertas_plataforma import verificar_saude_plataforma
 from app.api.juridico import executar_motor_organizacao
 from app.cadencia_email import processar_envios_cadencia_pendentes
+from app.crm import gerar_lembretes_sla_primeiro_atendimento
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
 from app.database import session_factory
 from app.emailing import enviar_alerta_atividades_atrasadas
@@ -217,6 +218,25 @@ async def processar(tipo: str, payload: dict) -> None:
                         codigo="REENGAJAMENTO_CRM_EXECUTADO",
                         mensagem=f"Reengajamento por inatividade: {criados} lembrete(s) criado(s).",
                         detalhes={"criados": criados, "semana": semana},
+                    )
+                )
+        elif tipo == "crm.sla_primeiro_atendimento":
+            # Achado item 14 da auditoria completa do CRM (06/09/2026): só
+            # existia a média histórica agregada de tempo até o primeiro
+            # contato (app/api/leads.py::_tempo_medio_primeiro_atendimento_horas),
+            # sem alerta individual por lead -- diferente do SLA de
+            # proposta/protocolo, que já tem prazo e status próprios. Lógica
+            # em app.crm.gerar_lembretes_sla_primeiro_atendimento (testável
+            # isoladamente, mesmo padrão de aplicar_politica_oportunidade).
+            criados_sla = await gerar_lembretes_sla_primeiro_atendimento(session)
+            if criados_sla:
+                session.add(
+                    AlertaSistema(
+                        organizacao_id=1,
+                        severidade="alerta",
+                        codigo="SLA_PRIMEIRO_ATENDIMENTO_VENCIDO",
+                        mensagem=f"SLA de primeiro atendimento: {criados_sla} lembrete(s) criado(s).",
+                        detalhes={"criados": criados_sla},
                     )
                 )
         elif tipo == "crm.gerar_renovacoes_marca":
@@ -677,6 +697,7 @@ TAREFAS_MANUTENCAO_HORARIA: tuple[str, ...] = (
     "assinaturas.verificar",
     "privacidade.verificar_retencao",
     "crm.reengajamento_inatividade",
+    "crm.sla_primeiro_atendimento",
     "crm.gerar_renovacoes_marca",
     "cadencia.enviar_emails_pendentes",
     "cadencia.verificar_respostas_email",

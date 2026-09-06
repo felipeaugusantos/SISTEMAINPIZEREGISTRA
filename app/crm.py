@@ -2,7 +2,7 @@ import re
 import unicodedata
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -11,6 +11,7 @@ from app.cadencia_email import montar_envio_pendente
 from app.models import (
     ORDEM_FASE_LEAD,
     Cadencia,
+    ContatoLead,
     EmpresaCRM,
     EnvioCadenciaEmail,
     EventoDominio,
@@ -101,6 +102,7 @@ async def obter_politica_crm(session: AsyncSession, organizacao_id: int) -> Poli
         dias_proxima_acao_padrao=None,
         distribuicao_automatica_ativa=False,
         ultimo_responsavel_distribuido_id=None,
+        horas_sla_primeiro_atendimento=None,
     )
 
 
@@ -153,6 +155,63 @@ async def aplicar_politica_oportunidade(session: AsyncSession, lead: Lead, opera
     if politica.exigir_proxima_acao and lead.proxima_acao_em is None:
         faltando.append("próxima ação")
     return faltando
+
+
+async def gerar_lembretes_sla_primeiro_atendimento(session: AsyncSession) -> int:
+    """Cria um LembreteCRM (idempotente por lead, um único alerta -- não
+    repete a cada execução horária) para todo lead sem nenhum ContatoLead
+    registrado além do prazo definido em
+    PoliticaCRM.horas_sla_primeiro_atendimento. Opt-in por organização
+    (nulo = comportamento atual, só a média histórica agregada no
+    dashboard). Achado item 14 da auditoria completa do CRM (06/09/2026).
+    Devolve quantos lembretes novos foram criados."""
+    agora = datetime.now(UTC)
+    politicas = (
+        await session.execute(select(PoliticaCRM).where(PoliticaCRM.horas_sla_primeiro_atendimento.isnot(None)))
+    ).scalars()
+    criados = 0
+    for politica in politicas:
+        limite = agora - timedelta(hours=politica.horas_sla_primeiro_atendimento)
+        sem_contato = ~exists(select(ContatoLead.id).where(ContatoLead.lead_id == Lead.id))
+        leads = (
+            await session.execute(
+                select(Lead).where(
+                    Lead.organizacao_id == politica.organizacao_id,
+                    Lead.arquivado_em.is_(None),
+                    Lead.status.notin_([StatusLead.CONVERTIDO, StatusLead.DESCARTADO]),
+                    Lead.criado_em < limite,
+                    sem_contato,
+                )
+            )
+        ).scalars()
+        for lead in leads:
+            inserido = (
+                await session.execute(
+                    pg_insert(LembreteCRM)
+                    .values(
+                        organizacao_id=lead.organizacao_id,
+                        lead_id=lead.id,
+                        responsavel_id=lead.responsavel_id,
+                        tipo="retorno",
+                        prioridade="alta",
+                        titulo="SLA de primeiro atendimento vencido",
+                        descricao=(
+                            "Nenhum contato registrado em até "
+                            f"{politica.horas_sla_primeiro_atendimento}h desde a criação do lead."
+                        ),
+                        lembrar_em=agora,
+                        status="pendente",
+                        criado_por="Automação (SLA de primeiro atendimento)",
+                        criado_por_id=None,
+                        idempotency_key=f"sla_atendimento:{lead.id}",
+                    )
+                    .on_conflict_do_nothing(constraint="uq_lembrete_crm_idempotencia")
+                    .returning(LembreteCRM.id)
+                )
+            ).scalar_one_or_none()
+            if inserido is not None:
+                criados += 1
+    return criados
 
 
 # --- Regras de automação embutidas (Terceira entrega, item 2) --------------

@@ -767,6 +767,7 @@ class PoliticaCRMUpdate(BaseModel):
     exigir_proxima_acao: bool = True
     dias_proxima_acao_padrao: int | None = Field(default=None, ge=0, le=365)
     distribuicao_automatica_ativa: bool = False
+    horas_sla_primeiro_atendimento: int | None = Field(default=None, ge=1, le=720)
 
 
 def _politica_dict(politica: PoliticaCRM) -> dict:
@@ -776,6 +777,7 @@ def _politica_dict(politica: PoliticaCRM) -> dict:
         "exigir_proxima_acao": politica.exigir_proxima_acao,
         "dias_proxima_acao_padrao": politica.dias_proxima_acao_padrao,
         "distribuicao_automatica_ativa": politica.distribuicao_automatica_ativa,
+        "horas_sla_primeiro_atendimento": politica.horas_sla_primeiro_atendimento,
         "atualizado_por": politica.atualizado_por,
         "atualizado_em": politica.atualizado_em,
     }

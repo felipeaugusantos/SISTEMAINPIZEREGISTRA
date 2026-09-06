@@ -747,6 +747,12 @@ class PoliticaCRM(Base):
     ultimo_responsavel_distribuido_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
     )
+    # Achado item 14 da auditoria completa do CRM (06/09/2026): nulo (padrão)
+    # mantém o comportamento atual -- só a média histórica agregada no
+    # dashboard, sem alerta por lead. Quando definido, o worker
+    # (crm.sla_primeiro_atendimento) cria um LembreteCRM individual para
+    # todo lead sem nenhum ContatoLead registrado além desse prazo.
+    horas_sla_primeiro_atendimento: Mapped[int | None] = mapped_column(Integer, nullable=True)
     atualizado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

@@ -35,6 +35,7 @@ function politicaFill(politica) {
   politicaForm.elements.distribuicao_automatica_ativa.checked = !!politica.distribuicao_automatica_ativa;
   politicaForm.elements.exigir_proxima_acao.checked = !!politica.exigir_proxima_acao;
   politicaForm.elements.dias_proxima_acao_padrao.value = politica.dias_proxima_acao_padrao ?? "";
+  politicaForm.elements.horas_sla_primeiro_atendimento.value = politica.horas_sla_primeiro_atendimento ?? "";
 }
 async function politicaLoad() {
   const politica = await fetch("/v1/admin/crm/politica").then(r => r.json());
@@ -45,12 +46,14 @@ async function politicaLoad() {
 politicaForm?.addEventListener("submit", async event => {
   event.preventDefault();
   const dias = politicaForm.elements.dias_proxima_acao_padrao.value;
+  const horasSla = politicaForm.elements.horas_sla_primeiro_atendimento.value;
   const payload = {
     exigir_responsavel: politicaForm.elements.exigir_responsavel.checked,
     atribuir_ao_operador: politicaForm.elements.atribuir_ao_operador.checked,
     distribuicao_automatica_ativa: politicaForm.elements.distribuicao_automatica_ativa.checked,
     exigir_proxima_acao: politicaForm.elements.exigir_proxima_acao.checked,
     dias_proxima_acao_padrao: dias === "" ? null : Number(dias),
+    horas_sla_primeiro_atendimento: horasSla === "" ? null : Number(horasSla),
   };
   const r = await fetch("/v1/admin/crm/politica", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   if (r.ok) politicaFill(await r.json());

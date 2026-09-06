@@ -9,7 +9,7 @@ from starlette.requests import Request
 
 from app.api.financeiro import LancamentoFinanceiro, ParcelaFinanceira
 from app.api.juridico import PrazoUpdate, atualizar_prazo
-from app.crm import aplicar_politica_oportunidade, aplicar_regras_automacao
+from app.crm import aplicar_politica_oportunidade, aplicar_regras_automacao, gerar_lembretes_sla_primeiro_atendimento
 from app.models import EventoDominio, Lead, PoliticaCRM, PrazoJuridico, StatusLead
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
@@ -134,6 +134,64 @@ def test_atribuir_ao_operador_tem_prioridade_sobre_distribuicao_automatica() -> 
     asyncio.run(aplicar_politica_oportunidade(session, lead, operador_id=7))
 
     assert lead.responsavel_id == 7
+
+
+# --- Item 14 da auditoria completa do CRM (06/09/2026): SLA de primeiro
+# atendimento -- lembrete individual por lead sem contato, opt-in por
+# organizacao via PoliticaCRM.horas_sla_primeiro_atendimento. ---
+
+
+def test_sla_primeiro_atendimento_cria_lembrete_quando_prazo_vencido() -> None:
+    politica = PoliticaCRM(organizacao_id=1, horas_sla_primeiro_atendimento=24)
+    lead = _lead()
+    session = FakeSession([FakeResult(itens=[politica]), FakeResult(itens=[lead]), FakeResult(scalar=99)])
+
+    criados = asyncio.run(gerar_lembretes_sla_primeiro_atendimento(session))
+
+    assert criados == 1
+
+
+def test_sla_primeiro_atendimento_nao_conta_insercao_idempotente_ignorada() -> None:
+    # ON CONFLICT DO NOTHING devolve None quando já existe um lembrete com a
+    # mesma idempotency_key -- não deve contar como "criado" de novo.
+    politica = PoliticaCRM(organizacao_id=1, horas_sla_primeiro_atendimento=24)
+    lead = _lead()
+    session = FakeSession([FakeResult(itens=[politica]), FakeResult(itens=[lead]), FakeResult(scalar=None)])
+
+    criados = asyncio.run(gerar_lembretes_sla_primeiro_atendimento(session))
+
+    assert criados == 0
+
+
+def test_sla_primeiro_atendimento_processa_varias_organizacoes() -> None:
+    politica_a = PoliticaCRM(organizacao_id=1, horas_sla_primeiro_atendimento=24)
+    politica_b = PoliticaCRM(organizacao_id=2, horas_sla_primeiro_atendimento=48)
+    lead_a = _lead()
+    lead_b = Lead(
+        id=11, organizacao_id=2, nome="Cliente B", email="b@example.test", telefone="11999999998",
+        marca="Marca B", status=StatusLead.NOVO, fase="contato_inicial",
+    )
+    session = FakeSession(
+        [
+            FakeResult(itens=[politica_a, politica_b]),
+            FakeResult(itens=[lead_a]),
+            FakeResult(scalar=1),
+            FakeResult(itens=[lead_b]),
+            FakeResult(scalar=2),
+        ]
+    )
+
+    criados = asyncio.run(gerar_lembretes_sla_primeiro_atendimento(session))
+
+    assert criados == 2
+
+
+def test_sla_primeiro_atendimento_sem_politica_configurada_nao_faz_nada() -> None:
+    session = FakeSession([FakeResult(itens=[])])
+
+    criados = asyncio.run(gerar_lembretes_sla_primeiro_atendimento(session))
+
+    assert criados == 0
 
 
 def test_automacao_reprocessada_nao_duplica_lembrete() -> None:

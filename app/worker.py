@@ -9,8 +9,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.alertas_plataforma import verificar_saude_plataforma
 from app.api.juridico import executar_motor_organizacao
 from app.cadencia_email import processar_envios_cadencia_pendentes
-from app.crm import gerar_lembretes_sla_primeiro_atendimento
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
+from app.crm import gerar_lembretes_sla_primeiro_atendimento
 from app.database import session_factory
 from app.emailing import enviar_alerta_atividades_atrasadas
 from app.imap_polling import verificar_respostas_email

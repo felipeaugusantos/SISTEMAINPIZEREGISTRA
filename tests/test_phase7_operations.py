@@ -64,6 +64,78 @@ def test_politica_configuravel_atribui_operador_e_proxima_acao() -> None:
     assert lead.proxima_acao_em is not None
 
 
+# --- Item 12 da auditoria completa do CRM (06/09/2026): distribuicao
+# automatica (round-robin) entre operadores comerciais, para leads que
+# nascem sem nenhum operador logado (form publico, importacao). ---
+
+
+def _politica_distribuicao(**kwargs: object) -> PoliticaCRM:
+    base: dict = {
+        "organizacao_id": 1,
+        "exigir_responsavel": True,
+        "atribuir_ao_operador": False,
+        "exigir_proxima_acao": False,
+        "dias_proxima_acao_padrao": None,
+        "distribuicao_automatica_ativa": True,
+        "ultimo_responsavel_distribuido_id": None,
+    }
+    base.update(kwargs)
+    return PoliticaCRM(**base)
+
+
+def test_distribuicao_automatica_atribui_primeiro_operador_sem_cursor() -> None:
+    lead = _lead()
+    politica = _politica_distribuicao()
+    session = FakeSession([FakeResult(scalar=politica), FakeResult(itens=[3, 5, 8])])
+
+    asyncio.run(aplicar_politica_oportunidade(session, lead))
+
+    assert lead.responsavel_id == 3
+    assert politica.ultimo_responsavel_distribuido_id == 3
+    assert politica in session.adicionados
+
+
+def test_distribuicao_automatica_continua_do_cursor() -> None:
+    lead = _lead()
+    politica = _politica_distribuicao(ultimo_responsavel_distribuido_id=5, id=1)
+    session = FakeSession([FakeResult(scalar=politica), FakeResult(itens=[3, 5, 8])])
+
+    asyncio.run(aplicar_politica_oportunidade(session, lead))
+
+    assert lead.responsavel_id == 8
+
+
+def test_distribuicao_automatica_reinicia_ciclo_apos_o_ultimo_operador() -> None:
+    lead = _lead()
+    politica = _politica_distribuicao(ultimo_responsavel_distribuido_id=8, id=1)
+    session = FakeSession([FakeResult(scalar=politica), FakeResult(itens=[3, 5, 8])])
+
+    asyncio.run(aplicar_politica_oportunidade(session, lead))
+
+    assert lead.responsavel_id == 3
+
+
+def test_distribuicao_automatica_sem_operadores_comerciais_nao_atribui() -> None:
+    lead = _lead()
+    politica = _politica_distribuicao()
+    session = FakeSession([FakeResult(scalar=politica), FakeResult(itens=[])])
+
+    asyncio.run(aplicar_politica_oportunidade(session, lead))
+
+    assert lead.responsavel_id is None
+    assert politica.ultimo_responsavel_distribuido_id is None
+
+
+def test_atribuir_ao_operador_tem_prioridade_sobre_distribuicao_automatica() -> None:
+    lead = _lead()
+    politica = _politica_distribuicao(atribuir_ao_operador=True)
+    session = FakeSession([FakeResult(scalar=politica)])
+
+    asyncio.run(aplicar_politica_oportunidade(session, lead, operador_id=7))
+
+    assert lead.responsavel_id == 7
+
+
 def test_automacao_reprocessada_nao_duplica_lembrete() -> None:
     # A checagem de duplicidade agora é um INSERT ... ON CONFLICT DO NOTHING
     # (upsert atômico no banco) em vez de SELECT-depois-INSERT, para fechar a

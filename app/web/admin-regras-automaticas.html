@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>Regras automáticas — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=51"><link rel="stylesheet" href="/static/admin-financeiro.css?v=9"><link rel="stylesheet" href="/static/admin-crm.css?v=3"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=1">
-  <script src="/static/admin-shell.js?v=40" defer></script><script src="/static/admin-regras-automaticas.js?v=2" defer></script><script src="/static/admin-cadencias.js?v=3" defer></script>
+  <script src="/static/admin-shell.js?v=40" defer></script><script src="/static/admin-regras-automaticas.js?v=3" defer></script><script src="/static/admin-cadencias.js?v=3" defer></script>
 </head>
 <body class="admin-body" data-admin-section="config-regras">
   <main class="admin-main finance-main">
@@ -22,6 +22,7 @@
       <form id="politica-form" class="crm-politica-form">
         <label class="crm-politica-toggle"><input type="checkbox" name="exigir_responsavel"><span>Exigir responsável atribuído</span></label>
         <label class="crm-politica-toggle"><input type="checkbox" name="atribuir_ao_operador"><span>Atribuir automaticamente ao operador que atendeu</span></label>
+        <label class="crm-politica-toggle"><input type="checkbox" name="distribuicao_automatica_ativa"><span>Distribuir automaticamente entre operadores comerciais (rodízio) quando o lead nasce sem responsável — formulário público e importação em lote</span></label>
         <label class="crm-politica-toggle"><input type="checkbox" name="exigir_proxima_acao"><span>Exigir próxima ação definida</span></label>
         <label class="crm-politica-dias"><span>Prazo padrão da próxima ação (dias, opcional)</span><input type="number" name="dias_proxima_acao_padrao" min="0" max="365" placeholder="Sem padrão"></label>
         <div id="politica-message" class="status-message" hidden role="status"></div>

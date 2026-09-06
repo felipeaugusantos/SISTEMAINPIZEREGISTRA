@@ -766,6 +766,7 @@ class PoliticaCRMUpdate(BaseModel):
     atribuir_ao_operador: bool = False
     exigir_proxima_acao: bool = True
     dias_proxima_acao_padrao: int | None = Field(default=None, ge=0, le=365)
+    distribuicao_automatica_ativa: bool = False
 
 
 def _politica_dict(politica: PoliticaCRM) -> dict:
@@ -774,6 +775,7 @@ def _politica_dict(politica: PoliticaCRM) -> dict:
         "atribuir_ao_operador": politica.atribuir_ao_operador,
         "exigir_proxima_acao": politica.exigir_proxima_acao,
         "dias_proxima_acao_padrao": politica.dias_proxima_acao_padrao,
+        "distribuicao_automatica_ativa": politica.distribuicao_automatica_ativa,
         "atualizado_por": politica.atualizado_por,
         "atualizado_em": politica.atualizado_em,
     }

@@ -32,6 +32,7 @@ function politicaMsg(text, kind = "success") { const m = document.querySelector(
 function politicaFill(politica) {
   politicaForm.elements.exigir_responsavel.checked = !!politica.exigir_responsavel;
   politicaForm.elements.atribuir_ao_operador.checked = !!politica.atribuir_ao_operador;
+  politicaForm.elements.distribuicao_automatica_ativa.checked = !!politica.distribuicao_automatica_ativa;
   politicaForm.elements.exigir_proxima_acao.checked = !!politica.exigir_proxima_acao;
   politicaForm.elements.dias_proxima_acao_padrao.value = politica.dias_proxima_acao_padrao ?? "";
 }
@@ -47,6 +48,7 @@ politicaForm?.addEventListener("submit", async event => {
   const payload = {
     exigir_responsavel: politicaForm.elements.exigir_responsavel.checked,
     atribuir_ao_operador: politicaForm.elements.atribuir_ao_operador.checked,
+    distribuicao_automatica_ativa: politicaForm.elements.distribuicao_automatica_ativa.checked,
     exigir_proxima_acao: politicaForm.elements.exigir_proxima_acao.checked,
     dias_proxima_acao_padrao: dias === "" ? null : Number(dias),
   };

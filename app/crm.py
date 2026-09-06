@@ -22,6 +22,7 @@ from app.models import (
     RegraAutomacao,
     StatusLead,
     Titular,
+    UsuarioOperacoes,
     processo_titulares,
 )
 
@@ -98,7 +99,43 @@ async def obter_politica_crm(session: AsyncSession, organizacao_id: int) -> Poli
         atribuir_ao_operador=False,
         exigir_proxima_acao=True,
         dias_proxima_acao_padrao=None,
+        distribuicao_automatica_ativa=False,
+        ultimo_responsavel_distribuido_id=None,
     )
+
+
+async def _distribuir_automaticamente(session: AsyncSession, lead: Lead, politica: PoliticaCRM) -> None:
+    """Round-robin simples entre operadores de perfil "comercial" ativos da
+    organização -- achado item 12 da auditoria completa do CRM (06/09/2026).
+    Só roda quando o lead ainda não tem responsável e nenhum operador
+    logado assumiu na criação (ver aplicar_politica_oportunidade). O cursor
+    (ultimo_responsavel_distribuido_id) fica na própria política para o
+    próximo ciclo continuar de onde parou, mesmo entre reinícios do
+    processo -- sem isso, reiniciar o worker/api sempre recomeçaria do
+    primeiro operador da lista."""
+    operadores = (
+        (
+            await session.execute(
+                select(UsuarioOperacoes.id)
+                .where(
+                    UsuarioOperacoes.organizacao_id == lead.organizacao_id,
+                    UsuarioOperacoes.ativo.is_(True),
+                    UsuarioOperacoes.perfil == "comercial",
+                )
+                .order_by(UsuarioOperacoes.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not operadores:
+        return
+    cursor = politica.ultimo_responsavel_distribuido_id
+    proximo = next((id_ for id_ in operadores if cursor is None or id_ > cursor), operadores[0])
+    lead.responsavel_id = proximo
+    politica.ultimo_responsavel_distribuido_id = proximo
+    if politica.id is None:
+        session.add(politica)
 
 
 async def aplicar_politica_oportunidade(session: AsyncSession, lead: Lead, operador_id: int | None = None) -> list[str]:
@@ -106,6 +143,8 @@ async def aplicar_politica_oportunidade(session: AsyncSession, lead: Lead, opera
     politica = await obter_politica_crm(session, lead.organizacao_id)
     if lead.responsavel_id is None and politica.atribuir_ao_operador and operador_id:
         lead.responsavel_id = operador_id
+    if lead.responsavel_id is None and politica.distribuicao_automatica_ativa:
+        await _distribuir_automaticamente(session, lead, politica)
     if lead.proxima_acao_em is None and politica.dias_proxima_acao_padrao is not None:
         lead.proxima_acao_em = datetime.now(UTC) + timedelta(days=politica.dias_proxima_acao_padrao)
     faltando: list[str] = []

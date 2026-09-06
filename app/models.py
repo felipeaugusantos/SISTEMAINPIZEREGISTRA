@@ -738,6 +738,15 @@ class PoliticaCRM(Base):
     atribuir_ao_operador: Mapped[bool] = mapped_column(Boolean, default=False)
     exigir_proxima_acao: Mapped[bool] = mapped_column(Boolean, default=True)
     dias_proxima_acao_padrao: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Achado item 12 da auditoria completa do CRM (06/09/2026): round-robin
+    # entre operadores de perfil "comercial" ativos, só quando o lead nasce
+    # sem responsável e sem nenhum operador logado no momento (form público,
+    # importação) -- atribuir_ao_operador acima cobre o caso de quem está
+    # logado agendando/cadastrando manualmente.
+    distribuicao_automatica_ativa: Mapped[bool] = mapped_column(Boolean, default=False)
+    ultimo_responsavel_distribuido_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
+    )
     atualizado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

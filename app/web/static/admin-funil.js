@@ -22,10 +22,18 @@ function funilRender(d) {
     .map(([l, v]) => `<article class="funil-tile"><span>${funilEsc(l)}</span><strong>${funilEsc(String(v))}</strong></article>`)
     .join("");
 
+  // Itens 41-43 da auditoria completa do CRM (06/09/2026): taxa_da_etapa_anterior
+  // mostra o quanto sobrevive da etapa anterior para esta -- diferente do total
+  // absoluto da barra, que só mostra a foto atual (quantos estão parados ali agora).
   const funil = d.funil || [];
+  const conversaoPorEtapa = Object.fromEntries((d.conversao_por_etapa || []).map(c => [c.fase, c]));
   const max = Math.max(1, ...funil.map(f => f.total));
   document.querySelector("#funil-bars").innerHTML = funil
-    .map(f => `<div class="funil-bar"><span class="funil-bar-label">${funilEsc(f.label)}</span><div class="funil-bar-track"><div class="funil-bar-fill ${funilPctClass(f.total / max * 100)}"></div></div><strong class="funil-bar-total">${funilEsc(String(f.total))}</strong></div>`)
+    .map(f => {
+      const c = conversaoPorEtapa[f.fase];
+      const taxa = c && typeof c.taxa_da_etapa_anterior === "number" ? ` <span class="funil-bar-taxa">(${funilPct(c.taxa_da_etapa_anterior)} da etapa anterior)</span>` : "";
+      return `<div class="funil-bar"><span class="funil-bar-label">${funilEsc(f.label)}${taxa}</span><div class="funil-bar-track"><div class="funil-bar-fill ${funilPctClass(f.total / max * 100)}"></div></div><strong class="funil-bar-total">${funilEsc(String(f.total))}</strong></div>`;
+    })
     .join("");
 
   const motivos = d.perdas_por_motivo || [];
@@ -35,9 +43,15 @@ function funilRender(d) {
 
   const prod = d.produtividade || [];
   const rows = prod
-    .map(p => `<tr><td><strong>${funilEsc(p.nome)}</strong></td><td>${funilEsc(String(p.abertas))}</td><td class="${p.atrasadas ? "funil-alerta" : ""}">${funilEsc(String(p.atrasadas))}</td><td>${funilEsc(String(p.ganhos))}</td><td>${funilEsc(String(p.perdidos))}</td></tr>`)
+    .map(p => `<tr><td><strong>${funilEsc(p.nome)}</strong></td><td>${funilEsc(String(p.abertas))}</td><td class="${p.atrasadas ? "funil-alerta" : ""}">${funilEsc(String(p.atrasadas))}</td><td>${funilEsc(String(p.ganhos))}</td><td>${funilEsc(String(p.perdidos))}</td><td>${funilEsc(funilPct(p.taxa_conversao || 0))}</td></tr>`)
     .join("");
-  document.querySelector("#funil-prod").innerHTML = `<div class="funil-table-scroll"><table class="funil-table"><thead><tr><th>Responsável</th><th>Abertas</th><th>Atrasadas</th><th>Ganhos</th><th>Perdidos</th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="funil-empty">Sem dados.</td></tr>`}</tbody></table></div>`;
+  document.querySelector("#funil-prod").innerHTML = `<div class="funil-table-scroll"><table class="funil-table"><thead><tr><th>Responsável</th><th>Abertas</th><th>Atrasadas</th><th>Ganhos</th><th>Perdidos</th><th>Conversão</th></tr></thead><tbody>${rows || `<tr><td colspan="6" class="funil-empty">Sem dados.</td></tr>`}</tbody></table></div>`;
+
+  const origens = d.conversao_por_origem || [];
+  const linhasOrigem = origens
+    .map(o => `<tr><td><strong>${funilEsc(o.origem)}</strong></td><td>${funilEsc(String(o.total))}</td><td>${funilEsc(String(o.ganho))}</td><td>${funilEsc(String(o.perdido))}</td><td>${funilEsc(funilPct(o.taxa_conversao || 0))}</td></tr>`)
+    .join("");
+  document.querySelector("#funil-origem").innerHTML = `<div class="funil-table-scroll"><table class="funil-table"><thead><tr><th>Origem</th><th>Total</th><th>Ganhos</th><th>Perdidos</th><th>Conversão</th></tr></thead><tbody>${linhasOrigem || `<tr><td colspan="5" class="funil-empty">Sem dados.</td></tr>`}</tbody></table></div>`;
 }
 
 funilApi("/v1/admin/leads-dashboard")

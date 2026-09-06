@@ -5,6 +5,7 @@
 .funil-bars { display: flex; flex-direction: column; gap: 12px; }
 .funil-bar { display: grid; grid-template-columns: 160px 1fr 44px; align-items: center; gap: 12px; }
 .funil-bar-label { font-size: .85rem; font-weight: 600; }
+.funil-bar-taxa { font-weight: 400; color: var(--muted); font-size: .78rem; }
 .funil-bar-track { height: 22px; background: #eef1ec; border-radius: 8px; overflow: hidden; }
 .funil-bar-fill { height: 100%; background: linear-gradient(90deg, #2f6f4e, #57a97b); border-radius: 8px; min-width: 2px; transition: width .3s; }
 .funil-bar-total { text-align: right; font-weight: 800; }

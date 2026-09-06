@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,6 +9,7 @@ from app.api.leads import (
     _resumir_alteracoes,
     _resumo_pesquisa,
     _valor_csv,
+    dashboard_funil_produtividade,
     limitar_acoes_admin,
     limitar_admin,
     limitar_leads,
@@ -1028,3 +1030,144 @@ def test_importar_leads_arquivo_vazio_retorna_400() -> None:
     )
 
     assert resposta.status_code == 400
+
+
+# --- Itens 41-43 da auditoria completa do CRM (06/09/2026): o dashboard já
+# calculava volume por origem/vendedor e a foto atual do funil, mas nunca
+# taxa de conversão -- só quem olhasse os números absolutos com calculadora
+# na mão descobria se uma origem/vendedor/etapa é boa ou ruim de verdade. ---
+
+
+@pytest.mark.asyncio
+async def test_dashboard_calcula_taxa_conversao_por_vendedor() -> None:
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # por_fase
+            FakeResult(itens=[]),  # por_resultado
+            FakeResult(itens=[]),  # motivos
+            FakeResult(itens=[(5, 2, 0, 3, 1)]),  # prod: rid, abertas, atrasadas, ganhos, perdidos
+            FakeResult(itens=[(5, "Ana")]),  # nomes
+            FakeResult(itens=[]),  # por_origem
+            FakeResult(itens=[]),  # por_origem_resultado
+            FakeResult(itens=[]),  # leads
+            FakeResult(itens=[]),  # entradas_proposta
+            FakeResult(itens=[]),  # primeiro_contato
+            FakeResult(itens=[]),  # propostas
+            FakeResult(itens=[]),  # entradas_por_fase
+        ]
+    )
+
+    resultado = await dashboard_funil_produtividade(session, usuario_teste())
+
+    vendedor = resultado["produtividade"][0]
+    assert vendedor["nome"] == "Ana"
+    assert vendedor["ganhos"] == 3
+    assert vendedor["perdidos"] == 1
+    assert vendedor["taxa_conversao"] == 0.75
+
+
+@pytest.mark.asyncio
+async def test_dashboard_sem_fechamentos_devolve_taxa_zero_em_vez_de_erro() -> None:
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+            FakeResult(itens=[(5, 4, 0, 0, 0)]),  # nenhum ganho nem perda ainda
+            FakeResult(itens=[(5, "Ana")]),
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
+        ]
+    )
+
+    resultado = await dashboard_funil_produtividade(session, usuario_teste())
+
+    assert resultado["produtividade"][0]["taxa_conversao"] == 0
+
+
+@pytest.mark.asyncio
+async def test_dashboard_calcula_conversao_por_origem() -> None:
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # por_fase
+            FakeResult(itens=[]),  # por_resultado
+            FakeResult(itens=[]),  # motivos
+            FakeResult(itens=[]),  # prod (vazio -- sem ids, pula a query de nomes)
+            FakeResult(itens=[("site", 3), ("indicacao", 1)]),  # por_origem
+            FakeResult(
+                itens=[("site", "ganho", 2), ("site", "perdido", 1), ("indicacao", "ganho", 1)]
+            ),  # por_origem_resultado
+            FakeResult(itens=[]),  # leads
+            FakeResult(itens=[]),  # entradas_proposta
+            FakeResult(itens=[]),  # primeiro_contato
+            FakeResult(itens=[]),  # propostas
+            FakeResult(itens=[]),  # entradas_por_fase
+        ]
+    )
+
+    resultado = await dashboard_funil_produtividade(session, usuario_teste())
+
+    por_origem = {item["origem"]: item for item in resultado["conversao_por_origem"]}
+    assert por_origem["site"]["total"] == 3
+    assert por_origem["site"]["ganho"] == 2
+    assert por_origem["site"]["perdido"] == 1
+    assert por_origem["site"]["taxa_conversao"] == round(2 / 3, 4)
+    assert por_origem["indicacao"]["taxa_conversao"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_dashboard_calcula_conversao_por_etapa_usando_historico() -> None:
+    leads_fake = [
+        SimpleNamespace(
+            id=i,
+            status=StatusLead.NOVO,
+            proxima_acao_em=None,
+            criado_em=None,
+            atualizado_em=None,
+            fase="contato_inicial",
+        )
+        for i in range(10)
+    ]
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # por_fase
+            FakeResult(itens=[]),  # por_resultado
+            FakeResult(itens=[]),  # motivos
+            FakeResult(itens=[]),  # prod
+            FakeResult(itens=[]),  # por_origem
+            FakeResult(itens=[]),  # por_origem_resultado
+            FakeResult(itens=leads_fake),  # leads
+            FakeResult(itens=[]),  # entradas_proposta
+            FakeResult(itens=[]),  # primeiro_contato
+            FakeResult(itens=[]),  # propostas
+            FakeResult(
+                itens=[
+                    ("qualificado", 9),
+                    ("relatorio_enviado", 7),
+                    ("proposta_enviada", 5),
+                    ("proposta_aceita", 3),
+                    ("aguardando_pagamento", 3),
+                    ("pagamento_confirmado", 2),
+                    ("ganho", 2),
+                    ("protocolo_inpi", 2),
+                    ("processo_inpi", 1),
+                ]
+            ),  # entradas_por_fase
+        ]
+    )
+
+    resultado = await dashboard_funil_produtividade(session, usuario_teste())
+
+    por_fase = {item["fase"]: item for item in resultado["conversao_por_etapa"]}
+    assert por_fase["contato_inicial"]["entradas"] == 10
+    assert por_fase["contato_inicial"]["taxa_acumulada"] == 1.0
+    assert por_fase["qualificado"]["entradas"] == 9
+    assert por_fase["qualificado"]["taxa_da_etapa_anterior"] == round(9 / 10, 4)
+    assert por_fase["proposta_enviada"]["taxa_acumulada"] == round(5 / 10, 4)
+    assert por_fase["processo_inpi"]["entradas"] == 1
+    assert por_fase["processo_inpi"]["taxa_da_etapa_anterior"] == round(1 / 2, 4)

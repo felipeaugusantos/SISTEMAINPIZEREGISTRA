@@ -1151,6 +1151,11 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
                 "atrasadas": int(atr),
                 "ganhos": int(gan),
                 "perdidos": int(per),
+                # Achado item 42 da auditoria completa do CRM (06/09/2026):
+                # so existiam contagens absolutas por operador -- sem taxa,
+                # 10 ganhos podem ser ótimo ou péssimo dependendo de quantos
+                # fecharam no total.
+                "taxa_conversao": round(int(gan) / (int(gan) + int(per)), 4) if (gan or per) else 0,
             }
             for rid, ab, atr, gan, per in prod
         ),
@@ -1160,6 +1165,36 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
     por_origem = dict(
         (await session.execute(select(Lead.origem, func.count()).where(*base).group_by(Lead.origem))).all()
     )
+    # Achado item 41 da auditoria completa do CRM (06/09/2026):
+    # leads_por_origem já existia mas era só volume (todos os leads,
+    # inclusive abertos) -- nunca dava pra saber qual origem realmente
+    # converte mais, só qual gera mais volume.
+    por_origem_resultado = (
+        await session.execute(
+            select(Lead.origem, Lead.resultado, func.count()).where(*base).group_by(Lead.origem, Lead.resultado)
+        )
+    ).all()
+    resumo_por_origem: dict[str, dict[str, int]] = {}
+    for origem_valor, resultado_valor, total_valor in por_origem_resultado:
+        chave = origem_valor or "nao_informado"
+        bucket = resumo_por_origem.setdefault(chave, {"total": 0, "ganho": 0, "perdido": 0})
+        bucket["total"] += int(total_valor)
+        if resultado_valor == "ganho":
+            bucket["ganho"] += int(total_valor)
+        elif resultado_valor == "perdido":
+            bucket["perdido"] += int(total_valor)
+    conversao_por_origem = [
+        {
+            "origem": origem_valor,
+            "total": bucket["total"],
+            "ganho": bucket["ganho"],
+            "perdido": bucket["perdido"],
+            "taxa_conversao": round(bucket["ganho"] / (bucket["ganho"] + bucket["perdido"]), 4)
+            if (bucket["ganho"] or bucket["perdido"])
+            else 0,
+        }
+        for origem_valor, bucket in sorted(resumo_por_origem.items())
+    ]
     leads = list((await session.execute(select(Lead).where(*base))).scalars())
     atrasados = sum(
         1
@@ -1222,6 +1257,42 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
     pagas = sum(1 for item in propostas_aceitas if item.pagamento_status == "confirmado")
     protocoladas = sum(1 for item in propostas_aceitas if item.protocolo_em)
 
+    # Achado item 43 da auditoria completa do CRM (06/09/2026): o funil só
+    # mostrava a foto atual (quantos leads estão em cada fase agora), não a
+    # taxa de passagem etapa-a-etapa -- 2 leads parados em "novo" pode ser
+    # gargalo ou pode ser normal, dependendo de quantos jamais chegaram lá.
+    # HistoricoFaseLead não registra a entrada inicial em "novo" (achado
+    # item 9, ainda não corrigido) -- por isso a primeira fase usa o total
+    # de leads da organização como base, e as demais usam a contagem real
+    # de entradas (distinct lead_id, já que HistoricoFaseLead pode ter mais
+    # de uma linha por lead/fase em caso de retrocesso e reavanço).
+    entradas_por_fase = dict(
+        (
+            await session.execute(
+                select(HistoricoFaseLead.fase, func.count(func.distinct(HistoricoFaseLead.lead_id)))
+                .where(HistoricoFaseLead.organizacao_id == org)
+                .group_by(HistoricoFaseLead.fase)
+            )
+        ).all()
+    )
+    total_leads_org = len(leads)
+    conversao_por_etapa = []
+    entrada_anterior: int | None = None
+    for indice, fase in enumerate(ORDEM_FASE_LEAD):
+        entrada_atual = total_leads_org if indice == 0 else int(entradas_por_fase.get(fase, 0))
+        conversao_por_etapa.append(
+            {
+                "fase": fase,
+                "label": FASE_LABELS.get(fase, fase),
+                "entradas": entrada_atual,
+                "taxa_da_etapa_anterior": round(entrada_atual / entrada_anterior, 4)
+                if entrada_anterior
+                else (1.0 if indice == 0 else 0),
+                "taxa_acumulada": round(entrada_atual / total_leads_org, 4) if total_leads_org else 0,
+            }
+        )
+        entrada_anterior = entrada_atual
+
     return {
         "funil": funil,
         "resultado": {"aberto": aberto, "ganho": ganho, "perdido": perdido},
@@ -1229,6 +1300,8 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         "perdas_por_motivo": perdas_por_motivo,
         "produtividade": produtividade,
         "leads_por_origem": {origem or "nao_informado": int(total) for origem, total in por_origem.items()},
+        "conversao_por_origem": conversao_por_origem,
+        "conversao_por_etapa": conversao_por_etapa,
         "atrasos": atrasados,
         "tempo_medio_ate_proposta_dias": round(sum(tempo_ate_proposta) / len(tempo_ate_proposta), 2)
         if tempo_ate_proposta

@@ -67,7 +67,7 @@ def test_criar_apontamento_vincula_ao_lead_e_audita() -> None:
     session = FakeSession([FakeResult(scalar=9)])  # valida que o lead existe
     dados = ApontamentoInput(lead_id=9, data=date(2026, 9, 5), horas=Decimal("2.5"), descricao="Análise de marca")
     resultado = asyncio.run(criar_apontamento(dados, _request(), session, usuario_teste()))
-    assert resultado["horas"] == "2.50"
+    assert resultado["horas"] == "2.5"
     assert resultado["lead_id"] == 9
     assert session.commits == 1
     assert len(session.adicionados) == 2  # ApontamentoHoras + EventoAuditoria

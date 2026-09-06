@@ -111,6 +111,8 @@ def test_cadastro_manual_vincula_processo_sem_duplicar_dados_rpi() -> None:
     session = FakeSession(
         [
             FakeResult(scalar=processo),
+            FakeResult(itens=[]),  # verificar_conflito_interesse: titulares de outros clientes
+            FakeResult(itens=[]),  # verificar_conflito_interesse: empresas ja cliente
             FakeResult(itens=[101]),
             FakeResult(itens=[]),
         ]
@@ -127,6 +129,7 @@ def test_cadastro_manual_vincula_processo_sem_duplicar_dados_rpi() -> None:
     )
 
     assert resultado["vinculados"] == 1
+    assert resultado["alertas_conflito_interesse"] == []
     monitorados = [item for item in session.adicionados if isinstance(item, ProcessoMonitorado)]
     assert len(monitorados) == 1
     assert monitorados[0].processo_id == processo.id
@@ -149,6 +152,8 @@ def test_cadastro_manual_liga_processo_ao_lead_quando_numero_bate() -> None:
     session = FakeSession(
         [
             FakeResult(scalar=processo),
+            FakeResult(itens=[]),  # verificar_conflito_interesse: titulares de outros clientes
+            FakeResult(itens=[]),  # verificar_conflito_interesse: empresas ja cliente
             FakeResult(itens=[101]),
             FakeResult(itens=[]),
             FakeResult(itens=[(101, 7)]),
@@ -181,6 +186,8 @@ def test_cadastro_manual_informa_quando_processo_ja_esta_vinculado() -> None:
     session = FakeSession(
         [
             FakeResult(scalar=processo),
+            FakeResult(itens=[]),  # verificar_conflito_interesse: titulares de outros clientes
+            FakeResult(itens=[]),  # verificar_conflito_interesse: empresas ja cliente
             FakeResult(itens=[101]),
             FakeResult(itens=[101]),
         ]

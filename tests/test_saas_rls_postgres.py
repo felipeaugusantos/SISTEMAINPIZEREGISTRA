@@ -244,29 +244,34 @@ async def _criar_cenario(admin: asyncpg.Connection) -> dict:
             f"portal.{tenant}.{sufixo}@example.test",
         )
         preferencia_vigilancia_id = await admin.fetchval(
-            "INSERT INTO preferencias_vigilancia (organizacao_id, cliente_id) VALUES ($1, $2) RETURNING id",
+            """
+            INSERT INTO preferencias_vigilancia
+                (organizacao_id, cliente_id, classes_nice, codigos_viena, canais)
+            VALUES ($1, $2, '[]', '[]', '["portal"]') RETURNING id
+            """,
             org_id,
             cliente_portal_id,
         )
         colidencia_id = await admin.fetchval(
             """
-            INSERT INTO colidencias_vigilancia (organizacao_id, cliente_id, processo_id, justificativa)
-            VALUES ($1, $2, $3, 'teste RLS') RETURNING id
+            INSERT INTO colidencias_vigilancia
+                (organizacao_id, cliente_id, processo_id, evidencias, justificativa)
+            VALUES ($1, $2, $3, '{}', 'teste RLS') RETURNING id
             """,
             org_id,
             cliente_portal_id,
             processo_id,
         )
         vigilancia_execucao_id = await admin.fetchval(
-            "INSERT INTO vigilancia_execucoes (organizacao_id, chave) VALUES ($1, $2) RETURNING id",
+            "INSERT INTO vigilancia_execucoes (organizacao_id, chave, resumo) VALUES ($1, $2, '{}') RETURNING id",
             org_id,
             f"rls-{tenant}-{sufixo}",
         )
         historico_alerta_id = await admin.fetchval(
             """
             INSERT INTO historico_alertas_vigilancia
-                (organizacao_id, colidencia_id, cliente_id, canal, idempotency_key, justificativa)
-            VALUES ($1, $2, $3, 'email', $4, 'teste RLS') RETURNING id
+                (organizacao_id, colidencia_id, cliente_id, canal, idempotency_key, justificativa, detalhes)
+            VALUES ($1, $2, $3, 'email', $4, 'teste RLS', '{}') RETURNING id
             """,
             org_id,
             colidencia_id,

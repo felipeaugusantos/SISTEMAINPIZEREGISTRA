@@ -79,6 +79,8 @@ def test_contato_aceita_pesquisa_uuid() -> None:
         pesquisa_id="12345678-1234-1234-1234-123456789abc",
     )
 
+    assert dados.pesquisa_id == "12345678-1234-1234-1234-123456789abc"
+
 
 # --- Item 30 da auditoria completa do CRM (06/09/2026): score simples de
 # lead (fit + engajamento com decaimento por tempo sem interação). Decisão
@@ -155,5 +157,3 @@ def test_score_lead_aplica_decaimento_intermediario_ao_engajamento() -> None:
     assert resultado["fator_decaimento"] == 0.6
     # fit_base (40, não decai) + round(30 * 0.6) = 40 + 18 = 58
     assert resultado["score"] == 58
-
-    assert dados.pesquisa_id == "12345678-1234-1234-1234-123456789abc"

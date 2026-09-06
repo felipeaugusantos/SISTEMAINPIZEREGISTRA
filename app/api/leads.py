@@ -14,11 +14,11 @@ from sqlalchemy import case, desc, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.juridico import FUSO_BRASIL
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
 from app.cadencia_email import registrar_abertura
 from app.clicksign import configuracao as configuracao_clicksign
 from app.clicksign import criar_envelope
-from app.api.juridico import FUSO_BRASIL
 from app.crm import (
     aplicar_cadencia_a_lead,
     aplicar_cadencias_automaticas,

@@ -5,7 +5,12 @@ from datetime import UTC, date, datetime
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from app.api.portal_cliente import assinar_proposta_portal, listar_prazos_portal, listar_processos_portal, webhook_clicksign
+from app.api.portal_cliente import (
+    assinar_proposta_portal,
+    listar_prazos_portal,
+    listar_processos_portal,
+    webhook_clicksign,
+)
 from app.models import (
     AssinaturaPropostaComercial,
     ClientePortal,

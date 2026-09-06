@@ -75,6 +75,15 @@ async def processar_envios_cadencia_pendentes(session: AsyncSession) -> dict:
             envio.ultimo_erro = "lead indisponível, anonimizado, arquivado ou sem e-mail"
             falhas += 1
             continue
+        # Achado da auditoria completa do CRM (06/09/2026): antes não havia
+        # como um titular parar de receber cadência sem responder o e-mail
+        # (que só pausa os envios já agendados) nem pedir exclusão total dos
+        # dados -- opt-out específico, sem apagar nada.
+        if lead.cadencia_opt_out_em is not None:
+            envio.status = "pausado"
+            envio.pausado_em = agora
+            envio.ultimo_erro = "lead descadastrado da cadência"
+            continue
         passo = envio.passo
         if passo is None:
             envio.status = "falhou"
@@ -82,11 +91,16 @@ async def processar_envios_cadencia_pendentes(session: AsyncSession) -> dict:
             falhas += 1
             continue
         # O token bruto só existe agora -- gerar no agendamento seria inútil
-        # (nada pode reconstruí-lo a partir do hash mais tarde).
+        # (nada pode reconstruí-lo a partir do hash mais tarde). Reaproveitado
+        # também para o link de descadastro (mesmo token, mesma política RLS
+        # de leitura pré-tenant já existente -- sem coluna nem policy nova).
         token, token_hash = gerar_token_rastreio()
         rastreio_url = f"{settings.app_public_url.rstrip('/')}/v1/cadencias/rastreio/{token}.gif"
+        descadastro_url = f"{settings.app_public_url.rstrip('/')}/v1/cadencias/descadastrar/{token}"
         try:
-            await enviar_passo_cadencia(lead.email, lead.nome, passo.titulo, passo.descricao or "", rastreio_url)
+            await enviar_passo_cadencia(
+                lead.email, lead.nome, passo.titulo, passo.descricao or "", rastreio_url, descadastro_url
+            )
             envio.status = "enviado"
             envio.enviado_em = agora
             envio.rastreio_token_hash = token_hash
@@ -116,6 +130,32 @@ async def registrar_abertura(session: AsyncSession, token: str) -> None:
     await aplicar_contexto_tenant(session, envio.organizacao_id)
     if envio.aberto_em is None:
         envio.aberto_em = datetime.now(UTC)
+
+
+async def processar_descadastro_cadencia(session: AsyncSession, token: str) -> bool:
+    """Chamado pelo link público de descadastro no rodapé do e-mail de
+    cadência (mesmo token do pixel de rastreio -- mesma política RLS de
+    leitura pré-tenant já existente em envios_cadencia_email, sem coluna
+    nem policy nova). Marca o lead como descadastrado (não apaga nada,
+    diferente da exclusão via app.api.privacidade) e cancela os envios
+    ainda pendentes dessa cadência. Devolve True se encontrou o lead
+    (mesmo que já estivesse descadastrado antes -- idempotente).
+    Não commita: quem chama decide."""
+    from app.tenancy import aplicar_contexto_tenant
+
+    envio = (
+        await session.execute(select(EnvioCadenciaEmail).where(EnvioCadenciaEmail.rastreio_token_hash == hash_token(token)))
+    ).scalar_one_or_none()
+    if envio is None:
+        return False
+    await aplicar_contexto_tenant(session, envio.organizacao_id)
+    lead = await session.get(Lead, envio.lead_id)
+    if lead is None:
+        return False
+    if lead.cadencia_opt_out_em is None:
+        lead.cadencia_opt_out_em = datetime.now(UTC)
+    await pausar_envios_pendentes_do_lead(session, envio.organizacao_id, envio.lead_id)
+    return True
 
 
 async def pausar_envios_pendentes_do_lead(session: AsyncSession, organizacao_id: int, lead_id: int) -> int:

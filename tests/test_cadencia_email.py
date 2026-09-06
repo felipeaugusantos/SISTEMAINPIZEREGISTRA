@@ -5,6 +5,7 @@ from app.cadencia_email import (
     dentro_do_horario_comercial,
     montar_envio_pendente,
     pausar_envios_pendentes_do_lead,
+    processar_descadastro_cadencia,
     processar_envios_cadencia_pendentes,
     registrar_abertura,
 )
@@ -150,6 +151,23 @@ def test_processar_envios_incrementa_tentativas_ate_falhar_de_vez() -> None:
     assert "SMTP indisponível" in envio.ultimo_erro
 
 
+def test_processar_envios_pula_lead_descadastrado_da_cadencia() -> None:
+    # Achado da auditoria completa do CRM (06/09/2026): lead que clicou no
+    # link de descadastro não pode continuar recebendo a sequência.
+    originais = _isolar_horario_e_envio(_envio_ok)
+    try:
+        envio = _envio()
+        envio.passo = _passo()
+        lead = _lead(cadencia_opt_out_em=datetime.now(UTC) - timedelta(days=1))
+        session = FakeSession([FakeResult(itens=[envio])], objetos_get=[lead])
+        resultado = asyncio.run(processar_envios_cadencia_pendentes(session))
+    finally:
+        _restaurar(*originais)
+
+    assert resultado == {"enviados": 0, "falhas": 0}
+    assert envio.status == "pausado"
+
+
 def test_processar_envios_fora_do_horario_nao_toca_nada() -> None:
     import app.cadencia_email as modulo
 
@@ -186,6 +204,40 @@ def test_registrar_abertura_nao_sobrescreve_a_segunda_vez() -> None:
 def test_registrar_abertura_token_inexistente_nao_quebra() -> None:
     session = FakeSession([FakeResult(scalar=None)])
     asyncio.run(registrar_abertura(session, "token-que-nao-existe"))  # não deve levantar
+
+
+# --- descadastro (opt-out) ---
+
+
+def test_processar_descadastro_marca_lead_e_pausa_envios_pendentes() -> None:
+    envio = _envio()
+    lead = _lead(cadencia_opt_out_em=None)
+    session = FakeSession([FakeResult(scalar=envio), FakeResult(rowcount=2)], objetos_get=[lead])
+
+    resultado = asyncio.run(processar_descadastro_cadencia(session, "token-bruto"))
+
+    assert resultado is True
+    assert lead.cadencia_opt_out_em is not None
+
+
+def test_processar_descadastro_token_inexistente_retorna_false() -> None:
+    session = FakeSession([FakeResult(scalar=None)])
+
+    resultado = asyncio.run(processar_descadastro_cadencia(session, "token-invalido"))
+
+    assert resultado is False
+
+
+def test_processar_descadastro_e_idempotente() -> None:
+    marca_original = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+    envio = _envio()
+    lead = _lead(cadencia_opt_out_em=marca_original)
+    session = FakeSession([FakeResult(scalar=envio), FakeResult(rowcount=0)], objetos_get=[lead])
+
+    resultado = asyncio.run(processar_descadastro_cadencia(session, "token-bruto"))
+
+    assert resultado is True
+    assert lead.cadencia_opt_out_em == marca_original
 
 
 # --- pausa ao responder ---

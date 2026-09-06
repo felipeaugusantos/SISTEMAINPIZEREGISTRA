@@ -169,7 +169,13 @@ async def enviar_confirmacao_exclusao(destinatario: str, token: str) -> None:
 
 
 def _mensagem_passo_cadencia(
-    destinatario: str, nome: str, titulo: str, corpo: str, rastreio_url: str, settings: Settings
+    destinatario: str,
+    nome: str,
+    titulo: str,
+    corpo: str,
+    rastreio_url: str,
+    descadastro_url: str,
+    settings: Settings,
 ) -> EmailMessage:
     nome_seguro = html.escape(nome or "")
     saudacao = f"Olá, {nome_seguro}." if nome_seguro else "Olá."
@@ -178,7 +184,10 @@ def _mensagem_passo_cadencia(
     mensagem["Subject"] = titulo
     mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
     mensagem["To"] = destinatario
-    mensagem.set_content(f"{saudacao}\n\n{corpo}\n\n-- \n{settings.email_from_name}")
+    mensagem.set_content(
+        f"{saudacao}\n\n{corpo}\n\n-- \n{settings.email_from_name}\n\n"
+        f"Não quer mais receber estes e-mails? Descadastre-se: {descadastro_url}"
+    )
     mensagem.add_alternative(
         f"""
         <!doctype html>
@@ -191,6 +200,10 @@ def _mensagem_passo_cadencia(
             <p style="margin-top:22px;">{saudacao}</p>
             <p>{corpo_seguro}</p>
             <p style="color:#607068;font-size:13px;margin-top:28px;">{html.escape(settings.email_from_name)}</p>
+            <p style="color:#8b948c;font-size:11px;margin-top:18px;border-top:1px solid #e5e9e3;padding-top:14px;">
+              Não quer mais receber estes e-mails?
+              <a href="{html.escape(descadastro_url, quote=True)}" style="color:#607068;">Descadastre-se aqui</a>.
+            </p>
           </main>
           <img src="{html.escape(rastreio_url, quote=True)}" width="1" height="1" alt="" style="display:none">
         </body></html>
@@ -200,11 +213,13 @@ def _mensagem_passo_cadencia(
     return mensagem
 
 
-async def enviar_passo_cadencia(destinatario: str, nome: str, titulo: str, corpo: str, rastreio_url: str) -> None:
+async def enviar_passo_cadencia(
+    destinatario: str, nome: str, titulo: str, corpo: str, rastreio_url: str, descadastro_url: str
+) -> None:
     settings = get_settings()
     if not settings.email_enabled:
         return
-    mensagem = _mensagem_passo_cadencia(destinatario, nome, titulo, corpo, rastreio_url, settings)
+    mensagem = _mensagem_passo_cadencia(destinatario, nome, titulo, corpo, rastreio_url, descadastro_url, settings)
     ultimo_erro: Exception | None = None
     for tentativa in range(1, max(1, settings.smtp_max_attempts) + 1):
         try:

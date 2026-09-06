@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.juridico import FUSO_BRASIL
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
-from app.cadencia_email import registrar_abertura
+from app.cadencia_email import processar_descadastro_cadencia, registrar_abertura
 from app.clicksign import configuracao as configuracao_clicksign
 from app.clicksign import criar_envelope
 from app.crm import (
@@ -3339,6 +3339,27 @@ async def rastreio_abertura_cadencia(token: str, session: SessionDep) -> Respons
     except Exception:
         await session.rollback()
     return Response(content=PIXEL_GIF, media_type="image/gif")
+
+
+@router.get("/v1/cadencias/descadastrar/{token}", response_class=HTMLResponse, include_in_schema=False)
+async def descadastrar_cadencia(token: str, session: SessionDep) -> HTMLResponse:
+    # Achado da auditoria completa do CRM (06/09/2026): link de descadastro
+    # no rodapé do e-mail de cadência. Página simples, sem exigir login --
+    # é assim que qualquer opt-out de e-mail no mercado funciona.
+    try:
+        await processar_descadastro_cadencia(session, token)
+        await session.commit()
+    except Exception:
+        await session.rollback()
+    return HTMLResponse(
+        "<!doctype html><html lang='pt-BR'><meta charset='utf-8'>"
+        "<body style='font-family:Arial,sans-serif;max-width:520px;margin:80px auto;"
+        "color:#10251d;text-align:center;'>"
+        "<p style='color:#08704d;font-weight:700;letter-spacing:.08em;'>ZÉ REGISTRA®</p>"
+        "<h1 style='font-size:1.2rem;'>Descadastro concluído</h1>"
+        "<p>Você não receberá mais e-mails desta sequência de atendimento.</p>"
+        "</body></html>"
+    )
 
 
 FASE_LABELS: dict[str, str] = {

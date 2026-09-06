@@ -1701,6 +1701,11 @@ class Lead(Base):
         ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
     )
     anonimizado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    # Achado da auditoria completa do CRM (06/09/2026): descadastro
+    # específico de cadência comercial (link no rodapé do e-mail) --
+    # diferente de anonimizado_em/arquivado_em, não apaga nem encerra o
+    # lead, só para os envios automáticos de sequência.
+    cadencia_opt_out_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     responsavel_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
     )

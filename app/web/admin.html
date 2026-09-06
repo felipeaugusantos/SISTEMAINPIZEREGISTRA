@@ -6,10 +6,10 @@
     <meta name="robots" content="noindex,nofollow" />
     <title>Centro de operações — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=51" />
-    <link rel="stylesheet" href="/static/admin-funil.css?v=4" />
+    <link rel="stylesheet" href="/static/admin-funil.css?v=5" />
     <script src="/static/admin-shell.js?v=40" defer></script>
     <script src="/static/admin-dashboard.js?v=18" defer></script>
-    <script src="/static/admin-funil.js?v=5" defer></script>
+    <script src="/static/admin-funil.js?v=6" defer></script>
   </head>
   <body class="admin-body" data-admin-section="overview">
     <main class="admin-main admin-dashboard">
@@ -194,6 +194,12 @@
         <div class="funil-subcard">
           <p class="eyebrow">Conversão por origem</p>
           <div id="funil-origem"></div>
+        </div>
+        <div class="funil-subcard">
+          <p class="eyebrow">Metas do mês</p>
+          <label class="funil-metas-periodo">Período <input type="month" id="metas-periodo"></label>
+          <div id="metas-message" class="status-message" hidden role="status" aria-live="polite"></div>
+          <div id="funil-metas"></div>
         </div>
       </section>
 

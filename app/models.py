@@ -759,6 +759,38 @@ class PoliticaCRM(Base):
     )
 
 
+class MetaComercial(Base):
+    """Meta mensal de um operador (item 50 da auditoria completa do CRM,
+    06/09/2026): quantidade de leads ganhos e valor faturado. Não existe
+    meta "de equipe" como registro separado -- a meta de equipe é a soma
+    das metas individuais do período, calculada na consulta (evita duas
+    fontes de verdade divergentes, como já documentado para fase/status
+    do lead)."""
+
+    __tablename__ = "metas_comerciais"
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "operador_id", "periodo", name="uq_meta_comercial_operador_periodo"),
+        CheckConstraint("meta_leads_ganhos >= 0", name="ck_meta_comercial_leads_ganhos"),
+        CheckConstraint("meta_valor_faturado >= 0", name="ck_meta_comercial_valor_faturado"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    operador_id: Mapped[int] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="CASCADE"), index=True
+    )
+    # Formato "AAAA-MM" (ex.: "2026-09") -- período mensal, mesma granularidade
+    # já usada no resto do sistema para relatórios financeiros (competência).
+    periodo: Mapped[str] = mapped_column(String(7), index=True)
+    meta_leads_ganhos: Mapped[int] = mapped_column(Integer, default=0)
+    meta_valor_faturado: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    definida_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Cadencia(Base):
     """Cadência de atendimento: sequência de passos aplicável a uma oportunidade."""
 

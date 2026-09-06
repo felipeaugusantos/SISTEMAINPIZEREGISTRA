@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -18,12 +19,16 @@ from app.models import (
     ContatoLead,
     EmpresaCRM,
     EventoAuditoria,
+    FaseLead,
+    HistoricoFaseLead,
     Lead,
     LembreteCRM,
+    MetaComercial,
     PesquisaMarca,
     PoliticaCRM,
     Processo,
     ProcessoMonitorado,
+    PropostaComercial,
     RegraAutomacao,
     StatusLead,
     UsuarioOperacoes,
@@ -967,3 +972,150 @@ async def remover_cadencia(cadencia_id: int, session: SessionDep, usuario: CRMMa
     await session.delete(cadencia)
     await session.commit()
     return None
+
+
+# --- Item 50 da auditoria completa do CRM (06/09/2026): metas mensais de
+# leads ganhos e valor faturado por operador. Decisão do usuário
+# (AskUserQuestion): ambos os critérios ao mesmo tempo. Não existe registro
+# de "meta de equipe" -- é a soma das metas individuais do período,
+# calculada aqui mesmo (evita uma segunda fonte de verdade divergente). ---
+
+
+class MetaComercialInput(BaseModel):
+    periodo: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description='Formato "AAAA-MM"')
+    meta_leads_ganhos: int = Field(ge=0, default=0)
+    meta_valor_faturado: Decimal = Field(ge=0, default=Decimal("0"))
+
+
+def _intervalo_periodo(periodo: str) -> tuple[datetime, datetime]:
+    ano, mes = (int(parte) for parte in periodo.split("-"))
+    inicio = datetime(ano, mes, 1, tzinfo=UTC)
+    fim = datetime(ano + 1, 1, 1, tzinfo=UTC) if mes == 12 else datetime(ano, mes + 1, 1, tzinfo=UTC)
+    return inicio, fim
+
+
+@router.get("/metas")
+async def listar_metas(
+    periodo: Annotated[str, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")],
+    session: SessionDep,
+    usuario: CRMViewDep,
+) -> dict:
+    inicio, fim = _intervalo_periodo(periodo)
+    operadores = list(
+        (
+            await session.execute(
+                select(UsuarioOperacoes)
+                .where(
+                    UsuarioOperacoes.organizacao_id == usuario.organizacao_id,
+                    UsuarioOperacoes.ativo.is_(True),
+                    UsuarioOperacoes.perfil == "comercial",
+                )
+                .order_by(UsuarioOperacoes.nome)
+            )
+        ).scalars()
+    )
+    metas = {
+        row.operador_id: row
+        for row in (
+            await session.execute(
+                select(MetaComercial).where(
+                    MetaComercial.organizacao_id == usuario.organizacao_id, MetaComercial.periodo == periodo
+                )
+            )
+        ).scalars()
+    }
+    leads_ganhos_por_operador = dict(
+        (
+            await session.execute(
+                select(Lead.responsavel_id, func.count(func.distinct(HistoricoFaseLead.lead_id)))
+                .join(HistoricoFaseLead, HistoricoFaseLead.lead_id == Lead.id)
+                .where(
+                    Lead.organizacao_id == usuario.organizacao_id,
+                    HistoricoFaseLead.fase == FaseLead.GANHO.value,
+                    HistoricoFaseLead.entrou_em >= inicio,
+                    HistoricoFaseLead.entrou_em < fim,
+                )
+                .group_by(Lead.responsavel_id)
+            )
+        ).all()
+    )
+    valor_faturado_por_operador = dict(
+        (
+            await session.execute(
+                select(
+                    Lead.responsavel_id,
+                    func.sum(
+                        func.coalesce(PropostaComercial.honorarios, 0) + func.coalesce(PropostaComercial.taxa_gru, 0)
+                    ),
+                )
+                .join(Lead, Lead.id == PropostaComercial.lead_id)
+                .where(
+                    PropostaComercial.organizacao_id == usuario.organizacao_id,
+                    PropostaComercial.pagamento_status == "confirmado",
+                    PropostaComercial.pagamento_confirmado_em >= inicio,
+                    PropostaComercial.pagamento_confirmado_em < fim,
+                )
+                .group_by(Lead.responsavel_id)
+            )
+        ).all()
+    )
+
+    def _linha(operador: UsuarioOperacoes) -> dict:
+        meta = metas.get(operador.id)
+        return {
+            "operador_id": operador.id,
+            "nome": operador.nome,
+            "meta_leads_ganhos": meta.meta_leads_ganhos if meta else 0,
+            "leads_ganhos": int(leads_ganhos_por_operador.get(operador.id, 0)),
+            "meta_valor_faturado": meta.meta_valor_faturado if meta else Decimal("0"),
+            "valor_faturado": valor_faturado_por_operador.get(operador.id) or Decimal("0"),
+        }
+
+    linhas = [_linha(operador) for operador in operadores]
+    return {
+        "periodo": periodo,
+        "equipe": {
+            "meta_leads_ganhos": sum(item["meta_leads_ganhos"] for item in linhas),
+            "leads_ganhos": sum(item["leads_ganhos"] for item in linhas),
+            "meta_valor_faturado": sum((item["meta_valor_faturado"] for item in linhas), Decimal("0")),
+            "valor_faturado": sum((item["valor_faturado"] for item in linhas), Decimal("0")),
+        },
+        "operadores": linhas,
+    }
+
+
+@router.put("/metas/{operador_id}")
+async def definir_meta(
+    operador_id: int, dados: MetaComercialInput, session: SessionDep, usuario: CRMManageDep
+) -> dict:
+    operador = (
+        await session.execute(
+            select(UsuarioOperacoes).where(
+                UsuarioOperacoes.id == operador_id, UsuarioOperacoes.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if operador is None:
+        raise HTTPException(status_code=404, detail="Operador não encontrado")
+    meta = (
+        await session.execute(
+            select(MetaComercial).where(
+                MetaComercial.organizacao_id == usuario.organizacao_id,
+                MetaComercial.operador_id == operador_id,
+                MetaComercial.periodo == dados.periodo,
+            )
+        )
+    ).scalar_one_or_none()
+    if meta is None:
+        meta = MetaComercial(organizacao_id=usuario.organizacao_id, operador_id=operador_id, periodo=dados.periodo)
+        session.add(meta)
+    meta.meta_leads_ganhos = dados.meta_leads_ganhos
+    meta.meta_valor_faturado = dados.meta_valor_faturado
+    meta.definida_por = usuario.ator
+    await session.commit()
+    return {
+        "operador_id": operador_id,
+        "periodo": meta.periodo,
+        "meta_leads_ganhos": meta.meta_leads_ganhos,
+        "meta_valor_faturado": meta.meta_valor_faturado,
+    }

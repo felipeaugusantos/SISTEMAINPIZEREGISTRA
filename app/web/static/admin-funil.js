@@ -64,3 +64,80 @@ function funilRender(d) {
 funilApi("/v1/admin/leads-dashboard")
   .then(funilRender)
   .catch(() => { const s = document.querySelector("#overview-funil"); if (s) s.hidden = true; });
+
+// Item 50 da auditoria completa do CRM (06/09/2026): metas mensais de leads
+// ganhos e valor faturado por operador. Não existe registro de "meta de
+// equipe" -- a linha "Equipe" é a soma das metas/resultados individuais,
+// já calculada pelo backend.
+function metasPeriodoAtual() {
+  const agora = new Date();
+  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function metasLinha(item, editavel) {
+  const progresso = item.meta_leads_ganhos
+    ? Math.min(100, Math.round((item.leads_ganhos / item.meta_leads_ganhos) * 100))
+    : null;
+  const progressoValor = item.meta_valor_faturado > 0
+    ? Math.min(100, Math.round((Number(item.valor_faturado) / Number(item.meta_valor_faturado)) * 100))
+    : null;
+  const metaLeadsCell = editavel
+    ? `<input type="number" min="0" class="meta-input" data-campo="meta_leads_ganhos" value="${item.meta_leads_ganhos}">`
+    : funilEsc(String(item.meta_leads_ganhos));
+  const metaValorCell = editavel
+    ? `<input type="number" min="0" step="0.01" class="meta-input" data-campo="meta_valor_faturado" value="${item.meta_valor_faturado}">`
+    : funilMoeda(item.meta_valor_faturado);
+  return `<tr${item.operador_id ? ` data-operador-id="${item.operador_id}"` : ""}>
+    <td><strong>${funilEsc(item.nome || "Equipe")}</strong></td>
+    <td>${metaLeadsCell}</td>
+    <td>${funilEsc(String(item.leads_ganhos))}${progresso !== null ? ` <small>(${progresso}%)</small>` : ""}</td>
+    <td>${metaValorCell}</td>
+    <td>${funilMoeda(item.valor_faturado)}${progressoValor !== null ? ` <small>(${progressoValor}%)</small>` : ""}</td>
+    ${editavel ? `<td><button type="button" class="secondary-button salvar-meta">Salvar</button></td>` : "<td></td>"}
+  </tr>`;
+}
+
+function renderMetas(dados) {
+  const linhas = [metasLinha(dados.equipe, false), ...dados.operadores.map(item => metasLinha(item, true))].join("");
+  document.querySelector("#funil-metas").innerHTML = `<div class="funil-table-scroll"><table class="funil-table"><thead><tr><th>Operador</th><th>Meta leads</th><th>Leads ganhos</th><th>Meta R$</th><th>Faturado</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>`;
+  document.querySelectorAll("#funil-metas .salvar-meta").forEach(botao => botao.addEventListener("click", async () => {
+    const linha = botao.closest("tr");
+    const operadorId = linha.dataset.operadorId;
+    const metaLeads = linha.querySelector('[data-campo="meta_leads_ganhos"]').value || 0;
+    const metaValor = linha.querySelector('[data-campo="meta_valor_faturado"]').value || 0;
+    const status = document.querySelector("#metas-message");
+    botao.disabled = true;
+    try {
+      const r = await fetch(`/v1/admin/crm/metas/${operadorId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          periodo: document.querySelector("#metas-periodo").value,
+          meta_leads_ganhos: Number(metaLeads),
+          meta_valor_faturado: Number(metaValor),
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Não foi possível salvar a meta.");
+      status.hidden = false; status.className = "status-message success"; status.textContent = "Meta salva.";
+      carregarMetas();
+    } catch (error) {
+      status.hidden = false; status.className = "status-message error"; status.textContent = error.message;
+    } finally {
+      botao.disabled = false;
+    }
+  }));
+}
+
+function carregarMetas() {
+  const periodo = document.querySelector("#metas-periodo").value || metasPeriodoAtual();
+  funilApi(`/v1/admin/crm/metas?periodo=${encodeURIComponent(periodo)}`)
+    .then(renderMetas)
+    .catch(() => { document.querySelector("#funil-metas").innerHTML = `<p class="funil-empty">Não foi possível carregar as metas.</p>`; });
+}
+
+const metasPeriodoInput = document.querySelector("#metas-periodo");
+if (metasPeriodoInput) {
+  metasPeriodoInput.value = metasPeriodoAtual();
+  metasPeriodoInput.addEventListener("change", carregarMetas);
+  carregarMetas();
+}

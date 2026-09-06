@@ -18,8 +18,11 @@ from app.models import (
     Lead,
     LembreteCRM,
     PoliticaCRM,
+    ProcessoMonitorado,
     RegraAutomacao,
     StatusLead,
+    Titular,
+    processo_titulares,
 )
 
 
@@ -445,6 +448,74 @@ async def obter_ou_criar_empresa(session: AsyncSession, organizacao_id: int, nom
         session.add(empresa)
         await session.flush()
     return empresa
+
+
+async def verificar_conflito_interesse(
+    session: AsyncSession, organizacao_id: int, nomes: list[str | None], empresa_id_atual: int | None = None
+) -> list[dict]:
+    """Checagem NAO BLOQUEANTE de conflito de interesse -- Fase A da evolucao
+    do CRM (05/09/2026, achado da auditoria comparando com CRMs juridicos de
+    mercado). Compara nome(s) informados (ex.: titular de um processo sendo
+    cadastrado, ou razao social de um novo lead) contra:
+
+    1. Titulares de processos ja monitorados para OUTRO cliente da mesma
+       organizacao -- indica que o nome pode ser a mesma marca/pessoa que ja
+       protegemos para outro cliente.
+    2. Empresas ja cadastradas como cliente (EmpresaCRM) diferentes da que
+       esta sendo criada/vinculada agora.
+
+    Retorna a lista de coincidencias encontradas para exibicao em tela; quem
+    chama decide se bloqueia ou so avisa (aqui e sempre so aviso -- a decisao
+    de prosseguir e sempre do operador, registrada via auditoria de quem
+    chamou este endpoint).
+    """
+    candidatos = {normalizar_empresa(nome) for nome in nomes if nome and nome.strip()}
+    if not candidatos:
+        return []
+
+    achados: list[dict] = []
+
+    linhas_titular = (
+        await session.execute(
+            select(Titular.nome, ProcessoMonitorado.empresa_id, EmpresaCRM.nome, ProcessoMonitorado.processo_id)
+            .join(processo_titulares, processo_titulares.c.titular_id == Titular.id)
+            .join(ProcessoMonitorado, ProcessoMonitorado.processo_id == processo_titulares.c.processo_id)
+            .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
+            .where(ProcessoMonitorado.organizacao_id == organizacao_id)
+        )
+    ).all()
+    for titular_nome, empresa_id, empresa_nome, processo_id in linhas_titular:
+        if normalizar_empresa(titular_nome) in candidatos and empresa_id != empresa_id_atual:
+            achados.append(
+                {
+                    "tipo": "titular_outro_cliente",
+                    "nome_encontrado": titular_nome,
+                    "empresa_id": empresa_id,
+                    "empresa_nome": empresa_nome,
+                    "processo_id": processo_id,
+                }
+            )
+
+    linhas_empresa = (
+        await session.execute(
+            select(EmpresaCRM.id, EmpresaCRM.nome, EmpresaCRM.nome_normalizado).where(
+                EmpresaCRM.organizacao_id == organizacao_id
+            )
+        )
+    ).all()
+    for empresa_id, empresa_nome, nome_normalizado in linhas_empresa:
+        if nome_normalizado in candidatos and empresa_id != empresa_id_atual:
+            achados.append(
+                {
+                    "tipo": "empresa_ja_cliente",
+                    "nome_encontrado": empresa_nome,
+                    "empresa_id": empresa_id,
+                    "empresa_nome": empresa_nome,
+                    "processo_id": None,
+                }
+            )
+
+    return achados
 
 
 async def buscar_lead_ativo_por_email(session: AsyncSession, organizacao_id: int, email: str) -> Lead | None:

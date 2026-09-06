@@ -542,15 +542,6 @@
   gap: 12px 14px;
 }
 
-.lead-crm-form,
-.lead-readonly-note,
-.lead-contact-log { grid-column: 1; }
-
-.lead-history {
-  grid-column: 2;
-  grid-row: 2 / span 2;
-}
-
 .lead-contact-log {
   padding: 18px;
   border: 1px solid #dfe2da;
@@ -593,6 +584,40 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
+
+/* Achado FASE-A da auditoria do CRM (05/09/2026): apontamento de horas. */
+.lead-horas {
+  padding: 18px;
+  border: 1px solid #dfe2da;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(24, 55, 42, 0.045);
+}
+.lead-horas > header { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+.lead-horas h3 { margin: 0; font: 500 1.35rem Georgia, "Times New Roman", serif; }
+.lead-horas > header > span { color: #65766d; font-size: 0.7rem; font-weight: 800; }
+.lead-horas-form {
+  display: grid;
+  margin-bottom: 15px;
+  padding: 14px;
+  border-radius: 13px;
+  background: #f2f7f3;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+}
+.lead-horas-form input { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid #ccd3cc; border-radius: 10px; color: #14271e; background: #fcfcf9; font: inherit; }
+.lead-horas-desc { grid-column: 1 / -1; }
+.lead-horas-check { display: flex !important; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 700; }
+.lead-horas-check input { width: auto !important; }
+.lead-horas-list { display: grid; margin: 0; padding: 0; list-style: none; gap: 8px; }
+.lead-hora-item { position: relative; padding: 10px 34px 10px 12px; border: 1px solid #e4e7e2; border-radius: 12px; background: #fbfbf8; }
+.lead-hora-item div { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; }
+.lead-hora-item span { color: #65766d; font-size: 0.74rem; }
+.lead-hora-item p { margin: 0; color: #33463b; font-size: 0.84rem; }
+.hora-del { position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: transparent; color: #9aa39a; font-size: 1rem; line-height: 1; cursor: pointer; }
+.hora-del:hover { background: #fde4dc; color: #983526; }
+.lead-horas-empty { margin: 0; color: #65766d; font-size: 0.84rem; }
 
 .lead-attendance-summary {
   display: grid;

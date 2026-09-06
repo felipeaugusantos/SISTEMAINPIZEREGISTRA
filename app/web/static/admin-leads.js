@@ -458,6 +458,7 @@ async function openLead(id, selectedResearchId = null) {
         </form>` : ""}
         <ol id="lead-contact-history" class="lead-contact-history"><li class="lead-contact-empty">Carregando contatos...</li></ol>
       </section>
+      <section class="lead-horas" id="lead-horas" data-lead-id="${lead.id}"><p class="lead-funil-loading">Carregando horas…</p></section>
     </div>
     <div class="lead-tab-panel" data-panel="empresa" hidden>
       ${lead.empresa_id ? `<section class="lead-empresa lg-full" id="lead-empresa" data-empresa-id="${lead.empresa_id}" data-contato-id="${lead.contato_id || ""}"><p class="lead-funil-loading">Carregando empresa…</p></section>` : `<p class="lead-empresa-vazia">Este lead ainda não está vinculado a uma empresa.</p>`}
@@ -524,6 +525,7 @@ async function openLead(id, selectedResearchId = null) {
   await renderChecklistFase(lead.id);
   await renderGuiasInpi(lead.id);
   await renderPropostas(lead);
+  await renderHoras(lead.id);
 }
 
 // Criação direta: mantém o botão sem prompts e usa os dados já disponíveis.
@@ -826,6 +828,37 @@ async function renderTimeline(leadId) {
     return `<li class="tl-item tl-${escapeHtml(ev.tipo)}"><span class="tl-icone" aria-hidden="true">${icone}</span><div class="tl-corpo"><div class="tl-topo"><strong>${escapeHtml(ev.titulo)}</strong><time>${formatDate(ev.data)}</time></div>${detalhe}</div></li>`;
   }).join("");
   box.innerHTML = `<header><p class="eyebrow">Linha do tempo</p><h3>Atividade da oportunidade</h3></header>${eventos.length ? `<ul class="tl-list">${linhas}</ul>` : `<p class="tl-empty">Sem eventos ainda.</p>`}`;
+}
+
+// Achado FASE-A da auditoria do CRM (05/09/2026): nao havia nenhum controle
+// de horas trabalhadas -- apontamento manual por lead, sem calculo de valor.
+async function renderHoras(leadId) {
+  const box = document.querySelector("#lead-horas");
+  if (!box) return;
+  let data;
+  try { data = await (await fetch(`/v1/admin/horas?lead_id=${leadId}`)).json(); }
+  catch { box.innerHTML = ""; return; }
+  const itens = data.itens || [];
+  const linhas = itens.map(item => `<li class="lead-hora-item" data-id="${item.id}"><div><strong>${Number(item.horas).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}h</strong><span>${formatDate(item.data, false)} · ${escapeHtml(item.usuario_nome || "—")}${item.faturavel ? "" : " · não faturável"}</span></div><p>${escapeHtml(item.descricao)}</p>${state.canManage ? `<button class="hora-del" data-id="${item.id}" type="button" title="Excluir" aria-label="Excluir">×</button>` : ""}</li>`).join("");
+  box.innerHTML = `<header><div><p class="eyebrow">Horas</p><h3>Apontamento de horas</h3></div><span>${data.total_horas || "0"}h · ${data.total_horas_faturaveis || "0"}h faturáveis</span></header>
+    ${state.canManage ? `<form id="lead-horas-form" class="lead-horas-form"><label><span>Data</span><input name="data" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label><label><span>Horas</span><input name="horas" type="number" min="0.25" max="24" step="0.25" required /></label><label class="lead-horas-check"><input name="faturavel" type="checkbox" checked /><span>Faturável</span></label><label class="lead-horas-desc"><span>Descrição</span><input name="descricao" maxlength="500" minlength="3" placeholder="Ex.: análise de viabilidade da marca" required /></label><button class="secondary-button" type="submit">Lançar</button></form>` : ""}
+    ${itens.length ? `<ul class="lead-horas-list">${linhas}</ul>` : `<p class="lead-horas-empty">Nenhuma hora lançada.</p>`}`;
+  const form = box.querySelector("#lead-horas-form");
+  if (form) form.addEventListener("submit", async event => {
+    event.preventDefault();
+    const dados = Object.fromEntries(new FormData(form));
+    try {
+      const response = await fetch("/v1/admin/horas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lead_id: Number(leadId), data: dados.data, horas: Number(dados.horas), descricao: dados.descricao, faturavel: form.elements.faturavel.checked }) });
+      if (!response.ok) { const erro = await response.json().catch(() => ({})); alert(erro.detail || "Não foi possível lançar as horas."); return; }
+      await renderHoras(leadId);
+    } catch { alert("Não foi possível lançar as horas."); }
+  });
+  box.querySelectorAll(".hora-del").forEach(btn => btn.addEventListener("click", async () => {
+    if (!confirm("Excluir este apontamento de horas?")) return;
+    const response = await fetch(`/v1/admin/horas/${btn.dataset.id}`, { method: "DELETE" });
+    if (response.ok || response.status === 204) await renderHoras(leadId);
+    else alert("Não foi possível excluir.");
+  }));
 }
 
 async function renderGuiasInpi(leadId) {

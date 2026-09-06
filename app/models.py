@@ -1024,6 +1024,45 @@ class CustoJuridico(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class ApontamentoHoras(Base):
+    """Registro manual de horas trabalhadas -- Fase A da evolucao do CRM
+    (05/09/2026): o sistema nao tinha nenhum controle de horas fatuaveis,
+    so custo monetario (CustoJuridico). Vinculado a um lead (oportunidade
+    comercial) e/ou a um processo monitorado (caso juridico) -- pelo menos
+    um dos dois precisa estar preenchido. Sem valor/hora: o calculo de
+    faturamento a partir de horas fica para uma fase futura, se necessario.
+    """
+
+    __tablename__ = "apontamentos_horas"
+    __table_args__ = (
+        CheckConstraint(
+            "processo_monitorado_id IS NOT NULL OR lead_id IS NOT NULL",
+            name="ck_apontamento_horas_vinculo",
+        ),
+        CheckConstraint("horas > 0", name="ck_apontamento_horas_positivas"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios_operacoes.id", ondelete="RESTRICT"), index=True)
+    lead_id: Mapped[int | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True)
+    processo_monitorado_id: Mapped[int | None] = mapped_column(
+        ForeignKey("processos_monitorados.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    data: Mapped[date] = mapped_column(Date, index=True)
+    horas: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    descricao: Mapped[str] = mapped_column(String(500))
+    faturavel: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    usuario: Mapped["UsuarioOperacoes"] = relationship(lazy="selectin")
+    lead: Mapped["Lead | None"] = relationship(lazy="selectin")
+    processo_monitorado: Mapped["ProcessoMonitorado | None"] = relationship(lazy="selectin")
+
+
 class WebhookFinanceiro(Base):
     __tablename__ = "webhooks_financeiros"
     __table_args__ = (UniqueConstraint("organizacao_id", "referencia", name="uq_webhook_financeiro_org_referencia"),)

@@ -63,6 +63,8 @@ td { border-top: 1px solid var(--line); }
 .status-message.error { background: #fff0ec; border-color: #efb4a6; color: #8f3021; }
 .status-message.success { background: #eaf7ed; border-color: #a9d8b2; color: #216f34; }
 .status-message.loading { background: #f5f8f5; color: var(--muted); }
+.status-message.warning { background: #fbf4dd; border-color: #e6cf8f; color: #6b5610; }
+.status-message.warning ul { margin: 6px 0 0; padding-left: 18px; }
 
 dialog { border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow); max-width: min(720px, calc(100vw - 32px)); }
 dialog::backdrop { background: rgba(23, 35, 28, .38); }

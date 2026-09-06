@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.cli.consolidar_situacoes_marcas import consolidar_situacao
-from app.crm import obter_ou_criar_empresa
+from app.crm import obter_ou_criar_empresa, verificar_conflito_interesse
 from app.database import get_session
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
 from app.models import (
@@ -1064,8 +1064,28 @@ async def cadastrar_manual(
     if _titular_diverge(dados.titular, processo.titulares):
         nota = f'Titular informado no cadastro ("{dados.titular}") não confere com o titular publicado na RPI — verifique.'
         dados_vinculo.observacoes = f"{dados_vinculo.observacoes}\n{nota}" if dados_vinculo.observacoes else nota
+
+    # Achado FASE-A da auditoria do CRM (05/09/2026): checagem NAO BLOQUEANTE
+    # de conflito de interesse antes de vincular o processo a um cliente --
+    # o operador ve o aviso mas a vinculacao sempre prossegue; a auditoria
+    # abaixo registra que o alerta foi levantado no momento da acao.
+    empresa_alvo = await _empresa(session, usuario, dados.empresa_id, dados.empresa_nome)
+    nomes_a_checar = [dados.titular, dados.empresa_nome, *(titular.nome for titular in processo.titulares)]
+    alertas_conflito = await verificar_conflito_interesse(
+        session, usuario.organizacao_id, nomes_a_checar, empresa_id_atual=empresa_alvo.id if empresa_alvo else None
+    )
+    if alertas_conflito:
+        _auditar(
+            session,
+            request,
+            usuario,
+            "alerta_conflito",
+            f"processo:{processo.id}",
+            {"achados": alertas_conflito},
+        )
+
     resultado = await _vincular_ids(session, request, usuario, [processo.id], dados_vinculo, origem="manual")
-    return {**resultado, "numero": processo.numero, "status": "vinculado"}
+    return {**resultado, "numero": processo.numero, "status": "vinculado", "alertas_conflito_interesse": alertas_conflito}
 
 
 @router.get("/pre-cadastros")

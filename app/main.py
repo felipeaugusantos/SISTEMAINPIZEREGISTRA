@@ -31,6 +31,7 @@ from app.api.fase3 import router as fase3_router
 from app.api.figurativa import router as figurativa_router
 from app.api.financeiro import exigir_acesso_log_financeiro
 from app.api.financeiro import router as financeiro_router
+from app.api.horas import router as horas_router
 from app.api.juridico import router as juridico_router
 from app.api.leads import router as leads_router
 from app.api.nfse import router as nfse_router
@@ -149,6 +150,7 @@ app.include_router(aprendizado_router)
 app.include_router(busca_admin_router)
 app.include_router(carteira_router)
 app.include_router(juridico_router)
+app.include_router(horas_router)
 app.include_router(consulta_router)
 app.include_router(figurativa_router)
 app.include_router(visual_router)

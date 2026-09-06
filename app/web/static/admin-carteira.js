@@ -196,6 +196,16 @@ document.querySelector("#manual-form").addEventListener("submit", async event =>
   try {
     const result = await api("/v1/admin/carteira/manual", { method: "POST", body: JSON.stringify({ ...values, responsavel_id: Number(values.responsavel_id) || null, empresa_nome: values.empresa_nome || null, observacoes: values.observacoes || null }) });
     if (result.status === "pendente") showMessage(result.mensagem || `Processo ${result.numero} aguardando publicação na RPI.`);
+    else if (result.alertas_conflito_interesse && result.alertas_conflito_interesse.length) {
+      // Achado FASE-A da auditoria do CRM (05/09/2026): alerta nao bloqueante --
+      // o vinculo ja foi criado, isto so avisa o operador para ele conferir.
+      const itens = result.alertas_conflito_interesse.map(a => {
+        const rotulo = a.tipo === "titular_outro_cliente" ? `"${a.nome_encontrado}" é titular de um processo já monitorado para ${a.empresa_nome || "outro cliente"}` : `"${a.nome_encontrado}" já é cliente cadastrado (${a.empresa_nome})`;
+        return `<li>${escapeHtml(rotulo)}</li>`;
+      }).join("");
+      message.hidden = false; message.className = "status-message warning";
+      message.innerHTML = `<strong>Processo ${escapeHtml(result.numero)} adicionado à carteira.</strong> Possível conflito de interesse encontrado — confira antes de prosseguir:<ul>${itens}</ul>`;
+    }
     else showMessage(result.vinculados ? `Processo ${result.numero} adicionado à carteira.` : `Processo ${result.numero} já estava na carteira.`);
     dialog.close(); form.reset(); await Promise.all([loadPortfolio(), loadPreCadastros()]);
   }

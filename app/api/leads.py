@@ -60,11 +60,14 @@ from app.models import (
     Organizacao,
     ParcelaFinanceira,
     PesquisaMarca,
+    Processo,
+    ProcessoMonitorado,
     PropostaComercial,
     RespostaEmailLead,
     RetribuicaoInpi,
     SolicitacaoExclusaoPesquisa,
     StatusLead,
+    TipoProcesso,
     UsuarioOperacoes,
     VersaoDocumentoLead,
     VersaoRelatorioMarca,
@@ -2739,6 +2742,53 @@ async def atualizar_pagamento_proposta(
     return _proposta_dict(proposta, await session.get(Organizacao, usuario.organizacao_id))
 
 
+async def _tentar_vincular_processo_ao_protocolar(
+    session: AsyncSession, organizacao_id: int, lead_id: int, numero_protocolo: str
+) -> None:
+    """Achado "Ruptura 1" da auditoria completa do CRM (06/09/2026): o número
+    do protocolo digitado aqui era o mesmo que precisava ser digitado de
+    novo depois na carteira só para vincular o processo ao lead. Propaga
+    para Lead.processo_numero (fonte que a carteira já usa para casar
+    processo→lead automaticamente, ver _leads_por_numero_processo em
+    app/api/carteira.py) e tenta vincular na hora -- best effort, já que a
+    RPI normalmente ainda não publicou o processo neste momento; o caso
+    comum continua sendo resolvido depois, na carteira, já sem precisar
+    digitar o número de novo."""
+    numero_normalizado = normalizar_numero_processo(numero_protocolo)
+    if not numero_normalizado:
+        return
+    processo = (
+        await session.execute(
+            select(Processo).where(
+                Processo.numero_normalizado == numero_normalizado, Processo.tipo == TipoProcesso.MARCA
+            )
+        )
+    ).scalar_one_or_none()
+    if processo is None:
+        return
+    existente = (
+        await session.execute(
+            select(ProcessoMonitorado).where(
+                ProcessoMonitorado.organizacao_id == organizacao_id,
+                ProcessoMonitorado.processo_id == processo.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existente is None:
+        session.add(
+            ProcessoMonitorado(
+                organizacao_id=organizacao_id,
+                processo_id=processo.id,
+                lead_id=lead_id,
+                status="ativo",
+                origem="protocolo_proposta",
+                vinculado_por="sistema (protocolo da proposta)",
+            )
+        )
+    elif existente.lead_id is None:
+        existente.lead_id = lead_id
+
+
 @router.patch("/v1/admin/propostas/{proposta_id}/protocolo")
 async def registrar_protocolo_proposta(
     proposta_id: int,
@@ -2799,6 +2849,11 @@ async def registrar_protocolo_proposta(
     proposta.protocolo_motivo_atraso = motivo
     proposta.protocolo_comprovante_id = dados.comprovante_id
     proposta.protocolo_em = agora if numero else None
+    if numero and proposta.lead_id is not None:
+        lead_do_protocolo = await session.get(Lead, proposta.lead_id)
+        if lead_do_protocolo is not None and not lead_do_protocolo.processo_numero:
+            lead_do_protocolo.processo_numero = numero
+        await _tentar_vincular_processo_ao_protocolar(session, usuario.organizacao_id, proposta.lead_id, numero)
     _atualizar_sla_proposta(proposta)
     _auditar(
         session,

@@ -8,6 +8,7 @@ from app.api.leads import (
     PropostaStatusInput,
     _atualizar_sla_proposta,
     _prazo_sla_24h,
+    _tentar_vincular_processo_ao_protocolar,
     aceitar_proposta_publica,
     atualizar_pagamento_proposta,
     atualizar_status_proposta,
@@ -23,7 +24,10 @@ from app.models import (
     LancamentoFinanceiro,
     Organizacao,
     ParcelaFinanceira,
+    Processo,
+    ProcessoMonitorado,
     PropostaComercial,
+    TipoProcesso,
 )
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
@@ -522,3 +526,69 @@ def test_sla_nao_libera_quando_proposta_aceita_mas_sem_lancamento_pago() -> None
     assert proposta.pagamento_status == "pendente"
     assert proposta.sla_inicio_em is None
     assert _atualizar_sla_proposta(proposta) == "aguardando_pagamento"
+
+
+# --- Achado "Ruptura 1" da auditoria completa do CRM (06/09/2026): o número
+# do protocolo digitado ao registrar a proposta era o mesmo que precisava
+# ser digitado de novo depois na carteira, só para vincular o processo ao
+# lead. ---
+
+
+def _processo(**kwargs: object) -> Processo:
+    base: dict = {
+        "id": 100,
+        "numero": "935977333",
+        "numero_normalizado": "935977333",
+        "tipo": TipoProcesso.MARCA,
+        "fonte": "RPI 2901",
+    }
+    base.update(kwargs)
+    return Processo(**base)
+
+
+def test_tentar_vincular_processo_processo_nao_publicado_nao_faz_nada() -> None:
+    session = FakeSession([FakeResult(scalar=None)])
+
+    asyncio.run(_tentar_vincular_processo_ao_protocolar(session, 1, 7, "935977333"))
+
+    assert session.adicionados == []
+    assert session.commits == 0
+
+
+def test_tentar_vincular_processo_cria_processo_monitorado_quando_processo_ja_existe() -> None:
+    processo = _processo()
+    session = FakeSession([FakeResult(scalar=processo), FakeResult(scalar=None)])
+
+    asyncio.run(_tentar_vincular_processo_ao_protocolar(session, 1, 7, "935977333"))
+
+    assert len(session.adicionados) == 1
+    monitorado = session.adicionados[0]
+    assert isinstance(monitorado, ProcessoMonitorado)
+    assert monitorado.processo_id == 100
+    assert monitorado.lead_id == 7
+    assert monitorado.organizacao_id == 1
+
+
+def test_tentar_vincular_processo_preenche_lead_id_quando_ja_monitorado_sem_lead() -> None:
+    processo = _processo()
+    monitorado_existente = ProcessoMonitorado(
+        id=55, organizacao_id=1, processo_id=100, lead_id=None, vinculado_por="outro fluxo"
+    )
+    session = FakeSession([FakeResult(scalar=processo), FakeResult(scalar=monitorado_existente)])
+
+    asyncio.run(_tentar_vincular_processo_ao_protocolar(session, 1, 7, "935977333"))
+
+    assert session.adicionados == []
+    assert monitorado_existente.lead_id == 7
+
+
+def test_tentar_vincular_processo_nao_sobrescreve_lead_ja_vinculado_a_outro() -> None:
+    processo = _processo()
+    monitorado_existente = ProcessoMonitorado(
+        id=55, organizacao_id=1, processo_id=100, lead_id=99, vinculado_por="outro fluxo"
+    )
+    session = FakeSession([FakeResult(scalar=processo), FakeResult(scalar=monitorado_existente)])
+
+    asyncio.run(_tentar_vincular_processo_ao_protocolar(session, 1, 7, "935977333"))
+
+    assert monitorado_existente.lead_id == 99

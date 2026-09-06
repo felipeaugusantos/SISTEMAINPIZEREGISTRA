@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.juridico import FUSO_BRASIL
 from app.api.leads import _garantir_proxima_acao_padrao
 from app.api.saas import SuperAdminDep
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
@@ -887,16 +888,19 @@ async def dashboard_prospeccao(
     )
 
     desde = datetime.now(UTC) - timedelta(days=dias)
+    # Achado D1 da auditoria de 06/09/2026 (mesmo padrao de app.api.juridico,
+    # achado JUR-1): trunca no fuso de Brasilia, nao no fuso da sessao (UTC).
+    data_prospect_brasil = func.date(func.timezone("America/Sao_Paulo", Prospect.criado_em))
     criados_por_dia = dict(
         (
             await session.execute(
-                select(func.date(Prospect.criado_em), func.count())
+                select(data_prospect_brasil, func.count())
                 .where(Prospect.organizacao_id == org, Prospect.criado_em >= desde)
-                .group_by(func.date(Prospect.criado_em))
+                .group_by(data_prospect_brasil)
             )
         ).all()
     )
-    hoje = datetime.now(UTC).date()
+    hoje = datetime.now(UTC).astimezone(FUSO_BRASIL).date()
     serie = [
         {"data": (hoje - timedelta(days=offset)).isoformat(), "prospects_criados": int(criados_por_dia.get(hoje - timedelta(days=offset), 0))}
         for offset in range(dias, -1, -1)

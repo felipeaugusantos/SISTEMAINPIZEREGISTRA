@@ -18,6 +18,7 @@ from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
 from app.cadencia_email import registrar_abertura
 from app.clicksign import configuracao as configuracao_clicksign
 from app.clicksign import criar_envelope
+from app.api.juridico import FUSO_BRASIL
 from app.crm import (
     aplicar_cadencia_a_lead,
     aplicar_cadencias_automaticas,
@@ -1253,28 +1254,36 @@ async def serie_temporal_leads(
     acumuladas (dashboard), sem visão de tendência ao longo do tempo."""
     org = usuario.organizacao_id
     desde = datetime.now(UTC) - timedelta(days=dias)
+    # Achado D1 da auditoria de 06/09/2026: func.date(coluna) trunca o
+    # timestamptz no timezone da sessao Postgres (UTC), nao no calendario
+    # civil de Brasilia -- um lead/transicao perto da virada do dia (ex.:
+    # 22h em Brasilia = 01h UTC do dia seguinte) caia no dia errado do
+    # agrupamento. func.timezone() converte para o fuso de negocio antes do
+    # truncamento (mesmo padrao ja usado em app.api.juridico, achado JUR-1).
+    data_lead_brasil = func.date(func.timezone("America/Sao_Paulo", Lead.criado_em))
+    data_historico_brasil = func.date(func.timezone("America/Sao_Paulo", HistoricoFaseLead.entrou_em))
 
     criados_por_dia = dict(
         (
             await session.execute(
-                select(func.date(Lead.criado_em), func.count())
+                select(data_lead_brasil, func.count())
                 .where(Lead.organizacao_id == org, Lead.criado_em >= desde)
-                .group_by(func.date(Lead.criado_em))
+                .group_by(data_lead_brasil)
             )
         ).all()
     )
     entradas_por_dia_e_fase = (
         await session.execute(
-            select(func.date(HistoricoFaseLead.entrou_em), HistoricoFaseLead.fase, func.count())
+            select(data_historico_brasil, HistoricoFaseLead.fase, func.count())
             .where(HistoricoFaseLead.organizacao_id == org, HistoricoFaseLead.entrou_em >= desde)
-            .group_by(func.date(HistoricoFaseLead.entrou_em), HistoricoFaseLead.fase)
+            .group_by(data_historico_brasil, HistoricoFaseLead.fase)
         )
     ).all()
     funil_por_dia: dict[str, dict[str, int]] = {}
     for data_evento, fase, total in entradas_por_dia_e_fase:
         funil_por_dia.setdefault(data_evento.isoformat(), {})[fase] = int(total)
 
-    hoje = datetime.now(UTC).date()
+    hoje = datetime.now(UTC).astimezone(FUSO_BRASIL).date()
     serie = []
     for offset in range(dias, -1, -1):
         dia = hoje - timedelta(days=offset)

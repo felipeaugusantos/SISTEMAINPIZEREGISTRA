@@ -6,14 +6,14 @@ notificações pendentes do sistema. Cada bloco respeita a permissão do módulo
 o CEO — que tem todas — vê tudo; um operador vê apenas o que lhe cabe.
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.juridico import STATUS_ATIVOS
+from app.api.juridico import FUSO_BRASIL, STATUS_ATIVOS
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
 from app.models import (
@@ -127,16 +127,30 @@ async def _bloco_financeiro(session: AsyncSession, organizacao_id: int) -> dict:
 
 
 async def _bloco_juridico(session: AsyncSession, organizacao_id: int) -> dict:
-    agora = datetime.now(UTC)
-    hoje = agora.date()
+    # Achado D1 da auditoria de 06/09/2026: "vence_hoje"/"proximos_7_dias" usavam
+    # func.date(vencimento_em) == hoje, truncando o timestamptz no timezone da
+    # sessao Postgres (UTC) em vez do calendario civil de Brasilia -- mesma
+    # classe de bug ja corrigida em app.api.juridico (achado JUR-1, 04/09/2026),
+    # mas essa correcao nunca chegou a esta copia duplicada da logica. Segue
+    # aqui o mesmo padrao ja comprovado la: compara o timestamptz contra
+    # limites absolutos (UTC) calculados a partir do dia civil de Brasilia, em
+    # vez de truncar a coluna dentro do SQL.
     ativo = PrazoJuridico.status.in_(STATUS_ATIVOS)
-    venc = func.date(PrazoJuridico.vencimento_em)
+    agora = datetime.now(UTC)
+    hoje_brasil = agora.astimezone(FUSO_BRASIL).date()
+    hoje_inicio = datetime.combine(hoje_brasil, time.min, FUSO_BRASIL).astimezone(UTC)
+    hoje_fim = datetime.combine(hoje_brasil, time.max, FUSO_BRASIL).astimezone(UTC)
+    sete_dias_fim = datetime.combine(hoje_brasil + timedelta(days=7), time.max, FUSO_BRASIL).astimezone(UTC)
     linha = (
         await session.execute(
             select(
-                func.count().filter(and_(ativo, PrazoJuridico.vencimento_em < agora)),
-                func.count().filter(and_(ativo, venc == hoje)),
-                func.count().filter(and_(ativo, venc > hoje, venc <= hoje + timedelta(days=7))),
+                func.count().filter(and_(ativo, PrazoJuridico.vencimento_em < hoje_inicio)),
+                func.count().filter(
+                    and_(ativo, PrazoJuridico.vencimento_em >= hoje_inicio, PrazoJuridico.vencimento_em <= hoje_fim)
+                ),
+                func.count().filter(
+                    and_(ativo, PrazoJuridico.vencimento_em > hoje_fim, PrazoJuridico.vencimento_em <= sete_dias_fim)
+                ),
                 func.count().filter(and_(ativo, PrazoJuridico.confirmado.is_(False))),
             ).where(PrazoJuridico.organizacao_id == organizacao_id)
         )

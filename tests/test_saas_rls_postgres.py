@@ -189,6 +189,90 @@ async def _criar_cenario(admin: asyncpg.Connection) -> dict:
             org_id,
             f"rls_{tenant}_{sufixo}",
         )
+        # Achado D2 da auditoria de 06/09/2026: estas 8 tabelas tinham
+        # organizacao_id mas nenhuma politica RLS (migration
+        # bt86o2v8h508_rls_faltante_financeiro_vigilancia.py corrige) --
+        # cobertas aqui pela mesma bateria de isolamento cruzado A/B.
+        servico_id = await admin.fetchval(
+            """
+            INSERT INTO servicos_financeiros (organizacao_id, codigo, nome, valor)
+            VALUES ($1, $2, $3, 100) RETURNING id
+            """,
+            org_id,
+            f"rls-{tenant}-{sufixo}",
+            f"Servico {tenant.upper()}",
+        )
+        contratacao_id = await admin.fetchval(
+            "INSERT INTO contratacoes_servicos (organizacao_id, servico_id) VALUES ($1, $2) RETURNING id",
+            org_id,
+            servico_id,
+        )
+        parcela_id = await admin.fetchval(
+            """
+            INSERT INTO parcelas_financeiras (organizacao_id, lancamento_id, numero, vencimento, valor)
+            VALUES ($1, $2, 1, CURRENT_DATE, 100) RETURNING id
+            """,
+            org_id,
+            financeiro_id,
+        )
+        recibo_id = await admin.fetchval(
+            """
+            INSERT INTO recibos_financeiros (organizacao_id, parcela_id, numero)
+            VALUES ($1, $2, $3) RETURNING id
+            """,
+            org_id,
+            parcela_id,
+            f"rls-{tenant}-{sufixo}",
+        )
+        renovacao_id = await admin.fetchval(
+            """
+            INSERT INTO renovacoes_financeiras (organizacao_id, processo_id, referencia, vencimento)
+            VALUES ($1, $2, $3, CURRENT_DATE) RETURNING id
+            """,
+            org_id,
+            processo_id,
+            f"rls-{tenant}-{sufixo}",
+        )
+        cliente_portal_id = await admin.fetchval(
+            """
+            INSERT INTO clientes_portal (organizacao_id, lead_id, nome, email, senha_hash)
+            VALUES ($1, $2, $3, $4, 'hash-teste') RETURNING id
+            """,
+            org_id,
+            lead_id,
+            f"Cliente Portal {tenant.upper()}",
+            f"portal.{tenant}.{sufixo}@example.test",
+        )
+        preferencia_vigilancia_id = await admin.fetchval(
+            "INSERT INTO preferencias_vigilancia (organizacao_id, cliente_id) VALUES ($1, $2) RETURNING id",
+            org_id,
+            cliente_portal_id,
+        )
+        colidencia_id = await admin.fetchval(
+            """
+            INSERT INTO colidencias_vigilancia (organizacao_id, cliente_id, processo_id, justificativa)
+            VALUES ($1, $2, $3, 'teste RLS') RETURNING id
+            """,
+            org_id,
+            cliente_portal_id,
+            processo_id,
+        )
+        vigilancia_execucao_id = await admin.fetchval(
+            "INSERT INTO vigilancia_execucoes (organizacao_id, chave) VALUES ($1, $2) RETURNING id",
+            org_id,
+            f"rls-{tenant}-{sufixo}",
+        )
+        historico_alerta_id = await admin.fetchval(
+            """
+            INSERT INTO historico_alertas_vigilancia
+                (organizacao_id, colidencia_id, cliente_id, canal, idempotency_key, justificativa)
+            VALUES ($1, $2, $3, 'email', $4, 'teste RLS') RETURNING id
+            """,
+            org_id,
+            colidencia_id,
+            cliente_portal_id,
+            f"rls-{tenant}-{sufixo}",
+        )
         ids[tenant] = {
             "usuarios_operacoes": usuario_id,
             "empresas_crm": empresa_id,
@@ -201,7 +285,17 @@ async def _criar_cenario(admin: asyncpg.Connection) -> dict:
             "lembretes_crm": lembrete_id,
             "lancamentos_financeiros": financeiro_id,
             "regras_automacao": regra_id,
+            "servicos_financeiros": servico_id,
+            "contratacoes_servicos": contratacao_id,
+            "recibos_financeiros": recibo_id,
+            "renovacoes_financeiras": renovacao_id,
+            "clientes_portal": cliente_portal_id,
+            "preferencias_vigilancia": preferencia_vigilancia_id,
+            "colidencias_vigilancia": colidencia_id,
+            "vigilancia_execucoes": vigilancia_execucao_id,
+            "historico_alertas_vigilancia": historico_alerta_id,
         }
+        ids.setdefault(f"_extra_{tenant}", {})["parcelas_financeiras"] = parcela_id
         ids[f"auth_{tenant}"] = {
             "identificador": f"rls.{tenant}.{sufixo}",
             "sessao_hash": sessao_hash,
@@ -216,6 +310,16 @@ async def _limpar_cenario(admin: asyncpg.Connection, ids: dict) -> None:
     if not orgs:
         return
     for tabela in (
+        "historico_alertas_vigilancia",
+        "colidencias_vigilancia",
+        "preferencias_vigilancia",
+        "recibos_financeiros",
+        "parcelas_financeiras",
+        "renovacoes_financeiras",
+        "contratacoes_servicos",
+        "servicos_financeiros",
+        "vigilancia_execucoes",
+        "clientes_portal",
         "versoes_relatorio_marca",
         "documentos_lead",
         "lembretes_crm",

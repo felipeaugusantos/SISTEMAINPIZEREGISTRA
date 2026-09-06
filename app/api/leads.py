@@ -61,6 +61,7 @@ from app.models import (
     ParcelaFinanceira,
     PesquisaMarca,
     PropostaComercial,
+    RespostaEmailLead,
     RetribuicaoInpi,
     SolicitacaoExclusaoPesquisa,
     StatusLead,
@@ -3451,6 +3452,30 @@ async def timeline_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep
                 "titulo": f"Contato · {c.canal}",
                 "detalhe": detalhe,
                 "autor": c.operador_nome,
+            }
+        )
+    # Achado item 21 da auditoria completa do CRM (06/09/2026): antes só se
+    # sabia QUE o lead respondeu um e-mail de cadência (pausa registrada em
+    # EnvioCadenciaEmail), nunca O QUE ele escreveu.
+    respostas_email = (
+        (
+            await session.execute(
+                select(RespostaEmailLead).where(
+                    RespostaEmailLead.lead_id == lead_id, RespostaEmailLead.organizacao_id == org
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for resposta in respostas_email:
+        eventos.append(
+            {
+                "tipo": "resposta_email",
+                "data": resposta.recebido_em,
+                "titulo": f"Resposta por e-mail · {resposta.assunto}" if resposta.assunto else "Resposta por e-mail",
+                "detalhe": resposta.corpo,
+                "autor": resposta.remetente,
             }
         )
     pesquisas = (

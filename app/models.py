@@ -2418,6 +2418,24 @@ class ContatoLead(Base):
     pesquisa: Mapped["PesquisaMarca | None"] = relationship(back_populates="contatos")
 
 
+class RespostaEmailLead(Base):
+    """Conteúdo de um e-mail que o lead respondeu -- achado da auditoria
+    completa do CRM (06/09/2026, item 21): antes só se sabia QUE o lead
+    respondeu (EnvioCadenciaEmail.respondido_em), nunca O QUE ele escreveu.
+    Alimentado por app.imap_polling, mesma caixa já configurada."""
+
+    __tablename__ = "respostas_email_lead"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    remetente: Mapped[str] = mapped_column(String(254))
+    assunto: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    corpo: Mapped[str] = mapped_column(Text)
+    recebido_em: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class LembreteCRM(Base):
     """Alerta interno com prazo e responsável vinculado a um cliente do CRM."""
 

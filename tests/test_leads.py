@@ -15,7 +15,15 @@ from app.api.leads import (
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
-from app.models import EventoAuditoria, Lead, PesquisaMarca, StatusLead, UsuarioOperacoes, VersaoRelatorioMarca
+from app.models import (
+    EventoAuditoria,
+    Lead,
+    PesquisaMarca,
+    RespostaEmailLead,
+    StatusLead,
+    UsuarioOperacoes,
+    VersaoRelatorioMarca,
+)
 from app.settings import get_settings
 from app.trademarks.analysis_workflow import EstadoAnalise
 from tests.conftest import FakeResult, FakeSession, auth_override, sessao_override, usuario_teste
@@ -775,6 +783,7 @@ def test_timeline_inclui_evento_de_auditoria() -> None:
             FakeResult(scalar=lead),  # lead
             FakeResult(itens=[]),  # fases
             FakeResult(itens=[]),  # contatos
+            FakeResult(itens=[]),  # respostas_email
             FakeResult(itens=[]),  # pesquisas
             FakeResult(itens=[]),  # propostas
             FakeResult(itens=[]),  # mensagens_portal
@@ -795,6 +804,46 @@ def test_timeline_inclui_evento_de_auditoria() -> None:
     assert "auditoria_alterar" in tipos
     evento = next(item for item in corpo["eventos"] if item["tipo"] == "auditoria_alterar")
     assert "responsavel_id" in evento["payload"]["detalhe"]
+
+
+def test_timeline_inclui_conteudo_da_resposta_de_email() -> None:
+    # Achado item 21 da auditoria completa do CRM (06/09/2026): a timeline
+    # deve mostrar o que o lead escreveu na resposta, não só que respondeu.
+    lead = _lead_existente(id=7, criado_em=datetime(2026, 8, 1, tzinfo=UTC))
+    resposta_email = RespostaEmailLead(
+        organizacao_id=1,
+        lead_id=7,
+        remetente="cliente@example.test",
+        assunto="Re: Proposta",
+        corpo="Obrigado, vou analisar com calma.",
+        recebido_em=datetime(2026, 9, 2, tzinfo=UTC),
+    )
+    session = FakeSession(
+        [
+            FakeResult(scalar=lead),  # lead
+            FakeResult(itens=[]),  # fases
+            FakeResult(itens=[]),  # contatos
+            FakeResult(itens=[resposta_email]),  # respostas_email
+            FakeResult(itens=[]),  # pesquisas
+            FakeResult(itens=[]),  # propostas
+            FakeResult(itens=[]),  # mensagens_portal
+            FakeResult(itens=[]),  # eventos_dominio
+            FakeResult(itens=[]),  # documentos
+            FakeResult(itens=[]),  # guias
+            FakeResult(itens=[]),  # auditoria
+        ]
+    )
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario_teste())
+
+    resposta = TestClient(app).get("/v1/admin/leads/7/timeline")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    evento = next(item for item in corpo["eventos"] if item["tipo"] == "resposta_email")
+    assert "Re: Proposta" in evento["titulo"]
+    assert evento["payload"]["detalhe"] == "Obrigado, vou analisar com calma."
+    assert evento["payload"]["autor"] == "cliente@example.test"
 
 
 # --- Achado P2 da auditoria de Leads (03/09/2026): nenhuma notificação

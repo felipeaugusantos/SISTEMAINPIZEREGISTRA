@@ -61,3 +61,22 @@ Confirme `db`, `redis` e `api` saudáveis, `migrate` concluído com código zero
 ## 5. Critérios de interrupção
 
 Não libere tráfego se o restore falhar, Alembic divergir, contagens essenciais não coincidirem, login falhar, RLS estiver desativado ou `/health` não estiver `ok`. Preserve o dump e os logs para diagnóstico e reverta para o ambiente anterior sem apagar o banco restaurado.
+
+## 6. Simulado periódico de restauração
+
+Incidente de 05/09/2026: `leads`, `usuarios_operacoes`, `sessoes_operacoes` e `processos_monitorados` ficaram vazios em produção sem causa raiz confirmada (ver `docs/incidente-perda-dados-2026-09-05.md` quando existir), e o restore de emergência só foi validado na hora do incidente. Para não depender de descobrir um backup corrompido/incompleto só numa emergência, `docker/simulado-restauracao.sh` automatiza a rotina de "restaurar e conferir" contra o banco efêmero `db-test` (nunca toca em produção além de leituras `SELECT count(*)`):
+
+```bash
+./docker/simulado-restauracao.sh                                  # usa o backup mais recente em backups/
+./docker/simulado-restauracao.sh backups/inpi-AAAAMMDD-HHMMSS.dump
+```
+
+Ele restaura o dump em `db-test`, compara a contagem de `organizacoes`, `usuarios_operacoes`, `leads`, `processos_monitorados` e `sessoes_operacoes` contra a produção (tolerância de 10%, já que o backup pode ser de algumas horas atrás) e derruba o `db-test` ao final. Sai com código 1 e lista as tabelas divergentes se algo vier vazio ou muito menor que o esperado — exatamente o padrão do incidente de 05/09.
+
+**Agendamento na VPS** (crontab do usuário root, semanal, depois do backup diário de madrugada):
+
+```cron
+0 4 * * 0 cd /opt/zeregistra && ./docker/simulado-restauracao.sh >> logs/simulado-restauracao.log 2>&1
+```
+
+Revise `logs/simulado-restauracao.log` periodicamente (ou integre a um alerta, se/quando houver canal de notificação configurado) — o crontab por si só não avisa ninguém em caso de falha.

@@ -14,15 +14,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.saas import exigir_superadmin
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.badepi.despachos_codigos import DESCRICOES_DESPACHO, codigo_numerico
-from app.crm import obter_ou_criar_empresa, registrar_evento_operacional
+from app.crm import avancar_fase_lead, obter_ou_criar_empresa, registrar_evento_operacional
 from app.database import get_session
 from app.emailing import enviar_alerta_prazo_juridico
 from app.models import (
     DocumentoEntregaJuridico,
+    DocumentoLead,
     EmpresaCRM,
     EventoAuditoria,
     EventoJuridico,
+    FaseLead,
     ItemChecklistPrazo,
+    LancamentoFinanceiro,
+    Lead,
     Movimentacao,
     MovimentacaoAvaliadaJuridico,
     NotificacaoJuridica,
@@ -30,6 +34,7 @@ from app.models import (
     PrazoJuridico,
     Processo,
     ProcessoMonitorado,
+    PropostaComercial,
     RegraJuridicaVersionada,
     Titular,
     UsuarioOperacoes,
@@ -342,6 +347,10 @@ class RegraJuridicaInput(BaseModel):
         if codigo == "marco_isencao_taxa_concessao" and not isinstance(valor, date):
             raise ValueError("Para marco_isencao_taxa_concessao, valor deve ser uma data (AAAA-MM-DD)")
         return valor
+
+
+class ReceberEncaminhamentoInput(BaseModel):
+    responsavel_id: int | None = Field(default=None, ge=1)
 
 
 def _serializar_regra(regra: RegraJuridicaVersionada) -> dict:
@@ -694,6 +703,194 @@ async def _usuario_valido(session: AsyncSession, organizacao_id: int, usuario_id
         )
     )
     return bool(resultado.scalar_one_or_none())
+
+
+DOCUMENTOS_VALIDOS_ENCAMINHAMENTO = {"validado", "recebido", "aprovado"}
+
+
+async def _pendencias_encaminhamento(session: AsyncSession, proposta: PropostaComercial) -> list[str]:
+    documentos = (
+        (
+            await session.execute(
+                select(DocumentoLead).where(
+                    DocumentoLead.lead_id == proposta.lead_id,
+                    DocumentoLead.organizacao_id == proposta.organizacao_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    por_tipo = {item.tipo: item for item in documentos}
+    obrigatorios = {item.tipo for item in documentos if item.obrigatorio}
+    obrigatorios.add("procuracao")
+    return sorted(
+        tipo
+        for tipo in obrigatorios
+        if (
+            tipo not in por_tipo
+            or por_tipo[tipo].status not in DOCUMENTOS_VALIDOS_ENCAMINHAMENTO
+            or (por_tipo[tipo].validade_em is not None and por_tipo[tipo].validade_em < datetime.now(UTC).date())
+        )
+    )
+
+
+def _status_encaminhamento(proposta: PropostaComercial, pendencias: list[str]) -> str:
+    if proposta.pagamento_status != "confirmado":
+        return "pagamento_pendente"
+    if pendencias:
+        return "documentos_pendentes"
+    if proposta.juridico_recebido_em:
+        return "em_atendimento"
+    return "pronto"
+
+
+@router.get("/encaminhamentos")
+async def listar_encaminhamentos(session: SessionDep, usuario: ViewDep) -> dict:
+    """Fila pré-protocolo recebida do comercial/financeiro.
+
+    Uma proposta entra quando o pagamento é confirmado. Depois de recebida
+    pelo jurídico ela permanece visível mesmo se houver estorno, deixando o
+    bloqueio financeiro explícito em vez de sumir da operação.
+    """
+    lancamento_id = (
+        select(func.min(LancamentoFinanceiro.id))
+        .where(
+            LancamentoFinanceiro.proposta_id == PropostaComercial.id,
+            LancamentoFinanceiro.organizacao_id == PropostaComercial.organizacao_id,
+        )
+        .correlate(PropostaComercial)
+        .scalar_subquery()
+    )
+    linhas = (
+        await session.execute(
+            select(PropostaComercial, Lead, lancamento_id)
+            .join(
+                Lead,
+                (Lead.id == PropostaComercial.lead_id)
+                & (Lead.organizacao_id == PropostaComercial.organizacao_id),
+            )
+            .where(
+                PropostaComercial.organizacao_id == usuario.organizacao_id,
+                PropostaComercial.status == "aceita",
+                PropostaComercial.protocolo_em.is_(None),
+                or_(
+                    PropostaComercial.pagamento_status == "confirmado",
+                    PropostaComercial.juridico_recebido_em.is_not(None),
+                ),
+            )
+            .order_by(PropostaComercial.juridico_recebido_em.asc().nullsfirst(), PropostaComercial.aceito_em)
+        )
+    ).all()
+    itens = []
+    for proposta, lead, lancamento_id in linhas:
+        pendencias = await _pendencias_encaminhamento(session, proposta)
+        itens.append(
+            {
+                "proposta_id": proposta.id,
+                "proposta_numero": proposta.numero,
+                "lead_id": lead.id,
+                "cliente": lead.nome,
+                "empresa": lead.empresa,
+                "marca": proposta.marca,
+                "classes": proposta.classes,
+                "pesquisas": (proposta.dados or {}).get("pesquisas") or [],
+                "valor_total": (proposta.honorarios or 0) + (proposta.taxa_gru or 0),
+                "pagamento_status": proposta.pagamento_status,
+                "pagamento_confirmado_em": proposta.pagamento_confirmado_em,
+                "documentos_pendentes": pendencias,
+                "status": _status_encaminhamento(proposta, pendencias),
+                "recebido_em": proposta.juridico_recebido_em,
+                "recebido_por_id": proposta.juridico_recebido_por_id,
+                "recebido_por": proposta.juridico_recebido_por,
+                "responsavel_id": proposta.responsavel_protocolo_id,
+                "lancamento_id": lancamento_id,
+            }
+        )
+    return {
+        "itens": itens,
+        "metricas": {
+            "novos": sum(item["status"] == "pronto" for item in itens),
+            "com_pendencias": sum(item["status"] in {"documentos_pendentes", "pagamento_pendente"} for item in itens),
+            "em_atendimento": sum(item["status"] == "em_atendimento" for item in itens),
+        },
+        "acoes": {"gerenciar": usuario.pode("legal.manage")},
+    }
+
+
+@router.post("/encaminhamentos/{proposta_id}/receber")
+async def receber_encaminhamento(
+    proposta_id: int,
+    dados: ReceberEncaminhamentoInput,
+    request: Request,
+    session: SessionDep,
+    usuario: ManageDep,
+) -> dict:
+    proposta = (
+        await session.execute(
+            select(PropostaComercial)
+            .where(
+                PropostaComercial.id == proposta_id,
+                PropostaComercial.organizacao_id == usuario.organizacao_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if proposta is None:
+        raise HTTPException(404, "Encaminhamento não encontrado")
+    if proposta.status != "aceita" or proposta.pagamento_status != "confirmado":
+        raise HTTPException(409, "O jurídico só pode receber propostas aceitas com pagamento confirmado")
+    responsavel_id = dados.responsavel_id or usuario.id
+    responsavel = (
+        await session.execute(
+            select(UsuarioOperacoes).where(
+                UsuarioOperacoes.id == responsavel_id,
+                UsuarioOperacoes.organizacao_id == usuario.organizacao_id,
+                UsuarioOperacoes.ativo.is_(True),
+            )
+        )
+    ).scalar_one_or_none()
+    if responsavel is None:
+        raise HTTPException(422, "Responsável jurídico inválido ou inativo")
+    if proposta.juridico_recebido_em is not None:
+        if proposta.juridico_recebido_por_id != responsavel.id:
+            raise HTTPException(409, f"Encaminhamento já recebido por {proposta.juridico_recebido_por}")
+        return {"status": "em_atendimento", "idempotente": True, "responsavel": proposta.juridico_recebido_por}
+
+    agora = datetime.now(UTC)
+    proposta.juridico_recebido_em = agora
+    proposta.juridico_recebido_por_id = responsavel.id
+    proposta.juridico_recebido_por = responsavel.nome
+    proposta.responsavel_protocolo_id = responsavel.id
+    lead = await session.get(Lead, proposta.lead_id)
+    if lead is not None and lead.organizacao_id == usuario.organizacao_id:
+        await avancar_fase_lead(session, lead, FaseLead.GANHO.value, responsavel.nome)
+    registrar_evento_operacional(
+        session,
+        organizacao_id=usuario.organizacao_id,
+        dominio="juridico",
+        tipo="juridico.encaminhamento_recebido",
+        entidade_tipo="lead",
+        entidade_id=proposta.lead_id,
+        ator=usuario.ator,
+        ator_id=usuario.id,
+        payload={
+            "proposta_id": proposta.id,
+            "responsavel_id": responsavel.id,
+            "responsavel": responsavel.nome,
+            "descricao": "Proposta paga recebida pela operação jurídica",
+        },
+    )
+    _auditar(
+        session,
+        request,
+        usuario,
+        "receber_juridico",
+        f"proposta:{proposta.id}",
+        {"responsavel_id": responsavel.id, "lead_id": proposta.lead_id},
+    )
+    await session.commit()
+    return {"status": "em_atendimento", "idempotente": False, "responsavel": responsavel.nome}
 
 
 async def _obter_prazo(session: AsyncSession, usuario: UsuarioAutenticado, prazo_id: int) -> PrazoJuridico:

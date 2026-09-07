@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Operação jurídica — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=51">
-  <link rel="stylesheet" href="/static/admin-juridico.css?v=15">
+  <link rel="stylesheet" href="/static/admin-juridico.css?v=16">
   <script src="/static/admin-shell.js?v=40" defer></script>
-  <script src="/static/admin-juridico.js?v=14" defer></script>
+  <script src="/static/admin-juridico.js?v=15" defer></script>
 </head>
 <body class="admin-body" data-admin-section="legal">
   <main class="admin-main legal-main">
@@ -26,6 +26,15 @@
 
     <div id="legal-message" class="status-message" role="status" aria-live="polite" hidden></div>
     <section id="legal-metrics" class="legal-metrics" aria-label="Indicadores jurídicos"></section>
+
+    <section class="legal-card legal-intake-card">
+      <header>
+        <div><p class="eyebrow">PASSAGEM COMERCIAL → FINANCEIRO → JURÍDICO</p><h2>Novos serviços para iniciar</h2></div>
+        <span id="legal-intake-count" class="legal-count"></span>
+      </header>
+      <p class="legal-section-help">Propostas aceitas entram no financeiro automaticamente. Após a confirmação do pagamento, aparecem aqui para recebimento e preparação do protocolo.</p>
+      <div id="legal-intakes" class="legal-intakes"></div>
+    </section>
 
     <section class="legal-card legal-notification-center">
       <header>

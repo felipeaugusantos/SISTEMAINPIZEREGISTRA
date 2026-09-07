@@ -29,3 +29,37 @@
   .crm-entry time, .crm-history-observation, .crm-history-next { font-size: .78rem; }
   .crm-entry a { justify-self: start; }
 }
+
+
+/* Regras automaticas: checkboxes compactos e alinhados ao design system. */
+.crm-politica-form {
+  display: grid;
+  gap: 14px;
+}
+.crm-politica-toggle {
+  align-items: flex-start;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  line-height: 1.4;
+}
+.crm-politica-toggle input[type="checkbox"] {
+  accent-color: var(--forest);
+  border-radius: 4px;
+  flex: 0 0 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  min-height: 18px;
+  padding: 0;
+  width: 18px;
+}
+.crm-politica-toggle span {
+  min-width: 0;
+}
+.crm-politica-dias {
+  display: grid;
+  gap: 6px;
+}
+.crm-politica-form > .primary-button {
+  justify-self: start;
+}

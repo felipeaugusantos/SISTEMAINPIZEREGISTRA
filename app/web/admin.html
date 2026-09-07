@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Centro de operações — Zé Registra</title>
-    <link rel="stylesheet" href="/static/styles.css?v=51" />
+    <link rel="stylesheet" href="/static/styles.css?v=52" />
     <link rel="stylesheet" href="/static/admin-funil.css?v=5" />
     <script src="/static/admin-shell.js?v=40" defer></script>
-    <script src="/static/admin-dashboard.js?v=18" defer></script>
+    <script src="/static/admin-dashboard.js?v=19" defer></script>
     <script src="/static/admin-funil.js?v=6" defer></script>
   </head>
   <body class="admin-body" data-admin-section="overview">
@@ -83,6 +83,27 @@
           <span>Consolidado por módulo</span>
         </header>
         <div id="exec-grid" class="exec-grid"></div>
+      </section>
+
+      <section id="flow-indicators" class="overview-section" hidden>
+        <header>
+          <div><p class="eyebrow">Jornada da contratação</p><h2>Conversão entre áreas</h2></div>
+          <label class="flow-period">Período
+            <select id="flow-period">
+              <option value="30">30 dias</option>
+              <option value="90" selected>90 dias</option>
+              <option value="180">180 dias</option>
+              <option value="365">12 meses</option>
+            </select>
+          </label>
+        </header>
+        <div id="flow-message" class="status-message loading" role="status">Calculando indicadores…</div>
+        <div id="flow-stages" class="flow-stages" aria-label="Etapas da contratação"></div>
+        <div class="flow-detail-grid">
+          <article><p class="eyebrow">Conversão</p><div id="flow-rates" class="flow-list"></div></article>
+          <article><p class="eyebrow">Tempo médio</p><div id="flow-times" class="flow-list"></div></article>
+          <article><p class="eyebrow">Gargalos da coorte</p><div id="flow-bottlenecks" class="flow-list"></div></article>
+        </div>
       </section>
 
       <section class="overview-section rpi-monitor" id="rpi-monitor">

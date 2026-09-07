@@ -9,7 +9,7 @@ o CEO — que tem todas — vê tudo; um operador vê apenas o que lhe cabe.
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,7 @@ from app.models import (
     ParcelaFinanceira,
     PesquisaMarca,
     PrazoJuridico,
+    PropostaComercial,
     StatusLead,
 )
 from app.trademarks.model_status import StatusModelo
@@ -237,6 +238,100 @@ async def painel_executivo(session: SessionDep, usuario: DashboardDep) -> dict:
     if usuario.pode("learning.view"):
         painel["aprendizado"] = await _bloco_aprendizado(session)
     return painel
+
+
+def _media_horas(intervalos: list[tuple[datetime | None, datetime | None]]) -> float | None:
+    """Calcula tempos operacionais sem deixar registros inconsistentes distorcerem o KPI."""
+    valores = [
+        (fim - inicio).total_seconds() / 3600
+        for inicio, fim in intervalos
+        if inicio is not None and fim is not None and fim >= inicio
+    ]
+    return round(sum(valores) / len(valores), 1) if valores else None
+
+
+@router.get("/indicadores-fluxo")
+async def indicadores_fluxo(
+    session: SessionDep,
+    usuario: DashboardDep,
+    dias: int = Query(default=90, ge=7, le=365),
+) -> dict:
+    """Conversão e tempo da jornada aceita → paga → jurídico → protocolo.
+
+    O período é definido pelo aceite, evento que inicia a contratação. Assim,
+    todas as taxas usam a mesma coorte e não misturam propostas antigas no
+    denominador. Valores financeiros e etapas jurídicas continuam protegidos
+    pelas permissões dos respectivos módulos.
+    """
+    agora = datetime.now(UTC)
+    desde = agora - timedelta(days=dias)
+    propostas = list(
+        (
+            await session.execute(
+                select(PropostaComercial).where(
+                    PropostaComercial.organizacao_id == usuario.organizacao_id,
+                    PropostaComercial.status == "aceita",
+                    PropostaComercial.aceito_em >= desde,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    aceitas = len(propostas)
+    pagas = [item for item in propostas if item.pagamento_confirmado_em is not None]
+    recebidas = [item for item in pagas if item.juridico_recebido_em is not None]
+    protocoladas = [item for item in recebidas if item.protocolo_em is not None]
+
+    pode_financeiro = usuario.pode("finance.view")
+    pode_juridico = usuario.pode("legal.view")
+    etapas = [{"id": "aceite", "label": "Propostas aceitas", "total": aceitas}]
+    if pode_financeiro:
+        etapas.append({"id": "pagamento", "label": "Pagamentos confirmados", "total": len(pagas)})
+    if pode_juridico:
+        etapas.extend(
+            [
+                {"id": "juridico", "label": "Recebidas pelo jurídico", "total": len(recebidas)},
+                {"id": "protocolo", "label": "Protocoladas no INPI", "total": len(protocoladas)},
+            ]
+        )
+
+    resposta: dict = {
+        "periodo_dias": dias,
+        "atualizado_em": agora,
+        "etapas": etapas,
+        "taxas": {},
+        "tempos_medios_horas": {},
+        "gargalos": {},
+    }
+    if pode_financeiro:
+        resposta["valor_contratado"] = float(
+            sum((item.honorarios or 0) + (item.taxa_gru or 0) for item in propostas)
+        )
+        resposta["taxas"]["aceite_pagamento"] = round(len(pagas) / aceitas, 4) if aceitas else None
+        resposta["tempos_medios_horas"]["aceite_pagamento"] = _media_horas(
+            [(item.aceito_em, item.pagamento_confirmado_em) for item in pagas]
+        )
+        resposta["gargalos"]["aguardando_pagamento"] = aceitas - len(pagas)
+    if pode_juridico:
+        resposta["taxas"]["pagamento_juridico"] = round(len(recebidas) / len(pagas), 4) if pagas else None
+        resposta["taxas"]["juridico_protocolo"] = (
+            round(len(protocoladas) / len(recebidas), 4) if recebidas else None
+        )
+        resposta["taxas"]["aceite_protocolo"] = round(len(protocoladas) / aceitas, 4) if aceitas else None
+        resposta["tempos_medios_horas"]["pagamento_juridico"] = _media_horas(
+            [(item.pagamento_confirmado_em, item.juridico_recebido_em) for item in recebidas]
+        )
+        resposta["tempos_medios_horas"]["juridico_protocolo"] = _media_horas(
+            [(item.juridico_recebido_em, item.protocolo_em) for item in protocoladas]
+        )
+        resposta["tempos_medios_horas"]["aceite_protocolo"] = _media_horas(
+            [(item.aceito_em, item.protocolo_em) for item in protocoladas]
+        )
+        resposta["gargalos"]["aguardando_juridico"] = len(pagas) - len(recebidas)
+        resposta["gargalos"]["aguardando_protocolo"] = len(recebidas) - len(protocoladas)
+    return resposta
 
 
 @router.get("/notificacoes")

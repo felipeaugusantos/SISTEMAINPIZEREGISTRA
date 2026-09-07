@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from app.api.painel import (
     _CODIGOS_ALERTA_COMERCIAL,
+    indicadores_fluxo,
     listar_notificacoes,
     marcar_notificacao_lida,
     marcar_notificacao_nao_lida,
@@ -16,6 +17,80 @@ from app.permissions import permissoes_do_perfil
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 TODAS = set(permissoes_do_perfil("ceo"))
+
+
+@pytest.mark.asyncio
+async def test_indicadores_fluxo_mede_conversao_gargalos_e_tempos() -> None:
+    inicio = datetime(2026, 8, 1, tzinfo=UTC)
+    propostas = [
+        SimpleNamespace(
+            aceito_em=inicio,
+            pagamento_confirmado_em=inicio.replace(day=2),
+            juridico_recebido_em=inicio.replace(day=3),
+            protocolo_em=inicio.replace(day=5),
+            honorarios=1000,
+            taxa_gru=200,
+        ),
+        SimpleNamespace(
+            aceito_em=inicio,
+            pagamento_confirmado_em=inicio.replace(day=2),
+            juridico_recebido_em=None,
+            protocolo_em=None,
+            honorarios=800,
+            taxa_gru=200,
+        ),
+        SimpleNamespace(
+            aceito_em=inicio,
+            pagamento_confirmado_em=None,
+            juridico_recebido_em=None,
+            protocolo_em=None,
+            honorarios=500,
+            taxa_gru=None,
+        ),
+    ]
+    session = FakeSession([FakeResult(itens=propostas)])
+    resultado = await indicadores_fluxo(session, usuario_teste(perfil="ceo", permissoes=TODAS), dias=90)
+
+    assert [item["total"] for item in resultado["etapas"]] == [3, 2, 1, 1]
+    assert resultado["valor_contratado"] == 2700.0
+    assert resultado["taxas"] == {
+        "aceite_pagamento": 0.6667,
+        "pagamento_juridico": 0.5,
+        "juridico_protocolo": 1.0,
+        "aceite_protocolo": 0.3333,
+    }
+    assert resultado["gargalos"] == {
+        "aguardando_pagamento": 1,
+        "aguardando_juridico": 1,
+        "aguardando_protocolo": 0,
+    }
+    assert resultado["tempos_medios_horas"]["aceite_pagamento"] == 24.0
+    assert resultado["tempos_medios_horas"]["pagamento_juridico"] == 24.0
+    assert resultado["tempos_medios_horas"]["juridico_protocolo"] == 48.0
+
+
+@pytest.mark.asyncio
+async def test_indicadores_fluxo_nao_expoe_financeiro_ou_juridico_sem_permissao() -> None:
+    proposta = SimpleNamespace(
+        aceito_em=datetime(2026, 8, 1, tzinfo=UTC),
+        pagamento_confirmado_em=datetime(2026, 8, 2, tzinfo=UTC),
+        juridico_recebido_em=datetime(2026, 8, 3, tzinfo=UTC),
+        protocolo_em=None,
+        honorarios=1000,
+        taxa_gru=200,
+    )
+    session = FakeSession([FakeResult(itens=[proposta])])
+    resultado = await indicadores_fluxo(
+        session,
+        usuario_teste(perfil="operador", permissoes={"dashboard.view"}),
+        dias=30,
+    )
+
+    assert resultado["etapas"] == [{"id": "aceite", "label": "Propostas aceitas", "total": 1}]
+    assert "valor_contratado" not in resultado
+    assert resultado["taxas"] == {}
+    assert resultado["tempos_medios_horas"] == {}
+    assert resultado["gargalos"] == {}
 
 
 # --- Achado P1 da auditoria de Leads (03/09/2026): só NOVA_PESQUISA chegava a

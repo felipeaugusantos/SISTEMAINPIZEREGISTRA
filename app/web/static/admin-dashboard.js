@@ -160,6 +160,77 @@ async function loadExecPanel() {
   document.querySelector("#exec-panel").hidden = false;
 }
 
+function flowPercent(value) {
+  return value === null || value === undefined
+    ? "Sem base"
+    : new Intl.NumberFormat("pt-BR", { style: "percent", maximumFractionDigits: 1 }).format(value);
+}
+
+function flowHours(value) {
+  if (value === null || value === undefined) return "Sem base";
+  if (value < 24) return `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(value)} h`;
+  return `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(value / 24)} dias`;
+}
+
+function flowRows(items) {
+  if (!items.length) return '<p class="flow-empty">Sem dados suficientes no período.</p>';
+  return items.map(([label, value, tone]) =>
+    `<div class="${tone || ""}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
+  ).join("");
+}
+
+async function loadFlowIndicators() {
+  const period = document.querySelector("#flow-period").value;
+  const response = await fetch(`/v1/admin/indicadores-fluxo?dias=${encodeURIComponent(period)}`);
+  if (!response.ok) return;
+  const data = await response.json();
+  const max = Math.max(1, ...data.etapas.map((item) => item.total));
+  document.querySelector("#flow-stages").innerHTML = data.etapas.map((item, index) => {
+    const previousTotal = index ? data.etapas[index - 1].total : null;
+    const conversion = previousTotal ? item.total / previousTotal : null;
+    return `<article><div><span>${escapeHtml(item.label)}</span><strong>${formatNumber(item.total)}</strong></div><div class="flow-track"><i class="w-pct-${Math.round((item.total / max * 100) / 5) * 5}"></i></div>${index ? `<small>${flowPercent(conversion)} da etapa anterior</small>` : "<small>Base da coorte</small>"}</article>`;
+  }).join("");
+
+  const rates = data.taxas || {};
+  document.querySelector("#flow-rates").innerHTML = flowRows([
+    ["Aceite → pagamento", flowPercent(rates.aceite_pagamento)],
+    ["Pagamento → jurídico", flowPercent(rates.pagamento_juridico)],
+    ["Jurídico → protocolo", flowPercent(rates.juridico_protocolo)],
+    ["Aceite → protocolo", flowPercent(rates.aceite_protocolo)],
+  ].filter(([, value]) => value !== "Sem base"));
+
+  const times = data.tempos_medios_horas || {};
+  document.querySelector("#flow-times").innerHTML = flowRows([
+    ["Até confirmar pagamento", flowHours(times.aceite_pagamento)],
+    ["Até o jurídico receber", flowHours(times.pagamento_juridico)],
+    ["Até protocolar", flowHours(times.juridico_protocolo)],
+    ["Jornada completa", flowHours(times.aceite_protocolo)],
+  ].filter(([, value]) => value !== "Sem base"));
+
+  const bottlenecks = data.gargalos || {};
+  document.querySelector("#flow-bottlenecks").innerHTML = flowRows([
+    ["Aguardando pagamento", formatNumber(bottlenecks.aguardando_pagamento), bottlenecks.aguardando_pagamento ? "tone-warn" : ""],
+    ["Aguardando recebimento jurídico", formatNumber(bottlenecks.aguardando_juridico), bottlenecks.aguardando_juridico ? "tone-warn" : ""],
+    ["Aguardando protocolo", formatNumber(bottlenecks.aguardando_protocolo), bottlenecks.aguardando_protocolo ? "tone-danger" : ""],
+  ].filter(([label]) => {
+    const key = { "Aguardando pagamento": "aguardando_pagamento", "Aguardando recebimento jurídico": "aguardando_juridico", "Aguardando protocolo": "aguardando_protocolo" }[label];
+    return Object.prototype.hasOwnProperty.call(bottlenecks, key);
+  }));
+  const message = document.querySelector("#flow-message");
+  message.textContent = Object.prototype.hasOwnProperty.call(data, "valor_contratado")
+    ? `${formatCurrency(data.valor_contratado)} contratados na coorte selecionada.`
+    : `Indicadores da coorte dos últimos ${data.periodo_dias} dias.`;
+  message.className = "status-message success";
+  document.querySelector("#flow-indicators").hidden = false;
+}
+
+document.querySelector("#flow-period").addEventListener("change", () => {
+  const message = document.querySelector("#flow-message");
+  message.textContent = "Calculando indicadores…";
+  message.className = "status-message loading";
+  loadFlowIndicators().catch(() => {});
+});
+
 function notifItem(item) {
   const sev = { info: "info", aviso: "warn", critico: "danger", critica: "danger" }[item.severidade] || "info";
   const fonte = item.fonte === "juridico" ? "Jurídico" : "Sistema";
@@ -361,6 +432,7 @@ loadOverview().catch((error) => {
   overviewMessage.classList.add("error");
 });
 loadExecPanel().catch(() => {});
+loadFlowIndicators().catch(() => {});
 loadNotifications().catch(() => {});
 setInterval(() => loadNotifications().catch(() => {}), 60_000);
 configureRecentExecutions().catch(() => {});

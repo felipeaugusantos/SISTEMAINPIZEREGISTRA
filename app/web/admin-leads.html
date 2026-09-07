@@ -7,10 +7,10 @@
     <title>Painel de leads — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=51" />
     <link rel="stylesheet" href="/static/ze-brand.css?v=1" />
-    <link rel="stylesheet" href="/static/admin-leads.css?v=19" />
+    <link rel="stylesheet" href="/static/admin-leads.css?v=20" />
     <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=12 -->
     <script src="/static/admin-shell.js?v=40" defer></script>
-    <script src="/static/admin-leads.js?v=56" defer></script>
+    <script src="/static/admin-leads.js?v=57" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
     <header class="topbar">
@@ -176,6 +176,11 @@
       <form id="proposal-form">
         <h2>Revisar proposta antes de gerar</h2>
         <p>Confira ou ajuste os valores antes de criar a proposta — eles não podem ser alterados depois de gerada, só numa nova versão.</p>
+        <fieldset class="proposal-research-picker">
+          <legend>Marcas e classes incluídas</legend>
+          <p>Selecione as pesquisas que farão parte desta proposta.</p>
+          <div id="proposal-research-options"></div>
+        </fieldset>
         <label>Honorários (R$)
           <input name="honorarios" type="number" min="0" step="0.01" required>
         </label>

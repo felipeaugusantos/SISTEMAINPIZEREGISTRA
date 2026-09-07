@@ -340,6 +340,8 @@ class PesquisaMarcaCriada(BaseModel):
     lead_id: int | None = None
     duplicada: bool = False
     pesquisa_original_id: str | None = None
+    marca: str | None = None
+    classe_nice: str | None = None
 
 
 class ClasseNiceCandidataResponse(BaseModel):

@@ -1375,6 +1375,12 @@ function criarProposta(lead, box) {
   proposalForm.elements.condicoes_pagamento.value = "50% na contratação e 50% no protocolo";
   proposalForm.elements.validade_em.value = "";
   proposalForm.elements.escopo.value = "Pesquisa, preparação e protocolo de registro de marca no INPI";
+  const opcoes = document.querySelector("#proposal-research-options");
+  opcoes.innerHTML = (lead.pesquisas || []).map(item => `
+    <label>
+      <input type="checkbox" name="pesquisa_ids" value="${escapeHtml(item.id)}" checked>
+      <span><strong>${escapeHtml(item.marca)}</strong><small>${item.classe_nice ? `NCL ${escapeHtml(item.classe_nice)}` : "Todas as classes"}</small></span>
+    </label>`).join("") || "<p>Nenhuma pesquisa vinculada. A proposta será criada sem marca definida.</p>";
   proposalDialog.showModal();
 }
 
@@ -1387,17 +1393,22 @@ proposalForm.addEventListener("submit", async event => {
   event.preventDefault();
   if (!proposalContext) return;
   const { lead, box } = proposalContext;
-  const dados = Object.fromEntries(new FormData(proposalForm));
+  const formData = new FormData(proposalForm);
+  const dados = Object.fromEntries(formData);
+  const pesquisaIds = formData.getAll("pesquisa_ids");
   const statusBox = document.querySelector("#proposal-message");
   statusBox.hidden = false;
+  if ((lead.pesquisas || []).length && !pesquisaIds.length) {
+    statusBox.className = "status-message error";
+    statusBox.textContent = "Selecione ao menos uma marca/classe para a proposta.";
+    return;
+  }
   statusBox.className = "status-message loading";
   statusBox.textContent = "Gerando proposta…";
   const payload = {
-    pesquisa_id: lead.pesquisas?.[0]?.id || null,
-    pesquisa_ids: (lead.pesquisas || []).map(item => item.id),
+    pesquisa_id: pesquisaIds[0] || null,
+    pesquisa_ids: pesquisaIds,
     validade_em: dados.validade_em || null,
-    marca: lead.pesquisas?.[0]?.marca || null,
-    classes: lead.pesquisas?.[0]?.classe_nice || null,
     escopo: dados.escopo,
     honorarios: Number(dados.honorarios),
     taxa_gru: Number(dados.taxa_gru),

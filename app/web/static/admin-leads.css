@@ -1143,3 +1143,44 @@ table.lead-docs select {
   .admin-body .leads-table td:nth-child(6) .lead-row-actions { min-width: 0; width: 100%; flex-wrap: wrap; }
   .admin-body .leads-table td:nth-child(6) .lead-row-actions > * { max-width: 100%; white-space: normal; }
 }
+.proposal-research-picker {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin: 12px 0;
+  padding: 14px;
+}
+
+.proposal-research-picker > p {
+  color: var(--muted);
+  font-size: .8rem;
+  margin: 4px 0 10px;
+}
+
+#proposal-research-options {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+#proposal-research-options label {
+  align-items: flex-start;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+}
+
+#proposal-research-options input[type="checkbox"] {
+  accent-color: var(--forest);
+  flex: 0 0 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  min-height: 18px;
+  padding: 0;
+  width: 18px;
+}
+
+#proposal-research-options span,
+#proposal-research-options small {
+  display: block;
+}

@@ -6,8 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Consulta de marcas — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=52">
+  <link rel="stylesheet" href="/static/admin-consulta.css?v=1">
   <script src="/static/admin-shell.js?v=40" defer></script>
-  <script src="/static/admin-consulta.js?v=6" defer></script>
+  <script src="/static/admin-consulta.js?v=7" defer></script>
 </head>
 <body class="admin-body" data-admin-section="consulta">
   <main class="admin-main admin-dashboard">
@@ -24,19 +25,26 @@
       <form id="consulta-form" class="reliability-form">
         <fieldset>
           <legend>Pesquisa</legend>
-          <div class="user-fields">
-            <label class="field-full">Marca
-              <input name="marca" required minlength="2" maxlength="200" placeholder="Ex.: CAFÉ DO BRASIL">
-            </label>
-            <label class="field-full">Atividade do negócio
-              <small>(opcional)</small>
-              <input name="atividade" maxlength="500" placeholder="Ex.: cafeteria e torrefação">
-            </label>
-            <label>Classes Nice pretendidas
-              <small>(opcional) — segure Ctrl/Cmd para marcar mais de uma; nenhuma selecionada pesquisa em todas. Cada classe gera sua própria pesquisa, todas nesta mesma oportunidade.</small>
-              <select name="classes_nice" id="consulta-classe-nice" multiple size="6"></select>
-            </label>
+          <p class="section-hint">Inclua uma ou mais marcas. Para cada marca, selecione todas as classes pretendidas; cada combinação será analisada separadamente dentro da mesma oportunidade.</p>
+          <div id="consulta-marcas" class="consulta-marcas">
+            <article class="consulta-marca-item">
+              <header><strong>Marca 1</strong><button class="secondary-button remover-marca" type="button" hidden>Remover</button></header>
+              <div class="user-fields">
+                <label class="field-full">Marca
+                  <input name="marca" data-field="marca" required minlength="2" maxlength="200" placeholder="Ex.: CAFÉ DO BRASIL">
+                </label>
+                <label class="field-full">Atividade do negócio
+                  <small>(opcional)</small>
+                  <input name="atividade" data-field="atividade" maxlength="500" placeholder="Ex.: cafeteria e torrefação">
+                </label>
+                <label class="field-full">Classes Nice pretendidas
+                  <small>(opcional) — segure Ctrl/Cmd para marcar mais de uma; nenhuma selecionada pesquisa em todas.</small>
+                  <select name="classes_nice" data-field="classes_nice" multiple size="6"></select>
+                </label>
+              </div>
+            </article>
           </div>
+          <button id="adicionar-marca" class="secondary-button consulta-add-marca" type="button">Adicionar outra marca</button>
         </fieldset>
         <fieldset>
           <legend>Cliente — toda consulta gera um lead para o comercial</legend>

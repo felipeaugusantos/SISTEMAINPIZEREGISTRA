@@ -1,0 +1,48 @@
+.consulta-marcas {
+  display: grid;
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.consulta-marca-item {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  background: var(--surface, #fff);
+}
+
+.consulta-marca-item > header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.consulta-marca-item > header strong {
+  color: var(--forest-dark);
+}
+
+.consulta-marca-item .remover-marca {
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.consulta-marca-item select[multiple] {
+  min-height: 156px;
+}
+
+.consulta-add-marca {
+  margin-bottom: 4px;
+}
+
+.consulta-classes-tabs .secondary-button.active {
+  border-color: var(--forest);
+  background: var(--mint);
+  color: var(--forest-dark);
+}
+
+@media (max-width: 620px) {
+  .consulta-marca-item { padding: 13px; }
+  .consulta-add-marca { width: 100%; }
+}

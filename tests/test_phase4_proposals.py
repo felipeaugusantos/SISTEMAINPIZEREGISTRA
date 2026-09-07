@@ -8,6 +8,7 @@ from app.api.leads import (
     PropostaStatusInput,
     _atualizar_sla_proposta,
     _prazo_sla_24h,
+    _resumir_pesquisas_proposta,
     _tentar_vincular_processo_ao_protocolar,
     aceitar_proposta_publica,
     atualizar_pagamento_proposta,
@@ -24,6 +25,7 @@ from app.models import (
     LancamentoFinanceiro,
     Organizacao,
     ParcelaFinanceira,
+    PesquisaMarca,
     Processo,
     ProcessoMonitorado,
     PropostaComercial,
@@ -97,6 +99,28 @@ def test_protocolo_concluido_tem_precedencia() -> None:
 def test_proposta_pode_preservar_a_pesquisa_de_origem() -> None:
     proposta = _proposta(pesquisa_id="12345678-1234-1234-1234-123456789abc")
     assert proposta.pesquisa_id == "12345678-1234-1234-1234-123456789abc"
+
+
+def test_proposta_consolida_varias_marcas_e_classes() -> None:
+    pesquisas = [
+        PesquisaMarca(marca="NORTE STUDIO", classe_nice="25"),
+        PesquisaMarca(marca="NORTE STUDIO", classe_nice="35"),
+        PesquisaMarca(marca="NORTE CAFÉ", classe_nice="30"),
+    ]
+
+    marcas, classes = _resumir_pesquisas_proposta(pesquisas)
+
+    assert marcas == "NORTE STUDIO; NORTE CAFÉ"
+    assert classes == "NORTE STUDIO: NCL 25, 35; NORTE CAFÉ: NCL 30"
+
+
+def test_proposta_de_uma_marca_preserva_formato_simples() -> None:
+    marcas, classes = _resumir_pesquisas_proposta(
+        [PesquisaMarca(marca="NORTE STUDIO", classe_nice="25")]
+    )
+
+    assert marcas == "NORTE STUDIO"
+    assert classes == "25"
 
 
 # --- Fase 1 do plano proposta-financeiro (03/09/2026): blindar o aceite ---

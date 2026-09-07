@@ -1318,6 +1318,7 @@ def test_endpoint_sugestao_ia_devolve_a_mais_recente() -> None:
         modelo="qwen2.5:7b-instruct-q4_K_M",
         resumo="Lead qualificado, sem contato há 5 dias.",
         sugestao_proxima_acao="Ligar para retomar o atendimento.",
+        status="pendente",
         baseado_em_evento_em=datetime.now(UTC),
     )
     _sessao_admin(FakeResult(scalar=sugestao))

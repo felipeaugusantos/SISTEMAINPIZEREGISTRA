@@ -152,10 +152,17 @@ async def gerar_sugestao_lead(session: AsyncSession, lead: Lead, *, chamar_ia: C
     baseado_em_evento_em = max(eventos) if eventos else datetime.now(UTC)
 
     contexto = montar_contexto_lead(lead, contatos, respostas, pesquisa)
+    # Valores explícitos em vez de depender dos defaults de coluna do
+    # SQLAlchemy: eles só são aplicados no flush -- se algo ler o objeto
+    # antes disso (como o caminho de erro abaixo, que nunca toca resumo/
+    # sugestao_proxima_acao), os atributos ficariam None em vez de "".
     sugestao = SugestaoIALead(
         organizacao_id=lead.organizacao_id,
         lead_id=lead.id,
         modelo=settings.ia_sombra_modelo,
+        resumo="",
+        sugestao_proxima_acao="",
+        status="pendente",
         baseado_em_evento_em=baseado_em_evento_em,
     )
     try:

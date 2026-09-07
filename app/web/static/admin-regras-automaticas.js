@@ -15,7 +15,7 @@ async function regrasLoad() {
     fetch("/v1/auth/me").then(r => r.json()),
     fetch("/v1/admin/crm/automacoes").then(r => r.json()),
   ]);
-  regrasCanManage = me.superadmin || me.perfil === "administrador" || (me.permissoes || []).includes("leads.manage");
+  regrasCanManage = me.superadmin || me.perfil === "administrador" || (me.permissoes || []).includes("crm.manage");
   regrasRender(data.itens || []);
 }
 
@@ -43,8 +43,16 @@ async function politicaLoad() {
   for (const campo of politicaForm.elements) campo.disabled = !regrasCanManage;
   politicaForm.querySelector("button[type=submit]").hidden = !regrasCanManage;
 }
+function politicaErrorDetail(data, status) {
+  if (Array.isArray(data?.detail)) {
+    return data.detail.map(item => item.msg || item.message).filter(Boolean).join(" · ");
+  }
+  return data?.detail || `Não foi possível salvar a política (HTTP ${status}).`;
+}
+
 politicaForm?.addEventListener("submit", async event => {
   event.preventDefault();
+  const submit = politicaForm.querySelector("button[type=submit]");
   const dias = politicaForm.elements.dias_proxima_acao_padrao.value;
   const horasSla = politicaForm.elements.horas_sla_primeiro_atendimento.value;
   const payload = {
@@ -55,9 +63,23 @@ politicaForm?.addEventListener("submit", async event => {
     dias_proxima_acao_padrao: dias === "" ? null : Number(dias),
     horas_sla_primeiro_atendimento: horasSla === "" ? null : Number(horasSla),
   };
-  const r = await fetch("/v1/admin/crm/politica", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  if (r.ok) politicaFill(await r.json());
-  politicaMsg(r.ok ? "Política salva." : "Erro ao salvar.", r.ok ? "success" : "error");
+  submit.disabled = true;
+  politicaMsg("Salvando política…", "loading");
+  try {
+    const response = await fetch("/v1/admin/crm/politica", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(politicaErrorDetail(data, response.status));
+    politicaFill(data);
+    politicaMsg("Política salva.", "success");
+  } catch (error) {
+    politicaMsg(error.message || "Não foi possível salvar a política.", "error");
+  } finally {
+    submit.disabled = false;
+  }
 });
 
 regrasLoad().then(politicaLoad).catch(() => regrasMsg("Não foi possível carregar as regras.", "error"));

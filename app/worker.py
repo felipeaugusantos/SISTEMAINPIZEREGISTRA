@@ -10,7 +10,7 @@ from app.alertas_plataforma import verificar_saude_plataforma
 from app.api.juridico import executar_motor_organizacao
 from app.cadencia_email import processar_envios_cadencia_pendentes
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
-from app.crm import gerar_lembretes_sla_primeiro_atendimento
+from app.crm import gerar_lembretes_sla_primeiro_atendimento, reconciliar_automacoes_fluxo_contratacao
 from app.database import session_factory
 from app.emailing import enviar_alerta_atividades_atrasadas
 from app.imap_polling import verificar_respostas_email
@@ -239,6 +239,8 @@ async def processar(tipo: str, payload: dict) -> None:
                         detalhes={"criados": criados_sla},
                     )
                 )
+        elif tipo == "crm.fluxo_contratacao":
+            await reconciliar_automacoes_fluxo_contratacao(session)
         elif tipo == "crm.gerar_renovacoes_marca":
             # Achado da auditoria: RenovacaoFinanceira e o endpoint de criar ja
             # existiam (app/api/contratacoes.py), mas so eram usados manualmente --
@@ -698,6 +700,7 @@ TAREFAS_MANUTENCAO_HORARIA: tuple[str, ...] = (
     "privacidade.verificar_retencao",
     "crm.reengajamento_inatividade",
     "crm.sla_primeiro_atendimento",
+    "crm.fluxo_contratacao",
     "crm.gerar_renovacoes_marca",
     "cadencia.enviar_emails_pendentes",
     "cadencia.verificar_respostas_email",

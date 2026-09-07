@@ -320,6 +320,26 @@ REGRAS_AUTOMACAO: dict[str, dict] = {
         "descricao": "Proposta aceita — combinar pagamento e emitir a cobrança.",
         "label": "Ao aceitar proposta → cobrar pagamento",
     },
+    "receber_juridico": {
+        "evento": "pendencia",
+        "gatilho": "pagamento_confirmado",
+        "dias": 0,
+        "titulo": "Receber novo serviço no jurídico",
+        "tipo": "acompanhar_processo",
+        "prioridade": "alta",
+        "descricao": "Pagamento confirmado — conferir documentos e assumir o atendimento jurídico.",
+        "label": "Pagamento confirmado → receber no jurídico",
+    },
+    "protocolar_no_prazo": {
+        "evento": "pendencia",
+        "gatilho": "sla_protocolo",
+        "dias": 0,
+        "titulo": "Protocolar pedido no INPI",
+        "tipo": "acompanhar_processo",
+        "prioridade": "alta",
+        "descricao": "Documentação liberada — protocolar antes do vencimento do SLA.",
+        "label": "Documentação liberada → protocolar no SLA",
+    },
     "acompanhar_protocolo": {
         "evento": "fase",
         "gatilho": "protocolo_inpi",
@@ -341,6 +361,168 @@ REGRAS_AUTOMACAO: dict[str, dict] = {
         "label": "Sem retorno → reengajar em N dias",
     },
 }
+
+REGRAS_FLUXO_CONTRATACAO = ("cobrar_pagamento", "receber_juridico", "protocolar_no_prazo")
+
+
+def _estado_regra_fluxo(proposta: PropostaComercial, chave: str) -> tuple[bool, datetime | None]:
+    """Retorna se a tarefa continua necessária e a data-base de seu alerta."""
+    if proposta.status != "aceita":
+        return False, None
+    if chave == "cobrar_pagamento":
+        return proposta.pagamento_status != "confirmado", proposta.aceito_em
+    if chave == "receber_juridico":
+        return (
+            proposta.pagamento_status == "confirmado" and proposta.juridico_recebido_em is None,
+            proposta.pagamento_confirmado_em or proposta.aceito_em,
+        )
+    if chave == "protocolar_no_prazo":
+        return (
+            proposta.pagamento_status == "confirmado"
+            and proposta.juridico_recebido_em is not None
+            and proposta.sla_inicio_em is not None
+            and proposta.protocolo_em is None,
+            proposta.sla_prazo_em or proposta.sla_inicio_em,
+        )
+    return False, None
+
+
+def _regra_fluxo_concluida(proposta: PropostaComercial, chave: str) -> bool:
+    if proposta.status != "aceita":
+        return True
+    if chave == "cobrar_pagamento":
+        return proposta.pagamento_status == "confirmado"
+    if chave == "receber_juridico":
+        return proposta.juridico_recebido_em is not None
+    if chave == "protocolar_no_prazo":
+        return proposta.protocolo_em is not None
+    return False
+
+
+def _chave_lembrete_fluxo(proposta: PropostaComercial, chave: str) -> str:
+    # A cobrança reaproveita exatamente a chave da automação disparada na
+    # transição de fase, evitando uma segunda tarefa para o mesmo aceite.
+    if chave == "cobrar_pagamento":
+        return f"lead:{proposta.lead_id}:fase:proposta_aceita:cobrar_pagamento"
+    return f"fluxo:{proposta.id}:{chave}"
+
+
+async def reconciliar_automacoes_fluxo_contratacao(session: AsyncSession) -> dict[str, int]:
+    """Cria e encerra tarefas da jornada comercial → financeiro → jurídico.
+
+    A rotina é executada pelo worker a cada hora. As chaves únicas tornam a
+    execução segura após reinício ou repetição e também cobrem propostas
+    antigas que não passaram pelos gatilhos em tempo real.
+    """
+    agora = datetime.now(UTC)
+    linhas = (
+        await session.execute(
+            select(PropostaComercial, Lead)
+            .join(
+                Lead,
+                (Lead.id == PropostaComercial.lead_id)
+                & (Lead.organizacao_id == PropostaComercial.organizacao_id),
+            )
+            .where(
+                PropostaComercial.aceito_em.is_not(None),
+                Lead.arquivado_em.is_(None),
+            )
+        )
+    ).all()
+    overrides = {
+        (item.organizacao_id, item.chave): item
+        for item in (
+            await session.execute(select(RegraAutomacao).where(RegraAutomacao.chave.in_(REGRAS_FLUXO_CONTRATACAO)))
+        ).scalars()
+    }
+    chaves = [_chave_lembrete_fluxo(proposta, chave) for proposta, _lead in linhas for chave in REGRAS_FLUXO_CONTRATACAO]
+    existentes = (
+        (
+            await session.execute(
+                select(LembreteCRM).where(LembreteCRM.idempotency_key.in_(chaves))
+                if chaves
+                else select(LembreteCRM).where(False)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    por_chave = {item.idempotency_key: item for item in existentes}
+    criados = 0
+    concluidos = 0
+
+    for proposta, lead in linhas:
+        for chave in REGRAS_FLUXO_CONTRATACAO:
+            necessaria, data_base = _estado_regra_fluxo(proposta, chave)
+            chave_idempotencia = _chave_lembrete_fluxo(proposta, chave)
+            existente = por_chave.get(chave_idempotencia)
+            if _regra_fluxo_concluida(proposta, chave):
+                if existente is not None and existente.status == "pendente":
+                    existente.status = "concluido"
+                    existente.concluido_em = agora
+                    existente.concluido_por = "Automação (fluxo da contratação)"
+                    concluidos += 1
+                    registrar_evento_operacional(
+                        session,
+                        organizacao_id=proposta.organizacao_id,
+                        dominio="crm",
+                        tipo="automacao.lembrete_concluido",
+                        entidade_tipo="lead",
+                        entidade_id=lead.id,
+                        ator="Automação (fluxo da contratação)",
+                        payload={"regra": chave, "proposta_id": proposta.id},
+                        idempotency_key=f"{chave_idempotencia}:concluido",
+                    )
+            if not necessaria:
+                # Ex.: pagamento estornado após a passagem ao jurídico. A
+                # tarefa fica pendente, mas nenhuma nova é criada até o
+                # bloqueio ser resolvido; não tratamos bloqueio como sucesso.
+                continue
+            regra = REGRAS_AUTOMACAO[chave]
+            override = overrides.get((proposta.organizacao_id, chave))
+            if existente is not None or (override is not None and not override.ativo) or data_base is None:
+                continue
+            dias = override.dias if override is not None else regra["dias"]
+            lembrar_em = data_base + timedelta(days=max(0, dias))
+            responsavel_id = (
+                proposta.responsavel_protocolo_id if chave == "protocolar_no_prazo" else lead.responsavel_id
+            )
+            inserido = (
+                await session.execute(
+                    pg_insert(LembreteCRM)
+                    .values(
+                        organizacao_id=proposta.organizacao_id,
+                        lead_id=lead.id,
+                        responsavel_id=responsavel_id,
+                        tipo=regra["tipo"],
+                        prioridade=regra["prioridade"],
+                        titulo=regra["titulo"],
+                        descricao=regra["descricao"],
+                        lembrar_em=lembrar_em,
+                        status="pendente",
+                        criado_por="Automação (fluxo da contratação)",
+                        criado_por_id=None,
+                        idempotency_key=chave_idempotencia,
+                    )
+                    .on_conflict_do_nothing(constraint="uq_lembrete_crm_idempotencia")
+                    .returning(LembreteCRM.id)
+                )
+            ).scalar_one_or_none()
+            if inserido is None:
+                continue
+            criados += 1
+            registrar_evento_operacional(
+                session,
+                organizacao_id=proposta.organizacao_id,
+                dominio="crm",
+                tipo="automacao.lembrete_criado",
+                entidade_tipo="lead",
+                entidade_id=lead.id,
+                ator="Automação (fluxo da contratação)",
+                payload={"regra": chave, "proposta_id": proposta.id, "lembrar_em": lembrar_em.isoformat()},
+                idempotency_key=chave_idempotencia,
+            )
+    return {"criados": criados, "concluidos": concluidos, "propostas_avaliadas": len(linhas)}
 
 
 async def aplicar_regras_automacao(session: AsyncSession, lead: Lead, evento: str, valor: str, por: str) -> list[str]:

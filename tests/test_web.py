@@ -389,3 +389,19 @@ def test_confiabilidade_expoe_reprocessamento_dos_agentes() -> None:
     assert "admin-confiabilidade.js?v=5" in pagina
     assert 'data-job="registrabilidade.reprocessar_agentes"' in pagina
     assert "Reprocessar agentes pendentes" in pagina
+
+
+
+def test_politica_crm_usa_permissao_correta_e_checkboxes_compactos() -> None:
+    page = (web_dir / "admin-regras-automaticas.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-regras-automaticas.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "admin-crm-overrides.css").read_text(encoding="utf-8")
+
+    assert "admin-crm-overrides.css?v=2" in page
+    assert "admin-regras-automaticas.js?v=5" in page
+    assert 'includes("crm.manage")' in script
+    assert 'includes("leads.manage")' not in script
+    assert "politicaErrorDetail" in script
+    assert 'type="checkbox"' in styles
+    assert "height: 18px" in styles
+    assert "width: 18px" in styles

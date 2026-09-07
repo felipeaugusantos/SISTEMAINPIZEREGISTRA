@@ -317,6 +317,8 @@ def _serializar(lancamento: LancamentoFinanceiro) -> dict:
     ]
     return {
         "id": lancamento.id,
+        "lead_id": lancamento.lead_id,
+        "proposta_id": lancamento.proposta_id,
         "tipo": lancamento.tipo,
         "descricao": lancamento.descricao,
         "documento": lancamento.documento,

@@ -2510,6 +2510,9 @@ def _proposta_dict(proposta: PropostaComercial, org: Organizacao | None = None) 
         "protocolo_em": proposta.protocolo_em,
         "protocolo_motivo_atraso": proposta.protocolo_motivo_atraso,
         "protocolo_comprovante_id": proposta.protocolo_comprovante_id,
+        "juridico_recebido_em": proposta.juridico_recebido_em,
+        "juridico_recebido_por_id": proposta.juridico_recebido_por_id,
+        "juridico_recebido_por": proposta.juridico_recebido_por,
         "criado_em": proposta.criado_em,
         # Propostas exibem somente o nome fantasia institucional.
         "empresa": {"nome": "Zé Registra"},
@@ -2753,7 +2756,8 @@ async def sincronizar_pagamento_proposta(session: AsyncSession, proposta: Propos
     reflete a mudança no SLA. Chamado após qualquer baixa/estorno/cancelamento
     de um lançamento vinculado, e sob demanda via ``PATCH .../pagamento``."""
     novo_status = await calcular_pagamento_status_proposta(session, proposta.organizacao_id, proposta.id)
-    if novo_status == proposta.pagamento_status:
+    status_anterior = proposta.pagamento_status
+    if novo_status == status_anterior and novo_status != "confirmado":
         return
     proposta.pagamento_status = novo_status
     proposta.pagamento_confirmado_em = (
@@ -2775,6 +2779,33 @@ async def sincronizar_pagamento_proposta(session: AsyncSession, proposta: Propos
     if novo_status == "confirmado" and proposta.status == "aceita" and not documentos_ok:
         proposta.sla_status = "aguardando_documentos"
     _atualizar_sla_proposta(proposta)
+    if novo_status == "confirmado" and proposta.status == "aceita":
+        lead = (
+            await session.execute(
+                select(Lead).where(
+                    Lead.id == proposta.lead_id,
+                    Lead.organizacao_id == proposta.organizacao_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if lead is not None:
+            mudou_fase = await avancar_fase_lead(
+                session, lead, FaseLead.PAGAMENTO_CONFIRMADO.value, "Financeiro"
+            )
+            if status_anterior != "confirmado" or mudou_fase:
+                registrar_evento_operacional(
+                    session,
+                    organizacao_id=proposta.organizacao_id,
+                    dominio="juridico",
+                    tipo="juridico.encaminhamento_disponivel",
+                    entidade_tipo="lead",
+                    entidade_id=proposta.lead_id,
+                    ator="Financeiro",
+                    payload={
+                        "proposta_id": proposta.id,
+                        "descricao": "Pagamento confirmado; serviço disponível para recebimento jurídico",
+                    },
+                )
 
 
 async def sincronizar_pagamento_proposta_por_id(
@@ -2819,39 +2850,69 @@ async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta:
             )
         )
     ).scalar_one_or_none()
-    if existente is not None:
-        return
-    lancamento = LancamentoFinanceiro(
-        organizacao_id=proposta.organizacao_id,
-        lead_id=proposta.lead_id,
-        proposta_id=proposta.id,
-        idempotency_key=f"proposta-aceite:{proposta.id}",
-        tipo="receber",
-        descricao=f"Honorários — Proposta {proposta.numero}",
-        competencia=date.today(),
-        valor_total=total,
-        status="aberto",
-        criado_por=f"aceite:{origem}",
-    )
-    session.add(lancamento)
-    await session.flush()
-    session.add(
-        ParcelaFinanceira(
-            organizacao_id=proposta.organizacao_id,
-            lancamento_id=lancamento.id,
-            numero=1,
-            vencimento=date.today(),
-            valor=total,
-        )
-    )
-    session.add(
-        ContratacaoServico(
+    if existente is None:
+        lancamento = LancamentoFinanceiro(
             organizacao_id=proposta.organizacao_id,
             lead_id=proposta.lead_id,
             proposta_id=proposta.id,
-            lancamento_id=lancamento.id,
+            idempotency_key=f"proposta-aceite:{proposta.id}",
+            tipo="receber",
+            descricao=f"Honorários — Proposta {proposta.numero}",
+            competencia=date.today(),
+            valor_total=total,
+            status="aberto",
+            criado_por=f"aceite:{origem}",
         )
-    )
+        session.add(lancamento)
+        await session.flush()
+        session.add(
+            ParcelaFinanceira(
+                organizacao_id=proposta.organizacao_id,
+                lancamento_id=lancamento.id,
+                numero=1,
+                vencimento=date.today(),
+                valor=total,
+            )
+        )
+        session.add(
+            ContratacaoServico(
+                organizacao_id=proposta.organizacao_id,
+                lead_id=proposta.lead_id,
+                proposta_id=proposta.id,
+                lancamento_id=lancamento.id,
+            )
+        )
+        registrar_evento_operacional(
+            session,
+            organizacao_id=proposta.organizacao_id,
+            dominio="financeiro",
+            tipo="financeiro.proposta_recebida",
+            entidade_tipo="lead",
+            entidade_id=proposta.lead_id,
+            ator=f"Aceite via {origem}",
+            payload={
+                "proposta_id": proposta.id,
+                "lancamento_id": lancamento.id,
+                "valor": str(total),
+                "descricao": "Proposta aceita enviada automaticamente ao contas a receber",
+            },
+        )
+
+    # A contratação é a passagem objetiva do comercial para o financeiro.
+    # Centralizar as fases aqui cobre aceite administrativo, link público,
+    # portal e Clicksign com o mesmo comportamento e sem regressão de fase.
+    lead = (
+        await session.execute(
+            select(Lead).where(
+                Lead.id == proposta.lead_id,
+                Lead.organizacao_id == proposta.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if lead is not None:
+        ator = f"Aceite via {origem}"
+        await avancar_fase_lead(session, lead, FaseLead.PROPOSTA_ACEITA.value, ator)
+        await avancar_fase_lead(session, lead, FaseLead.AGUARDANDO_PAGAMENTO.value, ator)
 
 
 @router.patch("/v1/admin/propostas/{proposta_id}/pagamento")
@@ -2992,8 +3053,18 @@ async def registrar_protocolo_proposta(
     proposta.protocolo_em = agora if numero else None
     if numero and proposta.lead_id is not None:
         lead_do_protocolo = await session.get(Lead, proposta.lead_id)
-        if lead_do_protocolo is not None and not lead_do_protocolo.processo_numero:
-            lead_do_protocolo.processo_numero = numero
+        if lead_do_protocolo is not None:
+            if not lead_do_protocolo.processo_numero:
+                lead_do_protocolo.processo_numero = numero
+            # Fluxos antigos podem chegar direto ao protocolo sem o clique
+            # explícito de recebimento no painel jurídico. Nesse caso, o ato
+            # de protocolar também formaliza o recebimento e fecha a passagem.
+            if proposta.juridico_recebido_em is None:
+                proposta.juridico_recebido_em = agora
+                proposta.juridico_recebido_por_id = usuario.id
+                proposta.juridico_recebido_por = usuario.ator
+            await avancar_fase_lead(session, lead_do_protocolo, FaseLead.GANHO.value, usuario.ator)
+            await avancar_fase_lead(session, lead_do_protocolo, FaseLead.PROTOCOLO_INPI.value, usuario.ator)
         await _tentar_vincular_processo_ao_protocolar(session, usuario.organizacao_id, proposta.lead_id, numero)
     _atualizar_sla_proposta(proposta)
     _auditar(

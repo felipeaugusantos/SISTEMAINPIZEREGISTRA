@@ -22,13 +22,16 @@ from app.models import (
     AssinaturaPropostaComercial,
     ContratacaoServico,
     DocumentoLead,
+    EventoDominio,
     LancamentoFinanceiro,
+    Lead,
     Organizacao,
     ParcelaFinanceira,
     PesquisaMarca,
     Processo,
     ProcessoMonitorado,
     PropostaComercial,
+    StatusLead,
     TipoProcesso,
 )
 from tests.conftest import FakeResult, FakeSession, usuario_teste
@@ -470,6 +473,63 @@ def test_criar_contratacao_automatica_proposta_sem_valor_nao_cria_nada() -> None
     session = FakeSession([])
     asyncio.run(criar_contratacao_automatica_proposta(session, proposta, "link_publico"))
     assert session.adicionados == []
+
+
+def test_aceite_encaminha_oportunidade_ao_financeiro() -> None:
+    proposta = _proposta(id=1, status="aceita", honorarios=1500, taxa_gru=355)
+    lead = Lead(
+        id=1,
+        organizacao_id=1,
+        nome="Cliente",
+        email="cliente@example.com",
+        telefone="",
+        marca="NORTE",
+        fase="proposta_enviada",
+        status=StatusLead.PROPOSTA_ENVIADA,
+    )
+    session = FakeSession([FakeResult(scalar=None), FakeResult(scalar=lead)])
+
+    asyncio.run(criar_contratacao_automatica_proposta(session, proposta, "portal"))
+
+    assert lead.fase == "aguardando_pagamento"
+    eventos_financeiros = [
+        item
+        for item in session.adicionados
+        if isinstance(item, EventoDominio) and item.tipo == "financeiro.proposta_recebida"
+    ]
+    assert len(eventos_financeiros) == 1
+
+
+def test_pagamento_confirmado_encaminha_oportunidade_ao_juridico() -> None:
+    proposta = _proposta(id=10, status="aceita", pagamento_status="pendente")
+    lead = Lead(
+        id=1,
+        organizacao_id=1,
+        nome="Cliente",
+        email="cliente@example.com",
+        telefone="",
+        marca="NORTE",
+        fase="aguardando_pagamento",
+        status=StatusLead.PROPOSTA_ENVIADA,
+    )
+    documento = DocumentoLead(
+        id=1, lead_id=1, organizacao_id=1, tipo="procuracao", status="validado", obrigatorio=True
+    )
+    session = FakeSession(
+        [
+            FakeResult(itens=["pago"]),
+            FakeResult(itens=[documento]),
+            FakeResult(scalar=lead),
+        ]
+    )
+
+    asyncio.run(sincronizar_pagamento_proposta(session, proposta))
+
+    assert lead.fase == "pagamento_confirmado"
+    assert any(
+        isinstance(item, EventoDominio) and item.tipo == "juridico.encaminhamento_disponivel"
+        for item in session.adicionados
+    )
 
 
 def test_aceitar_proposta_publica_gera_contratacao_automatica() -> None:

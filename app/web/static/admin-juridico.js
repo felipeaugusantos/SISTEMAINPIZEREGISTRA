@@ -61,6 +61,36 @@ function renderMetrics(metrics) {
   ];
   document.querySelector("#legal-metrics").innerHTML = values.map(([label, value, kind]) => `<article class="${kind}"><span>${label}</span><strong>${value}</strong></article>`).join("");
 }
+function intakeStatus(item) {
+  const labels = {
+    pronto: ["Pronto para iniciar", "ready"],
+    documentos_pendentes: ["Aguardando documentos", "warning"],
+    pagamento_pendente: ["Pagamento pendente", "danger"],
+    em_atendimento: ["Em atendimento", "active"],
+  };
+  return labels[item.status] || [item.status, ""];
+}
+function renderIntakes(data) {
+  const items = data.itens || [];
+  document.querySelector("#legal-intake-count").textContent = `${data.metricas?.novos || 0} novo(s)`;
+  document.querySelector("#legal-intakes").innerHTML = items.length ? items.map((item) => {
+    const [statusLabel, statusClass] = intakeStatus(item);
+    const pendencias = item.documentos_pendentes?.length
+      ? `<p class="legal-intake-pending"><strong>Pendências:</strong> ${item.documentos_pendentes.map(escapeHtml).join(", ")}</p>`
+      : '<p class="legal-intake-ready">Documentação mínima conferida pelo sistema.</p>';
+    const action = item.recebido_em
+      ? `<div class="legal-intake-owner"><span>Responsável</span><strong>${escapeHtml(item.recebido_por || "Equipe jurídica")}</strong><small>Recebido em ${dateTime.format(new Date(item.recebido_em))}</small></div>`
+      : legalState.canManage
+        ? `<button class="primary-button receive-intake" data-id="${item.proposta_id}" type="button">Assumir atendimento</button>`
+        : "";
+    return `<article class="legal-intake ${statusClass}">
+      <header><div><span class="legal-badge ${statusClass}">${escapeHtml(statusLabel)}</span><h3>${escapeHtml(item.cliente)}</h3><p>${escapeHtml(item.empresa || "Pessoa física")} · Proposta ${escapeHtml(item.proposta_numero)}</p></div><strong class="legal-intake-value">${Number(item.valor_total || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</strong></header>
+      <div class="legal-intake-scope"><strong>${escapeHtml(item.marca || "Marca a definir")}</strong><span>${escapeHtml(item.classes || "Classes a definir")}</span></div>
+      ${pendencias}
+      <footer><div class="legal-intake-links"><a href="/admin/leads">Abrir oportunidade</a><a href="/admin/financeiro">Ver financeiro</a></div>${action}</footer>
+    </article>`;
+  }).join("") : '<div class="legal-empty">Nenhuma proposta paga aguardando início jurídico.</div>';
+}
 function renderNotifications(items) {
   document.querySelector("#legal-notification-count").textContent = `${items.filter((item) => item.status === "nova").length} não lida(s)`;
   document.querySelector("#legal-notifications").innerHTML = items.length
@@ -116,15 +146,17 @@ function renderPagination(pagination) {
   document.querySelector("#legal-next").disabled = !pagination.tem_proxima;
 }
 async function loadDashboard() {
-  const [data, checklists] = await Promise.all([
+  const [data, checklists, intakes] = await Promise.all([
     api(`/v1/admin/juridico/painel?${queryParams()}`),
     api("/v1/admin/juridico/checklists/resumo").catch(() => ({})),
+    api("/v1/admin/juridico/encaminhamentos"),
   ]);
   legalState.canManage = data.acoes.gerenciar;
   legalState.checklists = checklists || {};
   document.querySelector("#new-legal-deadline").hidden = !legalState.canManage;
   document.querySelector("#run-legal-engine").hidden = !legalState.canManage;
   renderMetrics(data.metricas);
+  renderIntakes(intakes);
   renderNotifications(data.notificacoes);
   renderDeadlines(data.prazos);
   renderKanban(data.prazos);
@@ -219,6 +251,22 @@ document.querySelector("#legal-notifications").addEventListener("click", async (
   if (!button) return;
   try { await api(`/v1/admin/juridico/notificacoes/${button.dataset.id}`, { method: "PATCH" }); await loadDashboard(); }
   catch (error) { showMessage(error.message); }
+});
+document.querySelector("#legal-intakes").addEventListener("click", async (event) => {
+  const button = event.target.closest(".receive-intake");
+  if (!button) return;
+  button.disabled = true;
+  try {
+    const result = await api(`/v1/admin/juridico/encaminhamentos/${button.dataset.id}/receber`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    showMessage(`Atendimento recebido por ${result.responsavel}.`, "success");
+    await loadDashboard();
+  } catch (error) {
+    button.disabled = false;
+    showMessage(error.message);
+  }
 });
 deliveryForm.addEventListener("submit", async (event) => {
   event.preventDefault();

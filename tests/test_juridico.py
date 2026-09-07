@@ -24,6 +24,7 @@ from app.api.juridico import (
     PoliticaJuridicaUpdate,
     PrazoInput,
     PrazoUpdate,
+    ReceberEncaminhamentoInput,
     RegraJuridicaInput,
     _classificar_despacho,
     _classificar_despacho_terminal,
@@ -34,6 +35,7 @@ from app.api.juridico import (
     _reconciliar_prazos_historicos,
     _reconciliar_prazos_terminais,
     _serializar_prazo,
+    _status_encaminhamento,
     _valor_vigente,
     atualizar_item_checklist,
     atualizar_prazo,
@@ -46,17 +48,22 @@ from app.api.juridico import (
     indicadores_juridicos,
     listar_documentos_entrega,
     painel,
+    receber_encaminhamento,
     registrar_entrega,
 )
 from app.models import (
     DocumentoEntregaJuridico,
+    EventoDominio,
     EventoJuridico,
+    Lead,
     Movimentacao,
     MovimentacaoAvaliadaJuridico,
     PoliticaJuridica,
     PrazoJuridico,
     ProcessoMonitorado,
+    PropostaComercial,
     RegraJuridicaVersionada,
+    UsuarioOperacoes,
 )
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
@@ -85,6 +92,65 @@ FUSO_BRASIL_TESTE = ZoneInfo("America/Sao_Paulo")
 
 def _data_brasil(vencimento: datetime) -> date:
     return vencimento.astimezone(FUSO_BRASIL_TESTE).date()
+
+
+def test_status_encaminhamento_explica_bloqueios_e_recebimento() -> None:
+    proposta = PropostaComercial(pagamento_status="pendente")
+    assert _status_encaminhamento(proposta, []) == "pagamento_pendente"
+    proposta.pagamento_status = "confirmado"
+    assert _status_encaminhamento(proposta, ["procuracao"]) == "documentos_pendentes"
+    assert _status_encaminhamento(proposta, []) == "pronto"
+    proposta.juridico_recebido_em = datetime.now(UTC)
+    assert _status_encaminhamento(proposta, []) == "em_atendimento"
+
+
+def test_receber_encaminhamento_atribui_responsavel_e_avanca_para_ganho() -> None:
+    proposta = PropostaComercial(
+        id=7,
+        organizacao_id=1,
+        lead_id=9,
+        numero="PROP-7",
+        status="aceita",
+        pagamento_status="confirmado",
+        escopo="Registro de marca",
+    )
+    responsavel = UsuarioOperacoes(id=1, organizacao_id=1, nome="Admin Teste", ativo=True)
+    lead = Lead(
+        id=9,
+        organizacao_id=1,
+        nome="Cliente",
+        email="cliente@example.com",
+        telefone="",
+        marca="NORTE",
+        fase="pagamento_confirmado",
+    )
+    session = FakeSession(
+        [FakeResult(scalar=proposta), FakeResult(scalar=responsavel)],
+        objetos_get=[lead],
+    )
+
+    resultado = asyncio.run(
+        receber_encaminhamento(7, ReceberEncaminhamentoInput(), _request(), session, usuario_teste())
+    )
+
+    assert resultado["status"] == "em_atendimento"
+    assert proposta.juridico_recebido_por_id == 1
+    assert proposta.responsavel_protocolo_id == 1
+    assert lead.fase == "ganho"
+    assert any(
+        isinstance(item, EventoDominio) and item.tipo == "juridico.encaminhamento_recebido"
+        for item in session.adicionados
+    )
+
+
+def test_interface_juridica_expoe_fila_de_novos_servicos() -> None:
+    html = Path("app/web/admin-juridico.html").read_text(encoding="utf-8")
+    script = Path("app/web/static/admin-juridico.js").read_text(encoding="utf-8")
+
+    assert 'id="legal-intakes"' in html
+    assert "Novos serviços para iniciar" in html
+    assert "/v1/admin/juridico/encaminhamentos" in script
+    assert "Assumir atendimento" in script
 
 
 def test_calcula_prazo_em_dias_corridos() -> None:
@@ -426,7 +492,7 @@ def test_tela_juridica_expoe_fluxos_principais() -> None:
     assert "Executar motor de prazos" in html
     assert "CENTRAL DE NOTIFICAÇÕES" in html
     assert "Registrar entrega" in html
-    assert "admin-juridico.css?v=15" in html
+    assert "admin-juridico.css?v=16" in html
     assert "admin-juridico.js?v=" in html
     assert 'id="view-calendar"' in html
     assert 'option value="historico"' in html

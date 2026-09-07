@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +25,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 OperadorDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
 
 
-class ConsultaOperadorInput(BaseModel):
+class MarcaConsultaInput(BaseModel):
     marca: str = Field(min_length=2, max_length=200)
     atividade: str | None = Field(default=None, max_length=500)
     # Achado da auditoria completa do CRM (06/09/2026, item 4): classe_nice
@@ -39,17 +39,14 @@ class ConsultaOperadorInput(BaseModel):
     # em vez de redesenhar o motor de busca/risco (pensado para 1 classe
     # por vez) para aceitar uma lista.
     classes_nice: list[str] = Field(default_factory=list, max_length=45)
-    # Nome e e-mail sao obrigatorios: toda consulta interna vira lead, para o
-    # comercial poder dar sequencia (ver app.api.consulta.criar_consulta).
-    nome: str = Field(min_length=2, max_length=150)
-    empresa: str | None = Field(default=None, max_length=200)
-    email: str = Field(min_length=5, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-    telefone: str = Field(default="", max_length=30)
 
-    @field_validator("marca", "nome")
+    @field_validator("marca")
     @classmethod
     def limpar_marca(cls, valor: str) -> str:
-        return valor.strip()
+        limpa = valor.strip()
+        if len(limpa) < 2:
+            raise ValueError("A marca deve ter ao menos 2 caracteres")
+        return limpa
 
     @field_validator("atividade")
     @classmethod
@@ -66,6 +63,74 @@ class ConsultaOperadorInput(BaseModel):
         return limpas
 
 
+class ConsultaOperadorInput(BaseModel):
+    # Campos legados mantidos para clientes existentes da API. A interface nova
+    # envia ``marcas``; quando ela estiver vazia, marca/atividade/classes_nice
+    # continuam produzindo exatamente a consulta única anterior.
+    marca: str | None = Field(default=None, min_length=2, max_length=200)
+    atividade: str | None = Field(default=None, max_length=500)
+    classes_nice: list[str] = Field(default_factory=list, max_length=45)
+    marcas: list[MarcaConsultaInput] = Field(default_factory=list, min_length=0, max_length=20)
+    # Nome e e-mail sao obrigatorios: toda consulta interna vira lead, para o
+    # comercial poder dar sequencia (ver app.api.consulta.criar_consulta).
+    nome: str = Field(min_length=2, max_length=150)
+    empresa: str | None = Field(default=None, max_length=200)
+    email: str = Field(min_length=5, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+    telefone: str = Field(default="", max_length=30)
+
+    @field_validator("marca")
+    @classmethod
+    def limpar_marca_opcional(cls, valor: str | None) -> str | None:
+        return valor.strip() if valor is not None else None
+
+    @field_validator("nome")
+    @classmethod
+    def limpar_nome(cls, valor: str) -> str:
+        return valor.strip()
+
+    @field_validator("atividade")
+    @classmethod
+    def limpar_atividade(cls, valor: str | None) -> str | None:
+        return (valor or "").strip() or None
+
+    @field_validator("classes_nice")
+    @classmethod
+    def validar_classes_nice(cls, valores: list[str]) -> list[str]:
+        limpas = list(dict.fromkeys(valor.strip() for valor in valores if valor.strip()))
+        invalidas = [valor for valor in limpas if valor not in CLASSES_NICE]
+        if invalidas:
+            raise ValueError(f"Classe Nice inválida: {', '.join(invalidas)}")
+        return limpas
+
+    @model_validator(mode="after")
+    def exigir_ao_menos_uma_marca(self) -> "ConsultaOperadorInput":
+        if not self.marcas and not self.marca:
+            raise ValueError("Informe ao menos uma marca")
+        itens = self.itens_marca()
+        total_pesquisas = sum(max(1, len(item.classes_nice)) for item in itens)
+        if total_pesquisas > 50:
+            raise ValueError("A consulta aceita no máximo 50 combinações de marca e classe")
+        combinacoes: set[tuple[str, str | None]] = set()
+        for item in itens:
+            for classe in item.classes_nice or [None]:
+                chave = (item.marca.casefold(), classe)
+                if chave in combinacoes:
+                    raise ValueError("Não repita a mesma combinação de marca e classe")
+                combinacoes.add(chave)
+        return self
+
+    def itens_marca(self) -> list[MarcaConsultaInput]:
+        if self.marcas:
+            return self.marcas
+        return [
+            MarcaConsultaInput(
+                marca=self.marca or "",
+                atividade=self.atividade,
+                classes_nice=self.classes_nice,
+            )
+        ]
+
+
 @router.get("/classes-nice")
 async def listar_classes_nice(operador: OperadorDep) -> list[dict]:
     return [{"codigo": codigo, "titulo": titulo} for codigo, (titulo, _palavras_chave) in CLASSES_NICE.items()]
@@ -80,6 +145,8 @@ class ConsultaMultiplaCriada(BaseModel):
 async def criar_consulta(
     dados: ConsultaOperadorInput, session: SessionDep, operador: OperadorDep
 ) -> ConsultaMultiplaCriada:
+    marcas = dados.itens_marca()
+    primeira_marca = marcas[0]
     empresa = await obter_ou_criar_empresa(session, operador.organizacao_id, dados.empresa)
     email = dados.email.strip().lower()
     lead = await buscar_lead_ativo_por_email(session, operador.organizacao_id, email)
@@ -104,8 +171,8 @@ async def criar_consulta(
             empresa=empresa.nome if empresa else None,
             email=email,
             telefone=dados.telefone.strip(),
-            marca=dados.marca,
-            atividade=dados.atividade,
+            marca=primeira_marca.marca,
+            atividade=primeira_marca.atividade,
             origem="operador",
             tipo_interesse=TipoProcesso.MARCA,
             aceite_privacidade=True,
@@ -122,34 +189,39 @@ async def criar_consulta(
         if empresa is not None:
             lead.empresa_id = empresa.id
             lead.empresa = empresa.nome
-        lead.marca = dados.marca
-        if dados.atividade is not None:
-            lead.atividade = dados.atividade
+        lead.marca = primeira_marca.marca
+        if primeira_marca.atividade is not None:
+            lead.atividade = primeira_marca.atividade
         lead.responsavel_id = lead.responsavel_id or operador.id
 
     # Lista vazia = uma única pesquisa sem recorte de classe (comportamento
     # de sempre); cada classe informada vira sua própria PesquisaMarca,
     # todas no mesmo lead -- a "oportunidade" continua sendo o lead, não
     # precisa de nenhuma entidade de agrupamento nova.
-    classes_para_pesquisar: list[str | None] = list(dados.classes_nice) or [None]
     pesquisas: list[PesquisaMarca] = []
-    for classe_nice in classes_para_pesquisar:
-        original = await detectar_pesquisa_duplicada(
-            session, operador.organizacao_id, lead.id if lead else None, dados.marca, classe_nice=classe_nice
-        )
-        pesquisa = PesquisaMarca(
-            organizacao_id=operador.organizacao_id,
-            lead_id=lead.id if lead else None,
-            empresa_id=empresa.id if empresa else (lead.empresa_id if lead else None),
-            marca=dados.marca,
-            atividade=dados.atividade,
-            tipo_pesquisa="completa",
-            classe_nice=classe_nice,
-            duplicada=original is not None,
-            pesquisa_original_id=original,
-        )
-        session.add(pesquisa)
-        pesquisas.append(pesquisa)
+    for item_marca in marcas:
+        classes_para_pesquisar: list[str | None] = list(item_marca.classes_nice) or [None]
+        for classe_nice in classes_para_pesquisar:
+            original = await detectar_pesquisa_duplicada(
+                session,
+                operador.organizacao_id,
+                lead.id if lead else None,
+                item_marca.marca,
+                classe_nice=classe_nice,
+            )
+            pesquisa = PesquisaMarca(
+                organizacao_id=operador.organizacao_id,
+                lead_id=lead.id if lead else None,
+                empresa_id=empresa.id if empresa else (lead.empresa_id if lead else None),
+                marca=item_marca.marca,
+                atividade=item_marca.atividade,
+                tipo_pesquisa="completa",
+                classe_nice=classe_nice,
+                duplicada=original is not None,
+                pesquisa_original_id=original,
+            )
+            session.add(pesquisa)
+            pesquisas.append(pesquisa)
     await session.commit()
     itens: list[PesquisaMarcaCriada] = []
     for pesquisa in pesquisas:
@@ -161,6 +233,8 @@ async def criar_consulta(
                 lead_id=lead.id if lead else None,
                 duplicada=pesquisa.duplicada,
                 pesquisa_original_id=pesquisa.pesquisa_original_id,
+                marca=pesquisa.marca,
+                classe_nice=pesquisa.classe_nice,
             )
         )
     return ConsultaMultiplaCriada(lead_id=lead.id if lead else None, itens=itens)

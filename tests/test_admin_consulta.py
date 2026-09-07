@@ -143,6 +143,69 @@ async def test_consulta_com_varias_classes_cria_uma_pesquisa_por_classe() -> Non
 
 
 @pytest.mark.asyncio
+async def test_consulta_com_varias_marcas_e_classes_compartilha_oportunidade() -> None:
+    session = SessaoConsultaComId()
+    dados = ConsultaOperadorInput.model_validate(
+        {
+            "marcas": [
+                {"marca": "NORTE STUDIO", "classes_nice": ["25", "35"]},
+                {"marca": "NORTE CAFÉ", "atividade": "cafeteria", "classes_nice": ["30", "43"]},
+            ],
+            "nome": "Cliente Teste",
+            "email": "cliente@example.com",
+        }
+    )
+
+    resultado = await criar_consulta(dados, session, usuario_teste())
+
+    pesquisas = [item for item in session.adicionados if isinstance(item, PesquisaMarca)]
+    assert len(pesquisas) == 4
+    assert {(p.marca, p.classe_nice) for p in pesquisas} == {
+        ("NORTE STUDIO", "25"),
+        ("NORTE STUDIO", "35"),
+        ("NORTE CAFÉ", "30"),
+        ("NORTE CAFÉ", "43"),
+    }
+    assert len({p.lead_id for p in pesquisas}) == 1
+    assert {(item.marca, item.classe_nice) for item in resultado.itens} == {
+        ("NORTE STUDIO", "25"),
+        ("NORTE STUDIO", "35"),
+        ("NORTE CAFÉ", "30"),
+        ("NORTE CAFÉ", "43"),
+    }
+
+
+def test_consulta_exige_marca_no_formato_legado_ou_em_lote() -> None:
+    with pytest.raises(ValueError, match="Informe ao menos uma marca"):
+        ConsultaOperadorInput.model_validate({"nome": "Cliente Teste", "email": "cliente@example.com"})
+
+
+def test_consulta_rejeita_combinacao_repetida() -> None:
+    with pytest.raises(ValueError, match="Não repita"):
+        ConsultaOperadorInput.model_validate(
+            {
+                "marcas": [
+                    {"marca": "NORTE STUDIO", "classes_nice": ["25"]},
+                    {"marca": " norte studio ", "classes_nice": ["25"]},
+                ],
+                "nome": "Cliente Teste",
+                "email": "cliente@example.com",
+            }
+        )
+
+
+def test_formulario_admin_permite_adicionar_outra_marca() -> None:
+    html = Path("app/web/admin-consulta.html").read_text(encoding="utf-8")
+    script = Path("app/web/static/admin-consulta.js").read_text(encoding="utf-8")
+
+    assert 'id="consulta-marcas"' in html
+    assert 'id="adicionar-marca"' in html
+    assert "marcas:" in script
+    assert "item.marca" in script
+    assert "item.classe_nice" in script
+
+
+@pytest.mark.asyncio
 async def test_consulta_sempre_cria_lead_para_o_comercial() -> None:
     session = SessaoConsultaComId()
 

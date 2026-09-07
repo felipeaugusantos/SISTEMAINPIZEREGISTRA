@@ -1980,8 +1980,8 @@ class PropostaInput(BaseModel):
     pesquisa_id: str | None = Field(default=None, min_length=36, max_length=36)
     pesquisa_ids: list[str] = Field(default_factory=list, max_length=50)
     validade_em: date | None = None
-    marca: str | None = Field(default=None, max_length=200)
-    classes: str | None = Field(default=None, max_length=200)
+    marca: str | None = Field(default=None, max_length=4000)
+    classes: str | None = Field(default=None, max_length=4000)
     escopo: str = Field(default="Registro de marca no INPI", min_length=5, max_length=4000)
     honorarios: Decimal | None = Field(default=None, ge=0)
     taxa_gru: Decimal | None = Field(default=None, ge=0)
@@ -1994,6 +1994,29 @@ class PropostaInput(BaseModel):
 HONORARIOS_PROPOSTA_PADRAO = Decimal("1500.00")
 TAXA_GRU_PROPOSTA_PADRAO = Decimal("415.00")
 CONDICOES_PROPOSTA_PADRAO = "50% na contratação e 50% no protocolo"
+
+
+def _resumir_pesquisas_proposta(pesquisas: list[PesquisaMarca]) -> tuple[str | None, str | None]:
+    """Consolida marcas/classes escolhidas sem perder o vínculo detalhado em ``dados``."""
+    por_marca: dict[str, dict[str, object]] = {}
+    for pesquisa in pesquisas:
+        chave = pesquisa.marca.strip().casefold()
+        grupo = por_marca.setdefault(chave, {"marca": pesquisa.marca.strip(), "classes": []})
+        classes = grupo["classes"]
+        if pesquisa.classe_nice and pesquisa.classe_nice not in classes:
+            classes.append(pesquisa.classe_nice)
+    if not por_marca:
+        return None, None
+    marcas = [str(grupo["marca"]) for grupo in por_marca.values()]
+    if len(marcas) == 1:
+        classes = sorted(por_marca[next(iter(por_marca))]["classes"], key=int)
+        return marcas[0], ", ".join(classes) if classes else None
+    resumo_classes = []
+    for grupo in por_marca.values():
+        classes = sorted(grupo["classes"], key=int)
+        sufixo = f"NCL {', '.join(classes)}" if classes else "todas as classes"
+        resumo_classes.append(f"{grupo['marca']}: {sufixo}")
+    return "; ".join(marcas), "; ".join(resumo_classes)
 
 
 class PropostaStatusInput(BaseModel):
@@ -2537,14 +2560,15 @@ async def criar_proposta(lead_id: int, dados: PropostaInput, session: SessionDep
             detail="A pesquisa informada não pertence a esta oportunidade.",
         )
     pesquisa = pesquisas[0] if pesquisas else None
+    marcas_resumo, classes_resumo = _resumir_pesquisas_proposta(pesquisas)
     proposta = PropostaComercial(
         organizacao_id=usuario.organizacao_id,
         lead_id=lead,
         pesquisa_id=pesquisa.id if pesquisa else None,
         numero="TEMP",
         validade_em=dados.validade_em,
-        marca=dados.marca or (pesquisa.marca if pesquisa else None),
-        classes=dados.classes or (pesquisa.classe_nice if pesquisa else None),
+        marca=dados.marca or marcas_resumo,
+        classes=dados.classes or classes_resumo,
         escopo=dados.escopo.strip(),
         honorarios=dados.honorarios if dados.honorarios is not None else HONORARIOS_PROPOSTA_PADRAO,
         taxa_gru=dados.taxa_gru if dados.taxa_gru is not None else TAXA_GRU_PROPOSTA_PADRAO,

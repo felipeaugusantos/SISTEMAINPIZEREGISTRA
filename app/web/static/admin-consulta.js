@@ -6,6 +6,7 @@ const deleteDialog = document.querySelector("#delete-research-dialog");
 const deleteForm = document.querySelector("#delete-research-form");
 let podeExcluirPesquisa = false;
 let exclusaoPendente = false;
+let classesNice = [];
 
 function setStatus(texto, tipo) {
   statusEl.hidden = false;
@@ -37,15 +38,56 @@ api("/v1/auth/me").then(usuario => {
 
 // Achado da auditoria completa do CRM (06/09/2026, item 4): classe Nice
 // agora é capturada aqui e usada de verdade pelo motor de busca/risco.
-api("/v1/admin/consulta/classes-nice").then(classes => {
-  const select = document.querySelector("#consulta-classe-nice");
-  for (const { codigo, titulo } of classes) {
+function preencherClasses(select) {
+  select.replaceChildren();
+  for (const { codigo, titulo } of classesNice) {
     const option = document.createElement("option");
     option.value = codigo;
     option.textContent = `${codigo} — ${titulo}`;
     select.append(option);
   }
+}
+
+function atualizarMarcas() {
+  const itens = [...document.querySelectorAll(".consulta-marca-item")];
+  itens.forEach((item, indice) => {
+    item.querySelector("header strong").textContent = `Marca ${indice + 1}`;
+    item.querySelector(".remover-marca").hidden = itens.length === 1;
+  });
+  document.querySelector("#adicionar-marca").disabled = itens.length >= 20;
+}
+
+function adicionarMarca() {
+  const container = document.querySelector("#consulta-marcas");
+  if (container.children.length >= 20) return;
+  const item = document.createElement("article");
+  item.className = "consulta-marca-item";
+  item.innerHTML = `
+    <header><strong></strong><button class="secondary-button remover-marca" type="button">Remover</button></header>
+    <div class="user-fields">
+      <label class="field-full">Marca<input name="marca" data-field="marca" required minlength="2" maxlength="200" placeholder="Ex.: CAFÉ DO BRASIL"></label>
+      <label class="field-full">Atividade do negócio <small>(opcional)</small><input name="atividade" data-field="atividade" maxlength="500" placeholder="Ex.: cafeteria e torrefação"></label>
+      <label class="field-full">Classes Nice pretendidas <small>(opcional) — segure Ctrl/Cmd para marcar mais de uma; nenhuma selecionada pesquisa em todas.</small><select name="classes_nice" data-field="classes_nice" multiple size="6"></select></label>
+    </div>`;
+  preencherClasses(item.querySelector('[data-field="classes_nice"]'));
+  container.append(item);
+  atualizarMarcas();
+  item.querySelector('[data-field="marca"]').focus();
+}
+
+document.querySelector("#consulta-marcas").addEventListener("click", event => {
+  const remover = event.target.closest(".remover-marca");
+  if (!remover) return;
+  remover.closest(".consulta-marca-item").remove();
+  atualizarMarcas();
+});
+document.querySelector("#adicionar-marca").addEventListener("click", adicionarMarca);
+
+api("/v1/admin/consulta/classes-nice").then(classes => {
+  classesNice = classes;
+  document.querySelectorAll('[data-field="classes_nice"]').forEach(preencherClasses);
 }).catch(() => {});
+atualizarMarcas();
 
 function card(valor, rotulo) {
   const article = document.createElement("article");
@@ -229,8 +271,11 @@ function renderOutrasClasses(itens) {
       const botao = document.createElement("button");
       botao.type = "button";
       botao.className = "secondary-button";
-      botao.textContent = `Classe ${indice + 1}`;
+      botao.textContent = `${item.marca || `Marca ${indice + 1}`} · ${item.classe_nice ? `NCL ${item.classe_nice}` : "todas as classes"}`;
+      if (indice === 0) botao.classList.add("active");
       botao.addEventListener("click", async () => {
+        container.querySelectorAll("button").forEach(outro => outro.classList.remove("active"));
+        botao.classList.add("active");
         pesquisaAtual = item.id;
         history.pushState(null, "", item.relatorio_url);
         mostrarDuplicada(item);
@@ -244,9 +289,17 @@ function renderOutrasClasses(itens) {
 form.addEventListener("submit", async event => {
   event.preventDefault();
   const formData = new FormData(form);
-  const dados = Object.fromEntries(formData);
-  dados.atividade = dados.atividade.trim() || null;
-  dados.classes_nice = formData.getAll("classes_nice");
+  const dados = {
+    nome: String(formData.get("nome") || "").trim(),
+    empresa: String(formData.get("empresa") || "").trim() || null,
+    email: String(formData.get("email") || "").trim(),
+    telefone: String(formData.get("telefone") || "").trim(),
+    marcas: [...document.querySelectorAll(".consulta-marca-item")].map(item => ({
+      marca: item.querySelector('[data-field="marca"]').value.trim(),
+      atividade: item.querySelector('[data-field="atividade"]').value.trim() || null,
+      classes_nice: [...item.querySelector('[data-field="classes_nice"]').selectedOptions].map(option => option.value),
+    })),
+  };
   setStatus("Registrando consulta…", "loading");
   try {
     const resultado = await api("/v1/admin/consulta", { method: "POST", body: JSON.stringify(dados) });

@@ -55,6 +55,14 @@ test("o administrador entra pelo formulário e acessa a visão geral", async ({ 
   await expect(page.getByRole("button", { name: "Novo lembrete" })).toBeVisible();
   await expect(page.getByLabel("Status do cliente")).toBeVisible();
 
+  await page.goto("/admin/consulta");
+  await expect(page.getByRole("heading", { name: "Consulta de marcas" })).toBeVisible();
+  await page.getByRole("button", { name: "Adicionar outra marca" }).click();
+  await expect(page.locator(".consulta-marca-item")).toHaveCount(2);
+  await expect(page.locator('.consulta-marca-item [data-field="classes_nice"]')).toHaveCount(2);
+  await page.locator(".consulta-marca-item").nth(1).getByRole("button", { name: "Remover" }).click();
+  await expect(page.locator(".consulta-marca-item")).toHaveCount(1);
+
   await page.goto("/admin/operacao-juridica");
   await expect(page.getByRole("heading", { name: "Operação jurídica" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Executar motor de prazos" })).toBeVisible();

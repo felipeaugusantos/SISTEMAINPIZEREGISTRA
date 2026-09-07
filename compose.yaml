@@ -17,6 +17,39 @@ services:
       retries: 20
       start_period: 5m
 
+  # IA em sombra (leads): modelo local, sem chave de API, nenhum dado de
+  # lead sai do servidor. profile "ia-sombra" -- NÃO sobe com `docker
+  # compose up` normal, só com `docker compose --profile ia-sombra up -d`,
+  # para não baixar ~5GB de imagem+modelo nem consumir RAM/disco sem essa
+  # decisão explícita. Ver settings.ia_sombra_enabled.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ia-sombra"]
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 2m
+
+  # Baixa o modelo uma única vez (idempotente -- `ollama pull` não rebaixa
+  # se já presente) e sai. Rodar: `docker compose --profile ia-sombra up
+  # ollama-pull` depois do `ollama` estar healthy.
+  ollama-pull:
+    image: ollama/ollama:latest
+    profiles: ["ia-sombra"]
+    restart: "no"
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["ollama"]
+    command: ["pull", "qwen2.5:7b-instruct-q4_K_M"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
   mailpit:
     image: axllent/mailpit:v1.27
     ports:
@@ -148,6 +181,11 @@ services:
       CLICKSIGN_API_TOKEN: ${CLICKSIGN_API_TOKEN:-}
       CLICKSIGN_WEBHOOK_SECRET: ${CLICKSIGN_WEBHOOK_SECRET:-}
       CLICKSIGN_WEBHOOK_URL: ${CLICKSIGN_WEBHOOK_URL:-}
+      IA_SOMBRA_ENABLED: ${IA_SOMBRA_ENABLED:-false}
+      IA_SOMBRA_HOST: ${IA_SOMBRA_HOST:-ollama}
+      IA_SOMBRA_PORT: ${IA_SOMBRA_PORT:-11434}
+      IA_SOMBRA_MODELO: ${IA_SOMBRA_MODELO:-qwen2.5:7b-instruct-q4_K_M}
+      IA_SOMBRA_TIMEOUT_SEGUNDOS: ${IA_SOMBRA_TIMEOUT_SEGUNDOS:-120}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -231,6 +269,11 @@ services:
       IMAP_USERNAME: ${IMAP_USERNAME:-}
       IMAP_PASSWORD: ${IMAP_PASSWORD:-}
       IMAP_SSL: ${IMAP_SSL:-true}
+      IA_SOMBRA_ENABLED: ${IA_SOMBRA_ENABLED:-false}
+      IA_SOMBRA_HOST: ${IA_SOMBRA_HOST:-ollama}
+      IA_SOMBRA_PORT: ${IA_SOMBRA_PORT:-11434}
+      IA_SOMBRA_MODELO: ${IA_SOMBRA_MODELO:-qwen2.5:7b-instruct-q4_K_M}
+      IA_SOMBRA_TIMEOUT_SEGUNDOS: ${IA_SOMBRA_TIMEOUT_SEGUNDOS:-120}
     volumes:
       # Mesmo volume persistente do api/rpi-sync -- o job
       # prospeccao.importar_cnpj_rfb roda aqui e cacheia os arquivos
@@ -311,3 +354,4 @@ volumes:
   redis_data:
   test_postgres_data:
   clamav_data:
+  ollama_data:

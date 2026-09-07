@@ -430,6 +430,7 @@ async function openLead(id, selectedResearchId = null) {
     <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div></section>
     <nav class="lead-tabs" role="tablist">${ABAS_LEAD.map(([id, label], i) => `<button type="button" class="lead-tab${i === 0 ? " active" : ""}" role="tab" aria-selected="${i === 0}" data-tab="${id}">${label}</button>`).join("")}</nav>
     <div class="lead-tab-panel" data-panel="atendimento">
+      <section class="lead-sugestao-ia lg-full" id="lead-sugestao-ia" hidden></section>
       <section class="lead-history lg-full"><header><div><p class="eyebrow">${selectedResearchId ? "Pesquisa selecionada" : "Histórico"}</p><h3>${pesquisasExibidas.length} pesquisa${pesquisasExibidas.length === 1 ? "" : "s"}</h3></div></header>${pesquisasExibidas.length ? pesquisasExibidas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
       <section class="lead-relacionados lg-full" id="lead-relacionados" hidden></section>
       <section class="lead-cadencia lg-full" id="lead-cadencia" hidden></section>
@@ -529,6 +530,7 @@ async function openLead(id, selectedResearchId = null) {
         : `${dias} dia${dias === 1 ? "" : "s"} sem interação · fator de decaimento ${(dadosScore.fator_decaimento * 100).toFixed(0)}%`;
     })
     .catch(() => { const badge = document.querySelector("#lead-score-badge"); if (badge) badge.textContent = "Indisponível"; });
+  renderSugestaoIA(lead.id);
   await renderEmpresa(lead);
   await renderCadenciaLead(lead);
   await loadLeadContacts(lead.id);
@@ -954,6 +956,44 @@ async function renderGuiasInpi(leadId) {
   box.querySelectorAll(".guia-del").forEach(b => b.addEventListener("click", async () => {
     const r = await fetch(`/v1/admin/guias-inpi/${b.dataset.id}`, { method: "DELETE" });
     if (r.ok || r.status === 204) await renderGuiasInpi(leadId);
+  }));
+}
+
+// Item "IA em sombra" (fora do roteiro da auditoria completa do CRM):
+// resumo + sugestão de próxima ação gerados em segundo plano (worker),
+// nunca em tempo real -- se ainda não existe sugestão para o lead, a
+// seção some, sem tentar gerar uma na hora.
+async function renderSugestaoIA(leadId) {
+  const box = document.querySelector("#lead-sugestao-ia");
+  if (!box) return;
+  let sugestao;
+  try {
+    const r = await fetch(`/v1/admin/leads/${leadId}/sugestao-ia`);
+    if (!r.ok) { box.hidden = true; return; }
+    sugestao = await r.json();
+  } catch { box.hidden = true; return; }
+  if (sugestao.erro || sugestao.status !== "pendente") { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<header><p class="eyebrow">Sugestão da IA · revisão necessária</p><h3>Gerada em ${formatDate(sugestao.gerado_em, false)}</h3></header>
+    <p class="lead-sugestao-ia-resumo">${escapeHtml(sugestao.resumo)}</p>
+    ${sugestao.sugestao_proxima_acao ? `<p class="lead-sugestao-ia-acao"><strong>Sugestão de próxima ação:</strong> ${escapeHtml(sugestao.sugestao_proxima_acao)}</p>` : ""}
+    <p class="lead-sugestao-ia-aviso">Conteúdo gerado por IA, sem revisão humana ainda -- nunca foi enviado a ninguém.</p>
+    <div class="lead-sugestao-ia-acoes">
+      <button type="button" class="secondary-button" data-revisar="descartada">Descartar</button>
+      <button type="button" class="primary-button" data-revisar="aprovada">Marcar como revisada</button>
+    </div>`;
+  box.querySelectorAll("[data-revisar]").forEach(botao => botao.addEventListener("click", async () => {
+    botao.closest(".lead-sugestao-ia-acoes").querySelectorAll("button").forEach(b => { b.disabled = true; });
+    try {
+      await fetch(`/v1/admin/leads/${leadId}/sugestao-ia/${sugestao.id}/revisar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: botao.dataset.revisar }),
+      });
+      box.hidden = true;
+    } catch {
+      botao.closest(".lead-sugestao-ia-acoes").querySelectorAll("button").forEach(b => { b.disabled = false; });
+    }
   }));
 }
 

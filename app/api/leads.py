@@ -68,6 +68,7 @@ from app.models import (
     RetribuicaoInpi,
     SolicitacaoExclusaoPesquisa,
     StatusLead,
+    SugestaoIALead,
     TipoProcesso,
     UsuarioOperacoes,
     VersaoDocumentoLead,
@@ -1842,6 +1843,67 @@ async def score_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
     return await calcular_score_lead(session, lead)
+
+
+def _sugestao_ia_dict(sugestao: SugestaoIALead) -> dict:
+    return {
+        "id": sugestao.id,
+        "lead_id": sugestao.lead_id,
+        "gerado_em": sugestao.gerado_em,
+        "modelo": sugestao.modelo,
+        "resumo": sugestao.resumo,
+        "sugestao_proxima_acao": sugestao.sugestao_proxima_acao,
+        "status": sugestao.status,
+        "revisado_por": sugestao.revisado_por,
+        "revisado_em": sugestao.revisado_em,
+        "erro": sugestao.erro,
+    }
+
+
+@router.get("/v1/admin/leads/{lead_id}/sugestao-ia")
+async def obter_sugestao_ia(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
+    """Sugestão mais recente da IA em sombra (resumo + próxima ação) para o
+    lead -- nunca contém rascunho de mensagem nem foi enviada a ninguém,
+    é só apoio de leitura para o operador decidir sozinho o que fazer."""
+    sugestao = (
+        await session.execute(
+            select(SugestaoIALead)
+            .where(SugestaoIALead.lead_id == lead_id, SugestaoIALead.organizacao_id == usuario.organizacao_id)
+            .order_by(SugestaoIALead.gerado_em.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if sugestao is None:
+        raise HTTPException(status_code=404, detail="Nenhuma sugestão de IA gerada para este lead ainda")
+    return _sugestao_ia_dict(sugestao)
+
+
+class RevisaoSugestaoIAInput(BaseModel):
+    status: Literal["aprovada", "descartada"]
+
+
+@router.post("/v1/admin/leads/{lead_id}/sugestao-ia/{sugestao_id}/revisar")
+async def revisar_sugestao_ia(
+    lead_id: int, sugestao_id: int, dados: RevisaoSugestaoIAInput, session: SessionDep, usuario: LeadsManageDep
+) -> dict:
+    """Registra que um humano revisou a sugestão -- puramente trilha de
+    auditoria, nunca dispara nenhum envio nem ação automática."""
+    sugestao = (
+        await session.execute(
+            select(SugestaoIALead).where(
+                SugestaoIALead.id == sugestao_id,
+                SugestaoIALead.lead_id == lead_id,
+                SugestaoIALead.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if sugestao is None:
+        raise HTTPException(status_code=404, detail="Sugestão não encontrada")
+    sugestao.status = dados.status
+    sugestao.revisado_por = usuario.ator
+    sugestao.revisado_em = datetime.now(UTC)
+    await session.commit()
+    return _sugestao_ia_dict(sugestao)
 
 
 @router.get("/v1/admin/leads/{lead_id}/relacionados")

@@ -126,6 +126,18 @@ class Settings(BaseSettings):
     imap_username: str = ""
     imap_password: str = ""
     imap_ssl: bool = True
+    # IA em sombra (leads): resumo de histórico + sugestão de próxima ação,
+    # nunca rascunho de mensagem pro cliente e nunca envio automático --
+    # modelo local via Ollama, sem chave de API nem custo por chamada, para
+    # nenhum dado de lead sair do servidor. Desligado por padrão -- fica
+    # inerte até o serviço "ollama" (compose.yaml, profile "ia-sombra") ser
+    # subido manualmente e a flag ser ligada (mesmo princípio de
+    # imap_enabled/clamav_enabled: nunca liga sozinho).
+    ia_sombra_enabled: bool = False
+    ia_sombra_host: str = "ollama"
+    ia_sombra_port: int = 11434
+    ia_sombra_modelo: str = "qwen2.5:7b-instruct-q4_K_M"
+    ia_sombra_timeout_segundos: float = 120.0
 
     model_config = SettingsConfigDict(
         env_file=".env",

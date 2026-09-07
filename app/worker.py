@@ -13,6 +13,7 @@ from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_reno
 from app.crm import gerar_lembretes_sla_primeiro_atendimento, reconciliar_automacoes_fluxo_contratacao
 from app.database import session_factory
 from app.emailing import enviar_alerta_atividades_atrasadas
+from app.ia_sombra import gerar_sugestoes_ia_pendentes
 from app.imap_polling import verificar_respostas_email
 from app.models import (
     AlertaSistema,
@@ -241,6 +242,13 @@ async def processar(tipo: str, payload: dict) -> None:
                 )
         elif tipo == "crm.fluxo_contratacao":
             await reconciliar_automacoes_fluxo_contratacao(session)
+        elif tipo == "crm.gerar_sugestoes_ia":
+            # IA em sombra (leads): resumo + sugestao de proxima acao, nunca
+            # rascunho de mensagem nem envio automatico. Inerte por padrao
+            # (devolve 0 sem nenhum efeito colateral) ate settings.ia_sombra_enabled
+            # E PoliticaCRM.ia_sombra_ativa de pelo menos uma organizacao
+            # estarem ligados -- ver app.ia_sombra.
+            await gerar_sugestoes_ia_pendentes(session)
         elif tipo == "crm.gerar_renovacoes_marca":
             # Achado da auditoria: RenovacaoFinanceira e o endpoint de criar ja
             # existiam (app/api/contratacoes.py), mas so eram usados manualmente --
@@ -701,6 +709,7 @@ TAREFAS_MANUTENCAO_HORARIA: tuple[str, ...] = (
     "crm.reengajamento_inatividade",
     "crm.sla_primeiro_atendimento",
     "crm.fluxo_contratacao",
+    "crm.gerar_sugestoes_ia",
     "crm.gerar_renovacoes_marca",
     "cadencia.enviar_emails_pendentes",
     "cadencia.verificar_respostas_email",

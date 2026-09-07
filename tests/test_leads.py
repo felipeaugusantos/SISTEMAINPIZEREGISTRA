@@ -24,6 +24,7 @@ from app.models import (
     PesquisaMarca,
     RespostaEmailLead,
     StatusLead,
+    SugestaoIALead,
     UsuarioOperacoes,
     VersaoRelatorioMarca,
 )
@@ -1293,5 +1294,72 @@ def test_endpoint_score_lead_404_quando_lead_nao_existe() -> None:
     _sessao_admin(FakeResult(scalar=None))
 
     resposta = TestClient(app).get("/v1/admin/leads/999/score")
+
+    assert resposta.status_code == 404
+
+
+# --- "IA em sombra": endpoints de leitura e revisão humana da sugestão
+# (a geração em si roda no worker -- ver tests/test_ia_sombra.py). ---
+
+
+def test_endpoint_sugestao_ia_404_quando_nao_ha_sugestao_gerada() -> None:
+    _sessao_admin(FakeResult(scalar=None))
+
+    resposta = TestClient(app).get("/v1/admin/leads/7/sugestao-ia")
+
+    assert resposta.status_code == 404
+
+
+def test_endpoint_sugestao_ia_devolve_a_mais_recente() -> None:
+    sugestao = SugestaoIALead(
+        id=3,
+        organizacao_id=1,
+        lead_id=7,
+        modelo="qwen2.5:7b-instruct-q4_K_M",
+        resumo="Lead qualificado, sem contato há 5 dias.",
+        sugestao_proxima_acao="Ligar para retomar o atendimento.",
+        baseado_em_evento_em=datetime.now(UTC),
+    )
+    _sessao_admin(FakeResult(scalar=sugestao))
+
+    resposta = TestClient(app).get("/v1/admin/leads/7/sugestao-ia")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["resumo"] == "Lead qualificado, sem contato há 5 dias."
+    assert corpo["status"] == "pendente"
+
+
+def test_endpoint_revisar_sugestao_ia_registra_quem_revisou() -> None:
+    sugestao = SugestaoIALead(
+        id=3,
+        organizacao_id=1,
+        lead_id=7,
+        modelo="qwen2.5:7b-instruct-q4_K_M",
+        status="pendente",
+        baseado_em_evento_em=datetime.now(UTC),
+    )
+    session = _sessao_admin(FakeResult(scalar=sugestao))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/7/sugestao-ia/3/revisar",
+        json={"status": "aprovada"},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 200
+    assert sugestao.status == "aprovada"
+    assert sugestao.revisado_por is not None
+    assert session.commits == 1
+
+
+def test_endpoint_revisar_sugestao_ia_404_quando_nao_encontrada() -> None:
+    _sessao_admin(FakeResult(scalar=None))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/7/sugestao-ia/999/revisar",
+        json={"status": "descartada"},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
 
     assert resposta.status_code == 404

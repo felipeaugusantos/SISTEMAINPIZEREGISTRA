@@ -33,6 +33,7 @@ function politicaFill(politica) {
   politicaForm.elements.exigir_responsavel.checked = !!politica.exigir_responsavel;
   politicaForm.elements.atribuir_ao_operador.checked = !!politica.atribuir_ao_operador;
   politicaForm.elements.distribuicao_automatica_ativa.checked = !!politica.distribuicao_automatica_ativa;
+  politicaForm.elements.ia_sombra_ativa.checked = !!politica.ia_sombra_ativa;
   politicaForm.elements.exigir_proxima_acao.checked = !!politica.exigir_proxima_acao;
   politicaForm.elements.dias_proxima_acao_padrao.value = politica.dias_proxima_acao_padrao ?? "";
   politicaForm.elements.horas_sla_primeiro_atendimento.value = politica.horas_sla_primeiro_atendimento ?? "";
@@ -59,6 +60,7 @@ politicaForm?.addEventListener("submit", async event => {
     exigir_responsavel: politicaForm.elements.exigir_responsavel.checked,
     atribuir_ao_operador: politicaForm.elements.atribuir_ao_operador.checked,
     distribuicao_automatica_ativa: politicaForm.elements.distribuicao_automatica_ativa.checked,
+    ia_sombra_ativa: politicaForm.elements.ia_sombra_ativa.checked,
     exigir_proxima_acao: politicaForm.elements.exigir_proxima_acao.checked,
     dias_proxima_acao_padrao: dias === "" ? null : Number(dias),
     horas_sla_primeiro_atendimento: horasSla === "" ? null : Number(horasSla),

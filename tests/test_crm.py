@@ -6,8 +6,8 @@ from pydantic import ValidationError
 
 from app.api.leads import ContatoInput
 from app.crm import calcular_score_lead, normalizar_empresa, verificar_conflito_interesse
-from app.models import Lead
-from tests.conftest import FakeResult, FakeSession
+from app.models import Lead, PoliticaCRM
+from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
 def test_normaliza_empresa_para_evitar_cadastros_duplicados() -> None:
@@ -157,3 +157,20 @@ def test_score_lead_aplica_decaimento_intermediario_ao_engajamento() -> None:
     assert resultado["fator_decaimento"] == 0.6
     # fit_base (40, não decai) + round(30 * 0.6) = 40 + 18 = 58
     assert resultado["score"] == 58
+
+
+# --- "IA em sombra": opt-in por organização (PoliticaCRM.ia_sombra_ativa),
+# além do kill-switch global settings.ia_sombra_enabled. ---
+
+
+def test_editar_politica_crm_persiste_ia_sombra_ativa() -> None:
+    from app.api.crm_admin import PoliticaCRMUpdate, editar_politica_crm
+
+    session = FakeSession([FakeResult(scalar=None)])
+    dados = PoliticaCRMUpdate(ia_sombra_ativa=True)
+
+    resultado = asyncio.run(editar_politica_crm(dados, session, usuario_teste()))
+
+    politica_criada = next(item for item in session.adicionados if isinstance(item, PoliticaCRM))
+    assert politica_criada.ia_sombra_ativa is True
+    assert resultado["ia_sombra_ativa"] is True

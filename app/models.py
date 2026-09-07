@@ -753,10 +753,39 @@ class PoliticaCRM(Base):
     # (crm.sla_primeiro_atendimento) cria um LembreteCRM individual para
     # todo lead sem nenhum ContatoLead registrado além desse prazo.
     horas_sla_primeiro_atendimento: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Opt-in por organização para a IA em sombra (resumo + sugestão de
+    # próxima ação, nunca envio automático) -- além do kill-switch global
+    # settings.ia_sombra_enabled. Ver app/ia_sombra.py.
+    ia_sombra_ativa: Mapped[bool] = mapped_column(Boolean, default=False)
     atualizado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class SugestaoIALead(Base):
+    """Sugestão gerada pela IA em sombra para um lead: resumo do histórico
+    de atendimento + sugestão de próxima ação. Nunca contém rascunho de
+    mensagem para o cliente e nunca é enviada automaticamente -- sempre
+    exige revisão humana explícita (status pendente/aprovada/descartada)."""
+
+    __tablename__ = "sugestoes_ia_lead"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    gerado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    modelo: Mapped[str] = mapped_column(String(120))
+    resumo: Mapped[str] = mapped_column(Text, default="")
+    sugestao_proxima_acao: Mapped[str] = mapped_column(Text, default="")
+    # Timestamp do evento de atividade mais recente do lead considerado ao
+    # gerar esta sugestão -- usado para decidir se há atividade nova o
+    # suficiente para gerar de novo (evita rodar o modelo sem necessidade).
+    baseado_em_evento_em: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    revisado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    revisado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    erro: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class MetaComercial(Base):

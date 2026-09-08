@@ -6,7 +6,7 @@
   <title>Observabilidade — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=51">
   <script src="/static/admin-shell.js?v=40" defer></script>
-  <script src="/static/admin-observabilidade.js?v=1" defer></script>
+  <script src="/static/admin-observabilidade.js?v=2" defer></script>
 </head>
 <body class="admin-body" data-admin-section="observability">
   <main class="admin-main admin-dashboard">
@@ -18,6 +18,33 @@
     <section class="overview-section"><header><div><p class="eyebrow">Serviços</p><h2>Status atual</h2></div></header><div id="observability-services" class="overview-primary-metrics"></div></section>
     <section class="overview-section"><header><div><p class="eyebrow">Indicadores</p><h2>Aplicação e infraestrutura</h2></div></header><div id="observability-metrics" class="overview-primary-metrics"></div></section>
     <section class="overview-section"><header><div><p class="eyebrow">RPI</p><h2>Sincronização e integridade</h2></div></header><div id="observability-rpi" class="observability-detail-grid"></div></section>
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Diagnóstico</p><h2>Eventos recentes</h2><p>Requisições individuais dos últimos dias — use para investigar um erro específico visto nos indicadores acima.</p></div></header>
+      <form id="events-filter" class="admin-filters">
+        <label><span>Componente</span><input name="componente" placeholder="Ex.: api, worker" maxlength="40"></label>
+        <label><span>Código do erro</span><input name="codigo_erro" placeholder="Opcional" maxlength="100"></label>
+        <label><span>Período</span><select name="horas"><option value="1">Última hora</option><option value="24" selected>24 horas</option><option value="168">7 dias</option><option value="720">30 dias</option></select></label>
+        <label class="filter-check"><input type="checkbox" name="apenas_erros" checked><span>Só erros</span></label>
+        <button class="primary-button" type="submit">Filtrar</button>
+      </form>
+      <div id="events-table-wrap" class="table-wrap">
+        <table>
+          <thead><tr><th>Quando</th><th>Componente</th><th>Operação</th><th>Status</th><th>Código do erro</th><th>Detalhes</th><th>Duração</th><th>Request ID</th></tr></thead>
+          <tbody id="events-rows"></tbody>
+        </table>
+      </div>
+      <nav id="events-pagination" class="events-pagination" hidden>
+        <button id="events-prev" class="secondary-button" type="button">Anterior</button>
+        <span id="events-summary"></span>
+        <button id="events-next" class="secondary-button" type="button">Próxima</button>
+      </nav>
+    </section>
   </main>
+  <style>
+    .events-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 18px; }
+    .events-pagination button:disabled { opacity: .45; cursor: not-allowed; }
+    #events-rows tr.is-erro { background: #fdf0ee; }
+    #events-rows td.events-detalhes-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  </style>
 </body>
 </html>

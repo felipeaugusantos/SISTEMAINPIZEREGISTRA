@@ -246,3 +246,68 @@ async def obter_observabilidade(session: SessionDep, usuario: TechDep) -> dict:
             "overflow": pool.overflow() if hasattr(pool, "overflow") else None,
         },
     }
+
+
+# --- Achado de uma auditoria sistemática (08/09/2026, mesmo padrão do
+# achado de EnvioCadenciaEmail): EventoOperacional é gravado a cada
+# requisição (app/observability.py, componente/operacao/codigo_erro/
+# detalhes) desde o início, mas os únicos consumidores existentes
+# (obter_observabilidade acima, painel executivo em app/main.py, painel
+# de produção) só usam func.count()/func.avg() -- nenhum endpoint deixava
+# listar as linhas individuais pra investigar QUAL erro aconteceu. ---
+
+
+@router.get("/observabilidade/eventos")
+async def listar_eventos_operacionais(
+    session: SessionDep,
+    usuario: TechDep,
+    componente: Annotated[str | None, Query(max_length=40)] = None,
+    apenas_erros: Annotated[bool, Query()] = False,
+    codigo_erro: Annotated[str | None, Query(max_length=100)] = None,
+    horas: Annotated[int, Query(ge=1, le=720)] = 24,
+    limite: Annotated[int, Query(ge=1, le=200)] = 50,
+    deslocamento: Annotated[int, Query(ge=0)] = 0,
+) -> dict:
+    _exigir_acesso_tech(usuario)
+    desde = datetime.now(UTC) - timedelta(hours=horas)
+    filtros = [EventoOperacional.criado_em >= desde]
+    if componente:
+        filtros.append(EventoOperacional.componente == componente)
+    if apenas_erros:
+        filtros.append(EventoOperacional.sucesso.is_(False))
+    if codigo_erro:
+        filtros.append(EventoOperacional.codigo_erro == codigo_erro)
+    total = int((await session.execute(select(func.count()).select_from(EventoOperacional).where(*filtros))).scalar_one())
+    itens = (
+        (
+            await session.execute(
+                select(EventoOperacional)
+                .where(*filtros)
+                .order_by(EventoOperacional.criado_em.desc())
+                .limit(limite)
+                .offset(deslocamento)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "total": total,
+        "limite": limite,
+        "deslocamento": deslocamento,
+        "itens": [
+            {
+                "id": item.id,
+                "componente": item.componente,
+                "operacao": item.operacao,
+                "request_id": item.request_id,
+                "sucesso": item.sucesso,
+                "duracao_ms": item.duracao_ms,
+                "status_http": item.status_http,
+                "codigo_erro": item.codigo_erro,
+                "detalhes": item.detalhes,
+                "criado_em": item.criado_em,
+            }
+            for item in itens
+        ],
+    }

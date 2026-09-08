@@ -15,12 +15,25 @@ léxico de peso semântico (app.trademarks.lexico, via
 app.search.termos_comuns_do_match) -- não duplica nenhuma infraestrutura.
 """
 
+from dataclasses import dataclass
 from enum import StrEnum
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crm import normalizar_empresa
+from app.inpi_titular_live import buscar_titularidade_inpi_ao_vivo
+from app.models import Processo, Titular
 from app.search import OcorrenciaBusca, buscar_marcas, termos_comuns_do_match
+
+
+@dataclass
+class TitularidadeAmpla:
+    """Sinal de que o prospect já é titular de ALGUMA marca no INPI, de uma
+    das duas fontes possíveis -- nunca as duas ao mesmo tempo (a local é
+    checada primeiro; a busca ao vivo só roda se a local não achar nada)."""
+
+    descricao: str
 
 
 class ClassificacaoTriagemProspect(StrEnum):
@@ -35,6 +48,11 @@ class ClassificacaoTriagemProspect(StrEnum):
     # classificações, esta habilita descarte rápido na tela ("já tem marca
     # registrada, não precisa da gente").
     JA_E_TITULAR = "ja_e_titular"
+    # Achado da sessão de 08/09/2026: diferente de JA_E_TITULAR (restrito à
+    # marca especificamente pesquisada), este sinal vem de uma checagem ampla
+    # e incondicional na base de titulares -- "o prospect já registra ALGUMA
+    # marca no INPI", útil mesmo quando a marca pesquisada não bate com nada.
+    POSSUI_OUTRA_MARCA_REGISTRADA = "possui_outra_marca_registrada"
 
 
 DISCLAIMER_TRIAGEM = (
@@ -93,11 +111,46 @@ def _prospect_e_titular(ocorrencias: list[OcorrenciaBusca], razao_social: str) -
     return None
 
 
+async def buscar_titularidade_ampla(
+    session: AsyncSession, razao_social: str | None, nome_fantasia: str | None, cnpj: str | None = None
+) -> TitularidadeAmpla | None:
+    """Verifica se o prospect já consta como titular de QUALQUER marca no
+    INPI -- checagem incondicional, não depende da marca especificamente
+    pesquisada (diferente de _prospect_e_titular, que só olha as ocorrências
+    da busca atual). Duas fontes, nessa ordem:
+
+    1. Base local (nome normalizado, sincronizada semanalmente via RPI --
+       ver migrations/versions/jd75y0f6r397_titular_nome_normalizado.py).
+       Sem CNPJ estruturado nos dados do INPI, o match é por nome (mesma
+       normalização usada em toda a base, ver normalizar_empresa).
+    2. Se a local não achar nada e um CNPJ foi informado: busca ao vivo no
+       site público do INPI por CNPJ (mais precisa, mas best-effort -- ver
+       app.inpi_titular_live, sistema legado confirmado instável)."""
+    nomes = {
+        normalizado
+        for normalizado in (normalizar_empresa(razao_social or ""), normalizar_empresa(nome_fantasia or ""))
+        if normalizado
+    }
+    if nomes:
+        consulta = select(Processo).join(Processo.titulares).where(Titular.nome_normalizado.in_(nomes)).limit(1)
+        processo = (await session.execute(consulta)).scalars().first()
+        if processo is not None:
+            return TitularidadeAmpla(descricao=f'"{processo.titulo}" (processo {processo.numero})')
+
+    titular_inpi = await buscar_titularidade_inpi_ao_vivo(cnpj)
+    if titular_inpi:
+        return TitularidadeAmpla(
+            descricao=f'titular "{titular_inpi}" localizado na busca ao vivo do INPI por CNPJ'
+        )
+    return None
+
+
 def classificar(
     total_resultados: int,
     ocorrencias: list[OcorrenciaBusca],
     marca_candidata: str,
     razao_social: str | None = None,
+    titular_qualquer_marca: TitularidadeAmpla | None = None,
 ) -> tuple[ClassificacaoTriagemProspect, str]:
     """Decide a classificação a partir do resultado já calculado por
     buscar_marcas() -- não roda nenhuma query, só interpreta.
@@ -121,6 +174,13 @@ def classificar(
                 f'("{titular_match.processo.titulo}") -- confirme antes de descartar, mas pode já ter a '
                 "marca registrada e não precisar de um novo depósito.",
             )
+    if titular_qualquer_marca is not None:
+        return (
+            ClassificacaoTriagemProspect.POSSUI_OUTRA_MARCA_REGISTRADA,
+            f"O prospect já consta como titular de outra marca no INPI: {titular_qualquer_marca.descricao} "
+            "-- não necessariamente a marca pesquisada aqui, mas indica que a empresa já registra marca(s) "
+            "e conhece o processo.",
+        )
     if total_resultados == 0:
         return (
             ClassificacaoTriagemProspect.NAO_LOCALIZADO,
@@ -173,25 +233,34 @@ def classificar(
     )
 
 
-async def triar_marca_prospect(session: AsyncSession, razao_social: str, nome_fantasia: str | None) -> dict:
+async def triar_marca_prospect(
+    session: AsyncSession, razao_social: str, nome_fantasia: str | None, cnpj: str | None = None
+) -> dict:
     """Roda a triagem e devolve o dict pronto para virar ProspectTriagem.
     Não grava nada -- quem chama decide persistir (ver app/worker.py)."""
-    marca_candidata = extrair_marca_candidata(razao_social, nome_fantasia)
-    if not marca_candidata or len(marca_candidata) < 2:
-        return {
-            "marca_pesquisada": (nome_fantasia or razao_social or "").strip()[:200] or "(sem nome)",
-            "classificacao": ClassificacaoTriagemProspect.ANALISE_HUMANA_NECESSARIA.value,
-            "justificativa": "O nome da empresa não permite compor um termo de busca significativo "
-            "(sem nome fantasia e razão social só com termos societários genéricos).",
-            "total_resultados": 0,
-        }
+    titular_qualquer_marca = await buscar_titularidade_ampla(session, razao_social, nome_fantasia, cnpj)
 
-    total, ocorrencias, _evidencias = await buscar_marcas(
-        session, marca_candidata, tipo_pesquisa="completa", classe_nice=None, limite=LIMITE_BUSCA_TRIAGEM
+    marca_candidata = extrair_marca_candidata(razao_social, nome_fantasia)
+    nome_pesquisado = (nome_fantasia or razao_social or "").strip()[:200] or "(sem nome)"
+    if not marca_candidata or len(marca_candidata) < 2:
+        if titular_qualquer_marca is None:
+            return {
+                "marca_pesquisada": nome_pesquisado,
+                "classificacao": ClassificacaoTriagemProspect.ANALISE_HUMANA_NECESSARIA.value,
+                "justificativa": "O nome da empresa não permite compor um termo de busca significativo "
+                "(sem nome fantasia e razão social só com termos societários genéricos).",
+                "total_resultados": 0,
+            }
+        total, ocorrencias = 0, []
+    else:
+        total, ocorrencias, _evidencias = await buscar_marcas(
+            session, marca_candidata, tipo_pesquisa="completa", classe_nice=None, limite=LIMITE_BUSCA_TRIAGEM
+        )
+    classificacao, justificativa = classificar(
+        total, ocorrencias, marca_candidata or nome_pesquisado, razao_social, titular_qualquer_marca
     )
-    classificacao, justificativa = classificar(total, ocorrencias, marca_candidata, razao_social)
     return {
-        "marca_pesquisada": marca_candidata[:200],
+        "marca_pesquisada": marca_candidata[:200] if marca_candidata else nome_pesquisado,
         "classificacao": classificacao.value,
         "justificativa": justificativa,
         "total_resultados": total,

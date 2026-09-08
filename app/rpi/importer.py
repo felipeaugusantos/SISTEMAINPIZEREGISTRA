@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.crm import normalizar_empresa
 from app.models import ClassificacaoMarca, Movimentacao, Processo, Titular
 from app.normalization import normalizar_numero_processo
 from app.rpi.types import RegistroRpi, ResultadoImportacao, TitularRpi
@@ -40,7 +41,11 @@ async def _obter_titular(
     )
     titular = (await session.execute(consulta)).scalar_one_or_none()
     if titular is None:
-        titular = Titular(nome=titular_rpi.nome, pais=titular_rpi.pais)
+        titular = Titular(
+            nome=titular_rpi.nome,
+            nome_normalizado=normalizar_empresa(titular_rpi.nome),
+            pais=titular_rpi.pais,
+        )
         session.add(titular)
 
     cache[chave] = titular

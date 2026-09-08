@@ -493,12 +493,20 @@ async def processar(tipo: str, payload: dict) -> None:
                 filtros_cache = [CacheEstabelecimentoRFB.situacao_cadastral == "ativa"]
                 if criterios.get("cnae_principal"):
                     filtros_cache.append(CacheEstabelecimentoRFB.cnae_principal == criterios["cnae_principal"])
-                if criterios.get("uf"):
-                    filtros_cache.append(CacheEstabelecimentoRFB.uf == criterios["uf"])
-                if criterios.get("cidade"):
-                    cidade_normalizada = normalizar_cidade(criterios["cidade"])
-                    if cidade_normalizada:
-                        filtros_cache.append(CacheEstabelecimentoRFB.cidade.ilike(f"%{cidade_normalizada}%"))
+                # Achado do usuário: campanha só filtrava 1 UF/cidade por vez --
+                # criterios_busca agora guarda listas (compatível com campanhas
+                # antigas, que gravaram um valor string único em vez de lista).
+                ufs_criterio = criterios.get("uf") or []
+                ufs_criterio = [ufs_criterio] if isinstance(ufs_criterio, str) else ufs_criterio
+                if ufs_criterio:
+                    filtros_cache.append(CacheEstabelecimentoRFB.uf.in_(ufs_criterio))
+                cidades_criterio = criterios.get("cidade") or []
+                cidades_criterio = [cidades_criterio] if isinstance(cidades_criterio, str) else cidades_criterio
+                cidades_normalizadas = [c for c in (normalizar_cidade(item) for item in cidades_criterio) if c]
+                if cidades_normalizadas:
+                    filtros_cache.append(
+                        or_(*[CacheEstabelecimentoRFB.cidade.ilike(f"%{item}%") for item in cidades_normalizadas])
+                    )
                 if criterios.get("porte"):
                     filtros_cache.append(CacheEstabelecimentoRFB.porte == criterios["porte"])
                 if criterios.get("data_abertura_de"):
@@ -588,7 +596,9 @@ async def processar(tipo: str, payload: dict) -> None:
                 )
             ).scalar_one_or_none()
             if prospect is not None:
-                resultado = await triar_marca_prospect(session, prospect.razao_social, prospect.nome_fantasia)
+                resultado = await triar_marca_prospect(
+                    session, prospect.razao_social, prospect.nome_fantasia, prospect.cnpj
+                )
                 session.add(
                     ProspectTriagem(
                         organizacao_id=payload["organizacao_id"], prospect_id=prospect.id, **resultado

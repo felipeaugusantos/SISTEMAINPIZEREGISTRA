@@ -5,6 +5,7 @@ const TRIAGEM_LABELS = {
   nao_localizado: "Não localizado", resultado_semelhante: "Resultado semelhante",
   resultado_relevante_localizado: "Resultado relevante localizado", inconclusivo: "Inconclusivo",
   analise_humana_necessaria: "Análise humana necessária", ja_e_titular: "Já é titular da marca",
+  possui_outra_marca_registrada: "Já possui outra marca registrada",
 };
 const MOTIVOS_DESCARTE = [
   ["ja_e_cliente", "Já é cliente"], ["fora_do_perfil", "Fora do perfil"],
@@ -12,6 +13,22 @@ const MOTIVOS_DESCARTE = [
   ["ja_possui_marca_registrada", "Já possui marca registrada"], ["outro", "Outro"],
 ];
 const message = document.querySelector("#prospeccao-message");
+
+// Achado do usuário: filtro de UF (listagem e critério de campanha) era
+// texto livre de valor único -- vira <select multiple> com as 27 UFs.
+const UFS_BRASIL = [
+  ["AC", "Acre"], ["AL", "Alagoas"], ["AP", "Amapá"], ["AM", "Amazonas"], ["BA", "Bahia"],
+  ["CE", "Ceará"], ["DF", "Distrito Federal"], ["ES", "Espírito Santo"], ["GO", "Goiás"],
+  ["MA", "Maranhão"], ["MT", "Mato Grosso"], ["MS", "Mato Grosso do Sul"], ["MG", "Minas Gerais"],
+  ["PA", "Pará"], ["PB", "Paraíba"], ["PR", "Paraná"], ["PE", "Pernambuco"], ["PI", "Piauí"],
+  ["RJ", "Rio de Janeiro"], ["RN", "Rio Grande do Norte"], ["RS", "Rio Grande do Sul"],
+  ["RO", "Rondônia"], ["RR", "Roraima"], ["SC", "Santa Catarina"], ["SP", "São Paulo"],
+  ["SE", "Sergipe"], ["TO", "Tocantins"],
+];
+function popularSelecionaresUf() {
+  const opcoes = UFS_BRASIL.map(([sigla, nome]) => `<option value="${sigla}">${sigla} — ${nome}</option>`).join("");
+  document.querySelectorAll(".prospeccao-uf-select").forEach(select => { select.innerHTML = opcoes; });
+}
 
 function escapeHtml(value) {
   const el = document.createElement("span"); el.textContent = value ?? ""; return el.innerHTML;
@@ -76,11 +93,19 @@ async function loadDashboard() {
 function campanhaStatusLabel(status) {
   return { rascunho: "Rascunho", ativa: "Coletando/ativa", pausada: "Pausada", concluida: "Concluída" }[status] || status;
 }
+function comoLista(valor) {
+  // Campanhas criadas antes do multi-UF/cidade gravaram uma string única
+  // em vez de lista no JSON de critérios -- aceita os dois formatos.
+  if (!valor) return [];
+  return Array.isArray(valor) ? valor : [valor];
+}
 function renderCampanhaCriterios(criterios) {
   const partes = [];
   if (criterios.cnae_principal) partes.push(`CNAE ${criterios.cnae_principal}`);
-  if (criterios.uf) partes.push(criterios.uf);
-  if (criterios.cidade) partes.push(criterios.cidade);
+  const ufs = comoLista(criterios.uf);
+  if (ufs.length) partes.push(ufs.join("/"));
+  const cidades = comoLista(criterios.cidade);
+  if (cidades.length) partes.push(cidades.join(", "));
   if (criterios.porte) partes.push(criterios.porte);
   if (criterios.data_abertura_de) partes.push(`a partir de ${formatDate(criterios.data_abertura_de)}`);
   return partes.length ? partes.map(escapeHtml).join(" · ") : "Sem filtro (todas as empresas ativas do cache)";
@@ -152,7 +177,15 @@ function renderPagination(data) {
   document.querySelector("#prospeccao-next").disabled = currentPage >= totalPages;
 }
 async function loadProspects() {
-  const params = new URLSearchParams(new FormData(document.querySelector("#prospeccao-filter")));
+  // Achado do usuário: UF já vinha certo aqui (URLSearchParams a partir de
+  // um FormData preserva múltiplos valores de um <select multiple>,
+  // diferente de Object.fromEntries) -- só cidade precisa virar vários
+  // parâmetros "cidade" a partir da lista separada por vírgula.
+  const form = document.querySelector("#prospeccao-filter");
+  const params = new URLSearchParams(new FormData(form));
+  params.delete("cidade");
+  (new FormData(form).get("cidade") || "").split(",").map(v => v.trim()).filter(Boolean)
+    .forEach(cidade => params.append("cidade", cidade));
   [...params.entries()].forEach(([key, value]) => { if (!String(value).trim()) params.delete(key); });
   params.set("limite", state.pageSize); params.set("deslocamento", state.offset);
   const data = await api(`/v1/admin/prospects?${params}`);
@@ -331,7 +364,11 @@ document.querySelector("#prospeccao-list").addEventListener("click", async event
     } else if (button.dataset.converter !== undefined) {
       if (!confirm("Converter este prospect em lead?")) return;
       const result = await api(`/v1/admin/prospects/${id}/converter-lead`, { method: "POST" });
-      showMessage(result.criado_novo ? "Novo lead criado a partir do prospect." : "Prospect vinculado a um lead já existente.");
+      // Achado do usuário: depois de aprovar/converter, o fluxo não levava a
+      // lugar nenhum -- abre direto o cadastro do lead recém-criado/vinculado
+      // em vez de só mostrar um toast e deixar o operador procurar manualmente.
+      window.location.href = `/admin/leads?lead_id=${result.lead_id}`;
+      return;
     } else return;
     await reloadAll();
   } catch (error) { showMessage(error.message, "error"); }
@@ -399,9 +436,17 @@ document.querySelector("#close-campanha").addEventListener("click", () => campan
 document.querySelector("#cancel-campanha").addEventListener("click", () => campanhaDialog.close());
 document.querySelector("#campanha-form").addEventListener("submit", async event => {
   event.preventDefault();
-  const values = Object.fromEntries(new FormData(event.currentTarget));
+  const formData = new FormData(event.currentTarget);
+  const values = Object.fromEntries(formData);
   const criterios_busca = {};
-  ["cnae_principal", "uf", "cidade", "porte", "data_abertura_de"].forEach(campo => { if (values[campo]) criterios_busca[campo] = values[campo]; });
+  ["cnae_principal", "porte", "data_abertura_de"].forEach(campo => { if (values[campo]) criterios_busca[campo] = values[campo]; });
+  // Achado do usuário: UF/cidade passam a aceitar vários valores --
+  // Object.fromEntries descarta tudo exceto o último valor de um
+  // <select multiple>, por isso usa getAll() aqui.
+  const ufsSelecionadas = formData.getAll("uf").map(v => v.trim().toUpperCase()).filter(Boolean);
+  if (ufsSelecionadas.length) criterios_busca.uf = ufsSelecionadas;
+  const cidadesInformadas = (values.cidade || "").split(",").map(v => v.trim()).filter(Boolean);
+  if (cidadesInformadas.length) criterios_busca.cidade = cidadesInformadas;
   try {
     await api("/v1/admin/prospeccao/campanhas", {
       method: "POST",
@@ -518,4 +563,5 @@ document.querySelector("#duplicatas-lista").addEventListener("click", async even
   } catch (error) { showMessage(error.message, "error"); }
 });
 
+popularSelecionaresUf();
 Promise.all([loadDashboard(), loadCampanhas(), loadProspects(), loadCacheRfbStatus(), configurarBotaoImportarCnpjRfb()]).catch(error => showMessage(error.message, "error"));

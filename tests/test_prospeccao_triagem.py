@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from app.prospeccao_triagem import (
     LIMITE_BUSCA_TRIAGEM,
     ClassificacaoTriagemProspect,
+    TitularidadeAmpla,
     classificar,
     extrair_marca_candidata,
 )
@@ -26,6 +27,7 @@ def test_classificacao_nunca_inclui_disponivel_ou_livre() -> None:
         "inconclusivo",
         "analise_humana_necessaria",
         "ja_e_titular",
+        "possui_outra_marca_registrada",
     }
 
 
@@ -173,3 +175,108 @@ def test_classificar_sem_razao_social_nao_quebra() -> None:
     ocorrencias = [_ocorrencia("PADARIA DO JOAO", "900123456", ["Nome idêntico"], similaridade=1.0)]
     classificacao, _ = classificar(1, ocorrencias, "Padaria do João")
     assert classificacao == ClassificacaoTriagemProspect.RESULTADO_RELEVANTE_LOCALIZADO
+
+
+# --- Achado de 08/09/2026: checagem AMPLA de titularidade (qualquer marca do
+# prospect no INPI, não só a pesquisada) -- base local (nome_normalizado) e,
+# como fallback best-effort, busca ao vivo por CNPJ no site do INPI. ---
+
+
+def test_classificar_com_titularidade_ampla_e_possui_outra_marca() -> None:
+    titular = TitularidadeAmpla(descricao='"BETA TECH" (processo 900999888)')
+    classificacao, justificativa = classificar(0, [], "Marca Nova", titular_qualquer_marca=titular)
+
+    assert classificacao == ClassificacaoTriagemProspect.POSSUI_OUTRA_MARCA_REGISTRADA
+    assert "BETA TECH" in justificativa
+
+
+def test_classificar_titularidade_ampla_nao_sobrepoe_ja_e_titular() -> None:
+    # JA_E_TITULAR (achado sobre a marca especificamente pesquisada) é mais
+    # específico e deve vencer mesmo se a checagem ampla também achou algo.
+    titular_ocorrencia = SimpleNamespace(nome="Padaria do João Ltda")
+    ocorrencias = [
+        _ocorrencia(
+            "PADARIA DO JOAO", "900123456", ["Nome idêntico"], similaridade=1.0, titulares=[titular_ocorrencia]
+        )
+    ]
+    titular_ampla = TitularidadeAmpla(descricao='"OUTRA MARCA" (processo 900111222)')
+    classificacao, justificativa = classificar(
+        1, ocorrencias, "Padaria do João", razao_social="Padaria do João Ltda", titular_qualquer_marca=titular_ampla
+    )
+
+    assert classificacao == ClassificacaoTriagemProspect.JA_E_TITULAR
+    assert "900123456" in justificativa
+
+
+def test_classificar_sem_titularidade_ampla_segue_fluxo_normal() -> None:
+    classificacao, _ = classificar(0, [], "Marca Nova", titular_qualquer_marca=None)
+    assert classificacao == ClassificacaoTriagemProspect.NAO_LOCALIZADO
+
+
+async def test_buscar_titularidade_ampla_acha_por_razao_social() -> None:
+    from app import prospeccao_triagem as modulo
+
+    processo = SimpleNamespace(titulo="BETA TECH", numero="900999888")
+
+    class FakeResultado:
+        def scalars(self):
+            return self
+
+        def first(self):
+            return processo
+
+    class FakeSession:
+        async def execute(self, _consulta):
+            return FakeResultado()
+
+    resultado = await modulo.buscar_titularidade_ampla(FakeSession(), "Beta Tech Solucoes Ltda", None)
+
+    assert resultado is not None
+    assert "BETA TECH" in resultado.descricao
+    assert "900999888" in resultado.descricao
+
+
+async def test_buscar_titularidade_ampla_acha_por_nome_fantasia() -> None:
+    from app import prospeccao_triagem as modulo
+
+    processo = SimpleNamespace(titulo="GAMA SOLUCOES", numero="900777666")
+
+    class FakeResultado:
+        def scalars(self):
+            return self
+
+        def first(self):
+            return processo
+
+    class FakeSession:
+        async def execute(self, _consulta):
+            return FakeResultado()
+
+    resultado = await modulo.buscar_titularidade_ampla(FakeSession(), "Razao Social Generica Ltda", "Gama Solucoes")
+
+    assert resultado is not None
+    assert "GAMA SOLUCOES" in resultado.descricao
+
+
+async def test_buscar_titularidade_ampla_nao_acha_cai_para_busca_ao_vivo_desligada() -> None:
+    # Sem nada na base local e sem a flag de busca ao vivo ligada (padrão,
+    # settings.prospeccao_titularidade_inpi_ao_vivo_enabled=False),
+    # buscar_titularidade_inpi_ao_vivo devolve None -- resultado final None.
+    from app import prospeccao_triagem as modulo
+
+    class FakeResultado:
+        def scalars(self):
+            return self
+
+        def first(self):
+            return None
+
+    class FakeSession:
+        async def execute(self, _consulta):
+            return FakeResultado()
+
+    resultado = await modulo.buscar_titularidade_ampla(
+        FakeSession(), "Empresa Sem Marca Ltda", None, "07526557000100"
+    )
+
+    assert resultado is None

@@ -138,6 +138,16 @@ class Settings(BaseSettings):
     ia_sombra_port: int = 11434
     ia_sombra_modelo: str = "qwen2.5:7b-instruct-q4_K_M"
     ia_sombra_timeout_segundos: float = 120.0
+    # Busca ao vivo por CNPJ direto no site público do INPI (pePI), além do
+    # match por nome já feito na nossa base local -- achado do usuário
+    # (08/09/2026): o pePI tem busca por CNPJ/CPF de titular, mais precisa
+    # que nome normalizado. Desligada por padrão: pePI é um sistema legado
+    # confirmado instável em teste manual (502/timeout repetidos) -- kill
+    # switch para desligar sem deploy se piorar ou se o INPI bloquear
+    # tráfego automatizado. Best-effort mesmo ligada: qualquer erro cai em
+    # silêncio no fallback da base local (ver app/inpi_titular_live.py).
+    prospeccao_titularidade_inpi_ao_vivo_enabled: bool = False
+    prospeccao_titularidade_inpi_timeout_segundos: float = 8.0
 
     model_config = SettingsConfigDict(
         env_file=".env",

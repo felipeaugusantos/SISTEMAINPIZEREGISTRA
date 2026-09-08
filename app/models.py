@@ -425,6 +425,7 @@ class Titular(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     nome: Mapped[str] = mapped_column(Text, index=True)
+    nome_normalizado: Mapped[str | None] = mapped_column(Text, index=True)
     pais: Mapped[str | None] = mapped_column(String(2))
 
     processos: Mapped[list[Processo]] = relationship(secondary=processo_titulares, back_populates="titulares")

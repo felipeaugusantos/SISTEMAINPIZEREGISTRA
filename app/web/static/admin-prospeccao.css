@@ -41,6 +41,8 @@
 .prospeccao-form label,.prospeccao-dialog label{display:grid;gap:6px}
 .prospeccao-form label span,.prospeccao-dialog label span{font-size:.76rem;font-weight:700}
 .prospeccao-form input,.prospeccao-form select,.prospeccao-dialog input,.prospeccao-dialog select,.prospeccao-dialog textarea{width:100%;padding:12px;border:1px solid #cbd4cd;border-radius:11px;background:#fff;font:inherit;box-sizing:border-box}
+.prospeccao-uf-select{height:auto;padding:6px}
+.prospeccao-uf-select option{padding:4px 6px;border-radius:6px}
 .prospeccao-toggle{display:flex!important;flex-direction:row-reverse;justify-content:flex-end;align-items:center;gap:10px}
 .prospeccao-toggle input{width:auto!important}
 

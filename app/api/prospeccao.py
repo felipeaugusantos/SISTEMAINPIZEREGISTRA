@@ -259,23 +259,28 @@ async def listar_prospects(
     usuario: ProspeccaoViewDep,
     busca: Annotated[str | None, Query(max_length=200)] = None,
     status_prospect: Annotated[str | None, Query(alias="status")] = None,
-    uf: Annotated[str | None, Query(max_length=2)] = None,
-    cidade: Annotated[str | None, Query(max_length=120)] = None,
+    uf: Annotated[list[str] | None, Query(max_length=2)] = None,
+    cidade: Annotated[list[str] | None, Query(max_length=120)] = None,
     cnae_principal: Annotated[str | None, Query(max_length=10)] = None,
     responsavel_id: Annotated[int | None, Query(ge=1)] = None,
     limite: Annotated[int, Query(ge=1, le=200)] = 50,
     deslocamento: Annotated[int, Query(ge=0)] = 0,
 ) -> ProspectListResponse:
+    # Achado do usuário: filtro de estado/cidade era de valor único --
+    # agora aceita vários (?uf=SP&uf=RJ), a fonte de dados (cache nacional
+    # do CNPJ/RFB) já cobre qualquer UF, era só o filtro que limitava.
     filtros = [Prospect.organizacao_id == usuario.organizacao_id]
     if busca:
         termo = f"%{busca.strip()}%"
         filtros.append(or_(Prospect.razao_social.ilike(termo), Prospect.nome_fantasia.ilike(termo), Prospect.cnpj.ilike(termo)))
     if status_prospect:
         filtros.append(Prospect.status == status_prospect)
-    if uf:
-        filtros.append(Prospect.uf == uf.upper())
-    if cidade:
-        filtros.append(Prospect.cidade.ilike(f"%{cidade.strip()}%"))
+    ufs = [item.strip().upper() for item in uf if item.strip()] if uf else []
+    if ufs:
+        filtros.append(Prospect.uf.in_(ufs))
+    cidades = [item.strip() for item in cidade if item.strip()] if cidade else []
+    if cidades:
+        filtros.append(or_(*[Prospect.cidade.ilike(f"%{item}%") for item in cidades]))
     if cnae_principal:
         filtros.append(Prospect.cnae_principal == cnae_principal)
     if responsavel_id:

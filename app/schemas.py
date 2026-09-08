@@ -749,8 +749,11 @@ class MesclarProspectRequest(BaseModel):
 
 class CriteriosBuscaCampanha(BaseModel):
     cnae_principal: str | None = Field(default=None, max_length=10)
-    uf: str | None = Field(default=None, max_length=2)
-    cidade: str | None = Field(default=None, max_length=120)
+    # Achado do usuário: coleta só aceitava 1 UF/cidade por campanha -- o
+    # cache de CNPJ/RFB já é nacional (ver app/worker.py), então uma
+    # campanha pode buscar em várias UFs/cidades de uma vez.
+    uf: list[str] = Field(default_factory=list)
+    cidade: list[str] = Field(default_factory=list)
     porte: Literal["nao_informado", "micro", "pequeno", "demais"] | None = None
     data_abertura_de: date | None = None
     data_abertura_ate: date | None = None
@@ -758,12 +761,14 @@ class CriteriosBuscaCampanha(BaseModel):
     @field_validator("uf", mode="before")
     @classmethod
     def _normalizar_uf(cls, valor: object) -> object:
-        return valor.strip().upper() if isinstance(valor, str) else valor
+        brutos = valor if isinstance(valor, list) else ([valor] if valor else [])
+        return list(dict.fromkeys(item.strip().upper() for item in brutos if isinstance(item, str) and item.strip()))
 
     @field_validator("cidade", mode="before")
     @classmethod
     def _limpar_cidade(cls, valor: object) -> object:
-        return valor.strip() if isinstance(valor, str) else valor
+        brutos = valor if isinstance(valor, list) else ([valor] if valor else [])
+        return list(dict.fromkeys(item.strip() for item in brutos if isinstance(item, str) and item.strip()))
 
 
 class CampanhaProspeccaoCreate(BaseModel):

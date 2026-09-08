@@ -37,7 +37,13 @@
 .prospeccao-card header p{color:#617068;max-width:640px}
 .prospeccao-list-header{align-items:center;gap:16px}
 
-.prospeccao-form{display:grid;grid-template-columns:minmax(200px,1.3fr) 120px minmax(150px,.9fr) minmax(150px,.9fr) auto;gap:12px;align-items:end}
+/* Achado do usuário (08/09/2026): com align-items:end, o rótulo "UF" (mais
+   alto por causa do select multiple) ficava visualmente mais alto que os
+   rótulos "Buscar"/"Status"/"Cidade" ao lado, dando a impressão de formulário
+   desalinhado -- start alinha todos os rótulos pelo topo; o botão (sem
+   rótulo acima) se realinha à base com align-self abaixo. */
+.prospeccao-form{display:grid;grid-template-columns:minmax(200px,1.3fr) 120px minmax(150px,.9fr) minmax(150px,.9fr) auto;gap:12px;align-items:start}
+.prospeccao-form>button{align-self:end}
 .prospeccao-form label,.prospeccao-dialog label{display:grid;gap:6px}
 .prospeccao-form label span,.prospeccao-dialog label span{font-size:.76rem;font-weight:700}
 .prospeccao-form input,.prospeccao-form select,.prospeccao-dialog input,.prospeccao-dialog select,.prospeccao-dialog textarea{width:100%;padding:12px;border:1px solid #cbd4cd;border-radius:11px;background:#fff;font:inherit;box-sizing:border-box}

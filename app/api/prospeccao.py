@@ -40,7 +40,7 @@ from app.models import (
     StatusProspect,
     SupressaoProspeccao,
 )
-from app.prospeccao_triagem import DISCLAIMER_TRIAGEM
+from app.prospeccao_triagem import DISCLAIMER_TRIAGEM, extrair_marca_candidata
 from app.proxy import cliente_ip
 from app.queueing import enfileirar
 from app.schemas import (
@@ -646,10 +646,15 @@ async def converter_prospect_em_lead(
     # virou pesquisa formal). Isso fazia o lead desaparecer da tela de Leads
     # (visão "Por pesquisa"), e exigiria pesquisar manualmente, cliente por
     # cliente, pra ele aparecer. Reaproveita a triagem mais recente do
-    # prospect (marca já pesquisada, sem rodar o motor de busca de novo) pra
-    # criar a pesquisa automaticamente -- estado DRAFT, mesma revisão humana
-    # obrigatória de qualquer pesquisa antes de virar relatório; só evita a
-    # digitação manual, não pula nenhuma etapa de análise.
+    # prospect quando existe (marca já pesquisada, sem rodar o motor de
+    # busca de novo); quando o prospect nunca foi triado (achado numa
+    # conversão real: nem todo prospect passa por "Triar marca" antes de
+    # aprovar/converter), usa a mesma extração de marca candidata da
+    # triagem (nome fantasia, ou razão social sem sufixos societários) --
+    # a pesquisa nasce igual, só quem calcula os resultados é a Central de
+    # Análise ao abrir. Estado DRAFT, mesma revisão humana obrigatória de
+    # qualquer pesquisa antes de virar relatório; só evita a digitação
+    # manual, não pula nenhuma etapa de análise.
     triagem_mais_recente = (
         await session.execute(
             select(ProspectTriagem)
@@ -658,20 +663,25 @@ async def converter_prospect_em_lead(
             .limit(1)
         )
     ).scalar_one_or_none()
-    if triagem_mais_recente is not None:
+    marca_candidata = (
+        triagem_mais_recente.marca_pesquisada
+        if triagem_mais_recente is not None
+        else extrair_marca_candidata(prospect.razao_social, prospect.nome_fantasia)
+    )
+    if marca_candidata and len(marca_candidata) >= 2:
         original_id = await detectar_pesquisa_duplicada(
-            session, usuario.organizacao_id, lead.id, triagem_mais_recente.marca_pesquisada, classe_nice=None
+            session, usuario.organizacao_id, lead.id, marca_candidata, classe_nice=None
         )
         if original_id is None:
             session.add(
                 PesquisaMarca(
                     organizacao_id=usuario.organizacao_id,
                     lead_id=lead.id,
-                    marca=triagem_mais_recente.marca_pesquisada,
+                    marca=marca_candidata[:200],
                     tipo_pesquisa="completa",
                     analysis_notes="Pesquisa criada automaticamente ao converter o prospect em lead "
-                    "(Radar de Prospecção), a partir da triagem de marca já feita -- ainda pendente "
-                    "de revisão humana, como qualquer outra pesquisa.",
+                    "(Radar de Prospecção) -- ainda pendente de revisão humana, como qualquer outra "
+                    "pesquisa.",
                 )
             )
 

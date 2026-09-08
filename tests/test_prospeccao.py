@@ -293,8 +293,41 @@ def test_converter_prospect_com_triagem_cria_pesquisa_automatica() -> None:
     assert pesquisas_criadas[0].tipo_pesquisa == "completa"
 
 
-def test_converter_prospect_sem_triagem_nao_cria_pesquisa() -> None:
+def test_converter_prospect_sem_triagem_cria_pesquisa_a_partir_do_prospect() -> None:
+    # Achado numa conversão real (08/09/2026): nem todo prospect passa por
+    # "Triar marca" antes de aprovar/converter -- sem triagem, ainda assim
+    # cria a pesquisa, usando a mesma extração de marca candidata da
+    # triagem (nome fantasia, ou razão social sem sufixos societários).
     prospect = _prospect(status=StatusProspect.APROVADO.value, email="empresa@teste.local", telefone="11988887777")
+    session = _sessao_admin(
+        FakeResult(scalar=prospect),
+        FakeResult(scalar=None),
+        FakeResult(scalar=None),
+        FakeResult(scalar=None),  # nenhuma triagem encontrada
+        FakeResult(scalar=None),  # detectar_pesquisa_duplicada -- sem duplicata
+    )
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/converter-lead", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 201
+    pesquisas_criadas = [obj for obj in session.adicionados if isinstance(obj, PesquisaMarca)]
+    assert len(pesquisas_criadas) == 1
+    assert pesquisas_criadas[0].marca == "Empresa Teste"  # "Empresa Teste Ltda" sem o sufixo societário
+
+
+def test_converter_prospect_sem_marca_candidata_nao_cria_pesquisa() -> None:
+    # Razão social só com termos societários (sem nome fantasia) não gera
+    # marca candidata alguma -- mesma regra da triagem (ver
+    # app.prospeccao_triagem.extrair_marca_candidata).
+    prospect = _prospect(
+        status=StatusProspect.APROVADO.value,
+        email="empresa@teste.local",
+        telefone="11988887777",
+        razao_social="LTDA ME",
+        nome_fantasia=None,
+    )
     session = _sessao_admin(
         FakeResult(scalar=prospect),
         FakeResult(scalar=None),

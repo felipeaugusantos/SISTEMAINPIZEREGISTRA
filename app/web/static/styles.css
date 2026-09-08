@@ -4816,6 +4816,27 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
   padding: 4px;
   cursor: pointer;
 }
+.branding-logo-editor {
+  display: grid;
+  grid-template-columns: minmax(96px, 160px) 1fr;
+  gap: 18px;
+  align-items: center;
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.branding-logo-editor img {
+  display: block;
+  width: 100%;
+  max-height: 120px;
+  object-fit: contain;
+}
+.branding-logo-editor img[hidden] { display: none; }
+@media (max-width: 640px) {
+  .branding-logo-editor { grid-template-columns: 1fr; }
+  .branding-logo-editor img { width: 120px; }
+}
 .form-submit { justify-self: start; }
 .reliability-actions {
   display: flex;

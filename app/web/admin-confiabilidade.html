@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>Confiabilidade — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=51">
+  <link rel="stylesheet" href="/static/styles.css?v=52">
   <script src="/static/admin-shell.js?v=40" defer></script>
-  <script src="/static/admin-confiabilidade.js?v=6" defer></script>
+  <script src="/static/admin-confiabilidade.js?v=7" defer></script>
 </head>
 <body class="admin-body" data-admin-section="reliability">
   <main class="admin-main admin-dashboard">
@@ -93,6 +93,20 @@
             <label>Nome exibido<input name="nome_exibido"></label>
             <label class="field-color">Cor principal<input name="cor_primaria" type="color" value="#006b4f"></label>
             <label class="field-full">URL do logotipo<input name="logo_url" type="url" placeholder="https://…"></label>
+            <div class="field-full branding-logo-editor">
+              <img id="branding-logo-preview" alt="Prévia do logotipo" hidden>
+              <div>
+                <label>Enviar logotipo
+                  <input id="branding-logo-file" type="file" accept="image/png,image/jpeg,image/webp">
+                </label>
+                <p class="field-hint">PNG, JPEG ou WebP; entre 32 × 32 e 2000 × 2000 px; até 1 MB. O arquivo será normalizado para PNG e terá os metadados removidos.</p>
+                <div class="reliability-actions">
+                  <button id="upload-branding-logo" class="secondary-button" type="button">Enviar imagem</button>
+                  <button id="remove-branding-logo" class="secondary-button" type="button">Remover logotipo</button>
+                </div>
+              </div>
+            </div>
+            <p id="branding-logo-status" class="status-message field-full" role="status" aria-live="polite" hidden></p>
           </div>
         </fieldset>
         <fieldset>
@@ -100,6 +114,8 @@
           <div class="user-fields">
             <label>Retenção de dados (dias)<input name="retencao_dados_dias" type="number" min="30" max="3650" required></label>
             <label>Versão da política de privacidade<input name="politica_privacidade_versao" required></label>
+            <label class="field-full">Justificativa da nova versão<input name="politica_privacidade_justificativa" minlength="20" maxlength="1000" placeholder="Obrigatória somente ao publicar uma versão diferente"></label>
+            <label class="consent-label field-full"><input name="confirmar_publicacao_politica" type="checkbox" class="consent-checkbox"> Confirmo que o conteúdo público foi revisado e corresponde à versão informada</label>
             <label class="field-full">Justificativa da alteração<input name="retencao_justificativa" minlength="20" maxlength="1000" placeholder="Obrigatória quando o prazo mudar"></label>
             <label class="field-full">Finalidade da retenção<input name="retencao_finalidade" minlength="10" maxlength="1000" placeholder="Por que esses dados precisam ser mantidos?"></label>
             <label class="field-full">Base legal<input name="retencao_base_legal" minlength="10" maxlength="1000" placeholder="Base legal validada pelo responsável de privacidade"></label>

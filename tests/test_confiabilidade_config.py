@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.auth import UsuarioAutenticado, hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
-from app.models import Organizacao
+from app.models import EventoAuditoria, Organizacao
 from tests.conftest import FakeSession, auth_override
 
 BRANDING_COMPLETO = {
@@ -162,3 +162,38 @@ def test_patch_parcial_nao_redefine_retencao_ou_versao_da_politica() -> None:
     assert resposta.status_code == 200, resposta.text
     assert org.retencao_dados_dias == 900
     assert org.politica_privacidade_versao == "2.7"
+
+
+def test_nova_versao_da_politica_exige_justificativa_e_confirmacao() -> None:
+    org = _organizacao()
+    session = FakeSession(objetos_get=[org])
+
+    resposta = _patch(session, {"politica_privacidade_versao": "2.0"})
+
+    assert resposta.status_code == 422
+    assert org.politica_privacidade_versao == "1.0"
+    assert session.commits == 0
+
+
+def test_nova_versao_da_politica_e_auditada() -> None:
+    org = _organizacao()
+    session = FakeSession(objetos_get=[org])
+
+    resposta = _patch(
+        session,
+        {
+            "politica_privacidade_versao": "2.0",
+            "politica_privacidade_justificativa": (
+                "Conteúdo revisado para refletir o tratamento atual de dados pessoais."
+            ),
+            "confirmar_publicacao_politica": True,
+        },
+    )
+
+    assert resposta.status_code == 200, resposta.text
+    assert org.politica_privacidade_versao == "2.0"
+    evento = next(item for item in session.adicionados if isinstance(item, EventoAuditoria))
+    assert evento.acao == "PUBLICAR_VERSAO_POLITICA_PRIVACIDADE"
+    assert evento.organizacao_id == org.id
+    assert evento.detalhes["versao_anterior"] == "1.0"
+    assert evento.detalhes["versao_nova"] == "2.0"

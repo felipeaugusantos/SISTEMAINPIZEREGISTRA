@@ -1,9 +1,11 @@
 import hashlib
+import io
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
+from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +26,7 @@ from app.models import (
 )
 from app.queueing import enfileirar, status_fila
 from app.retencao import politica_retencao_vigente, prazo_retencao_vigente, simular_retencao_leads
+from app.storage import StorageError, delete_object, read_bytes, save_bytes
 
 router = APIRouter(prefix="/v1/admin/confiabilidade", tags=["confiabilidade"])
 public_router = APIRouter(prefix="/v1/tenant", tags=["tenant"])
@@ -78,6 +81,31 @@ async def branding_css(request: Request, session: SessionDep) -> Response:
     return Response(content=css, media_type="text/css", headers={"Cache-Control": "no-store"})
 
 
+@public_router.get("/logo")
+async def logo_publico(request: Request, session: SessionDep) -> Response:
+    """Serve a imagem do tenant sem revelar o caminho interno do armazenamento."""
+    from app.tenancy import resolver_organizacao_publica
+
+    org = await resolver_organizacao_publica(request, session)
+    item = (org.branding or {}).get("logo_asset") or {}
+    localizacao = item.get("localizacao")
+    if not localizacao:
+        raise HTTPException(404, "Logotipo não configurado")
+    try:
+        conteudo = read_bytes(localizacao)
+    except (OSError, StorageError):
+        raise HTTPException(404, "Logotipo não encontrado") from None
+    return Response(
+        content=conteudo,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "public, max-age=86400, immutable",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 CAMPOS_IDENTIDADE_VISUAL = frozenset({"nome_exibido", "cor_primaria", "logo_url"})
 
 
@@ -98,8 +126,13 @@ class IdentidadeVisualInput(BaseModel):
     @field_validator("logo_url")
     @classmethod
     def validar_logo(cls, valor: str | None) -> str | None:
-        if valor and not (valor.startswith("https://") or valor.startswith("/static/")):
-            raise ValueError("A logo deve usar HTTPS ou um recurso interno /static/")
+        recurso_interno = valor and (
+            valor.startswith("/static/")
+            or valor == "/v1/tenant/logo"
+            or valor.startswith("/v1/tenant/logo?")
+        )
+        if valor and not (valor.startswith("https://") or recurso_interno):
+            raise ValueError("A logo deve usar HTTPS ou um recurso interno autorizado")
         return valor
 
 
@@ -115,6 +148,8 @@ class ConfiguracaoTenantInput(BaseModel):
     confirmar_reducao_retencao: bool = False
     retencao_simulacao_id: int | None = Field(default=None, ge=1)
     politica_privacidade_versao: str | None = Field(default=None, min_length=1, max_length=30)
+    politica_privacidade_justificativa: str | None = Field(default=None, min_length=20, max_length=1000)
+    confirmar_publicacao_politica: bool = False
 
 
 class SimulacaoRetencaoInput(BaseModel):
@@ -129,6 +164,34 @@ class BloqueioRetencaoInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     motivo: str = Field(min_length=20, max_length=1000)
+
+
+TAMANHO_MAXIMO_LOGO = 1024 * 1024
+DIMENSAO_MAXIMA_LOGO = 2000
+
+
+def normalizar_logo(conteudo: bytes) -> tuple[bytes, int, int]:
+    """Valida a imagem e a regrava como PNG, removendo metadados e conteúdo ativo."""
+    if not conteudo or len(conteudo) > TAMANHO_MAXIMO_LOGO:
+        raise ValueError("O logotipo deve ter no máximo 1 MB")
+    try:
+        with Image.open(io.BytesIO(conteudo)) as origem:
+            if origem.format not in {"PNG", "JPEG", "WEBP"}:
+                raise ValueError("Envie uma imagem PNG, JPEG ou WebP")
+            largura, altura = origem.size
+            if largura < 32 or altura < 32:
+                raise ValueError("O logotipo deve ter pelo menos 32 x 32 pixels")
+            if largura > DIMENSAO_MAXIMA_LOGO or altura > DIMENSAO_MAXIMA_LOGO:
+                raise ValueError("O logotipo não pode exceder 2000 x 2000 pixels")
+            imagem = ImageOps.exif_transpose(origem)
+            imagem.load()
+            if imagem.mode not in {"RGB", "RGBA"}:
+                imagem = imagem.convert("RGBA")
+            saida = io.BytesIO()
+            imagem.save(saida, format="PNG", optimize=True)
+    except (Image.DecompressionBombError, UnidentifiedImageError, OSError) as exc:
+        raise ValueError("Arquivo de imagem inválido") from exc
+    return saida.getvalue(), largura, altura
 
 
 @router.get("")
@@ -274,6 +337,11 @@ async def configurar(dados: ConfiguracaoTenantInput, request: Request, session: 
     branding_atual = dict(org.branding or {})
     identidade_visual = dados.branding.model_dump(exclude_unset=True, include=CAMPOS_IDENTIDADE_VISUAL)
     org.branding = {**branding_atual, **identidade_visual}
+    alteracoes_identidade = {
+        campo: {"anterior": branding_atual.get(campo), "novo": valor}
+        for campo, valor in identidade_visual.items()
+        if branding_atual.get(campo) != valor
+    }
     if dados.retencao_dados_dias is not None:
         prazo_atual = await prazo_retencao_vigente(session, org)
         novo_prazo = dados.retencao_dados_dias
@@ -355,9 +423,153 @@ async def configurar(dados: ConfiguracaoTenantInput, request: Request, session: 
                 )
             )
     if dados.politica_privacidade_versao is not None:
-        org.politica_privacidade_versao = dados.politica_privacidade_versao
+        nova_versao = dados.politica_privacidade_versao.strip()
+        if nova_versao != org.politica_privacidade_versao:
+            if not dados.politica_privacidade_justificativa or not dados.confirmar_publicacao_politica:
+                raise HTTPException(
+                    422,
+                    "Publicar nova versão da política exige justificativa e confirmação explícita.",
+                )
+            versao_anterior = org.politica_privacidade_versao
+            org.politica_privacidade_versao = nova_versao
+            session.add(
+                EventoAuditoria(
+                    organizacao_id=org.id,
+                    actor_id=usuario.id,
+                    ator=usuario.email,
+                    acao="PUBLICAR_VERSAO_POLITICA_PRIVACIDADE",
+                    recurso="organizacao:politica_privacidade",
+                    sucesso=True,
+                    status_http=200,
+                    detalhes={
+                        "versao_anterior": versao_anterior,
+                        "versao_nova": nova_versao,
+                        "justificativa": dados.politica_privacidade_justificativa.strip(),
+                    },
+                )
+            )
+    if alteracoes_identidade:
+        session.add(
+            EventoAuditoria(
+                organizacao_id=org.id,
+                actor_id=usuario.id,
+                ator=usuario.email,
+                acao="ALTERAR_IDENTIDADE_VISUAL",
+                recurso="organizacao:branding_publico",
+                sucesso=True,
+                status_http=200,
+                detalhes={"campos": alteracoes_identidade},
+            )
+        )
     await session.commit()
     return {"status": "ok"}
+
+
+@router.post("/identidade/logo", status_code=201)
+async def enviar_logo(
+    session: SessionDep,
+    usuario: AdminDep,
+    arquivo: Annotated[UploadFile, File()],
+) -> dict:
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    if org is None:
+        raise HTTPException(404, "Organização não encontrada")
+    conteudo = await arquivo.read(TAMANHO_MAXIMO_LOGO + 1)
+    try:
+        normalizado, largura, altura = normalizar_logo(conteudo)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    digest = hashlib.sha256(normalizado).hexdigest()
+    chave = f"branding/org-{org.id}/{digest}.png"
+    try:
+        localizacao = save_bytes(chave, normalizado)
+    except (OSError, StorageError) as exc:
+        raise HTTPException(503, "Não foi possível armazenar o logotipo") from exc
+
+    branding_anterior = dict(org.branding or {})
+    asset_anterior = branding_anterior.get("logo_asset") or {}
+    org.branding = {
+        **branding_anterior,
+        "logo_url": f"/v1/tenant/logo?v={digest[:16]}",
+        "logo_asset": {
+            "localizacao": localizacao,
+            "sha256": digest,
+            "tamanho": len(normalizado),
+            "largura": largura,
+            "altura": altura,
+            "formato": "PNG",
+            "atualizado_em": datetime.now(UTC).isoformat(),
+            "atualizado_por": usuario.email,
+        },
+    }
+    session.add(
+        EventoAuditoria(
+            organizacao_id=org.id,
+            actor_id=usuario.id,
+            ator=usuario.email,
+            acao="ENVIAR_LOGO_IDENTIDADE_VISUAL",
+            recurso="organizacao:branding_publico",
+            sucesso=True,
+            status_http=201,
+            detalhes={
+                "sha256": digest,
+                "tamanho": len(normalizado),
+                "largura": largura,
+                "altura": altura,
+            },
+        )
+    )
+    try:
+        await session.commit()
+    except Exception:
+        delete_object(localizacao)
+        raise
+
+    localizacao_anterior = asset_anterior.get("localizacao")
+    if localizacao_anterior and localizacao_anterior != localizacao:
+        try:
+            delete_object(localizacao_anterior)
+        except (OSError, StorageError):
+            pass
+    return {
+        "status": "ok",
+        "logo_url": org.branding["logo_url"],
+        "sha256": digest,
+        "tamanho": len(normalizado),
+        "largura": largura,
+        "altura": altura,
+    }
+
+
+@router.delete("/identidade/logo")
+async def remover_logo(session: SessionDep, usuario: AdminDep) -> dict:
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    if org is None:
+        raise HTTPException(404, "Organização não encontrada")
+    branding = dict(org.branding or {})
+    asset = branding.pop("logo_asset", None) or {}
+    branding["logo_url"] = None
+    org.branding = branding
+    session.add(
+        EventoAuditoria(
+            organizacao_id=org.id,
+            actor_id=usuario.id,
+            ator=usuario.email,
+            acao="REMOVER_LOGO_IDENTIDADE_VISUAL",
+            recurso="organizacao:branding_publico",
+            sucesso=True,
+            status_http=200,
+            detalhes={"possuia_arquivo_gerenciado": bool(asset)},
+        )
+    )
+    await session.commit()
+    localizacao = asset.get("localizacao")
+    if localizacao:
+        try:
+            delete_object(localizacao)
+        except (OSError, StorageError):
+            pass
+    return {"status": "ok", "logo_url": None}
 
 
 @router.post("/retencao/simular")

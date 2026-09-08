@@ -11,11 +11,16 @@ const socialIdentityStatus = document.querySelector("#social-identity-status");
 const simulationOutput = document.querySelector("#retention-simulation");
 const legalHoldForm = document.querySelector("#legal-hold-form");
 const legalHoldStatus = document.querySelector("#legal-hold-status");
+const logoPreview = document.querySelector("#branding-logo-preview");
+const logoStatus = document.querySelector("#branding-logo-status");
 let prazoRetencaoCarregado = null;
+let versaoPoliticaCarregada = null;
 let ultimaSimulacaoId = null;
 
 async function api(url, options = {}) {
-  options.headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  const headers = { ...(options.headers || {}) };
+  if (!(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
+  options.headers = headers;
   const response = await fetch(url, options);
   const payload = await response.json().catch(() => ({}));
   const detalhe = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail || {});
@@ -59,10 +64,18 @@ async function carregar() {
     form.elements.nome_exibido.value = org.branding.nome_exibido || org.nome;
     form.elements.cor_primaria.value = org.branding.cor_primaria || "#006b4f";
     form.elements.logo_url.value = org.branding.logo_url || "";
+    logoPreview.hidden = !org.branding.logo_url;
+    if (org.branding.logo_url) {
+      logoPreview.referrerPolicy = "no-referrer";
+      logoPreview.src = org.branding.logo_url;
+    } else {
+      logoPreview.removeAttribute("src");
+    }
     prazoRetencaoCarregado = data.retencao?.matriz?.find(item => item.categoria === "lead")?.prazo_dias
       ?? org.retencao_dados_dias;
     form.elements.retencao_dados_dias.value = prazoRetencaoCarregado;
-    form.elements.politica_privacidade_versao.value = org.politica_privacidade_versao;
+    versaoPoliticaCarregada = org.politica_privacidade_versao;
+    form.elements.politica_privacidade_versao.value = versaoPoliticaCarregada;
     contexto.textContent = `${org.nome} · ${org.status} · ${org.assinatura_status}`;
     document.querySelector("#learning-pipeline-job").hidden = !data.permissoes?.superadmin;
     msg.hidden = true;
@@ -96,6 +109,11 @@ form.addEventListener("submit", async event => {
         confirmar_reducao_retencao: dados.confirmar_reducao_retencao === "on",
         retencao_simulacao_id: alterouRetencao ? ultimaSimulacaoId : null,
         politica_privacidade_versao: dados.politica_privacidade_versao,
+        politica_privacidade_justificativa:
+          dados.politica_privacidade_versao !== versaoPoliticaCarregada
+            ? dados.politica_privacidade_justificativa
+            : null,
+        confirmar_publicacao_politica: dados.confirmar_publicacao_politica === "on",
       }),
     });
     definirStatus(msg, "Configuração salva.", "success");
@@ -104,10 +122,38 @@ form.addEventListener("submit", async event => {
     form.elements.retencao_base_legal.value = "";
     form.elements.retencao_vigencia_em.value = "";
     form.elements.confirmar_reducao_retencao.checked = false;
+    form.elements.politica_privacidade_justificativa.value = "";
+    form.elements.confirmar_publicacao_politica.checked = false;
     ultimaSimulacaoId = null;
     await carregar();
   } catch (error) {
     definirStatus(msg, error.message, "error");
+  }
+});
+
+document.querySelector("#upload-branding-logo").addEventListener("click", async () => {
+  const arquivo = document.querySelector("#branding-logo-file").files[0];
+  if (!arquivo) return definirStatus(logoStatus, "Selecione uma imagem.", "error");
+  const dados = new FormData();
+  dados.append("arquivo", arquivo);
+  try {
+    await api("/v1/admin/confiabilidade/identidade/logo", { method: "POST", body: dados });
+    definirStatus(logoStatus, "Logotipo validado, normalizado e publicado.", "success");
+    document.querySelector("#branding-logo-file").value = "";
+    await carregar();
+  } catch (error) {
+    definirStatus(logoStatus, error.message, "error");
+  }
+});
+
+document.querySelector("#remove-branding-logo").addEventListener("click", async () => {
+  if (!confirm("Remover o logotipo personalizado e voltar ao padrão?")) return;
+  try {
+    await api("/v1/admin/confiabilidade/identidade/logo", { method: "DELETE" });
+    definirStatus(logoStatus, "Logotipo personalizado removido.", "success");
+    await carregar();
+  } catch (error) {
+    definirStatus(logoStatus, error.message, "error");
   }
 });
 

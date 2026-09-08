@@ -457,6 +457,7 @@ async function openLead(id, selectedResearchId = null) {
       <section class="lead-sugestao-ia lg-full" id="lead-sugestao-ia" hidden></section>
       <section class="lead-history lg-full"><header><div><p class="eyebrow">${selectedResearchId ? "Pesquisa selecionada" : "Histórico"}</p><h3>${pesquisasExibidas.length} pesquisa${pesquisasExibidas.length === 1 ? "" : "s"}</h3></div></header>${pesquisasExibidas.length ? pesquisasExibidas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
       <section class="lead-relacionados lg-full" id="lead-relacionados" hidden></section>
+      <section class="lead-cadencia-historico lg-full" id="lead-cadencia-historico" hidden></section>
       <section class="lead-cadencia lg-full" id="lead-cadencia" hidden></section>
       ${state.canManage ? `<form id="lead-crm-form" data-lead-id="${lead.id}" class="lead-crm-form">
         <label><span>Status</span><select name="status">${statusOptions(lead.status)}</select></label>
@@ -625,7 +626,39 @@ function faseMini(lead) {
 const DOC_LABELS = { procuracao: "Procuração", gru: "GRU", protocolo: "Protocolo", oposicao: "Oposição", certificado: "Certificado" };
 const DOC_STATUS = [["pendente", "Pendente"], ["em_andamento", "Em andamento"], ["concluido", "Concluído"], ["nao_aplicavel", "N/A"]];
 
+// Achado do usuário (08/09/2026): o motor de cadência já registra status,
+// abertura e resposta de cada e-mail (EnvioCadenciaEmail), mas nenhuma tela
+// mostrava isso pro operador -- os dados existiam, só ficavam invisíveis.
+const STATUS_ENVIO_CADENCIA_LABELS = { pendente: "Agendado", enviado: "Enviado", falhou: "Falhou", pausado: "Pausado" };
+
+function envioCadenciaRow(item) {
+  const statusLabel = STATUS_ENVIO_CADENCIA_LABELS[item.status] || item.status;
+  const sinais = [];
+  if (item.enviado_em) sinais.push(`Enviado: ${formatDate(item.enviado_em)}`);
+  if (item.aberto_em) sinais.push(`Aberto: ${formatDate(item.aberto_em)}`);
+  if (item.respondido_em) sinais.push(`Respondido: ${formatDate(item.respondido_em)}`);
+  if (item.status === "pendente") sinais.push(`Agendado para: ${formatDate(item.agendado_para)}`);
+  if (item.status === "falhou" && item.ultimo_erro) sinais.push(`Erro: ${escapeHtml(item.ultimo_erro)}`);
+  return `<li class="lead-cad-envio-item status-${escapeHtml(item.status)}">
+    <div><strong>${escapeHtml(item.cadencia_nome)}</strong> · ${escapeHtml(item.passo_titulo)} <small>(dia ${item.passo_dia})</small></div>
+    <span class="lead-cad-envio-status">${escapeHtml(statusLabel)}</span>
+    <small>${sinais.join(" · ") || "—"}</small>
+  </li>`;
+}
+
+async function renderHistoricoCadenciaLead(lead) {
+  const box = document.querySelector("#lead-cadencia-historico");
+  if (!box) return;
+  let itens;
+  try { itens = (await (await fetch(`/v1/admin/leads/${lead.id}/envios-cadencia`)).json()).itens || []; }
+  catch { box.hidden = true; return; }
+  if (!itens.length) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<header><p class="eyebrow">Cadência</p><h3>Histórico de envios</h3></header><ul class="lead-cad-envios">${itens.map(envioCadenciaRow).join("")}</ul>`;
+}
+
 async function renderCadenciaLead(lead) {
+  await renderHistoricoCadenciaLead(lead);
   const box = document.querySelector("#lead-cadencia");
   if (!box || !state.canManage) return;
   let cads;
@@ -642,7 +675,7 @@ async function renderCadenciaLead(lead) {
     const r = await fetch(`/v1/admin/leads/${lead.id}/aplicar-cadencia`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cadencia_id: cadenciaId }) });
     const msg = box.querySelector(".lead-cad-msg");
     btn.disabled = false;
-    if (r.ok) { const d = await r.json(); if (msg) msg.textContent = `${d.criados} tarefa(s) agendada(s).`; }
+    if (r.ok) { const d = await r.json(); if (msg) msg.textContent = `${d.criados} tarefa(s) agendada(s).`; await renderHistoricoCadenciaLead(lead); }
     else if (msg) msg.textContent = "Erro ao aplicar.";
   });
 }

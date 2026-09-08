@@ -762,6 +762,45 @@
 .lead-sugestao-ia-aviso { margin: 10px 0 4px; font-size: 0.78rem; color: #6b6b6b; font-style: italic; }
 .lead-sugestao-ia-acoes { display: flex; gap: 10px; margin-top: 10px; }
 
+.lead-cadencia-historico, .lead-cadencia {
+  margin: 0 0 18px;
+  padding: 16px 20px;
+  border: 1px solid #d8dfd9;
+  border-radius: 14px;
+  background: #f6f8f5;
+}
+.lead-cadencia-historico header, .lead-cadencia header { margin-bottom: 8px; }
+.lead-cadencia-historico h3, .lead-cadencia h3 { margin: 0; font-size: 0.9rem; font-weight: 600; }
+.lead-cad-envios { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.lead-cad-envio-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 8px 10px;
+  border: 1px solid #e0e5df;
+  border-radius: 10px;
+  background: #fffef9;
+  font-size: 0.78rem;
+}
+.lead-cad-envio-item > div { flex: 1 1 auto; min-width: 180px; }
+.lead-cad-envio-item small { flex-basis: 100%; color: #6b776f; font-size: 0.72rem; }
+.lead-cad-envio-status {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #edf1ee;
+  color: #41564a;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.lead-cad-envio-item.status-enviado .lead-cad-envio-status { background: #dff2e6; color: #17633f; }
+.lead-cad-envio-item.status-falhou .lead-cad-envio-status { background: #f9e4df; color: #943323; }
+.lead-cad-envio-item.status-pausado .lead-cad-envio-status { background: #fff0ca; color: #78550a; }
+.lead-cad-apply { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.lead-cad-msg { font-size: 0.76rem; color: #087252; }
+
 .lead-history {
   min-height: 100%;
   margin: 0;

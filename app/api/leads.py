@@ -43,6 +43,7 @@ from app.models import (
     AssinaturaPropostaComercial,
     AvaliacaoRiscoMarca,
     Cadencia,
+    CadenciaPasso,
     CanalContato,
     ChecklistFaseLead,
     Contato,
@@ -50,6 +51,7 @@ from app.models import (
     ContratacaoServico,
     DocumentoLead,
     EmpresaCRM,
+    EnvioCadenciaEmail,
     EventoAuditoria,
     EventoDominio,
     FaseLead,
@@ -3714,6 +3716,47 @@ async def aplicar_cadencia_lead(
     criados = await aplicar_cadencia_a_lead(session, lead, cadencia, usuario.nome or "sistema", ator_id=usuario.id)
     await session.commit()
     return {"criados": criados, "ignorados_idempotentes": total_passos - criados}
+
+
+@router.get("/v1/admin/leads/{lead_id}/envios-cadencia")
+async def listar_envios_cadencia_lead(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
+    # Achado do usuário (08/09/2026): o motor de cadência já grava status,
+    # abertura e resposta de cada e-mail (EnvioCadenciaEmail), mas nenhuma
+    # tela expunha isso pro operador -- os dados existiam, só ficavam
+    # invisíveis. Mostra o histórico de envios do lead, mais recente primeiro.
+    lead = (
+        await session.execute(select(Lead.id).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Oportunidade não encontrada")
+    linhas = (
+        await session.execute(
+            select(EnvioCadenciaEmail, Cadencia.nome, CadenciaPasso.titulo, CadenciaPasso.dia)
+            .join(Cadencia, Cadencia.id == EnvioCadenciaEmail.cadencia_id)
+            .join(CadenciaPasso, CadenciaPasso.id == EnvioCadenciaEmail.passo_id)
+            .where(EnvioCadenciaEmail.lead_id == lead_id, EnvioCadenciaEmail.organizacao_id == usuario.organizacao_id)
+            .order_by(EnvioCadenciaEmail.agendado_para.desc())
+        )
+    ).all()
+    return {
+        "itens": [
+            {
+                "id": envio.id,
+                "cadencia_nome": cadencia_nome,
+                "passo_titulo": passo_titulo,
+                "passo_dia": passo_dia,
+                "status": envio.status,
+                "agendado_para": envio.agendado_para,
+                "enviado_em": envio.enviado_em,
+                "aberto_em": envio.aberto_em,
+                "respondido_em": envio.respondido_em,
+                "pausado_em": envio.pausado_em,
+                "tentativas": envio.tentativas,
+                "ultimo_erro": envio.ultimo_erro,
+            }
+            for envio, cadencia_nome, passo_titulo, passo_dia in linhas
+        ]
+    }
 
 
 @router.get("/v1/cadencias/rastreio/{token}.gif", include_in_schema=False)

@@ -99,3 +99,50 @@ def test_pixel_de_rastreio_token_invalido_ainda_devolve_gif() -> None:
 
     assert resposta.status_code == 200
     assert resposta.headers["content-type"] == "image/gif"
+
+
+# --- Achado do usuário (08/09/2026): o motor de cadência já grava status,
+# abertura e resposta de cada e-mail (EnvioCadenciaEmail), mas nenhuma tela
+# expunha isso pro operador -- os dados existiam, só ficavam invisíveis.
+# GET /v1/admin/leads/{id}/envios-cadencia fecha essa lacuna. ---
+
+
+def test_listar_envios_cadencia_devolve_historico_do_lead() -> None:
+    envio = EnvioCadenciaEmail(
+        id=1,
+        organizacao_id=1,
+        lead_id=9,
+        cadencia_id=3,
+        passo_id=2,
+        agendado_para=datetime(2026, 9, 5, tzinfo=UTC),
+        status="enviado",
+        enviado_em=datetime(2026, 9, 5, 8, tzinfo=UTC),
+        aberto_em=datetime(2026, 9, 5, 9, tzinfo=UTC),
+        respondido_em=None,
+        tentativas=1,
+    )
+    session = FakeSession(
+        [FakeResult(scalar=9), FakeResult(itens=[(envio, "Cadência Padrão", "E-mail de follow-up", 3)])]
+    )
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario_teste())
+
+    resposta = TestClient(app).get("/v1/admin/leads/9/envios-cadencia")
+
+    assert resposta.status_code == 200
+    itens = resposta.json()["itens"]
+    assert len(itens) == 1
+    assert itens[0]["cadencia_nome"] == "Cadência Padrão"
+    assert itens[0]["passo_titulo"] == "E-mail de follow-up"
+    assert itens[0]["status"] == "enviado"
+    assert itens[0]["aberto_em"] is not None
+
+
+def test_listar_envios_cadencia_lead_inexistente_retorna_404() -> None:
+    session = FakeSession([FakeResult(scalar=None)])
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario_teste())
+
+    resposta = TestClient(app).get("/v1/admin/leads/999/envios-cadencia")
+
+    assert resposta.status_code == 404

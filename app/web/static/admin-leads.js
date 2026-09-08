@@ -212,12 +212,34 @@ function leadRow(lead) {
 
 function researchRow(lead, item) {
   const digits = phoneDigits(lead.telefone);
+  // Achado do usuário (08/09/2026): leads sem nenhuma pesquisa de marca
+  // (ex.: convertidos do Radar de Prospecção, que não passam pelo
+  // formulário de pesquisa) simplesmente desapareciam desta visão -- cada
+  // linha aqui representa uma pesquisa, então um lead com pesquisas=[]
+  // nunca gerava linha nenhuma. Isso também explicava a paginação parecer
+  // quebrada: com poucos itens por página, os leads mais recentes (todos
+  // de prospecção) preenchiam a página inteira sem produzir nenhuma linha.
+  // Ações que dependem de uma pesquisa concreta (análise, proposta,
+  // exclusão, registrar atendimento) ficam de fora dessa linha-placeholder.
+  const contato = `<td data-label="Contato"><strong>${escapeHtml(lead.nome)}</strong><small>${escapeHtml(lead.empresa || "Empresa não informada")}</small><span>${escapeHtml(lead.email)}</span>${digits ? `<a href="https://wa.me/${digits}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</td>`;
+  const atendimento = `<td data-label="Atendimento"><strong>${escapeHtml(lead.responsavel_nome || "Não atribuído")}</strong><small>${escapeHtml(originLabel(lead.origem))}</small>${faseMini(lead)}</td>`;
+  const statusCol = `<td data-label="Status"><select class="lead-status status-${escapeHtml(lead.status)}" data-previous="${escapeHtml(lead.status)}" aria-label="Status de ${escapeHtml(lead.nome)}" ${lead.arquivado_em || !state.canManage ? "disabled" : ""}>${statusOptions(lead.status)}</select></td>`;
+  if (!item) {
+    return `<tr data-lead-id="${lead.id}" class="research-view-row ${lead.arquivado_em ? "archived" : ""}">
+      ${contato}
+      <td data-label="Pesquisa"><span class="risk-pill">Sem pesquisa de marca ainda</span></td>
+      ${atendimento}
+      <td data-label="Data da pesquisa">—</td>
+      ${statusCol}
+      <td data-label="Ações"><div class="lead-row-actions"><button class="view-lead secondary-button" type="button">Abrir contato</button></div></td>
+    </tr>`;
+  }
   return `<tr data-lead-id="${lead.id}" data-research-id="${item.id}" class="research-view-row ${lead.arquivado_em ? "archived" : ""}">
-    <td data-label="Contato"><strong>${escapeHtml(lead.nome)}</strong><small>${escapeHtml(lead.empresa || "Empresa não informada")}</small><span>${escapeHtml(lead.email)}</span>${digits ? `<a href="https://wa.me/${digits}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</td>
+    ${contato}
     <td data-label="Pesquisa"><strong>${escapeHtml(item.marca)}</strong>${duplicateStatus(item)}<small>${escapeHtml(item.atividade || "Atividade não informada")}</small>${item.risco_nivel ? `<span class="risk-pill risk-${escapeHtml(item.risco_nivel)}">Risco ${escapeHtml(riskLabels[item.risco_nivel] || item.risco_nivel)}${item.risco_pontuacao !== null ? ` · ${item.risco_pontuacao} pontos` : ""}</span>` : `<span class="risk-pill">Risco não calculado</span>`}${fullReportStatus(item, true)}</td>
-    <td data-label="Atendimento"><strong>${escapeHtml(lead.responsavel_nome || "Não atribuído")}</strong><small>${escapeHtml(originLabel(lead.origem))}</small>${faseMini(lead)}</td>
+    ${atendimento}
     <td data-label="Data da pesquisa"><time datetime="${escapeHtml(item.criado_em)}">${formatDate(item.criado_em)}</time></td>
-    <td data-label="Status"><select class="lead-status status-${escapeHtml(lead.status)}" data-previous="${escapeHtml(lead.status)}" aria-label="Status de ${escapeHtml(lead.nome)}" ${lead.arquivado_em || !state.canManage ? "disabled" : ""}>${statusOptions(lead.status)}</select></td>
+    ${statusCol}
     <td data-label="Ações"><div class="lead-row-actions"><a class="secondary-button" href="/admin/analises/${encodeURIComponent(item.id)}">Abrir análise</a><button class="view-lead secondary-button" type="button">Abrir contato</button>${state.canManage ? `<button class="generate-research-proposal secondary-button" type="button" data-research-id="${escapeHtml(item.id)}">Gerar proposta</button>` : ""}${deletionAction(item)}</div></td>
   </tr>`;
 }
@@ -225,9 +247,10 @@ function researchRow(lead, item) {
 function renderRows() {
   if (state.viewMode === "researches") {
     leadsList.innerHTML = state.items.flatMap(lead =>
-      (lead.pesquisas || []).map(item => researchRow(lead, item))
+      (lead.pesquisas && lead.pesquisas.length) ? lead.pesquisas.map(item => researchRow(lead, item)) : [researchRow(lead, null)]
     ).join("");
     leadsList.querySelectorAll(".research-view-row").forEach(row => {
+      if (!row.dataset.researchId) return;
       const actions = row.querySelector(".lead-row-actions");
       if (actions && !actions.querySelector(".register-attendance")) {
         actions.insertAdjacentHTML("beforeend", `<button class="register-attendance secondary-button" type="button" data-research-id="${escapeHtml(row.dataset.researchId)}">Registrar atendimento</button>`);

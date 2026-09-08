@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
-from app.models import CampanhaProspeccao, Lead, Prospect, StatusLead, StatusProspect
+from app.models import CampanhaProspeccao, Lead, PesquisaMarca, Prospect, ProspectTriagem, StatusLead, StatusProspect
 from tests.conftest import FakeResult, FakeSession, auth_override, usuario_teste
 
 # --- Fase 1 do Radar de Prospecção (03/09/2026, docs/arquitetura-radar-prospeccao-2026-09-03.md) ---
@@ -247,6 +247,86 @@ def test_converter_prospect_em_lead_reaproveita_lead_existente() -> None:
     assert corpo == {"lead_id": 42, "criado_novo": False}
     assert prospect.lead_id == 42
     assert [obj for obj in session.adicionados if isinstance(obj, Lead)] == []
+
+
+# --- Achado do usuário (08/09/2026): leads convertidos do Radar de
+# Prospecção nunca tinham nenhuma PesquisaMarca, o que os fazia sumir da
+# tela de Leads (visão "Por pesquisa") -- reaproveita a triagem de marca já
+# feita no prospect pra criar a pesquisa automaticamente, sem precisar
+# pesquisar manualmente cliente por cliente. ---
+
+
+def _triagem(**kwargs: object) -> ProspectTriagem:
+    base: dict = {
+        "id": 10,
+        "organizacao_id": 1,
+        "prospect_id": 5,
+        "marca_pesquisada": "Empresa Teste",
+        "classificacao": "resultado_relevante_localizado",
+        "justificativa": "justificativa qualquer",
+        "total_resultados": 3,
+        "criado_em": datetime(2026, 9, 8, tzinfo=UTC),
+    }
+    base.update(kwargs)
+    return ProspectTriagem(**base)
+
+
+def test_converter_prospect_com_triagem_cria_pesquisa_automatica() -> None:
+    prospect = _prospect(status=StatusProspect.APROVADO.value, email="empresa@teste.local", telefone="11988887777")
+    triagem = _triagem()
+    session = _sessao_admin(
+        FakeResult(scalar=prospect),  # _buscar_prospect
+        FakeResult(scalar=None),  # nenhum lead existente por e-mail/telefone
+        FakeResult(scalar=None),  # _garantir_proxima_acao_padrao
+        FakeResult(scalar=triagem),  # triagem mais recente do prospect
+        FakeResult(scalar=None),  # detectar_pesquisa_duplicada -- sem duplicata
+    )
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/converter-lead", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 201
+    pesquisas_criadas = [obj for obj in session.adicionados if isinstance(obj, PesquisaMarca)]
+    assert len(pesquisas_criadas) == 1
+    assert pesquisas_criadas[0].marca == "Empresa Teste"
+    assert pesquisas_criadas[0].tipo_pesquisa == "completa"
+
+
+def test_converter_prospect_sem_triagem_nao_cria_pesquisa() -> None:
+    prospect = _prospect(status=StatusProspect.APROVADO.value, email="empresa@teste.local", telefone="11988887777")
+    session = _sessao_admin(
+        FakeResult(scalar=prospect),
+        FakeResult(scalar=None),
+        FakeResult(scalar=None),
+        FakeResult(scalar=None),  # nenhuma triagem encontrada
+    )
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/converter-lead", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 201
+    assert [obj for obj in session.adicionados if isinstance(obj, PesquisaMarca)] == []
+
+
+def test_converter_prospect_com_pesquisa_ja_duplicada_nao_cria_de_novo() -> None:
+    prospect = _prospect(status=StatusProspect.APROVADO.value, email="empresa@teste.local", telefone="11988887777")
+    triagem = _triagem()
+    session = _sessao_admin(
+        FakeResult(scalar=prospect),
+        FakeResult(scalar=None),
+        FakeResult(scalar=None),
+        FakeResult(scalar=triagem),
+        FakeResult(scalar="pesquisa-existente-id"),  # já existe pesquisa igual pra esse lead
+    )
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/5/converter-lead", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 201
+    assert [obj for obj in session.adicionados if isinstance(obj, PesquisaMarca)] == []
 
 
 def test_converter_prospect_sem_contato_retorna_422() -> None:

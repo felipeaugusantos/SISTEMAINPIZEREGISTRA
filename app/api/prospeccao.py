@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.juridico import FUSO_BRASIL
 from app.api.leads import _garantir_proxima_acao_padrao
+from app.api.pesquisas import detectar_pesquisa_duplicada
 from app.api.saas import SuperAdminDep
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.crm import registrar_consentimento_prospeccao_comercial
@@ -29,6 +30,7 @@ from app.models import (
     HistoricoStatusProspect,
     ImportacaoCnpjRfb,
     Lead,
+    PesquisaMarca,
     PoliticaProspeccao,
     Prospect,
     ProspectEnriquecimento,
@@ -637,6 +639,42 @@ async def converter_prospect_em_lead(
         criado_novo = True
 
     await session.flush()
+
+    # Achado do usuário (08/09/2026): leads vindos da prospecção nunca têm
+    # nenhuma PesquisaMarca (a triagem automática de marca -- app.
+    # prospeccao_triagem -- é uma entidade separada, indicativa, que nunca
+    # virou pesquisa formal). Isso fazia o lead desaparecer da tela de Leads
+    # (visão "Por pesquisa"), e exigiria pesquisar manualmente, cliente por
+    # cliente, pra ele aparecer. Reaproveita a triagem mais recente do
+    # prospect (marca já pesquisada, sem rodar o motor de busca de novo) pra
+    # criar a pesquisa automaticamente -- estado DRAFT, mesma revisão humana
+    # obrigatória de qualquer pesquisa antes de virar relatório; só evita a
+    # digitação manual, não pula nenhuma etapa de análise.
+    triagem_mais_recente = (
+        await session.execute(
+            select(ProspectTriagem)
+            .where(ProspectTriagem.prospect_id == prospect.id)
+            .order_by(ProspectTriagem.criado_em.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if triagem_mais_recente is not None:
+        original_id = await detectar_pesquisa_duplicada(
+            session, usuario.organizacao_id, lead.id, triagem_mais_recente.marca_pesquisada, classe_nice=None
+        )
+        if original_id is None:
+            session.add(
+                PesquisaMarca(
+                    organizacao_id=usuario.organizacao_id,
+                    lead_id=lead.id,
+                    marca=triagem_mais_recente.marca_pesquisada,
+                    tipo_pesquisa="completa",
+                    analysis_notes="Pesquisa criada automaticamente ao converter o prospect em lead "
+                    "(Radar de Prospecção), a partir da triagem de marca já feita -- ainda pendente "
+                    "de revisão humana, como qualquer outra pesquisa.",
+                )
+            )
+
     prospect.lead_id = lead.id
     prospect.status = StatusProspect.CONVERTIDO_LEAD.value
     session.add(

@@ -2,11 +2,11 @@ const reportId = location.pathname.split("/").filter(Boolean).pop();
 const loading = document.querySelector("#report-loading");
 const content = document.querySelector("#report-content");
 const errorSection = document.querySelector("#report-error");
-// Repassada pela busca (app.js) via query string, já que o redirecionamento
-// para esta página é navegação direta e não carrega cabeçalhos customizados.
-const chaveIntegracao = new URLSearchParams(location.search).get("chave_integracao");
-const chaveQuery = chaveIntegracao ? `?chave_integracao=${encodeURIComponent(chaveIntegracao)}` : "";
-const pdfUrl = `/v1/pesquisas-marca/${encodeURIComponent(reportId)}/relatorio.pdf${chaveQuery}`;
+const fragmento = new URLSearchParams(location.hash.replace(/^#/, ""));
+const relatorioToken = fragmento.get("token");
+const reportHeaders = relatorioToken ? { "X-Report-Token": relatorioToken } : {};
+const pdfUrl = `/v1/pesquisas-marca/${encodeURIComponent(reportId)}/relatorio.pdf`;
+if (location.hash) history.replaceState(null, "", `${location.pathname}${location.search}`);
 
 function escapeHtml(value) {
   const element = document.createElement("span");
@@ -43,8 +43,7 @@ function itemCard(item) {
 
 async function loadReport() {
   try {
-    const headers = chaveIntegracao ? { "X-Integration-Key": chaveIntegracao } : {};
-    const response = await fetch(`/v1/pesquisas-marca/${encodeURIComponent(reportId)}/relatorio`, { headers });
+    const response = await fetch(`/v1/pesquisas-marca/${encodeURIComponent(reportId)}/relatorio`, { headers: reportHeaders });
     if (!response.ok) throw new Error();
     const data = await response.json();
     document.title = `Relatório Zé Registra — ${data.marca}`;
@@ -110,7 +109,9 @@ async function loadReport() {
     if (params.get("download") === "1") {
       history.replaceState(null, "", location.pathname);
       document.querySelector("#download-status").textContent = "O download do PDF foi iniciado. Se ele não aparecer, use o botão ao lado.";
-      requestAnimationFrame(() => window.location.assign(pdfUrl));
+      requestAnimationFrame(() => baixarPdf().catch(() => {
+        document.querySelector("#download-status").textContent = "Não foi possível baixar o PDF. Gere um novo acesso ao relatório.";
+      }));
     }
   } catch {
     loading.hidden = true;
@@ -118,7 +119,31 @@ async function loadReport() {
   }
 }
 
-document.querySelector("#print-report").addEventListener("click", () => {
-  window.location.assign(pdfUrl);
+async function baixarPdf(abrirNoNavegador = false) {
+  const response = await fetch(pdfUrl, { headers: reportHeaders });
+  if (!response.ok) throw new Error("Não foi possível baixar o PDF.");
+  const url = URL.createObjectURL(await response.blob());
+  if (abrirNoNavegador) {
+    window.location.assign(url);
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return;
+  }
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `resumo-${reportId}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+document.querySelector("#print-report").addEventListener("click", () => baixarPdf(true).catch(() => {
+  document.querySelector("#download-status").textContent = "Não foi possível baixar o PDF. Gere um novo acesso ao relatório.";
+}));
+document.querySelector("#download-report").addEventListener("click", event => {
+  event.preventDefault();
+  baixarPdf().catch(() => {
+    document.querySelector("#download-status").textContent = "Não foi possível baixar o PDF. Gere um novo acesso ao relatório.";
+  });
 });
 loadReport();

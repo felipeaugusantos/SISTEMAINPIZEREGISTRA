@@ -17,6 +17,7 @@ from app.models import (
     StatusLead,
     VersaoRelatorioMarca,
 )
+from app.public_report_tokens import validar_token_relatorio
 from app.trademarks.analysis_workflow import (
     AcaoWorkflowAnalise,
     EstadoAnalise,
@@ -129,6 +130,7 @@ def test_api_da_central_consolida_pesquisa_e_status_do_relatorio() -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["pesquisa"]["marca"] == "ACME"
+    validar_token_relatorio(data["pesquisa"]["relatorio_token"], "pesquisa-1", 1)
     assert data["validacao"]["ultima_rpi"] == 2900
     assert data["validacao"]["total_ocorrencias"] == 3
     assert data["validacao"]["matriz_registrabilidade"]["versao"].startswith("manual-inpi")

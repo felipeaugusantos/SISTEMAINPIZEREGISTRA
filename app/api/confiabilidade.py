@@ -20,7 +20,6 @@ from app.models import (
     UsuarioOperacoes,
 )
 from app.queueing import enfileirar, status_fila
-from app.settings import get_settings
 
 router = APIRouter(prefix="/v1/admin/confiabilidade", tags=["confiabilidade"])
 public_router = APIRouter(prefix="/v1/tenant", tags=["tenant"])
@@ -37,24 +36,27 @@ def exigir_admin(request: Request, usuario: UsuarioAtualDep):
 AdminDep = Annotated[object, Depends(exigir_admin)]
 
 
-@public_router.get("/branding")
+class IdentidadeVisualPublicaResponse(BaseModel):
+    nome: str
+    nome_exibido: str | None = None
+    cor_primaria: str | None = None
+    logo_url: str | None = None
+    politica_privacidade_versao: str
+
+
+@public_router.get("/branding", response_model=IdentidadeVisualPublicaResponse)
 async def branding_publico(request: Request, session: SessionDep) -> dict:
     from app.tenancy import resolver_organizacao_publica
 
     org = await resolver_organizacao_publica(request, session)
-    settings = get_settings()
-    resposta = {
+    branding = org.branding or {}
+    return {
         "nome": org.nome,
-        "slug": org.slug,
-        "branding": org.branding or {},
+        "nome_exibido": branding.get("nome_exibido"),
+        "cor_primaria": branding.get("cor_primaria"),
+        "logo_url": branding.get("logo_url"),
         "politica_privacidade_versao": org.politica_privacidade_versao,
     }
-    # Identifica o site publico como o tenant padrao junto ao gate de integracao
-    # (exigir_token_integracao) do formulario de pesquisa. Nao concede nenhum
-    # acesso alem do que este endpoint publico ja resolveu para o visitante.
-    if settings.integration_auth_enabled and settings.inpi_integration_token:
-        resposta["chave_integracao"] = settings.inpi_integration_token
-    return resposta
 
 
 _COR_HEX_VALIDA = re.compile(r"^#[0-9a-fA-F]{6}$")

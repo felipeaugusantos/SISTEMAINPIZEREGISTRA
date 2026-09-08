@@ -32,6 +32,7 @@ from app.models import (
 from app.normalization import normalizar_numero_processo
 from app.privacy import mascarar_documentos_publicos
 from app.production import versionar_relatorio
+from app.public_report_tokens import emitir_token_relatorio
 from app.ratelimit import RateLimiter
 from app.relatorios import gerar_pdf_resumo_cliente
 from app.request_context import adicionar_detalhes_operacionais
@@ -55,6 +56,7 @@ from app.schemas import (
 )
 from app.search import buscar_marcas, normalizar_texto, termos_comuns_do_match
 from app.search_ranking import adicionar_contexto_score
+from app.security import AcessoRelatorioPublicoDep
 from app.tenancy import OrganizacaoPublicaDep, validar_limite_pesquisas
 from app.trademarks.affinity import avaliar_afinidade
 from app.trademarks.agent import registrar_execucao_agente
@@ -96,6 +98,7 @@ from app.trademarks.veredito import (
 router = APIRouter(prefix="/v1/pesquisas-marca", tags=["pesquisas de marcas"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 limitar_pesquisas = RateLimiter(limite=10, janela_segundos=60, escopo="pesquisas-publicas")
+limitar_relatorios = RateLimiter(limite=60, janela_segundos=60, escopo="relatorios-publicos")
 
 
 async def detectar_pesquisa_duplicada(
@@ -217,6 +220,7 @@ async def criar_pesquisa(
     return PesquisaMarcaCriada(
         id=pesquisa.id,
         relatorio_url=f"/relatorios/{pesquisa.id}",
+        relatorio_token=emitir_token_relatorio(pesquisa.id, organizacao.id),
         lead_id=lead.id,
         duplicada=pesquisa.duplicada,
         pesquisa_original_id=pesquisa.pesquisa_original_id,
@@ -272,11 +276,16 @@ def construir_resumo_publico(relatorio: RelatorioMarcaResponse) -> ResumoPublico
     )
 
 
-@router.get("/{pesquisa_id}/relatorio", response_model=ResumoPublicoMarcaResponse)
+@router.get(
+    "/{pesquisa_id}/relatorio",
+    response_model=ResumoPublicoMarcaResponse,
+    dependencies=[Depends(limitar_relatorios)],
+)
 async def obter_relatorio(
     pesquisa_id: str,
     session: SessionDep,
     organizacao: OrganizacaoPublicaDep,
+    _acesso: AcessoRelatorioPublicoDep,
 ) -> ResumoPublicoMarcaResponse:
     pesquisa = (
         await session.execute(
@@ -647,11 +656,16 @@ async def gerar_resumo_pesquisa(session: AsyncSession, pesquisa: PesquisaMarca) 
     return construir_resumo_publico(relatorio_versionado)
 
 
-@router.get("/{pesquisa_id}/relatorio.pdf", response_class=Response)
+@router.get(
+    "/{pesquisa_id}/relatorio.pdf",
+    response_class=Response,
+    dependencies=[Depends(limitar_relatorios)],
+)
 async def baixar_relatorio_pdf(
     pesquisa_id: str,
     session: SessionDep,
     organizacao: OrganizacaoPublicaDep,
+    _acesso: AcessoRelatorioPublicoDep,
 ) -> Response:
     versao = (
         await session.execute(

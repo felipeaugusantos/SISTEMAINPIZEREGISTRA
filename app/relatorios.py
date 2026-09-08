@@ -1162,3 +1162,180 @@ def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencia
 def gerar_pdf_resumo_cliente(relatorio: RelatorioMarcaResponse) -> bytes:
     """Gera o resumo público de uma página, sem a lista de ocorrências."""
     return gerar_pdf_relatorio(relatorio, incluir_ocorrencias=False)
+
+
+_DISCLAIMER_PROCESSO_MONITORADO = (
+    "Relatório de acompanhamento gerado a partir de publicações da Revista da "
+    "Propriedade Industrial (RPI) importadas pela plataforma. A situação e a fase "
+    "exibidas refletem a última publicação processada -- não substitui a consulta "
+    "oficial ao INPI."
+)
+
+
+def gerar_pdf_processo_monitorado(dados: dict) -> bytes:
+    """Relatório de acompanhamento de um processo monitorado, para envio ao
+    cliente -- achado do usuário (08/09/2026): faltava uma forma de mostrar
+    ao cliente a fase atual do processo, sem precisar dar acesso ao sistema
+    interno.
+
+    `dados` esperado (dict simples, montado por quem chama -- ver
+    app/api/carteira.py):
+    {
+        "numero": str, "titulo": str | None, "tipo": str,
+        "data_deposito": date | None, "situacao": str | None,
+        "titulares": list[str], "procurador": str | None,
+        "empresa": str | None, "responsavel": str | None,
+        "status": str, "etapa_kanban_label": str,
+        "movimentacoes": [{"data_rpi": date, "numero_rpi": int, "descricao": str}, ...],
+        "observacoes_relatorio": str | None,  # digitado na hora, só para este PDF
+        "gerado_em": datetime, "gerado_por": str,
+    }
+    """
+    estilos = _estilos()
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=16 * mm,
+        rightMargin=16 * mm,
+        topMargin=16 * mm,
+        bottomMargin=16 * mm,
+        title=f"Acompanhamento do processo {dados['numero']}",
+        author="Zé Registra",
+    )
+
+    personagem = ReportImage(str(_CAMINHO_PERSONAGEM), width=15 * mm, height=27 * mm)
+    cabecalho_marca = Table(
+        [
+            [
+                personagem,
+                [
+                    Paragraph("Zé Registra®", estilos["marca"]),
+                    Paragraph("Pesquisa e inteligência para marcas", estilos["sub"]),
+                ],
+            ]
+        ],
+        colWidths=[20 * mm, 158 * mm],
+    )
+    cabecalho_marca.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ("LINEBELOW", (0, 0), (-1, -1), 1, _COR_CABECALHO),
+            ]
+        )
+    )
+    destaque = Table(
+        [[Paragraph("RELATÓRIO DE ACOMPANHAMENTO · PROCESSO MONITORADO", estilos["rotulo"])]],
+        colWidths=[178 * mm],
+    )
+    destaque.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), _COR_MENTA),
+                ("BOX", (0, 0), (-1, -1), 0.5, _COR_LINHA),
+                ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+
+    titulares = " · ".join(dados["titulares"]) if dados["titulares"] else "Titular não informado"
+    story: list = [
+        cabecalho_marca,
+        Spacer(1, 12),
+        destaque,
+        Spacer(1, 15),
+        Paragraph("Acompanhamento de processo", estilos["titulo"]),
+        Paragraph(_texto(dados.get("titulo"), "Título não informado pelo INPI"), estilos["marca"]),
+        Paragraph(f"Processo nº {_texto(dados['numero'])} · {_texto(titulares)}", estilos["sub"]),
+        Spacer(1, 8),
+        Paragraph(
+            f"Emitido em {_formatar_data(dados['gerado_em'])} &nbsp;·&nbsp; "
+            f"Depósito: {_formatar_data(dados.get('data_deposito'))}",
+            estilos["sub"],
+        ),
+        Spacer(1, 14),
+    ]
+
+    status_atual = Table(
+        [
+            [
+                Paragraph("Situação no INPI", estilos["cabecalho"]),
+                Paragraph("Fase no escritório", estilos["cabecalho"]),
+                Paragraph("Responsável", estilos["cabecalho"]),
+            ],
+            [
+                Paragraph(_texto(dados.get("situacao"), "Não informada"), estilos["celula"]),
+                Paragraph(_texto(dados["etapa_kanban_label"]), estilos["celula"]),
+                Paragraph(_texto(dados.get("responsavel"), "Não atribuído"), estilos["celula"]),
+            ],
+        ],
+        colWidths=[59 * mm, 59 * mm, 60 * mm],
+    )
+    status_atual.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), _COR_CABECALHO),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("GRID", (0, 0), (-1, -1), 0.5, _COR_LINHA),
+                ("BACKGROUND", (0, 1), (-1, 1), _COR_ALTERNADA),
+            ]
+        )
+    )
+    story.append(status_atual)
+    story.append(Spacer(1, 16))
+
+    observacoes = dados.get("observacoes_relatorio")
+    if observacoes:
+        story.append(Paragraph("Observações", estilos["secao"]))
+        story.append(Paragraph(_texto(observacoes), estilos["celula"]))
+        story.append(Spacer(1, 14))
+
+    story.append(Paragraph("Histórico de movimentações", estilos["secao"]))
+    movimentacoes = dados.get("movimentacoes") or []
+    if movimentacoes:
+        linhas: list[list] = [
+            [
+                Paragraph("RPI", estilos["cabecalho"]),
+                Paragraph("Data", estilos["cabecalho"]),
+                Paragraph("Descrição", estilos["cabecalho"]),
+            ]
+        ]
+        for item in movimentacoes:
+            linhas.append(
+                [
+                    Paragraph(_texto(item["numero_rpi"]), estilos["celula"]),
+                    Paragraph(_formatar_data(item["data_rpi"]), estilos["celula"]),
+                    Paragraph(_texto(item["descricao"]), estilos["celula"]),
+                ]
+            )
+        tabela_movimentacoes = Table(linhas, colWidths=[20 * mm, 28 * mm, 130 * mm], repeatRows=1)
+        estilo_tabela = [
+            ("BACKGROUND", (0, 0), (-1, 0), _COR_CABECALHO),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("GRID", (0, 0), (-1, -1), 0.5, _COR_LINHA),
+        ]
+        for indice in range(1, len(linhas)):
+            if indice % 2 == 0:
+                estilo_tabela.append(("BACKGROUND", (0, indice), (-1, indice), _COR_ALTERNADA))
+        tabela_movimentacoes.setStyle(TableStyle(estilo_tabela))
+        story.append(tabela_movimentacoes)
+    else:
+        story.append(Paragraph("Nenhuma movimentação publicada na RPI até o momento.", estilos["celula"]))
+
+    story.append(Spacer(1, 18))
+    story.append(Paragraph(_DISCLAIMER_PROCESSO_MONITORADO, estilos["rodape"]))
+
+    doc.build(story, onFirstPage=_decorar_pagina, onLaterPages=_decorar_pagina)
+    return buffer.getvalue()

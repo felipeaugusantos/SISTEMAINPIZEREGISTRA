@@ -3,7 +3,7 @@ import unicodedata
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,7 @@ from app.models import (
 )
 from app.normalization import normalizar_numero_processo
 from app.proxy import cliente_ip
+from app.relatorios import gerar_pdf_processo_monitorado
 
 router = APIRouter(prefix="/v1/admin/carteira", tags=["processos monitorados"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -68,6 +69,18 @@ EtapaKanban = Literal[
     "deferido_concessao",
     "encerrado",
 ]
+# Mesmos rótulos de KANBAN_STAGES em app/web/static/admin-carteira.js --
+# usados no relatório de acompanhamento em PDF (ver gerar_relatorio_pdf).
+ETAPA_KANBAN_LABELS: dict[str, str] = {
+    "triagem": "Novo / Triagem",
+    "aguardando_documentos": "Aguardando documentos",
+    "documentacao_gru": "Documentação e GRU",
+    "protocolado": "Protocolado",
+    "aguardando_inpi": "Aguardando INPI",
+    "exigencia_recurso": "Exigência / Recurso",
+    "deferido_concessao": "Deferido / Concessão",
+    "encerrado": "Encerrado",
+}
 
 
 def _normalizar_busca(valor: str) -> str:
@@ -200,6 +213,13 @@ class AtualizacaoMonitoramento(BaseModel):
             return None
         limpo = re.sub(r"\s+", " ", str(valor)).strip()
         return limpo or None
+
+
+class GeracaoRelatorioProcessoMonitorado(BaseModel):
+    # Achado do usuário (08/09/2026): texto digitado na hora de gerar o PDF,
+    # específico deste relatório -- não persiste no cadastro interno do
+    # processo (esse já tem seu próprio campo `observacoes`, de uso interno).
+    observacoes_relatorio: str | None = Field(default=None, max_length=4000)
 
 
 async def _empresa(
@@ -714,6 +734,7 @@ async def listar_kanban_inpi(
         (
             await session.execute(
                 select(grupo.label("grupo"), func.count())
+                .select_from(ProcessoMonitorado)
                 .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
                 .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
                 .where(*filtros)
@@ -1472,6 +1493,95 @@ async def atualizar_monitoramento(
     )
     await session.commit()
     return {"status": "ok", "id": monitorado.id}
+
+
+@router.post("/{monitorado_id}/relatorio-pdf")
+async def gerar_relatorio_pdf(
+    monitorado_id: int,
+    dados: GeracaoRelatorioProcessoMonitorado,
+    request: Request,
+    session: SessionDep,
+    usuario: ViewDep,
+) -> Response:
+    # Achado do usuário (08/09/2026): faltava uma forma de mostrar ao
+    # cliente a fase atual do processo monitorado, sem dar acesso ao
+    # sistema interno -- ver app.relatorios.gerar_pdf_processo_monitorado.
+    linha = (
+        await session.execute(
+            select(ProcessoMonitorado, Processo, EmpresaCRM.nome, UsuarioOperacoes.nome)
+            .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+            .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
+            .outerjoin(UsuarioOperacoes, UsuarioOperacoes.id == ProcessoMonitorado.responsavel_id)
+            .where(
+                ProcessoMonitorado.id == monitorado_id,
+                ProcessoMonitorado.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).first()
+    if linha is None:
+        raise HTTPException(404, "Processo monitorado não encontrado")
+    monitorado, processo, empresa_nome, responsavel_nome = linha
+
+    movimentacoes = (
+        (
+            await session.execute(
+                select(Movimentacao)
+                .where(Movimentacao.processo_id == processo.id)
+                .order_by(Movimentacao.data_rpi.desc(), Movimentacao.id.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    titulares = (
+        (
+            await session.execute(
+                select(Titular.nome)
+                .join(processo_titulares, processo_titulares.c.titular_id == Titular.id)
+                .where(processo_titulares.c.processo_id == processo.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    pdf = gerar_pdf_processo_monitorado(
+        {
+            "numero": processo.numero,
+            "titulo": processo.titulo,
+            "tipo": processo.tipo,
+            "data_deposito": processo.data_deposito,
+            "situacao": processo.situacao,
+            "titulares": list(titulares),
+            "procurador": processo.procurador,
+            "empresa": empresa_nome,
+            "responsavel": responsavel_nome,
+            "status": monitorado.status,
+            "etapa_kanban_label": ETAPA_KANBAN_LABELS.get(monitorado.etapa_kanban, monitorado.etapa_kanban),
+            "movimentacoes": [
+                {"data_rpi": mov.data_rpi, "numero_rpi": mov.numero_rpi, "descricao": mov.descricao}
+                for mov in movimentacoes
+            ],
+            "observacoes_relatorio": (dados.observacoes_relatorio or "").strip() or None,
+            "gerado_em": datetime.now(UTC),
+            "gerado_por": usuario.ator,
+        }
+    )
+    _auditar(
+        session,
+        request,
+        usuario,
+        "gerar_relatorio_processo_monitorado",
+        f"processo-monitorado:{monitorado.id}",
+        {"processo": processo.numero},
+    )
+    await session.commit()
+    nome_arquivo = normalizar_numero_processo(processo.numero) or "processo"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="acompanhamento-{nome_arquivo}.pdf"'},
+    )
 
 
 @router.post("/{monitorado_id}/atualizar")

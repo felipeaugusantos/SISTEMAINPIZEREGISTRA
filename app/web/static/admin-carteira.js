@@ -93,7 +93,7 @@ function renderPortfolio(data) {
       <div class="portfolio-process"><a class="process-number" href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><h3>${escapeHtml(item.titulo_exibicao || item.titulo || "Título não informado pelo INPI")}</h3><p>${escapeHtml(item.empresa || "Sem empresa vinculada")} · ${escapeHtml(item.procurador || "Procurador não informado")}</p><small>Depósito: ${formatDate(item.data_deposito)} · origem: ${escapeHtml(item.origem)}</small>${item.lead_id ? `<small class="portfolio-lead-link">Lead de origem: ${escapeHtml(item.lead_marca || "#" + item.lead_id)}</small>` : ""}</div>
       <div class="portfolio-inpi"><span class="portfolio-item-label">Situação no INPI</span>${inpiBadge(item)}<strong>${escapeHtml(item.situacao || "Não informada")}</strong><p><span>Responsável</span>${escapeHtml(item.responsavel || "Não atribuído")}</p></div>
       <div class="latest">${movement ? `<small>Última movimentação · RPI ${movement.numero_rpi}</small><strong>${formatDate(movement.data)}</strong><p>${escapeHtml(movement.descricao || "")}</p>` : `<small>Movimentações</small><strong>Nenhuma localizada</strong>`}</div>
-      <div class="portfolio-status"><label><span class="portfolio-item-label">Status interno</span><select data-status>${statusOptions(item.status)}</select></label><label><span class="portfolio-item-label">Procurador</span><input data-procurador type="text" value="${escapeHtml(item.procurador || "")}" placeholder="Não informado" maxlength="500"></label><button class="primary-button" data-save-status type="button">Salvar</button><button class="secondary-button" data-atualizar type="button">Atualizar status</button></div>
+      <div class="portfolio-status"><label><span class="portfolio-item-label">Status interno</span><select data-status>${statusOptions(item.status)}</select></label><label><span class="portfolio-item-label">Procurador</span><input data-procurador type="text" value="${escapeHtml(item.procurador || "")}" placeholder="Não informado" maxlength="500"></label><button class="primary-button" data-save-status type="button">Salvar</button><button class="secondary-button" data-atualizar type="button">Atualizar status</button><button class="secondary-button" data-relatorio type="button">Gerar relatório</button></div>
     </article>`;
   }).join("");
   renderPagination(data);
@@ -298,6 +298,58 @@ document.querySelector("#portfolio-list").addEventListener("click", async event 
     await loadPortfolio();
   }
   catch (error) { showMessage(error.message, "error"); button.disabled = false; button.textContent = "Atualizar status"; }
+});
+
+// Achado do usuário (08/09/2026): relatório de acompanhamento em PDF pro
+// cliente -- mostra situação no INPI, fase no escritório e histórico de
+// movimentações da RPI, com um campo de observações digitado na hora
+// (não fica salvo no cadastro interno do processo).
+const reportDialog = document.querySelector("#report-dialog");
+const reportForm = document.querySelector("#report-form");
+document.querySelector("#portfolio-list").addEventListener("click", event => {
+  const button = event.target.closest("[data-relatorio]"); if (!button) return;
+  const card = button.closest("[data-id]");
+  reportForm.reset();
+  reportForm.dataset.monitoradoId = card.dataset.id;
+  reportDialog.showModal();
+});
+document.querySelector("#close-report").addEventListener("click", () => reportDialog.close());
+document.querySelector("#cancel-report").addEventListener("click", () => reportDialog.close());
+reportForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const submitButton = document.querySelector("#report-submit");
+  submitButton.disabled = true;
+  submitButton.textContent = "Gerando…";
+  try {
+    const dados = Object.fromEntries(new FormData(reportForm));
+    const response = await fetch(`/v1/admin/carteira/${reportForm.dataset.monitoradoId}/relatorio-pdf`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ observacoes_relatorio: dados.observacoes_relatorio || null }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || "Não foi possível gerar o relatório.");
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") || "";
+    const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "acompanhamento.pdf";
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    reportDialog.close();
+    showMessage("Relatório gerado.", "success");
+  } catch (error) {
+    showMessage(error.message, "error");
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = "Gerar e baixar PDF";
+  }
 });
 
 const importDialog = document.querySelector("#import-dialog");

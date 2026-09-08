@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/static/styles.css?v=51">
   <link rel="stylesheet" href="/static/admin-carteira.css?v=10">
   <script src="/static/admin-shell.js?v=40" defer></script>
-  <script src="/static/admin-carteira.js?v=16" defer></script>
+  <script src="/static/admin-carteira.js?v=17" defer></script>
 </head>
 <body class="admin-body" data-admin-section="portfolio">
   <main class="admin-main portfolio-main">
@@ -73,6 +73,14 @@
       <label><span>Responsável</span><select name="responsavel_id" id="manual-owner"><option value="">Não atribuído</option></select></label>
       <label><span>Observações</span><textarea name="observacoes" rows="4" maxlength="4000"></textarea></label>
       <footer><button id="cancel-manual" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Adicionar à carteira</button></footer>
+    </form>
+  </dialog>
+  <dialog id="report-dialog" class="portfolio-dialog">
+    <form id="report-form" method="dialog">
+      <header><div><p class="eyebrow">RELATÓRIO PARA O CLIENTE</p><h2>Gerar acompanhamento em PDF</h2></div><button id="close-report" type="button" aria-label="Fechar">×</button></header>
+      <p class="import-hint">O PDF mostra a situação atual no INPI, a fase no escritório e o histórico de movimentações da RPI. As observações abaixo aparecem só neste relatório -- não ficam salvas no cadastro interno do processo.</p>
+      <label><span>Observações (opcional)</span><textarea name="observacoes_relatorio" rows="4" maxlength="4000" placeholder="Ex.: previsão de exigência, orientação para o cliente…"></textarea></label>
+      <footer><button id="cancel-report" class="secondary-button" type="button">Cancelar</button><button id="report-submit" class="primary-button" type="submit">Gerar e baixar PDF</button></footer>
     </form>
   </dialog>
   <dialog id="import-dialog" class="portfolio-dialog">

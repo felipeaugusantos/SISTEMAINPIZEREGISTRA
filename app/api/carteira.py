@@ -1571,7 +1571,7 @@ async def gerar_relatorio_pdf(
         session,
         request,
         usuario,
-        "gerar_relatorio_processo_monitorado",
+        "relatorio_carteira",
         f"processo-monitorado:{monitorado.id}",
         {"processo": processo.numero},
     )

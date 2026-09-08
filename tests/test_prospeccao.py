@@ -321,7 +321,10 @@ def test_criar_campanha() -> None:
     corpo = resposta.json()
     assert corpo["nome"] == "Padarias em SP capital"
     assert corpo["status"] == "rascunho"
-    assert corpo["criterios_busca"] == {"cnae_principal": "4711302", "uf": "SP"}
+    # Achado do usuário (08/09/2026): uf/cidade viram lista (multi-seleção),
+    # coeridas a partir de valor único enviado aqui -- ver
+    # CriteriosBuscaCampanha._normalizar_uf/_limpar_cidade em app/schemas.py.
+    assert corpo["criterios_busca"] == {"cnae_principal": "4711302", "uf": ["SP"], "cidade": []}
     assert session.commits == 1
 
 

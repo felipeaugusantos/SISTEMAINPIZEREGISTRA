@@ -37,12 +37,16 @@
 .prospeccao-card header p{color:#617068;max-width:640px}
 .prospeccao-list-header{align-items:center;gap:16px}
 
-.prospeccao-form{display:grid;grid-template-columns:minmax(220px,1fr) 130px minmax(160px,.8fr) auto;gap:12px;align-items:end}
+.prospeccao-form{display:grid;grid-template-columns:minmax(200px,1.3fr) 120px minmax(150px,.9fr) minmax(150px,.9fr) auto;gap:12px;align-items:end}
 .prospeccao-form label,.prospeccao-dialog label{display:grid;gap:6px}
 .prospeccao-form label span,.prospeccao-dialog label span{font-size:.76rem;font-weight:700}
 .prospeccao-form input,.prospeccao-form select,.prospeccao-dialog input,.prospeccao-dialog select,.prospeccao-dialog textarea{width:100%;padding:12px;border:1px solid #cbd4cd;border-radius:11px;background:#fff;font:inherit;box-sizing:border-box}
-.prospeccao-uf-select{height:auto;padding:6px}
-.prospeccao-uf-select option{padding:4px 6px;border-radius:6px}
+/* Achado do usuário (08/09/2026): o <select multiple> de UF ficava alto e
+   largo demais, destoando da altura dos outros campos do formulário -- reduz
+   pra caber ~3 opções visíveis com rolagem interna, mesma altura visual de um
+   input compacto, sem herdar o padding/font genérico acima. */
+.prospeccao-uf-select{height:auto;max-height:96px;padding:4px;font-size:.82rem}
+.prospeccao-uf-select option{padding:3px 6px;border-radius:6px}
 .prospeccao-toggle{display:flex!important;flex-direction:row-reverse;justify-content:flex-end;align-items:center;gap:10px}
 .prospeccao-toggle input{width:auto!important}
 

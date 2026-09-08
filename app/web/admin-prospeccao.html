@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Radar de Prospecção — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=51">
-  <link rel="stylesheet" href="/static/admin-prospeccao.css?v=4">
+  <link rel="stylesheet" href="/static/admin-prospeccao.css?v=5">
   <script src="/static/admin-shell.js?v=40" defer></script>
-  <script src="/static/admin-prospeccao.js?v=8" defer></script>
+  <script src="/static/admin-prospeccao.js?v=9" defer></script>
 </head>
 <body class="admin-body" data-admin-section="prospeccao">
   <main class="admin-main prospeccao-main">
@@ -57,7 +57,7 @@
           <option value="duplicado">Duplicado</option>
           <option value="convertido_lead">Convertido em lead</option>
         </select></label>
-        <label><span>UF <small>(Ctrl/Cmd para marcar mais de uma)</small></span><select name="uf" multiple size="4" class="prospeccao-uf-select"></select></label>
+        <label><span>UF <small>(Ctrl/Cmd para marcar mais de uma)</small></span><select name="uf" multiple size="3" class="prospeccao-uf-select"></select></label>
         <label><span>Cidade <small>separe várias por vírgula</small></span><input name="cidade" placeholder="Opcional"></label>
         <button class="primary-button" type="submit">Filtrar</button>
       </form>
@@ -106,7 +106,7 @@
       <label><span>Nome da campanha</span><input name="nome" minlength="2" maxlength="120" required></label>
       <label><span>Descrição</span><textarea name="descricao" rows="2" maxlength="2000"></textarea></label>
       <label><span>CNAE principal</span><input name="cnae_principal" maxlength="10" placeholder="Ex.: 4711302"></label>
-      <label><span>UF <small>(Ctrl/Cmd para marcar mais de uma; nenhuma marcada busca em todas)</small></span><select name="uf" multiple size="4" class="prospeccao-uf-select"></select></label>
+      <label><span>UF <small>(Ctrl/Cmd para marcar mais de uma; nenhuma marcada busca em todas)</small></span><select name="uf" multiple size="3" class="prospeccao-uf-select"></select></label>
       <label><span>Cidade <small>separe várias por vírgula</small></span><input name="cidade" maxlength="400"></label>
       <label><span>Porte</span><select name="porte"><option value="">Qualquer</option><option value="micro">Micro</option><option value="pequeno">Pequeno</option><option value="demais">Demais</option></select></label>
       <label><span>Aberta a partir de</span><input name="data_abertura_de" type="date"></label>

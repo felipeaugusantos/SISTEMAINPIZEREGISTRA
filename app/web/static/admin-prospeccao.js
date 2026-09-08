@@ -144,7 +144,11 @@ function prospectActions(item) {
     }
     botoes.push(`<button class="secondary-button" data-rejeitar type="button">Rejeitar</button>`);
   }
-  if (item.status === "novo" || item.status === "aprovado") botoes.push(`<button class="primary-button" data-converter type="button">Converter em lead</button>`);
+  // Achado do usuário (08/09/2026): o botão aparecia também em status "novo",
+  // mas o backend só converte quem já está "aprovado" (POST /converter-lead,
+  // achado FASE5-9) -- clicar em "novo" sempre falhava com 422, dando a
+  // impressão de que "não funciona". Só mostra quando pode de fato converter.
+  if (item.status === "aprovado") botoes.push(`<button class="primary-button" data-converter type="button">Converter em lead</button>`);
   return botoes.join("");
 }
 function renderProspects(data) {

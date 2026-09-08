@@ -317,6 +317,7 @@ def test_gerar_qualificacao_lead_usa_chamada_injetada_e_nao_comita() -> None:
 
     qualificacao = asyncio.run(gerar_qualificacao_lead(session, lead, chamar_ia=_chamada_qualificacao_fake))
 
+    assert isinstance(qualificacao, QualificacaoIALead)
     assert qualificacao.prioridade == "alta"
     assert "boa chance" in qualificacao.observacao
     assert qualificacao.erro is None

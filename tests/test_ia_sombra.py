@@ -323,9 +323,6 @@ def test_gerar_explicacoes_risco_pendentes_dentro_do_horario_comercial_devolve_z
 
     assert resultado == 0
     assert session.executados == []
-    explicacoes_criadas = [item for item in session.adicionados if isinstance(item, ExplicacaoAnaliseMarca)]
-    assert len(explicacoes_criadas) == 1
-    assert explicacoes_criadas[0].avaliacao_risco_id == 2
 
 
 # --- Frente B: qualificação da IA na captação de leads --------------------

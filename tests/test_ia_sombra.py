@@ -18,7 +18,6 @@ from app.ia_sombra import (
 from app.models import (
     AvaliacaoRiscoMarca,
     ContatoLead,
-    ExplicacaoAnaliseMarca,
     Lead,
     PoliticaCRM,
     QualificacaoIALead,

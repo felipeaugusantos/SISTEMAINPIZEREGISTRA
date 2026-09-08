@@ -386,7 +386,7 @@ def test_institutional_pages() -> None:
 def test_confiabilidade_expoe_reprocessamento_dos_agentes() -> None:
     pagina = (web_dir / "admin-confiabilidade.html").read_text(encoding="utf-8")
 
-    assert "admin-confiabilidade.js?v=5" in pagina
+    assert "admin-confiabilidade.js?v=6" in pagina
     assert 'data-job="registrabilidade.reprocessar_agentes"' in pagina
     assert "Reprocessar agentes pendentes" in pagina
 

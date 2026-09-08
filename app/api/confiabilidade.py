@@ -1,6 +1,6 @@
 import hashlib
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -12,14 +12,18 @@ from app.auth import UsuarioAtualDep, exigir_csrf
 from app.database import get_session
 from app.models import (
     AlertaSistema,
+    BloqueioRetencao,
     EventoAuditoria,
     Lead,
     Organizacao,
     PesquisaMarca,
+    PoliticaRetencao,
+    SimulacaoRetencao,
     SolicitacaoPrivacidade,
     UsuarioOperacoes,
 )
 from app.queueing import enfileirar, status_fila
+from app.retencao import politica_retencao_vigente, prazo_retencao_vigente, simular_retencao_leads
 
 router = APIRouter(prefix="/v1/admin/confiabilidade", tags=["confiabilidade"])
 public_router = APIRouter(prefix="/v1/tenant", tags=["tenant"])
@@ -104,7 +108,27 @@ class ConfiguracaoTenantInput(BaseModel):
 
     branding: IdentidadeVisualInput = Field(default_factory=IdentidadeVisualInput)
     retencao_dados_dias: int | None = Field(default=None, ge=30, le=3650)
+    retencao_justificativa: str | None = Field(default=None, min_length=20, max_length=1000)
+    retencao_finalidade: str | None = Field(default=None, min_length=10, max_length=1000)
+    retencao_base_legal: str | None = Field(default=None, min_length=10, max_length=1000)
+    retencao_vigencia_em: datetime | None = None
+    confirmar_reducao_retencao: bool = False
+    retencao_simulacao_id: int | None = Field(default=None, ge=1)
     politica_privacidade_versao: str | None = Field(default=None, min_length=1, max_length=30)
+
+
+class SimulacaoRetencaoInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prazo_dias: int | None = Field(default=None, ge=30, le=3650)
+    limite: int = Field(default=200, ge=1, le=200)
+    deslocamento: int = Field(default=0, ge=0)
+
+
+class BloqueioRetencaoInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    motivo: str = Field(min_length=20, max_length=1000)
 
 
 @router.get("")
@@ -140,6 +164,25 @@ async def painel(session: SessionDep, usuario: AdminDep) -> dict:
             .limit(1)
         )
     ).scalar_one_or_none()
+    politica_vigente = await politica_retencao_vigente(session, org)
+    prazo_leads = politica_vigente.prazo_dias if politica_vigente else org.retencao_dados_dias
+    politicas = list(
+        (
+            await session.execute(
+                select(PoliticaRetencao)
+                .where(PoliticaRetencao.organizacao_id == org_id)
+                .order_by(PoliticaRetencao.vigencia_em.desc(), PoliticaRetencao.id.desc())
+                .limit(20)
+            )
+        ).scalars()
+    )
+    holds_ativos = (
+        await session.execute(
+            select(func.count())
+            .select_from(BloqueioRetencao)
+            .where(BloqueioRetencao.organizacao_id == org_id, BloqueioRetencao.ativo.is_(True))
+        )
+    ).scalar_one()
     return {
         "organizacao": {
             "id": org.id,
@@ -154,6 +197,59 @@ async def painel(session: SessionDep, usuario: AdminDep) -> dict:
         "uso": contagens,
         "fila": await status_fila(),
         "permissoes": {"superadmin": bool(usuario.superadmin)},
+        "retencao": {
+            "modo": "revisao_humana",
+            "descarte_automatico": False,
+            "matriz": [
+                {
+                    "categoria": "lead",
+                    "prazo_dias": prazo_leads,
+                    "marco_inicial": politica_vigente.marco_inicial if politica_vigente else "lead.criado_em",
+                    "finalidade": (
+                        politica_vigente.finalidade
+                        if politica_vigente
+                        else "Pendente de formalização para o prazo legado."
+                    ),
+                    "base_legal": (
+                        politica_vigente.base_legal
+                        if politica_vigente
+                        else "Pendente de formalização para o prazo legado."
+                    ),
+                    "excecoes": (
+                        politica_vigente.excecoes
+                        if politica_vigente
+                        else [
+                            "atendimento_ativo",
+                            "processo_ativo",
+                            "contrato_ativo",
+                            "documento_obrigacao_juridica",
+                            "legal_hold",
+                        ]
+                    ),
+                    "ativo": politica_vigente.ativo if politica_vigente else True,
+                }
+            ],
+            "legal_holds_ativos": holds_ativos,
+            "historico": [
+                {
+                    "id": politica.id,
+                    "categoria": politica.categoria,
+                    "prazo_dias": politica.prazo_dias,
+                    "marco_inicial": politica.marco_inicial,
+                    "finalidade": politica.finalidade,
+                    "base_legal": politica.base_legal,
+                    "vigencia_em": politica.vigencia_em,
+                    "justificativa": politica.justificativa,
+                    "excecoes": politica.excecoes,
+                    "ativo": politica.ativo,
+                    "reducao": politica.reducao,
+                    "reducao_confirmada": politica.reducao_confirmada,
+                    "criado_por": politica.criado_por,
+                    "criado_em": politica.criado_em,
+                }
+                for politica in politicas
+            ],
+        },
         "ultima_rotina_aprendizado": (
             {
                 "id": ultima_rotina.id,
@@ -179,11 +275,220 @@ async def configurar(dados: ConfiguracaoTenantInput, request: Request, session: 
     identidade_visual = dados.branding.model_dump(exclude_unset=True, include=CAMPOS_IDENTIDADE_VISUAL)
     org.branding = {**branding_atual, **identidade_visual}
     if dados.retencao_dados_dias is not None:
-        org.retencao_dados_dias = dados.retencao_dados_dias
+        prazo_atual = await prazo_retencao_vigente(session, org)
+        novo_prazo = dados.retencao_dados_dias
+        if novo_prazo != prazo_atual:
+            if (
+                not dados.retencao_justificativa
+                or not dados.retencao_finalidade
+                or not dados.retencao_base_legal
+                or dados.retencao_vigencia_em is None
+            ):
+                raise HTTPException(
+                    422,
+                    "Alterar a retenção exige justificativa, finalidade, base legal e data de vigência.",
+                )
+            reducao = novo_prazo < prazo_atual
+            if reducao and not dados.confirmar_reducao_retencao:
+                raise HTTPException(422, "A redução do prazo exige confirmação explícita.")
+            if dados.retencao_simulacao_id is None:
+                raise HTTPException(422, "Execute e confirme uma simulação antes de alterar o prazo.")
+            simulacao = (
+                await session.execute(
+                    select(SimulacaoRetencao).where(
+                        SimulacaoRetencao.id == dados.retencao_simulacao_id,
+                        SimulacaoRetencao.organizacao_id == org.id,
+                        SimulacaoRetencao.categoria == "lead",
+                        SimulacaoRetencao.prazo_dias == novo_prazo,
+                        SimulacaoRetencao.criado_por_id == usuario.id,
+                        SimulacaoRetencao.criado_em >= datetime.now(UTC) - timedelta(hours=24),
+                        SimulacaoRetencao.usada_em.is_(None),
+                    )
+                )
+            ).scalar_one_or_none()
+            if simulacao is None:
+                raise HTTPException(422, "Simulação inválida, expirada, já utilizada ou de outro contexto.")
+            vigencia = dados.retencao_vigencia_em
+            if vigencia.tzinfo is None:
+                vigencia = vigencia.replace(tzinfo=UTC)
+            politica = PoliticaRetencao(
+                organizacao_id=org.id,
+                categoria="lead",
+                prazo_dias=novo_prazo,
+                marco_inicial="lead.criado_em",
+                finalidade=dados.retencao_finalidade.strip(),
+                base_legal=dados.retencao_base_legal.strip(),
+                vigencia_em=vigencia,
+                justificativa=dados.retencao_justificativa.strip(),
+                excecoes=[
+                    "atendimento_ativo",
+                    "processo_ativo",
+                    "contrato_ativo",
+                    "documento_obrigacao_juridica",
+                    "legal_hold",
+                ],
+                ativo=True,
+                reducao=reducao,
+                reducao_confirmada=bool(reducao and dados.confirmar_reducao_retencao),
+                criado_por_id=usuario.id,
+                criado_por=usuario.email,
+            )
+            session.add(politica)
+            simulacao.usada_em = datetime.now(UTC)
+            if vigencia <= datetime.now(UTC):
+                org.retencao_dados_dias = novo_prazo
+            session.add(
+                EventoAuditoria(
+                    organizacao_id=org.id,
+                    actor_id=usuario.id,
+                    ator=usuario.email,
+                    acao="ALTERAR_POLITICA_RETENCAO",
+                    recurso="politica_retencao:lead",
+                    sucesso=True,
+                    status_http=200,
+                    detalhes={
+                        "prazo_anterior": prazo_atual,
+                        "prazo_novo": novo_prazo,
+                        "vigencia_em": vigencia.isoformat(),
+                        "reducao": reducao,
+                    },
+                )
+            )
     if dados.politica_privacidade_versao is not None:
         org.politica_privacidade_versao = dados.politica_privacidade_versao
     await session.commit()
     return {"status": "ok"}
+
+
+@router.post("/retencao/simular")
+async def simular_retencao(
+    dados: SimulacaoRetencaoInput,
+    session: SessionDep,
+    usuario: AdminDep,
+) -> dict:
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    if org is None:
+        raise HTTPException(404, "Organização não encontrada")
+    resultado = await simular_retencao_leads(
+        session,
+        org,
+        prazo_dias=dados.prazo_dias,
+        limite_amostra=dados.limite,
+        deslocamento=dados.deslocamento,
+    )
+    resumo = {
+        **resultado,
+        "data_corte": resultado["data_corte"].isoformat(),
+        "registro_mais_antigo": (
+            resultado["registro_mais_antigo"].isoformat() if resultado["registro_mais_antigo"] else None
+        ),
+    }
+    simulacao = SimulacaoRetencao(
+        organizacao_id=usuario.organizacao_id,
+        categoria="lead",
+        prazo_dias=resultado["prazo_dias"],
+        resultado=resumo,
+        criado_por_id=usuario.id,
+        criado_por=usuario.email,
+    )
+    session.add(simulacao)
+    await session.flush()
+    await session.commit()
+    return {**resultado, "simulacao_id": simulacao.id}
+
+
+@router.post("/retencao/leads/{lead_id}/legal-hold", status_code=201)
+async def criar_legal_hold(
+    lead_id: int,
+    dados: BloqueioRetencaoInput,
+    session: SessionDep,
+    usuario: AdminDep,
+) -> dict:
+    lead = (
+        await session.execute(
+            select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(404, "Lead não encontrado")
+    hold = (
+        await session.execute(
+            select(BloqueioRetencao).where(
+                BloqueioRetencao.organizacao_id == usuario.organizacao_id,
+                BloqueioRetencao.categoria == "lead",
+                BloqueioRetencao.recurso_id == lead_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if hold is None:
+        hold = BloqueioRetencao(
+            organizacao_id=usuario.organizacao_id,
+            categoria="lead",
+            recurso_id=lead_id,
+            motivo=dados.motivo.strip(),
+            ativo=True,
+            criado_por_id=usuario.id,
+            criado_por=usuario.email,
+        )
+        session.add(hold)
+    else:
+        hold.motivo = dados.motivo.strip()
+        hold.ativo = True
+        hold.liberado_por_id = None
+        hold.liberado_por = None
+        hold.liberado_em = None
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
+            ator=usuario.email,
+            acao="ATIVAR_LEGAL_HOLD",
+            recurso=f"lead:{lead_id}",
+            sucesso=True,
+            status_http=201,
+            detalhes={},
+        )
+    )
+    await session.commit()
+    return {"status": "ativo", "categoria": "lead", "recurso_id": lead_id}
+
+
+@router.delete("/retencao/leads/{lead_id}/legal-hold")
+async def liberar_legal_hold(
+    lead_id: int,
+    session: SessionDep,
+    usuario: AdminDep,
+) -> dict:
+    hold = (
+        await session.execute(
+            select(BloqueioRetencao).where(
+                BloqueioRetencao.organizacao_id == usuario.organizacao_id,
+                BloqueioRetencao.categoria == "lead",
+                BloqueioRetencao.recurso_id == lead_id,
+                BloqueioRetencao.ativo.is_(True),
+            )
+        )
+    ).scalar_one_or_none()
+    if hold is None:
+        return {"status": "liberado", "categoria": "lead", "recurso_id": lead_id, "ja_liberado": True}
+    hold.ativo = False
+    hold.liberado_por_id = usuario.id
+    hold.liberado_por = usuario.email
+    hold.liberado_em = datetime.now(UTC)
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
+            ator=usuario.email,
+            acao="LIBERAR_LEGAL_HOLD",
+            recurso=f"lead:{lead_id}",
+            sucesso=True,
+            status_http=200,
+            detalhes={},
+        )
+    )
+    await session.commit()
+    return {"status": "liberado", "categoria": "lead", "recurso_id": lead_id, "ja_liberado": False}
 
 
 @router.post("/tarefas/{tipo}", status_code=202)

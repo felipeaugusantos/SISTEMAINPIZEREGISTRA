@@ -8,12 +8,18 @@ const mfaRecovery = document.querySelector("#mfa-recovery");
 const mfaStatus = document.querySelector("#mfa-status");
 const socialIdentities = document.querySelector("#social-identities");
 const socialIdentityStatus = document.querySelector("#social-identity-status");
+const simulationOutput = document.querySelector("#retention-simulation");
+const legalHoldForm = document.querySelector("#legal-hold-form");
+const legalHoldStatus = document.querySelector("#legal-hold-status");
+let prazoRetencaoCarregado = null;
+let ultimaSimulacaoId = null;
 
 async function api(url, options = {}) {
   options.headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   const response = await fetch(url, options);
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.detail || `Falha na operação (${response.status})`);
+  const detalhe = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail || {});
+  if (!response.ok) throw new Error(detalhe || `Falha na operação (${response.status})`);
   return payload;
 }
 
@@ -53,7 +59,9 @@ async function carregar() {
     form.elements.nome_exibido.value = org.branding.nome_exibido || org.nome;
     form.elements.cor_primaria.value = org.branding.cor_primaria || "#006b4f";
     form.elements.logo_url.value = org.branding.logo_url || "";
-    form.elements.retencao_dados_dias.value = org.retencao_dados_dias;
+    prazoRetencaoCarregado = data.retencao?.matriz?.find(item => item.categoria === "lead")?.prazo_dias
+      ?? org.retencao_dados_dias;
+    form.elements.retencao_dados_dias.value = prazoRetencaoCarregado;
     form.elements.politica_privacidade_versao.value = org.politica_privacidade_versao;
     contexto.textContent = `${org.nome} · ${org.status} · ${org.assinatura_status}`;
     document.querySelector("#learning-pipeline-job").hidden = !data.permissoes?.superadmin;
@@ -68,6 +76,9 @@ async function carregar() {
 form.addEventListener("submit", async event => {
   event.preventDefault();
   const dados = Object.fromEntries(new FormData(form));
+  const novoPrazo = Number(dados.retencao_dados_dias);
+  const alterouRetencao = novoPrazo !== prazoRetencaoCarregado;
+  const vigencia = dados.retencao_vigencia_em ? new Date(dados.retencao_vigencia_em).toISOString() : null;
   try {
     await api("/v1/admin/confiabilidade/configuracao", {
       method: "PATCH",
@@ -77,13 +88,76 @@ form.addEventListener("submit", async event => {
           cor_primaria: dados.cor_primaria,
           logo_url: dados.logo_url,
         },
-        retencao_dados_dias: Number(dados.retencao_dados_dias),
+        retencao_dados_dias: novoPrazo,
+        retencao_justificativa: alterouRetencao ? dados.retencao_justificativa : null,
+        retencao_finalidade: alterouRetencao ? dados.retencao_finalidade : null,
+        retencao_base_legal: alterouRetencao ? dados.retencao_base_legal : null,
+        retencao_vigencia_em: alterouRetencao ? vigencia : null,
+        confirmar_reducao_retencao: dados.confirmar_reducao_retencao === "on",
+        retencao_simulacao_id: alterouRetencao ? ultimaSimulacaoId : null,
         politica_privacidade_versao: dados.politica_privacidade_versao,
       }),
     });
     definirStatus(msg, "Configuração salva.", "success");
+    form.elements.retencao_justificativa.value = "";
+    form.elements.retencao_finalidade.value = "";
+    form.elements.retencao_base_legal.value = "";
+    form.elements.retencao_vigencia_em.value = "";
+    form.elements.confirmar_reducao_retencao.checked = false;
+    ultimaSimulacaoId = null;
+    await carregar();
   } catch (error) {
     definirStatus(msg, error.message, "error");
+  }
+});
+
+form.elements.retencao_dados_dias.addEventListener("input", () => {
+  ultimaSimulacaoId = null;
+});
+
+document.querySelector("#simulate-retention").addEventListener("click", async () => {
+  try {
+    const resultado = await api("/v1/admin/confiabilidade/retencao/simular", {
+      method: "POST",
+      body: JSON.stringify({ prazo_dias: Number(form.elements.retencao_dados_dias.value) }),
+    });
+    ultimaSimulacaoId = resultado.simulacao_id;
+    simulationOutput.hidden = false;
+    simulationOutput.textContent = [
+      "Simulação — nenhum descarte executado",
+      `Registros afetados: ${resultado.total_afetado}`,
+      `Mais antigo: ${resultado.registro_mais_antigo || "—"}`,
+      `Por status: ${JSON.stringify(resultado.por_status)}`,
+      `Bloqueios: ${JSON.stringify(resultado.bloqueios)}`,
+      `Elegíveis para revisão humana: ${resultado.elegiveis_revisao_humana}`,
+    ].join("\n");
+  } catch (error) {
+    definirStatus(simulationOutput, error.message, "error");
+  }
+});
+
+legalHoldForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const dados = Object.fromEntries(new FormData(legalHoldForm));
+  try {
+    await api(`/v1/admin/confiabilidade/retencao/leads/${Number(dados.lead_id)}/legal-hold`, {
+      method: "POST",
+      body: JSON.stringify({ motivo: dados.motivo }),
+    });
+    definirStatus(legalHoldStatus, "Legal hold ativado e auditado.", "success");
+  } catch (error) {
+    definirStatus(legalHoldStatus, error.message, "error");
+  }
+});
+
+document.querySelector("#release-legal-hold").addEventListener("click", async () => {
+  const leadId = Number(legalHoldForm.elements.lead_id.value);
+  if (!leadId) return definirStatus(legalHoldStatus, "Informe o ID do lead.", "error");
+  try {
+    await api(`/v1/admin/confiabilidade/retencao/leads/${leadId}/legal-hold`, { method: "DELETE" });
+    definirStatus(legalHoldStatus, "Legal hold liberado e auditado.", "success");
+  } catch (error) {
+    definirStatus(legalHoldStatus, error.message, "error");
   }
 });
 

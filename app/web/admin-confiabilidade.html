@@ -7,7 +7,7 @@
   <title>Confiabilidade — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=51">
   <script src="/static/admin-shell.js?v=40" defer></script>
-  <script src="/static/admin-confiabilidade.js?v=5" defer></script>
+  <script src="/static/admin-confiabilidade.js?v=6" defer></script>
 </head>
 <body class="admin-body" data-admin-section="reliability">
   <main class="admin-main admin-dashboard">
@@ -100,9 +100,35 @@
           <div class="user-fields">
             <label>Retenção de dados (dias)<input name="retencao_dados_dias" type="number" min="30" max="3650" required></label>
             <label>Versão da política de privacidade<input name="politica_privacidade_versao" required></label>
+            <label class="field-full">Justificativa da alteração<input name="retencao_justificativa" minlength="20" maxlength="1000" placeholder="Obrigatória quando o prazo mudar"></label>
+            <label class="field-full">Finalidade da retenção<input name="retencao_finalidade" minlength="10" maxlength="1000" placeholder="Por que esses dados precisam ser mantidos?"></label>
+            <label class="field-full">Base legal<input name="retencao_base_legal" minlength="10" maxlength="1000" placeholder="Base legal validada pelo responsável de privacidade"></label>
+            <label>Data e hora de vigência<input name="retencao_vigencia_em" type="datetime-local"></label>
+            <label class="consent-label"><input name="confirmar_reducao_retencao" type="checkbox" class="consent-checkbox"> Confirmo expressamente a redução do prazo</label>
           </div>
+          <p class="field-hint">Nenhum registro é descartado automaticamente. Toda alteração fica vinculada ao usuário responsável.</p>
+          <div class="reliability-actions">
+            <button id="simulate-retention" class="secondary-button" type="button">Simular impacto</button>
+          </div>
+          <pre id="retention-simulation" class="status-message" aria-live="polite" hidden></pre>
         </fieldset>
         <button class="primary-button form-submit" type="submit">Salvar configuração</button>
+      </form>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Proteção jurídica</p><h2>Legal hold</h2></div></header>
+      <p>Bloqueie um lead para impedir o descarte enquanto houver obrigação legal ou operacional.</p>
+      <form id="legal-hold-form" class="reliability-form">
+        <div class="user-fields">
+          <label>ID do lead<input name="lead_id" type="number" min="1" required></label>
+          <label class="field-full">Motivo do bloqueio<input name="motivo" minlength="20" maxlength="1000" required></label>
+        </div>
+        <div class="reliability-actions">
+          <button class="primary-button" type="submit">Ativar legal hold</button>
+          <button id="release-legal-hold" class="secondary-button" type="button">Liberar legal hold</button>
+        </div>
+        <div id="legal-hold-status" class="status-message" role="status" aria-live="polite" hidden></div>
       </form>
     </section>
 

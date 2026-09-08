@@ -7,6 +7,7 @@ from pypdf import PdfReader
 from app.database import get_session
 from app.main import app
 from app.models import TipoProcesso
+from app.public_report_tokens import emitir_token_relatorio
 from app.relatorios import gerar_pdf_relatorio, gerar_pdf_resumo_cliente
 from app.schemas import (
     AfinidadeClassesResponse,
@@ -19,7 +20,6 @@ from app.schemas import (
     RelatorioMarcaResponse,
     TitularResponse,
 )
-from app.security import exigir_token_integracao
 from tests.conftest import FakeResult, sessao_override
 
 
@@ -179,9 +179,11 @@ def test_resumo_cliente_tem_uma_pagina_e_nao_expoe_ocorrencias() -> None:
 def test_endpoint_pdf_retorna_documento() -> None:
     versao = _FakeVersao(_relatorio_exemplo().model_dump(mode="json"))
     app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=versao))
-    app.dependency_overrides[exigir_token_integracao] = lambda: None
     try:
-        resposta = TestClient(app).get("/v1/pesquisas-marca/abc/relatorio.pdf")
+        resposta = TestClient(app).get(
+            "/v1/pesquisas-marca/abc/relatorio.pdf",
+            headers={"X-Report-Token": emitir_token_relatorio("abc", 1)},
+        )
     finally:
         app.dependency_overrides.clear()
 
@@ -194,9 +196,11 @@ def test_endpoint_pdf_retorna_documento() -> None:
 
 def test_endpoint_pdf_404_sem_versao() -> None:
     app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=None))
-    app.dependency_overrides[exigir_token_integracao] = lambda: None
     try:
-        resposta = TestClient(app).get("/v1/pesquisas-marca/inexistente/relatorio.pdf")
+        resposta = TestClient(app).get(
+            "/v1/pesquisas-marca/inexistente/relatorio.pdf",
+            headers={"X-Report-Token": emitir_token_relatorio("inexistente", 1)},
+        )
     finally:
         app.dependency_overrides.clear()
 

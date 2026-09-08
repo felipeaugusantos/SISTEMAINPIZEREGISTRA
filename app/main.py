@@ -64,7 +64,6 @@ from app.observability import observar_requisicao
 from app.queueing import status_fila
 from app.rpi.health import avaliar_saude_rpi
 from app.schemas import RpiHealthResponse
-from app.security import exigir_token_integracao
 from app.settings import get_settings
 
 settings = get_settings()
@@ -119,6 +118,7 @@ app.add_middleware(
         "Authorization",
         "Content-Type",
         "X-Integration-Key",
+        "X-Report-Token",
         "X-CSRF-Token",
         "X-Health-Key",
     ],
@@ -129,10 +129,7 @@ app.include_router(leads_router)
 app.include_router(prospeccao_router)
 app.include_router(prospeccao_campanhas_router)
 app.include_router(privacidade_router)
-app.include_router(
-    pesquisas_router,
-    dependencies=[Depends(exigir_token_integracao)],
-)
+app.include_router(pesquisas_router)
 app.include_router(fase2_router)
 app.include_router(fase3_router)
 app.include_router(admin_router)

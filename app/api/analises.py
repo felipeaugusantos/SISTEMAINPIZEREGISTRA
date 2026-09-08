@@ -21,6 +21,7 @@ from app.models import (
     VersaoRelatorioMarca,
 )
 from app.proxy import cliente_ip
+from app.public_report_tokens import emitir_token_relatorio
 from app.schemas import DadosComplementaresRegistrabilidadeUpdate, WorkflowAnaliseUpdate
 from app.trademarks.agent import (
     execucao_para_dict,
@@ -419,6 +420,7 @@ async def obter_central_analise(
         "analise_consolidada": consolidada,
         "pesquisa": {
             "id": pesquisa.id,
+            "relatorio_token": emitir_token_relatorio(pesquisa.id, usuario.organizacao_id),
             "marca": pesquisa.marca,
             "atividade": pesquisa.atividade,
             "classe_nice": pesquisa.classe_nice,

@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +20,6 @@ from app.models import (
     UsuarioOperacoes,
 )
 from app.queueing import enfileirar, status_fila
-from app.schemas import BrandingConfig
 from app.settings import get_settings
 
 router = APIRouter(prefix="/v1/admin/confiabilidade", tags=["confiabilidade"])
@@ -73,10 +72,37 @@ async def branding_css(request: Request, session: SessionDep) -> Response:
     return Response(content=css, media_type="text/css", headers={"Cache-Control": "no-store"})
 
 
+CAMPOS_IDENTIDADE_VISUAL = frozenset({"nome_exibido", "cor_primaria", "logo_url"})
+
+
+class IdentidadeVisualInput(BaseModel):
+    """Campos que a tela de confiabilidade tem autorização para alterar."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    nome_exibido: str | None = Field(default=None, min_length=2, max_length=80)
+    cor_primaria: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    logo_url: str | None = Field(default=None, max_length=500)
+
+    @field_validator("nome_exibido", "logo_url", mode="before")
+    @classmethod
+    def limpar_opcionais(cls, valor: str | None) -> str | None:
+        return valor.strip() or None if isinstance(valor, str) else valor
+
+    @field_validator("logo_url")
+    @classmethod
+    def validar_logo(cls, valor: str | None) -> str | None:
+        if valor and not (valor.startswith("https://") or valor.startswith("/static/")):
+            raise ValueError("A logo deve usar HTTPS ou um recurso interno /static/")
+        return valor
+
+
 class ConfiguracaoTenantInput(BaseModel):
-    branding: BrandingConfig = Field(default_factory=BrandingConfig)
-    retencao_dados_dias: int = Field(default=730, ge=30, le=3650)
-    politica_privacidade_versao: str = Field(default="1.0", min_length=1, max_length=30)
+    model_config = ConfigDict(extra="forbid")
+
+    branding: IdentidadeVisualInput = Field(default_factory=IdentidadeVisualInput)
+    retencao_dados_dias: int | None = Field(default=None, ge=30, le=3650)
+    politica_privacidade_versao: str | None = Field(default=None, min_length=1, max_length=30)
 
 
 @router.get("")
@@ -144,9 +170,16 @@ async def painel(session: SessionDep, usuario: AdminDep) -> dict:
 @router.patch("/configuracao")
 async def configurar(dados: ConfiguracaoTenantInput, request: Request, session: SessionDep, usuario: AdminDep) -> dict:
     org = await session.get(Organizacao, usuario.organizacao_id)
-    org.branding = dados.branding.model_dump(exclude_none=True)
-    org.retencao_dados_dias = dados.retencao_dados_dias
-    org.politica_privacidade_versao = dados.politica_privacidade_versao
+    if org is None:
+        raise HTTPException(404, "Organização não encontrada")
+
+    branding_atual = dict(org.branding or {})
+    identidade_visual = dados.branding.model_dump(exclude_unset=True, include=CAMPOS_IDENTIDADE_VISUAL)
+    org.branding = {**branding_atual, **identidade_visual}
+    if dados.retencao_dados_dias is not None:
+        org.retencao_dados_dias = dados.retencao_dados_dias
+    if dados.politica_privacidade_versao is not None:
+        org.politica_privacidade_versao = dados.politica_privacidade_versao
     await session.commit()
     return {"status": "ok"}
 

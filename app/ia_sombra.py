@@ -21,6 +21,7 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.cadencia_email import dentro_do_horario_comercial
 from app.crm import obter_politica_crm
 from app.models import (
     AvaliacaoRiscoMarca,
@@ -195,9 +196,20 @@ async def gerar_sugestoes_ia_pendentes(session: AsyncSession, *, chamar_ia: Cham
     sugestões para leads com atividade nova, nas organizações que optaram
     por ativar a IA em sombra. Sempre agendado -- inerte (devolve 0) quando
     a flag global está desligada, mesmo padrão de cadencia.enviar_emails_pendentes
-    para email_enabled."""
+    para email_enabled.
+
+    Só roda FORA do horário comercial (mesma janela de app.cadencia_email,
+    invertida): cada chamada ao modelo local consome CPU cheia por vários
+    segundos, e até MAXIMO_LEADS_POR_EXECUCAO chamadas por execução
+    competiriam com o tráfego real da API/banco justo durante o horário de
+    maior uso -- decisão do usuário após avaliar os riscos de deixar a IA
+    em sombra ativa."""
     settings = get_settings()
     if not settings.ia_sombra_enabled:
+        return 0
+    if dentro_do_horario_comercial(
+        datetime.now(UTC), settings.cadencia_email_horario_inicio, settings.cadencia_email_horario_fim
+    ):
         return 0
 
     organizacoes_ativas = list(
@@ -348,9 +360,14 @@ async def gerar_explicacoes_risco_pendentes(session: AsyncSession, *, chamar_ia:
     """Job de manutenção periódica: gera explicações para avaliações de
     risco novas ou recalculadas desde a última explicação, nas organizações
     que optaram por ativar a IA em sombra. Inerte (devolve 0) quando a flag
-    global está desligada."""
+    global está desligada ou dentro do horário comercial -- mesmo motivo de
+    gerar_sugestoes_ia_pendentes."""
     settings = get_settings()
     if not settings.ia_sombra_enabled:
+        return 0
+    if dentro_do_horario_comercial(
+        datetime.now(UTC), settings.cadencia_email_horario_inicio, settings.cadencia_email_horario_fim
+    ):
         return 0
 
     organizacoes_ativas = list(
@@ -473,7 +490,13 @@ async def enfileirar_qualificacao_ia_se_ativa(session: AsyncSession, lead: Lead)
     organização -- para não empilhar jobs mortos no Redis quando a
     funcionalidade está desligada (comportamento padrão). Chamado nos dois
     pontos de captação de lead: formulário público (app.api.leads.criar_lead)
-    e conversão do Radar de Prospecção (app.api.prospeccao.converter_prospect_em_lead)."""
+    e conversão do Radar de Prospecção (app.api.prospeccao.converter_prospect_em_lead).
+
+    Diferente dos dois jobs periódicos acima, NÃO é restrito ao horário fora
+    do comercial -- é um evento único disparado no momento da captação, e
+    adiar a qualificação para a madrugada tiraria o sentido de "prioridade
+    para o comercial já ao abrir o lead" (é 1 chamada por lead, não uma
+    varredura de até 20 registros)."""
     settings = get_settings()
     if not settings.ia_sombra_enabled:
         return

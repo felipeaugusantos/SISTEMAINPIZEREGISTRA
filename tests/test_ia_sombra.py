@@ -123,22 +123,34 @@ def test_gerar_sugestoes_ia_pendentes_desligado_por_padrao_devolve_zero() -> Non
 
 
 def test_gerar_sugestoes_ia_pendentes_sem_organizacao_ativa_devolve_zero() -> None:
+    import app.ia_sombra as modulo
+
     settings = get_settings()
     original = settings.ia_sombra_enabled
     settings.ia_sombra_enabled = True
+    original_horario = modulo.dentro_do_horario_comercial
+    modulo.dentro_do_horario_comercial = lambda *_a, **_k: False
     try:
         session = FakeSession([FakeResult(itens=[])])
         resultado = asyncio.run(gerar_sugestoes_ia_pendentes(session))
     finally:
         settings.ia_sombra_enabled = original
+        modulo.dentro_do_horario_comercial = original_horario
 
     assert resultado == 0
 
 
 def test_gerar_sugestoes_ia_pendentes_pula_lead_sem_atividade_nova_e_gera_para_lead_com_atividade_nova() -> None:
+    import app.ia_sombra as modulo
+
     settings = get_settings()
     original = settings.ia_sombra_enabled
     settings.ia_sombra_enabled = True
+    # Job só roda fora do horário comercial (item pedido pelo usuário após
+    # avaliar os riscos de deixar a IA em sombra ativa) -- força "fora do
+    # horário" pra não depender da hora em que a suíte é executada.
+    original_horario = modulo.dentro_do_horario_comercial
+    modulo.dentro_do_horario_comercial = lambda *_a, **_k: False
 
     ultima_sugestao_em = datetime(2026, 9, 1, tzinfo=UTC)
     lead_sem_novidade = _lead(id=1, atualizado_em=ultima_sugestao_em - timedelta(days=5))
@@ -160,6 +172,7 @@ def test_gerar_sugestoes_ia_pendentes_pula_lead_sem_atividade_nova_e_gera_para_l
         resultado = asyncio.run(gerar_sugestoes_ia_pendentes(session, chamar_ia=_chamada_fake))
     finally:
         settings.ia_sombra_enabled = original
+        modulo.dentro_do_horario_comercial = original_horario
 
     assert resultado == 1
     sugestoes_criadas = [item for item in session.adicionados if isinstance(item, SugestaoIALead)]
@@ -237,9 +250,13 @@ def test_gerar_explicacoes_risco_pendentes_desligado_devolve_zero() -> None:
 
 
 def test_gerar_explicacoes_risco_pendentes_pula_avaliacao_sem_mudanca() -> None:
+    import app.ia_sombra as modulo
+
     settings = get_settings()
     original = settings.ia_sombra_enabled
     settings.ia_sombra_enabled = True
+    original_horario = modulo.dentro_do_horario_comercial
+    modulo.dentro_do_horario_comercial = lambda *_a, **_k: False
 
     calculado_em = datetime(2026, 9, 1, tzinfo=UTC)
     avaliacao_sem_mudanca = _avaliacao(id=1, calculado_em=calculado_em)
@@ -256,8 +273,56 @@ def test_gerar_explicacoes_risco_pendentes_pula_avaliacao_sem_mudanca() -> None:
         resultado = asyncio.run(gerar_explicacoes_risco_pendentes(session, chamar_ia=_chamada_explicacao_fake))
     finally:
         settings.ia_sombra_enabled = original
+        modulo.dentro_do_horario_comercial = original_horario
 
     assert resultado == 1
+
+
+# --- Job periódico só roda fora do horário comercial (item pedido pelo
+# usuário após avaliar os riscos de deixar a IA em sombra ativa 24h --
+# cada chamada ao modelo local consome CPU cheia por vários segundos, e
+# até 20 chamadas por execução competiriam com o tráfego real durante o
+# horário de maior uso). ---
+
+
+def test_gerar_sugestoes_ia_pendentes_dentro_do_horario_comercial_devolve_zero() -> None:
+    import app.ia_sombra as modulo
+
+    settings = get_settings()
+    original = settings.ia_sombra_enabled
+    settings.ia_sombra_enabled = True
+    original_horario = modulo.dentro_do_horario_comercial
+    modulo.dentro_do_horario_comercial = lambda *_a, **_k: True
+
+    try:
+        session = FakeSession([])
+        resultado = asyncio.run(gerar_sugestoes_ia_pendentes(session))
+    finally:
+        settings.ia_sombra_enabled = original
+        modulo.dentro_do_horario_comercial = original_horario
+
+    assert resultado == 0
+    assert session.executados == []  # nem chega a consultar organizações ativas
+
+
+def test_gerar_explicacoes_risco_pendentes_dentro_do_horario_comercial_devolve_zero() -> None:
+    import app.ia_sombra as modulo
+
+    settings = get_settings()
+    original = settings.ia_sombra_enabled
+    settings.ia_sombra_enabled = True
+    original_horario = modulo.dentro_do_horario_comercial
+    modulo.dentro_do_horario_comercial = lambda *_a, **_k: True
+
+    try:
+        session = FakeSession([])
+        resultado = asyncio.run(gerar_explicacoes_risco_pendentes(session))
+    finally:
+        settings.ia_sombra_enabled = original
+        modulo.dentro_do_horario_comercial = original_horario
+
+    assert resultado == 0
+    assert session.executados == []
     explicacoes_criadas = [item for item in session.adicionados if isinstance(item, ExplicacaoAnaliseMarca)]
     assert len(explicacoes_criadas) == 1
     assert explicacoes_criadas[0].avaliacao_risco_id == 2

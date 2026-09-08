@@ -22,6 +22,7 @@ from app.models import (
     EventoAuditoria,
     Lead,
     PesquisaMarca,
+    QualificacaoIALead,
     RespostaEmailLead,
     StatusLead,
     SugestaoIALead,
@@ -1359,6 +1360,69 @@ def test_endpoint_revisar_sugestao_ia_404_quando_nao_encontrada() -> None:
 
     resposta = TestClient(app).post(
         "/v1/admin/leads/7/sugestao-ia/999/revisar",
+        json={"status": "descartada"},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 404
+
+
+# --- "IA em sombra" (captação de leads): endpoints de leitura e revisão
+# humana da qualificação gerada na chegada do lead. ---
+
+
+def test_endpoint_qualificacao_ia_404_quando_nao_ha_qualificacao_gerada() -> None:
+    _sessao_admin(FakeResult(scalar=None))
+
+    resposta = TestClient(app).get("/v1/admin/leads/7/qualificacao-ia")
+
+    assert resposta.status_code == 404
+
+
+def test_endpoint_qualificacao_ia_devolve_a_do_lead() -> None:
+    registro = QualificacaoIALead(
+        id=4,
+        organizacao_id=1,
+        lead_id=7,
+        modelo="qwen2.5:7b-instruct-q4_K_M",
+        prioridade="alta",
+        observacao="Empresa grande, marca conhecida.",
+        status="pendente",
+    )
+    _sessao_admin(FakeResult(scalar=registro))
+
+    resposta = TestClient(app).get("/v1/admin/leads/7/qualificacao-ia")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["prioridade"] == "alta"
+    assert corpo["observacao"] == "Empresa grande, marca conhecida."
+    assert corpo["status"] == "pendente"
+
+
+def test_endpoint_revisar_qualificacao_ia_registra_quem_revisou() -> None:
+    registro = QualificacaoIALead(
+        id=4, organizacao_id=1, lead_id=7, modelo="qwen2.5:7b-instruct-q4_K_M", prioridade="alta", status="pendente"
+    )
+    session = _sessao_admin(FakeResult(scalar=registro))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/7/qualificacao-ia/4/revisar",
+        json={"status": "aprovada"},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 200
+    assert registro.status == "aprovada"
+    assert registro.revisado_por is not None
+    assert session.commits == 1
+
+
+def test_endpoint_revisar_qualificacao_ia_404_quando_nao_encontrada() -> None:
+    _sessao_admin(FakeResult(scalar=None))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/7/qualificacao-ia/999/revisar",
         json={"status": "descartada"},
         headers={"X-CSRF-Token": "csrf-teste"},
     )

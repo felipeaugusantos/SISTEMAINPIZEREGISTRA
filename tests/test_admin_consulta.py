@@ -1,10 +1,18 @@
 from pathlib import Path
 
 import pytest
-from conftest import FakeSession, usuario_teste
+from conftest import FakeResult, FakeSession, usuario_teste
+from fastapi import HTTPException
 
-from app.api.consulta import ConsultaOperadorInput, criar_consulta, listar_classes_nice
-from app.models import Lead, PesquisaMarca
+from app.api.consulta import (
+    ConsultaOperadorInput,
+    RevisaoExplicacaoIAInput,
+    criar_consulta,
+    listar_classes_nice,
+    obter_explicacao_ia,
+    revisar_explicacao_ia,
+)
+from app.models import ExplicacaoAnaliseMarca, Lead, PesquisaMarca
 
 
 def test_consulta_interna_aceita_atividade_ausente() -> None:
@@ -217,3 +225,70 @@ async def test_consulta_sempre_cria_lead_para_o_comercial() -> None:
     assert lead.nome == "Cliente Teste"
     pesquisa = next(item for item in session.adicionados if isinstance(item, PesquisaMarca))
     assert pesquisa.lead_id == lead.id
+
+
+# --- "IA em sombra" (análise de marca): explicação em linguagem simples do
+# risco já calculado -- endpoints de leitura e revisão humana (a geração em
+# si roda no worker, ver tests/test_ia_sombra.py). ---
+
+
+@pytest.mark.asyncio
+async def test_endpoint_explicacao_ia_404_quando_nao_ha_explicacao_gerada() -> None:
+    session = FakeSession([FakeResult(scalar=None)])
+
+    with pytest.raises(HTTPException) as excinfo:
+        await obter_explicacao_ia("pesquisa-1", session, usuario_teste())
+    assert excinfo.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_endpoint_explicacao_ia_devolve_a_mais_recente() -> None:
+    explicacao = ExplicacaoAnaliseMarca(
+        id=5,
+        organizacao_id=1,
+        pesquisa_id="pesquisa-1",
+        avaliacao_risco_id=1,
+        modelo="qwen2.5:7b-instruct-q4_K_M",
+        explicacao="O risco é alto por causa de um conflito direto.",
+        status="pendente",
+        baseado_em_calculado_em=None,
+    )
+    session = FakeSession([FakeResult(scalar=explicacao)])
+
+    resultado = await obter_explicacao_ia("pesquisa-1", session, usuario_teste())
+
+    assert resultado["explicacao"] == "O risco é alto por causa de um conflito direto."
+    assert resultado["status"] == "pendente"
+
+
+@pytest.mark.asyncio
+async def test_endpoint_revisar_explicacao_ia_registra_quem_revisou() -> None:
+    explicacao = ExplicacaoAnaliseMarca(
+        id=5,
+        organizacao_id=1,
+        pesquisa_id="pesquisa-1",
+        avaliacao_risco_id=1,
+        modelo="qwen2.5:7b-instruct-q4_K_M",
+        status="pendente",
+        baseado_em_calculado_em=None,
+    )
+    session = FakeSession([FakeResult(scalar=explicacao)])
+
+    resultado = await revisar_explicacao_ia(
+        "pesquisa-1", 5, RevisaoExplicacaoIAInput(status="aprovada"), session, usuario_teste()
+    )
+
+    assert resultado["status"] == "aprovada"
+    assert explicacao.revisado_por is not None
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_endpoint_revisar_explicacao_ia_404_quando_nao_encontrada() -> None:
+    session = FakeSession([FakeResult(scalar=None)])
+
+    with pytest.raises(HTTPException) as excinfo:
+        await revisar_explicacao_ia(
+            "pesquisa-1", 999, RevisaoExplicacaoIAInput(status="descartada"), session, usuario_teste()
+        )
+    assert excinfo.value.status_code == 404

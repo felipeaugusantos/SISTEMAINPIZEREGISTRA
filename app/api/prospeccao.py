@@ -20,6 +20,7 @@ from app.api.saas import SuperAdminDep
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.crm import registrar_consentimento_prospeccao_comercial
 from app.database import get_session
+from app.ia_sombra import enfileirar_qualificacao_ia_se_ativa
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
 from app.models import (
     CampanhaProspeccao,
@@ -650,6 +651,11 @@ async def converter_prospect_em_lead(
         {"lead_id": lead.id, "criado_novo": criado_novo},
     )
     await session.commit()
+    if criado_novo:
+        # IA em sombra (captação de leads): qualificação gerada uma única
+        # vez, só para lead genuinamente novo -- reconciliar com um lead já
+        # existente não é uma nova captação.
+        await enfileirar_qualificacao_ia_se_ativa(session, lead)
     return {"lead_id": lead.id, "criado_novo": criado_novo}
 
 

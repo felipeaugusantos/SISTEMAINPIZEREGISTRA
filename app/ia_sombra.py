@@ -21,15 +21,20 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.crm import obter_politica_crm
 from app.models import (
+    AvaliacaoRiscoMarca,
     ContatoLead,
+    ExplicacaoAnaliseMarca,
     Lead,
     PesquisaMarca,
     PoliticaCRM,
+    QualificacaoIALead,
     RespostaEmailLead,
     StatusLead,
     SugestaoIALead,
 )
+from app.queueing import enfileirar
 from app.settings import get_settings
 
 MAXIMO_LEADS_POR_EXECUCAO = 20
@@ -60,6 +65,7 @@ def montar_contexto_lead(
     contatos: list[ContatoLead],
     respostas: list[RespostaEmailLead],
     pesquisa: PesquisaMarca | None,
+    avaliacao_risco: AvaliacaoRiscoMarca | None = None,
 ) -> str:
     """Monta o texto de entrada do modelo a partir dos dados já carregados do lead.
 
@@ -74,7 +80,8 @@ def montar_contexto_lead(
         f"Criado em: {lead.criado_em.date().isoformat() if lead.criado_em else 'desconhecido'}",
     ]
     if pesquisa is not None:
-        linhas.append(f"Última pesquisa de marca: \"{pesquisa.marca}\" (risco: {pesquisa.risco_nivel or 'não calculado'})")
+        nivel = avaliacao_risco.nivel if avaliacao_risco is not None else "não calculado"
+        linhas.append(f"Última pesquisa de marca: \"{pesquisa.marca}\" (risco: {nivel})")
     if contatos:
         linhas.append("Últimos contatos registrados:")
         for contato in contatos:
@@ -147,11 +154,20 @@ async def gerar_sugestao_lead(session: AsyncSession, lead: Lead, *, chamar_ia: C
             select(PesquisaMarca).where(PesquisaMarca.lead_id == lead.id).order_by(PesquisaMarca.criado_em.desc()).limit(1)
         )
     ).scalar_one_or_none()
+    avaliacao_risco = (
+        (
+            await session.execute(
+                select(AvaliacaoRiscoMarca).where(AvaliacaoRiscoMarca.pesquisa_id == pesquisa.id)
+            )
+        ).scalar_one_or_none()
+        if pesquisa is not None
+        else None
+    )
 
     eventos = [d for d in (lead.atualizado_em, *(c.criado_em for c in contatos), *(r.recebido_em for r in respostas)) if d]
     baseado_em_evento_em = max(eventos) if eventos else datetime.now(UTC)
 
-    contexto = montar_contexto_lead(lead, contatos, respostas, pesquisa)
+    contexto = montar_contexto_lead(lead, contatos, respostas, pesquisa, avaliacao_risco)
     # Valores explícitos em vez de depender dos defaults de coluna do
     # SQLAlchemy: eles só são aplicados no flush -- se algo ler o objeto
     # antes disso (como o caminho de erro abaixo, que nunca toca resumo/
@@ -247,3 +263,225 @@ async def gerar_sugestoes_ia_pendentes(session: AsyncSession, *, chamar_ia: Cham
         await gerar_sugestao_lead(session, lead, chamar_ia=chamar_ia)
         criadas += 1
     return criadas
+
+
+# --- Frente A: explicação em linguagem simples do risco já calculado -----
+# (análise de marca). NUNCA recalcula nem substitui o resultado técnico do
+# motor determinístico (app.trademarks.risk) -- só traduz o que já está
+# persistido em AvaliacaoRiscoMarca. ---
+
+MARCADOR_EXPLICACAO = "EXPLICACAO:"
+
+
+def _prompt_sistema_explicacao_risco() -> str:
+    return (
+        "Você é um assistente que traduz para linguagem simples o resultado de uma "
+        "análise de risco de conflito de marcas, já calculado por um motor determinístico. "
+        "Responda em português, em texto simples, EXATAMENTE neste formato, sem nenhum "
+        "texto antes ou depois:\n\n"
+        f"{MARCADOR_EXPLICACAO} <um ou dois parágrafos curtos explicando, em linguagem "
+        "simples, por que o risco foi classificado nesse nível, citando os principais "
+        "conflitos encontrados>\n\n"
+        "Regras obrigatórias: nunca sugira um nível de risco diferente do já calculado; "
+        "nunca invente conflito, processo ou número que não esteja nos dados abaixo; "
+        "deixe claro que é uma tradução do cálculo determinístico, não uma nova análise; "
+        "nunca afirme que a marca está disponível ou garantida para registro."
+    )
+
+
+def montar_contexto_avaliacao_risco(avaliacao: AvaliacaoRiscoMarca) -> str:
+    """Monta o texto de entrada a partir só do que já está persistido em
+    AvaliacaoRiscoMarca (pontuação, nível, principais conflitos) -- sem
+    nenhuma nova consulta ao motor de busca/risco."""
+    linhas = [f"Pontuação de risco: {avaliacao.pontuacao}/100", f"Nível classificado: {avaliacao.nivel}"]
+    if avaliacao.nivel_humano:
+        linhas.append(f"Avaliação humana registrada: {avaliacao.nivel_humano} ({avaliacao.observacoes_humanas or ''})".strip())
+    conflitos = avaliacao.principais_conflitos or []
+    if conflitos:
+        linhas.append("Principais conflitos encontrados:")
+        for conflito in conflitos[:5]:
+            titulo = conflito.get("titulo", "sem título")
+            pontuacao_conflito = conflito.get("pontuacao")
+            nivel_conflito = conflito.get("nivel")
+            linhas.append(f"- {titulo} (pontuação {pontuacao_conflito}, nível {nivel_conflito})")
+    else:
+        linhas.append("Nenhum conflito relevante encontrado.")
+    return "\n".join(linhas)
+
+
+def _analisar_explicacao(texto: str) -> str:
+    if MARCADOR_EXPLICACAO not in texto:
+        return texto.strip()
+    return texto.split(MARCADOR_EXPLICACAO, 1)[1].strip()
+
+
+async def gerar_explicacao_risco(
+    session: AsyncSession, avaliacao: AvaliacaoRiscoMarca, organizacao_id: int, *, chamar_ia: ChamadaIA = chamar_ollama
+) -> ExplicacaoAnaliseMarca:
+    """Gera (e persiste, sem commit) a explicação em linguagem simples de uma
+    avaliação de risco. Nunca propaga exceção de chamada ao modelo.
+
+    organizacao_id vem de fora (join com PesquisaMarca já feito pelo
+    chamador) -- AvaliacaoRiscoMarca não tem organizacao_id nem relação
+    carregada para PesquisaMarca."""
+    settings = get_settings()
+    explicacao = ExplicacaoAnaliseMarca(
+        organizacao_id=organizacao_id,
+        pesquisa_id=avaliacao.pesquisa_id,
+        avaliacao_risco_id=avaliacao.id,
+        modelo=settings.ia_sombra_modelo,
+        explicacao="",
+        status="pendente",
+        baseado_em_calculado_em=avaliacao.calculado_em,
+    )
+    try:
+        contexto = montar_contexto_avaliacao_risco(avaliacao)
+        texto = await chamar_ia(f"{_prompt_sistema_explicacao_risco()}\n\nResultado calculado:\n{contexto}")
+        explicacao.explicacao = _analisar_explicacao(texto)
+    except Exception as exc:  # noqa: BLE001 -- job de manutenção não pode quebrar por falha do modelo
+        explicacao.erro = f"{type(exc).__name__}: {exc}"
+    session.add(explicacao)
+    return explicacao
+
+
+async def gerar_explicacoes_risco_pendentes(session: AsyncSession, *, chamar_ia: ChamadaIA = chamar_ollama) -> int:
+    """Job de manutenção periódica: gera explicações para avaliações de
+    risco novas ou recalculadas desde a última explicação, nas organizações
+    que optaram por ativar a IA em sombra. Inerte (devolve 0) quando a flag
+    global está desligada."""
+    settings = get_settings()
+    if not settings.ia_sombra_enabled:
+        return 0
+
+    organizacoes_ativas = list(
+        (await session.execute(select(PoliticaCRM.organizacao_id).where(PoliticaCRM.ia_sombra_ativa.is_(True)))).scalars()
+    )
+    if not organizacoes_ativas:
+        return 0
+
+    ultima_explicacao_por_avaliacao = dict(
+        (
+            await session.execute(
+                select(ExplicacaoAnaliseMarca.avaliacao_risco_id, func.max(ExplicacaoAnaliseMarca.baseado_em_calculado_em))
+                .group_by(ExplicacaoAnaliseMarca.avaliacao_risco_id)
+            )
+        ).all()
+    )
+    avaliacoes = (
+        await session.execute(
+            select(AvaliacaoRiscoMarca, PesquisaMarca.organizacao_id)
+            .join(PesquisaMarca, PesquisaMarca.id == AvaliacaoRiscoMarca.pesquisa_id)
+            .where(PesquisaMarca.organizacao_id.in_(organizacoes_ativas))
+        )
+    ).all()
+
+    criadas = 0
+    for avaliacao, organizacao_id in avaliacoes:
+        if criadas >= MAXIMO_LEADS_POR_EXECUCAO:
+            break
+        ultima = ultima_explicacao_por_avaliacao.get(avaliacao.id)
+        if ultima is not None and avaliacao.calculado_em <= ultima:
+            continue
+        await gerar_explicacao_risco(session, avaliacao, organizacao_id, chamar_ia=chamar_ia)
+        criadas += 1
+    return criadas
+
+
+# --- Frente B: qualificação da IA na captação de leads --------------------
+# Prioridade + observação sugeridas no momento da chegada de um lead novo
+# (formulário público ou conversão do Radar de Prospecção), a partir só dos
+# dados disponíveis na captação -- sem histórico de contato, que ainda não
+# existe. Gerada uma única vez por lead (job sob demanda, não sweep
+# periódico -- ver app.worker "leads.qualificar_ia"). ---
+
+MARCADOR_PRIORIDADE = "PRIORIDADE:"
+MARCADOR_OBSERVACAO = "OBSERVACAO:"
+PRIORIDADES_VALIDAS = frozenset({"alta", "media", "baixa"})
+
+
+def _prompt_sistema_qualificacao_captacao() -> str:
+    return (
+        "Você é um assistente de apoio à qualificação comercial de um escritório de "
+        "registro de marcas. Vai receber os dados de um lead recém-chegado (ainda sem "
+        "nenhum contato humano) e deve sugerir uma prioridade de atendimento. Responda em "
+        "português, em texto simples, EXATAMENTE neste formato, sem nenhum texto antes ou "
+        "depois:\n\n"
+        f"{MARCADOR_PRIORIDADE} <apenas uma palavra: alta, media ou baixa>\n"
+        f"{MARCADOR_OBSERVACAO} <uma frase curta explicando o motivo da prioridade sugerida>\n\n"
+        "Regras obrigatórias: nunca invente informação que não esteja nos dados abaixo; "
+        "se os dados forem insuficientes para avaliar, sugira prioridade media e diga isso "
+        "na observação; esta sugestão nunca decide sozinha -- é só apoio para o comercial "
+        "priorizar quem atender primeiro."
+    )
+
+
+def montar_contexto_captacao_lead(lead: Lead) -> str:
+    """Monta o texto de entrada só com os dados disponíveis no momento da
+    criação do lead (sem histórico de contato, que ainda não existe)."""
+    linhas = [
+        f"Nome: {lead.nome}",
+        f"Empresa: {lead.empresa or 'não informada'}",
+        f"Marca de interesse: {lead.marca or 'não informada'}",
+        f"Origem: {lead.origem}",
+    ]
+    if lead.utm_source or lead.utm_medium or lead.utm_campaign:
+        linhas.append(f"Campanha: {lead.utm_source or '?'}/{lead.utm_medium or '?'}/{lead.utm_campaign or '?'}")
+    return "\n".join(linhas)
+
+
+def _analisar_qualificacao(texto: str) -> tuple[str, str]:
+    """Extrai (prioridade, observacao). Prioridade fora do vocabulário
+    esperado ou marcadores ausentes caem em "media" -- nunca derruba o job
+    por um modelo pequeno não seguir o formato à risca."""
+    if MARCADOR_PRIORIDADE not in texto or MARCADOR_OBSERVACAO not in texto:
+        return "media", texto.strip()
+    _, resto = texto.split(MARCADOR_PRIORIDADE, 1)
+    prioridade_bruta, observacao = resto.split(MARCADOR_OBSERVACAO, 1)
+    prioridade = prioridade_bruta.strip().lower()
+    if prioridade not in PRIORIDADES_VALIDAS:
+        prioridade = "media"
+    return prioridade, observacao.strip()
+
+
+async def gerar_qualificacao_lead(
+    session: AsyncSession, lead: Lead, *, chamar_ia: ChamadaIA = chamar_ollama
+) -> QualificacaoIALead:
+    """Gera (e persiste, sem commit) a qualificação de captação de um lead.
+    Nunca propaga exceção de chamada ao modelo."""
+    settings = get_settings()
+    qualificacao = QualificacaoIALead(
+        organizacao_id=lead.organizacao_id,
+        lead_id=lead.id,
+        modelo=settings.ia_sombra_modelo,
+        prioridade="media",
+        observacao="",
+        status="pendente",
+    )
+    try:
+        contexto = montar_contexto_captacao_lead(lead)
+        texto = await chamar_ia(f"{_prompt_sistema_qualificacao_captacao()}\n\nDados do lead:\n{contexto}")
+        qualificacao.prioridade, qualificacao.observacao = _analisar_qualificacao(texto)
+    except Exception as exc:  # noqa: BLE001 -- job não pode quebrar por falha do modelo
+        qualificacao.erro = f"{type(exc).__name__}: {exc}"
+    session.add(qualificacao)
+    return qualificacao
+
+
+async def enfileirar_qualificacao_ia_se_ativa(session: AsyncSession, lead: Lead) -> None:
+    """Enfileira o job de qualificação de captação (leads.qualificar_ia) só
+    se a IA em sombra estiver ativa -- kill-switch global E opt-in da
+    organização -- para não empilhar jobs mortos no Redis quando a
+    funcionalidade está desligada (comportamento padrão). Chamado nos dois
+    pontos de captação de lead: formulário público (app.api.leads.criar_lead)
+    e conversão do Radar de Prospecção (app.api.prospeccao.converter_prospect_em_lead)."""
+    settings = get_settings()
+    if not settings.ia_sombra_enabled:
+        return
+    politica = await obter_politica_crm(session, lead.organizacao_id)
+    if not politica.ia_sombra_ativa:
+        return
+    await enfileirar(
+        "leads.qualificar_ia",
+        {"lead_id": lead.id, "organizacao_id": lead.organizacao_id},
+        idempotency_key=f"{lead.id}:qualificacao_ia",
+    )

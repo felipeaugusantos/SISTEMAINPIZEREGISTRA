@@ -34,6 +34,7 @@ from app.crm import (
 )
 from app.database import get_session
 from app.emailing import enviar_alerta_lead_atribuido, enviar_alerta_novo_lead, enviar_proposta_email
+from app.ia_sombra import enfileirar_qualificacao_ia_se_ativa
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
 from app.models import (
     MOTIVOS_PERDA,
@@ -64,6 +65,7 @@ from app.models import (
     Processo,
     ProcessoMonitorado,
     PropostaComercial,
+    QualificacaoIALead,
     RespostaEmailLead,
     RetribuicaoInpi,
     SolicitacaoExclusaoPesquisa,
@@ -601,6 +603,7 @@ async def criar_lead(
         # Achado P0 da auditoria de Leads: nenhum alerta ativo avisava a equipe
         # de um lead novo chegando pelo formulário genérico de captação.
         await enviar_alerta_novo_lead(lead.nome, lead.email, lead.telefone, lead.marca, lead.origem)
+    await enfileirar_qualificacao_ia_se_ativa(session, lead)
     resposta = LeadResponse.model_validate(lead)
     resposta.documento = _mascarar_documento(resposta.documento)
     return resposta
@@ -1904,6 +1907,65 @@ async def revisar_sugestao_ia(
     sugestao.revisado_em = datetime.now(UTC)
     await session.commit()
     return _sugestao_ia_dict(sugestao)
+
+
+def _qualificacao_ia_dict(qualificacao: QualificacaoIALead) -> dict:
+    return {
+        "id": qualificacao.id,
+        "lead_id": qualificacao.lead_id,
+        "gerado_em": qualificacao.gerado_em,
+        "modelo": qualificacao.modelo,
+        "prioridade": qualificacao.prioridade,
+        "observacao": qualificacao.observacao,
+        "status": qualificacao.status,
+        "revisado_por": qualificacao.revisado_por,
+        "revisado_em": qualificacao.revisado_em,
+        "erro": qualificacao.erro,
+    }
+
+
+@router.get("/v1/admin/leads/{lead_id}/qualificacao-ia")
+async def obter_qualificacao_ia(lead_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
+    """Qualificação da IA em sombra gerada uma única vez, no momento em que
+    o lead chegou (formulário público ou conversão do Radar de
+    Prospecção) -- prioridade sugerida + observação, puramente informativo
+    para o comercial priorizar."""
+    qualificacao = (
+        await session.execute(
+            select(QualificacaoIALead).where(
+                QualificacaoIALead.lead_id == lead_id, QualificacaoIALead.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if qualificacao is None:
+        raise HTTPException(status_code=404, detail="Nenhuma qualificação de IA gerada para este lead ainda")
+    return _qualificacao_ia_dict(qualificacao)
+
+
+class RevisaoQualificacaoIAInput(BaseModel):
+    status: Literal["aprovada", "descartada"]
+
+
+@router.post("/v1/admin/leads/{lead_id}/qualificacao-ia/{qualificacao_id}/revisar")
+async def revisar_qualificacao_ia(
+    lead_id: int, qualificacao_id: int, dados: RevisaoQualificacaoIAInput, session: SessionDep, usuario: LeadsManageDep
+) -> dict:
+    qualificacao = (
+        await session.execute(
+            select(QualificacaoIALead).where(
+                QualificacaoIALead.id == qualificacao_id,
+                QualificacaoIALead.lead_id == lead_id,
+                QualificacaoIALead.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if qualificacao is None:
+        raise HTTPException(status_code=404, detail="Qualificação não encontrada")
+    qualificacao.status = dados.status
+    qualificacao.revisado_por = usuario.ator
+    qualificacao.revisado_em = datetime.now(UTC)
+    await session.commit()
+    return _qualificacao_ia_dict(qualificacao)
 
 
 @router.get("/v1/admin/leads/{lead_id}/relacionados")

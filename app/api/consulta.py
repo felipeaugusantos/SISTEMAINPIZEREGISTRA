@@ -1,4 +1,5 @@
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -11,6 +12,7 @@ from app.crm import buscar_lead_ativo_por_email, obter_ou_criar_empresa, registr
 from app.database import get_session
 from app.models import (
     Contato,
+    ExplicacaoAnaliseMarca,
     Lead,
     PesquisaMarca,
     SolicitacaoExclusaoPesquisa,
@@ -290,3 +292,64 @@ async def relatorio_consulta(
     if pesquisa is None:
         raise HTTPException(status_code=404, detail="Consulta nao encontrada")
     return await gerar_resumo_pesquisa(session, pesquisa)
+
+
+def _explicacao_ia_dict(explicacao: ExplicacaoAnaliseMarca) -> dict:
+    return {
+        "id": explicacao.id,
+        "pesquisa_id": explicacao.pesquisa_id,
+        "gerado_em": explicacao.gerado_em,
+        "modelo": explicacao.modelo,
+        "explicacao": explicacao.explicacao,
+        "status": explicacao.status,
+        "revisado_por": explicacao.revisado_por,
+        "revisado_em": explicacao.revisado_em,
+        "erro": explicacao.erro,
+    }
+
+
+@router.get("/{pesquisa_id}/explicacao-ia")
+async def obter_explicacao_ia(pesquisa_id: str, session: SessionDep, operador: OperadorDep) -> dict:
+    """Explicação em linguagem simples do risco já calculado (IA em sombra)
+    -- nunca recalcula nem substitui o resultado técnico, só traduz. Só
+    aparece na tela interna do analista, nunca no relatório público."""
+    explicacao = (
+        await session.execute(
+            select(ExplicacaoAnaliseMarca)
+            .where(
+                ExplicacaoAnaliseMarca.pesquisa_id == pesquisa_id,
+                ExplicacaoAnaliseMarca.organizacao_id == operador.organizacao_id,
+            )
+            .order_by(ExplicacaoAnaliseMarca.gerado_em.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if explicacao is None:
+        raise HTTPException(status_code=404, detail="Nenhuma explicação de IA gerada para esta consulta ainda")
+    return _explicacao_ia_dict(explicacao)
+
+
+class RevisaoExplicacaoIAInput(BaseModel):
+    status: Literal["aprovada", "descartada"]
+
+
+@router.post("/{pesquisa_id}/explicacao-ia/{explicacao_id}/revisar")
+async def revisar_explicacao_ia(
+    pesquisa_id: str, explicacao_id: int, dados: RevisaoExplicacaoIAInput, session: SessionDep, operador: OperadorDep
+) -> dict:
+    explicacao = (
+        await session.execute(
+            select(ExplicacaoAnaliseMarca).where(
+                ExplicacaoAnaliseMarca.id == explicacao_id,
+                ExplicacaoAnaliseMarca.pesquisa_id == pesquisa_id,
+                ExplicacaoAnaliseMarca.organizacao_id == operador.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if explicacao is None:
+        raise HTTPException(status_code=404, detail="Explicação não encontrada")
+    explicacao.status = dados.status
+    explicacao.revisado_por = operador.ator
+    explicacao.revisado_em = datetime.now(UTC)
+    await session.commit()
+    return _explicacao_ia_dict(explicacao)

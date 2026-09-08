@@ -788,6 +788,59 @@ class SugestaoIALead(Base):
     erro: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class ExplicacaoAnaliseMarca(Base):
+    """Explicação em linguagem simples do risco já calculado pelo motor
+    determinístico (AvaliacaoRiscoMarca) -- extensão da IA em sombra para a
+    análise de marca. NUNCA recalcula nem substitui o resultado técnico, só
+    traduz pontuacao/nivel/principais_conflitos já persistidos. Sempre
+    exige revisão humana explícita antes de qualquer uso além de apoio
+    interno ao analista."""
+
+    __tablename__ = "explicacoes_analise_marca"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    pesquisa_id: Mapped[str] = mapped_column(ForeignKey("pesquisas_marca.id", ondelete="CASCADE"), index=True)
+    avaliacao_risco_id: Mapped[int] = mapped_column(
+        ForeignKey("avaliacoes_risco_marca.id", ondelete="CASCADE"), index=True
+    )
+    gerado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    modelo: Mapped[str] = mapped_column(String(120))
+    explicacao: Mapped[str] = mapped_column(Text, default="")
+    # Snapshot do calculado_em da avaliação no momento da geração -- usado
+    # para decidir se a avaliação mudou desde então (evita gerar de novo
+    # sem necessidade). Mesma lógica de SugestaoIALead.baseado_em_evento_em.
+    baseado_em_calculado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    revisado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    revisado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    erro: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class QualificacaoIALead(Base):
+    """Qualificação gerada pela IA em sombra no momento da captação de um
+    lead (formulário público ou conversão do Radar de Prospecção):
+    prioridade sugerida + observação de fit, a partir só dos dados
+    disponíveis na chegada (sem histórico de contato, que ainda não
+    existe). Gerada uma única vez por lead -- puramente informativo para o
+    comercial priorizar, nunca decide sozinha."""
+
+    __tablename__ = "qualificacoes_ia_lead"
+    __table_args__ = (UniqueConstraint("lead_id", name="uq_qualificacao_ia_lead"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    gerado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    modelo: Mapped[str] = mapped_column(String(120))
+    prioridade: Mapped[str] = mapped_column(String(10), default="media", index=True)
+    observacao: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    revisado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    revisado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    erro: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class MetaComercial(Base):
     """Meta mensal de um operador (item 50 da auditoria completa do CRM,
     06/09/2026): quantidade de leads ganhos e valor faturado. Não existe

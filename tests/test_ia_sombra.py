@@ -2,12 +2,30 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 from app.ia_sombra import (
+    _analisar_explicacao,
+    _analisar_qualificacao,
     _analisar_resposta,
+    enfileirar_qualificacao_ia_se_ativa,
+    gerar_explicacao_risco,
+    gerar_explicacoes_risco_pendentes,
+    gerar_qualificacao_lead,
     gerar_sugestao_lead,
     gerar_sugestoes_ia_pendentes,
+    montar_contexto_avaliacao_risco,
+    montar_contexto_captacao_lead,
     montar_contexto_lead,
 )
-from app.models import ContatoLead, Lead, RespostaEmailLead, StatusLead, SugestaoIALead
+from app.models import (
+    AvaliacaoRiscoMarca,
+    ContatoLead,
+    ExplicacaoAnaliseMarca,
+    Lead,
+    PoliticaCRM,
+    QualificacaoIALead,
+    RespostaEmailLead,
+    StatusLead,
+    SugestaoIALead,
+)
 from app.settings import get_settings
 from tests.conftest import FakeResult, FakeSession
 
@@ -147,3 +165,217 @@ def test_gerar_sugestoes_ia_pendentes_pula_lead_sem_atividade_nova_e_gera_para_l
     sugestoes_criadas = [item for item in session.adicionados if isinstance(item, SugestaoIALead)]
     assert len(sugestoes_criadas) == 1
     assert sugestoes_criadas[0].lead_id == 2
+
+
+# --- Frente A: explicação em linguagem simples do risco já calculado
+# (análise de marca). NUNCA recalcula nem substitui o resultado técnico. ---
+
+
+def _avaliacao(**kwargs: object) -> AvaliacaoRiscoMarca:
+    base = dict(
+        id=1,
+        pesquisa_id="pesquisa-1",
+        versao_motor="1.0",
+        pontuacao=72,
+        nivel="alto",
+        principais_conflitos=[{"titulo": "MARCA CONCORRENTE", "pontuacao": 72, "nivel": "alto"}],
+        regras_aplicadas={},
+        calculado_em=datetime(2026, 9, 7, tzinfo=UTC),
+    )
+    base.update(kwargs)
+    return AvaliacaoRiscoMarca(**base)
+
+
+def test_analisar_explicacao_extrai_texto_apos_marcador() -> None:
+    assert _analisar_explicacao("EXPLICACAO: o risco é alto por causa de X.") == "o risco é alto por causa de X."
+
+
+def test_analisar_explicacao_sem_marcador_usa_texto_inteiro() -> None:
+    assert _analisar_explicacao("resposta fora do formato") == "resposta fora do formato"
+
+
+def test_montar_contexto_avaliacao_risco_inclui_pontuacao_nivel_e_conflitos() -> None:
+    contexto = montar_contexto_avaliacao_risco(_avaliacao())
+    assert "72/100" in contexto
+    assert "alto" in contexto
+    assert "MARCA CONCORRENTE" in contexto
+
+
+async def _chamada_explicacao_fake(_prompt: str) -> str:
+    return "EXPLICACAO: O risco foi classificado como alto porque há um conflito direto com MARCA CONCORRENTE."
+
+
+def test_gerar_explicacao_risco_usa_chamada_injetada_e_nao_comita() -> None:
+    avaliacao = _avaliacao()
+    session = FakeSession([])
+
+    explicacao = asyncio.run(gerar_explicacao_risco(session, avaliacao, 1, chamar_ia=_chamada_explicacao_fake))
+
+    assert "MARCA CONCORRENTE" in explicacao.explicacao
+    assert explicacao.erro is None
+    assert explicacao.organizacao_id == 1
+    assert explicacao.avaliacao_risco_id == avaliacao.id
+    assert explicacao in session.adicionados
+    assert session.commits == 0
+
+
+def test_gerar_explicacao_risco_erro_na_chamada_vira_campo_erro() -> None:
+    avaliacao = _avaliacao()
+    session = FakeSession([])
+
+    explicacao = asyncio.run(gerar_explicacao_risco(session, avaliacao, 1, chamar_ia=_chamada_com_falha))
+
+    assert explicacao.erro is not None
+    assert "TimeoutError" in explicacao.erro
+
+
+def test_gerar_explicacoes_risco_pendentes_desligado_devolve_zero() -> None:
+    session = FakeSession([])
+    resultado = asyncio.run(gerar_explicacoes_risco_pendentes(session))
+    assert resultado == 0
+    assert session.executados == []
+
+
+def test_gerar_explicacoes_risco_pendentes_pula_avaliacao_sem_mudanca() -> None:
+    settings = get_settings()
+    original = settings.ia_sombra_enabled
+    settings.ia_sombra_enabled = True
+
+    calculado_em = datetime(2026, 9, 1, tzinfo=UTC)
+    avaliacao_sem_mudanca = _avaliacao(id=1, calculado_em=calculado_em)
+    avaliacao_recalculada = _avaliacao(id=2, calculado_em=calculado_em + timedelta(hours=1))
+
+    try:
+        session = FakeSession(
+            [
+                FakeResult(itens=[1]),  # organizacoes_ativas
+                FakeResult(itens=[(1, calculado_em), (2, calculado_em)]),  # ultima_explicacao_por_avaliacao
+                FakeResult(itens=[(avaliacao_sem_mudanca, 1), (avaliacao_recalculada, 1)]),  # avaliacoes
+            ]
+        )
+        resultado = asyncio.run(gerar_explicacoes_risco_pendentes(session, chamar_ia=_chamada_explicacao_fake))
+    finally:
+        settings.ia_sombra_enabled = original
+
+    assert resultado == 1
+    explicacoes_criadas = [item for item in session.adicionados if isinstance(item, ExplicacaoAnaliseMarca)]
+    assert len(explicacoes_criadas) == 1
+    assert explicacoes_criadas[0].avaliacao_risco_id == 2
+
+
+# --- Frente B: qualificação da IA na captação de leads --------------------
+
+
+def _lead_captacao(**kwargs: object) -> Lead:
+    base = dict(
+        id=10,
+        organizacao_id=1,
+        nome="Cliente Novo",
+        empresa="Empresa Nova",
+        marca="MARCA NOVA",
+        origem="site",
+        utm_source="google",
+        utm_medium="cpc",
+        utm_campaign="marcas-2026",
+    )
+    base.update(kwargs)
+    return Lead(**base)
+
+
+def test_montar_contexto_captacao_lead_inclui_dados_da_chegada() -> None:
+    contexto = montar_contexto_captacao_lead(_lead_captacao())
+    assert "Cliente Novo" in contexto
+    assert "Empresa Nova" in contexto
+    assert "MARCA NOVA" in contexto
+    assert "google" in contexto
+
+
+def test_analisar_qualificacao_bem_formada() -> None:
+    prioridade, observacao = _analisar_qualificacao("PRIORIDADE: alta\nOBSERVACAO: empresa grande, marca conhecida.")
+    assert prioridade == "alta"
+    assert observacao == "empresa grande, marca conhecida."
+
+
+def test_analisar_qualificacao_prioridade_fora_do_vocabulario_cai_em_media() -> None:
+    prioridade, _ = _analisar_qualificacao("PRIORIDADE: urgentissimo\nOBSERVACAO: teste.")
+    assert prioridade == "media"
+
+
+def test_analisar_qualificacao_sem_marcadores_cai_em_media_com_texto_bruto() -> None:
+    prioridade, observacao = _analisar_qualificacao("resposta livre do modelo")
+    assert prioridade == "media"
+    assert observacao == "resposta livre do modelo"
+
+
+async def _chamada_qualificacao_fake(_prompt: str) -> str:
+    return "PRIORIDADE: alta\nOBSERVACAO: marca conhecida, boa chance de fechar."
+
+
+def test_gerar_qualificacao_lead_usa_chamada_injetada_e_nao_comita() -> None:
+    lead = _lead_captacao()
+    session = FakeSession([])
+
+    qualificacao = asyncio.run(gerar_qualificacao_lead(session, lead, chamar_ia=_chamada_qualificacao_fake))
+
+    assert qualificacao.prioridade == "alta"
+    assert "boa chance" in qualificacao.observacao
+    assert qualificacao.erro is None
+    assert qualificacao in session.adicionados
+    assert session.commits == 0
+
+
+def test_gerar_qualificacao_lead_erro_na_chamada_vira_campo_erro() -> None:
+    lead = _lead_captacao()
+    session = FakeSession([])
+
+    qualificacao = asyncio.run(gerar_qualificacao_lead(session, lead, chamar_ia=_chamada_com_falha))
+
+    assert qualificacao.erro is not None
+    assert qualificacao.prioridade == "media"
+
+
+def test_enfileirar_qualificacao_ia_nao_enfileira_com_flag_global_desligada() -> None:
+    lead = _lead_captacao()
+    session = FakeSession([])
+
+    asyncio.run(enfileirar_qualificacao_ia_se_ativa(session, lead))
+
+    assert session.executados == []  # nem chega a consultar a política da organização
+
+
+def test_enfileirar_qualificacao_ia_nao_enfileira_com_organizacao_sem_opt_in() -> None:
+    settings = get_settings()
+    original = settings.ia_sombra_enabled
+    settings.ia_sombra_enabled = True
+    lead = _lead_captacao()
+
+    try:
+        session = FakeSession([FakeResult(scalar=PoliticaCRM(organizacao_id=1, ia_sombra_ativa=False))])
+        asyncio.run(enfileirar_qualificacao_ia_se_ativa(session, lead))
+    finally:
+        settings.ia_sombra_enabled = original
+
+
+def test_enfileirar_qualificacao_ia_enfileira_quando_tudo_ativo() -> None:
+    import app.ia_sombra as modulo
+
+    settings = get_settings()
+    original = settings.ia_sombra_enabled
+    settings.ia_sombra_enabled = True
+    lead = _lead_captacao()
+    chamadas = []
+
+    async def _enfileirar_fake(tipo: str, payload: dict, *, idempotency_key: str | None = None) -> dict:
+        chamadas.append((tipo, payload, idempotency_key))
+        return {}
+
+    original_enfileirar = modulo.enfileirar
+    modulo.enfileirar = _enfileirar_fake
+    try:
+        session = FakeSession([FakeResult(scalar=PoliticaCRM(organizacao_id=1, ia_sombra_ativa=True))])
+        asyncio.run(enfileirar_qualificacao_ia_se_ativa(session, lead))
+    finally:
+        settings.ia_sombra_enabled = original
+        modulo.enfileirar = original_enfileirar
+
+    assert chamadas == [("leads.qualificar_ia", {"lead_id": 10, "organizacao_id": 1}, "10:qualificacao_ia")]

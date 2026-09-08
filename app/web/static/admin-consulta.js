@@ -170,11 +170,50 @@ function renderRelatorio(data) {
   resultado.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+// IA em sombra (análise de marca): explicação em linguagem simples do
+// risco já calculado -- gerada em segundo plano, pode ainda não existir
+// (some a seção nesse caso, sem tentar gerar na hora).
+async function renderExplicacaoIA(pesquisaId) {
+  const box = document.querySelector("#res-explicacao-ia");
+  if (!box) return;
+  let explicacao;
+  try {
+    const r = await fetch(`/v1/admin/consulta/${encodeURIComponent(pesquisaId)}/explicacao-ia`);
+    if (!r.ok) { box.hidden = true; return; }
+    explicacao = await r.json();
+  } catch { box.hidden = true; return; }
+  if (explicacao.erro || explicacao.status !== "pendente") { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<p class="eyebrow">Explicação da IA · tradução do risco já calculado, revisão necessária</p>
+    <p class="ia-explicacao-risco-texto">${escapeHtmlConsulta(explicacao.explicacao)}</p>
+    <p class="ia-explicacao-risco-aviso">Não recalcula nem substitui a análise técnica -- só traduz o resultado para linguagem simples.</p>
+    <div class="ia-explicacao-risco-acoes">
+      <button type="button" class="secondary-button" data-revisar-explicacao="descartada">Descartar</button>
+      <button type="button" class="primary-button" data-revisar-explicacao="aprovada">Marcar como revisada</button>
+    </div>`;
+  box.querySelectorAll("[data-revisar-explicacao]").forEach(botao => botao.addEventListener("click", async () => {
+    box.querySelectorAll("button").forEach(b => { b.disabled = true; });
+    try {
+      await fetch(`/v1/admin/consulta/${encodeURIComponent(pesquisaId)}/explicacao-ia/${explicacao.id}/revisar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: botao.dataset.revisarExplicacao }),
+      });
+      box.hidden = true;
+    } catch {
+      box.querySelectorAll("button").forEach(b => { b.disabled = false; });
+    }
+  }));
+}
+
+function escapeHtmlConsulta(v) { const s = document.createElement("span"); s.textContent = v ?? ""; return s.innerHTML; }
+
 async function carregarRelatorio(id) {
   setStatus("Gerando relatório…", "loading");
   try {
     const data = await api(`/v1/admin/consulta/${encodeURIComponent(id)}/relatorio`);
     renderRelatorio(data);
+    renderExplicacaoIA(id);
     setStatus("Consulta concluída.", "success");
   } catch (error) {
     setStatus(error.message, "error");

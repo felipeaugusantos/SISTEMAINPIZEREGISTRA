@@ -13,7 +13,7 @@ from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_reno
 from app.crm import gerar_lembretes_sla_primeiro_atendimento, reconciliar_automacoes_fluxo_contratacao
 from app.database import session_factory
 from app.emailing import enviar_alerta_atividades_atrasadas
-from app.ia_sombra import gerar_sugestoes_ia_pendentes
+from app.ia_sombra import gerar_explicacoes_risco_pendentes, gerar_qualificacao_lead, gerar_sugestoes_ia_pendentes
 from app.imap_polling import verificar_respostas_email
 from app.models import (
     AlertaSistema,
@@ -249,6 +249,23 @@ async def processar(tipo: str, payload: dict) -> None:
             # E PoliticaCRM.ia_sombra_ativa de pelo menos uma organizacao
             # estarem ligados -- ver app.ia_sombra.
             await gerar_sugestoes_ia_pendentes(session)
+        elif tipo == "analise.gerar_explicacoes_risco":
+            # IA em sombra (analise de marca): traduz em linguagem simples o
+            # risco ja calculado pelo motor deterministico -- nunca
+            # recalcula nem substitui. Mesmo par de flags do job acima.
+            await gerar_explicacoes_risco_pendentes(session)
+        elif tipo == "leads.qualificar_ia":
+            # IA em sombra (captacao de leads): prioridade + observacao
+            # sugeridas uma unica vez, no momento em que o lead chega
+            # (formulario publico ou conversao do Radar de Prospeccao) --
+            # job sob demanda (enfileirado na criacao), nao um sweep
+            # periodico como os dois acima. Idempotente por
+            # UniqueConstraint(lead_id) em QualificacaoIALead.
+            lead_qualificacao = (
+                await session.execute(select(Lead).where(Lead.id == payload["lead_id"]))
+            ).scalar_one_or_none()
+            if lead_qualificacao is not None:
+                await gerar_qualificacao_lead(session, lead_qualificacao)
         elif tipo == "crm.gerar_renovacoes_marca":
             # Achado da auditoria: RenovacaoFinanceira e o endpoint de criar ja
             # existiam (app/api/contratacoes.py), mas so eram usados manualmente --
@@ -710,6 +727,7 @@ TAREFAS_MANUTENCAO_HORARIA: tuple[str, ...] = (
     "crm.sla_primeiro_atendimento",
     "crm.fluxo_contratacao",
     "crm.gerar_sugestoes_ia",
+    "analise.gerar_explicacoes_risco",
     "crm.gerar_renovacoes_marca",
     "cadencia.enviar_emails_pendentes",
     "cadencia.verificar_respostas_email",

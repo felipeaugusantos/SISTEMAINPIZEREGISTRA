@@ -427,9 +427,10 @@ async function openLead(id, selectedResearchId = null) {
     ["propostas", "Proposta de registro"],
   ];
   dialogContent.innerHTML = `
-    <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div></section>
+    <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div><div><span>Prioridade (IA)</span><strong id="lead-qualificacao-badge">—</strong></div></section>
     <nav class="lead-tabs" role="tablist">${ABAS_LEAD.map(([id, label], i) => `<button type="button" class="lead-tab${i === 0 ? " active" : ""}" role="tab" aria-selected="${i === 0}" data-tab="${id}">${label}</button>`).join("")}</nav>
     <div class="lead-tab-panel" data-panel="atendimento">
+      <section class="lead-qualificacao-ia lg-full" id="lead-qualificacao-ia" hidden></section>
       <section class="lead-sugestao-ia lg-full" id="lead-sugestao-ia" hidden></section>
       <section class="lead-history lg-full"><header><div><p class="eyebrow">${selectedResearchId ? "Pesquisa selecionada" : "Histórico"}</p><h3>${pesquisasExibidas.length} pesquisa${pesquisasExibidas.length === 1 ? "" : "s"}</h3></div></header>${pesquisasExibidas.length ? pesquisasExibidas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
       <section class="lead-relacionados lg-full" id="lead-relacionados" hidden></section>
@@ -531,6 +532,7 @@ async function openLead(id, selectedResearchId = null) {
     })
     .catch(() => { const badge = document.querySelector("#lead-score-badge"); if (badge) badge.textContent = "Indisponível"; });
   renderSugestaoIA(lead.id);
+  renderQualificacaoIA(lead.id);
   await renderEmpresa(lead);
   await renderCadenciaLead(lead);
   await loadLeadContacts(lead.id);
@@ -956,6 +958,46 @@ async function renderGuiasInpi(leadId) {
   box.querySelectorAll(".guia-del").forEach(b => b.addEventListener("click", async () => {
     const r = await fetch(`/v1/admin/guias-inpi/${b.dataset.id}`, { method: "DELETE" });
     if (r.ok || r.status === 204) await renderGuiasInpi(leadId);
+  }));
+}
+
+// IA em sombra na captação: prioridade + observação sugeridas uma única
+// vez, no momento em que o lead chegou -- gerada em segundo plano (job sob
+// demanda), pode ainda não existir (a chamada é assíncrona) ou nunca
+// existir (lead antigo, de antes da funcionalidade). Some nesses casos.
+const PRIORIDADE_LABEL_IA = { alta: "Alta", media: "Média", baixa: "Baixa" };
+async function renderQualificacaoIA(leadId) {
+  const box = document.querySelector("#lead-qualificacao-ia");
+  const badge = document.querySelector("#lead-qualificacao-badge");
+  if (!box) return;
+  let qualificacao;
+  try {
+    const r = await fetch(`/v1/admin/leads/${leadId}/qualificacao-ia`);
+    if (!r.ok) { box.hidden = true; if (badge) badge.textContent = "—"; return; }
+    qualificacao = await r.json();
+  } catch { box.hidden = true; if (badge) badge.textContent = "—"; return; }
+  if (badge) badge.textContent = PRIORIDADE_LABEL_IA[qualificacao.prioridade] || "—";
+  if (qualificacao.erro || qualificacao.status !== "pendente") { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<header><p class="eyebrow">Qualificação da IA na captação · revisão necessária</p><h3>Prioridade sugerida: ${escapeHtml(PRIORIDADE_LABEL_IA[qualificacao.prioridade] || qualificacao.prioridade)}</h3></header>
+    <p class="lead-sugestao-ia-resumo">${escapeHtml(qualificacao.observacao)}</p>
+    <p class="lead-sugestao-ia-aviso">Sugerida a partir só dos dados de captação (ainda sem histórico de contato) -- nunca decide sozinha quem é prioridade.</p>
+    <div class="lead-sugestao-ia-acoes">
+      <button type="button" class="secondary-button" data-revisar-qualificacao="descartada">Descartar</button>
+      <button type="button" class="primary-button" data-revisar-qualificacao="aprovada">Marcar como revisada</button>
+    </div>`;
+  box.querySelectorAll("[data-revisar-qualificacao]").forEach(botao => botao.addEventListener("click", async () => {
+    box.querySelectorAll("button").forEach(b => { b.disabled = true; });
+    try {
+      await fetch(`/v1/admin/leads/${leadId}/qualificacao-ia/${qualificacao.id}/revisar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: botao.dataset.revisarQualificacao }),
+      });
+      box.hidden = true;
+    } catch {
+      box.querySelectorAll("button").forEach(b => { b.disabled = false; });
+    }
   }));
 }
 

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cadencia_email import dentro_do_horario_comercial
 from app.crm import obter_politica_crm
+from app.feature_flags import flag_ativa_para_organizacao
 from app.models import (
     AvaliacaoRiscoMarca,
     ContatoLead,
@@ -44,6 +45,11 @@ TAMANHO_MAXIMO_CORPO_RESPOSTA = 500
 MARCADOR_RESUMO = "RESUMO:"
 MARCADOR_PROXIMA_ACAO = "PROXIMA_ACAO:"
 RESULTADOS_LEAD_CONHECIDOS = ("ganho", "perdido")
+# Rollout gradual do RAG local (Fase 4, feature flags por organização):
+# desligado por padrão, ativado organização por organização em
+# /admin/feature-flags antes do rollout geral. Ver
+# app.feature_flags.flag_ativa_para_organizacao.
+FEATURE_FLAG_RAG = "rag-local-ia-sombra"
 
 ChamadaIA = Callable[[str], Awaitable[str]]
 ChamadaEmbedding = Callable[[str], Awaitable[list[float]]]
@@ -182,7 +188,14 @@ async def _contexto_casos_semelhantes(
     """Precedentes reais (leads com resultado conhecido) parecidos com o
     lead atual, para o modelo ter exemplos concretos em vez de só o
     histórico isolado. Indisponibilidade do modelo de embeddings ou do
-    pgvector nunca derruba a sugestão principal -- vira "sem precedentes"."""
+    pgvector nunca derruba a sugestão principal -- vira "sem precedentes".
+
+    Atrás da feature flag FEATURE_FLAG_RAG (rollout gradual por
+    organização, Fase 4) -- desligada por padrão, backend valida a flag
+    aqui mesmo (não só esconder algo em tela, que nem existiria pra este
+    job de fundo)."""
+    if not await flag_ativa_para_organizacao(session, FEATURE_FLAG_RAG, lead.organizacao_id):
+        return ""
     try:
         embedding_consulta = await gerar_embedding(contexto)
         similares = await buscar_leads_similares(

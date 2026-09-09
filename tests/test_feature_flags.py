@@ -16,7 +16,7 @@ from app.api.feature_flags import (
     restringir_a_administradores,
     verificar_para_mim,
 )
-from app.feature_flags import exigir_feature_ativa, flag_ativa
+from app.feature_flags import exigir_feature_ativa, flag_ativa, flag_ativa_para_organizacao
 from app.models import EventoAuditoria, FeatureFlag, FeatureFlagOrganizacao, Organizacao
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
@@ -129,6 +129,26 @@ def test_flag_ativa_override_adiado_com_data_passada_cai_no_padrao() -> None:
     )
     session = FakeSession([FakeResult(scalar=_flag(estado_padrao="ligado")), FakeResult(scalar=override)])
     resultado = asyncio.run(flag_ativa(session, "nova-busca", usuario_teste()))
+    assert resultado is True
+
+
+# --- flag_ativa_para_organizacao: núcleo usado por código de fundo sem
+# usuário logado (ex.: app.ia_sombra, RAG local por trás de uma flag) ------
+
+
+def test_flag_ativa_para_organizacao_sem_usuario_respeita_somente_administradores() -> None:
+    session = FakeSession(
+        [FakeResult(scalar=_flag(estado_padrao="somente_administradores")), FakeResult(scalar=None)]
+    )
+    resultado = asyncio.run(flag_ativa_para_organizacao(session, "nova-busca", 1))
+    assert resultado is False  # administrador=False é o padrão -- job de fundo não é "um administrador logado"
+
+
+def test_flag_ativa_para_organizacao_administrador_true_libera_somente_administradores() -> None:
+    session = FakeSession(
+        [FakeResult(scalar=_flag(estado_padrao="somente_administradores")), FakeResult(scalar=None)]
+    )
+    resultado = asyncio.run(flag_ativa_para_organizacao(session, "nova-busca", 1, administrador=True))
     assert resultado is True
 
 

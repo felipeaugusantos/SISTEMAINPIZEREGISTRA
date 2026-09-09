@@ -55,6 +55,19 @@ organização testa o quê, não autoatendimento pela própria organização.
 usuário autenticado (é o que o frontend consultaria para decidir mostrar
 algo na interface) — nunca é a proteção de verdade.
 
+## Exemplo real: `rag-local-ia-sombra`
+
+Primeira flag de verdade cadastrada -- controla o RAG local (pgvector) na
+IA em sombra, ligado hoje incondicionalmente. Como o RAG roda dentro de um
+job de fundo (`app.ia_sombra._contexto_casos_semelhantes`, sem usuário
+HTTP autenticado), o check usa `flag_ativa_para_organizacao(session,
+"rag-local-ia-sombra", lead.organizacao_id)` em vez de `flag_ativa`
+(que exige um `UsuarioAutenticado`) -- `flag_ativa` virou um wrapper fino
+sobre `flag_ativa_para_organizacao` para o caso com usuário logado.
+`administrador=False` é o padrão nesse caminho: um job de fundo não é "um
+administrador logado", então uma flag em `somente_administradores` fica
+desligada para ele mesmo que a organização tenha administrador.
+
 ## Critério de aceite
 
 Uma organização pode testar uma funcionalidade sem afetar as demais: cada

@@ -23,6 +23,7 @@ from app.models import (
     AvaliacaoRiscoMarca,
     ContatoLead,
     EmbeddingLead,
+    FeatureFlag,
     Lead,
     PoliticaCRM,
     QualificacaoIALead,
@@ -99,11 +100,25 @@ async def _embedding_com_falha(_texto: str) -> list[float]:
     raise TimeoutError("modelo de embeddings não respondeu a tempo")
 
 
+def _flag_rag_ativa() -> FeatureFlag:
+    return FeatureFlag(
+        id=1,
+        codigo="rag-local-ia-sombra",
+        nome="RAG local na IA em sombra",
+        descricao="Precedentes reais na sugestão de próxima ação.",
+        modulos_envolvidos=["leads", "ia"],
+        dependencias=[],
+        estado_padrao="ligado",
+        ativo=True,
+        data_expiracao=None,
+    )
+
+
 def test_gerar_sugestao_lead_usa_chamada_injetada_e_nao_comita() -> None:
     lead = _lead()
     session = FakeSession(
-        [FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(scalar=None), FakeResult(itens=[])]
-    )
+        [FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(scalar=None), FakeResult(scalar=None)]
+    )  # último item: flag do RAG não cadastrada -- casos semelhantes nem chega a consultar
 
     sugestao = asyncio.run(
         gerar_sugestao_lead(session, lead, chamar_ia=_chamada_fake, gerar_embedding=_embedding_fake)
@@ -119,8 +134,8 @@ def test_gerar_sugestao_lead_usa_chamada_injetada_e_nao_comita() -> None:
 def test_gerar_sugestao_lead_erro_na_chamada_vira_campo_erro_sem_propagar() -> None:
     lead = _lead()
     session = FakeSession(
-        [FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(scalar=None), FakeResult(itens=[])]
-    )
+        [FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(scalar=None), FakeResult(scalar=None)]
+    )  # último item: flag do RAG não cadastrada
 
     sugestao = asyncio.run(
         gerar_sugestao_lead(session, lead, chamar_ia=_chamada_com_falha, gerar_embedding=_embedding_fake)
@@ -142,7 +157,14 @@ def test_gerar_sugestao_lead_inclui_casos_semelhantes_no_prompt_quando_ha_preced
         embedding=[0.1, 0.2, 0.3],
     )
     session = FakeSession(
-        [FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(scalar=None), FakeResult(itens=[precedente])]
+        [
+            FakeResult(itens=[]),  # contatos
+            FakeResult(itens=[]),  # respostas
+            FakeResult(scalar=None),  # pesquisa
+            FakeResult(scalar=_flag_rag_ativa()),  # flag do RAG ativa
+            FakeResult(scalar=None),  # sem override por organização -- usa estado_padrao
+            FakeResult(itens=[precedente]),  # casos semelhantes
+        ]
     )
     prompts_recebidos = []
 
@@ -161,7 +183,15 @@ def test_gerar_sugestao_lead_inclui_casos_semelhantes_no_prompt_quando_ha_preced
 
 def test_gerar_sugestao_lead_degrada_sem_erro_quando_embedding_falha() -> None:
     lead = _lead()
-    session = FakeSession([FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(scalar=None)])
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # contatos
+            FakeResult(itens=[]),  # respostas
+            FakeResult(scalar=None),  # pesquisa
+            FakeResult(scalar=_flag_rag_ativa()),  # flag do RAG ativa -- chega a tentar o embedding
+            FakeResult(scalar=None),  # sem override por organização
+        ]
+    )
 
     sugestao = asyncio.run(
         gerar_sugestao_lead(session, lead, chamar_ia=_chamada_fake, gerar_embedding=_embedding_com_falha)
@@ -169,6 +199,47 @@ def test_gerar_sugestao_lead_degrada_sem_erro_quando_embedding_falha() -> None:
 
     assert sugestao.erro is None
     assert sugestao.resumo == "Cliente ainda não retornou contato inicial."
+
+
+def test_gerar_sugestao_lead_flag_do_rag_desligada_ignora_precedente_existente() -> None:
+    """Rollout gradual (Fase 4): mesmo com uma flag cadastrada, se o estado
+    padrão for "desligado" (e a organização não tiver override), o RAG
+    fica fora -- nunca chega a chamar gerar_embedding nem
+    buscar_leads_similares."""
+    lead = _lead()
+    flag_desligada = FeatureFlag(
+        id=1,
+        codigo="rag-local-ia-sombra",
+        nome="RAG local na IA em sombra",
+        descricao="Precedentes reais na sugestão de próxima ação.",
+        modulos_envolvidos=["leads"],
+        dependencias=[],
+        estado_padrao="desligado",
+        ativo=True,
+        data_expiracao=None,
+    )
+    chamadas_embedding = []
+
+    async def _embedding_que_nao_deveria_ser_chamado(texto: str) -> list[float]:
+        chamadas_embedding.append(texto)
+        return [0.1]
+
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # contatos
+            FakeResult(itens=[]),  # respostas
+            FakeResult(scalar=None),  # pesquisa
+            FakeResult(scalar=flag_desligada),  # flag existe, mas estado_padrao="desligado"
+            FakeResult(scalar=None),  # sem override -- cai no padrão desligado
+        ]
+    )
+
+    sugestao = asyncio.run(
+        gerar_sugestao_lead(session, lead, chamar_ia=_chamada_fake, gerar_embedding=_embedding_que_nao_deveria_ser_chamado)
+    )
+
+    assert chamadas_embedding == []
+    assert sugestao.erro is None
 
 
 def test_gerar_sugestoes_ia_pendentes_desligado_por_padrao_devolve_zero() -> None:
@@ -227,7 +298,7 @@ def test_gerar_sugestoes_ia_pendentes_pula_lead_sem_atividade_nova_e_gera_para_l
                 FakeResult(itens=[]),  # gerar_sugestao_lead(lead_com_novidade): contatos
                 FakeResult(itens=[]),  # respostas
                 FakeResult(scalar=None),  # pesquisa
-                FakeResult(itens=[]),  # casos semelhantes (nenhum precedente)
+                FakeResult(scalar=None),  # flag do RAG não cadastrada -- casos semelhantes nem consulta
             ]
         )
         resultado = asyncio.run(

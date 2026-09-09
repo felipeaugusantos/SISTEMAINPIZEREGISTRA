@@ -62,18 +62,26 @@ def _avaliar_estado(estado: str, *, usuario_e_administrador: bool) -> bool:
     return False  # "adiado", "desativado", "desligado" e qualquer valor desconhecido
 
 
-async def flag_ativa(session: AsyncSession, codigo: str, usuario: UsuarioAutenticado) -> bool:
-    """Fecha em falso sempre que houver dúvida (flag inexistente, desligada
+async def flag_ativa_para_organizacao(
+    session: AsyncSession, codigo: str, organizacao_id: int, *, administrador: bool = False
+) -> bool:
+    """Núcleo da avaliação, sem depender de uma requisição HTTP autenticada
+    -- usado tanto por `flag_ativa` (usuário logado) quanto por código de
+    fundo (jobs do worker, ex. app.ia_sombra) que só tem organizacao_id.
+    Fecha em falso sempre que houver dúvida (flag inexistente, desligada
     globalmente, expirada, ou organização sem override caindo no padrão
     "desligado") -- API e banco continuam compatíveis com a flag
-    desligada, então nunca há problema em recusar por segurança."""
+    desligada, então nunca há problema em recusar por segurança.
+    `administrador=False` (padrão) é a escolha certa pra código de fundo:
+    um job não é "um administrador logado", então uma flag em
+    "somente_administradores" fica desligada para ele, mesmo que a
+    organização tenha um administrador de verdade."""
     flag = await obter_flag(session, codigo)
     if flag is None or not flag.ativo:
         return False
     if flag.data_expiracao is not None and flag.data_expiracao <= datetime.now(UTC):
         return False
-    administrador = _usuario_e_administrador(usuario)
-    override = await obter_override(session, flag.id, usuario.organizacao_id)
+    override = await obter_override(session, flag.id, organizacao_id)
     if override is not None:
         if override.estado == "adiado" and (override.adiado_ate is None or override.adiado_ate > datetime.now(UTC)):
             return False
@@ -82,6 +90,15 @@ async def flag_ativa(session: AsyncSession, codigo: str, usuario: UsuarioAutenti
         # adiado_ate já passou -- cai no padrão da flag, mesmo caminho de
         # quem nunca teve override.
     return _avaliar_estado(flag.estado_padrao, usuario_e_administrador=administrador)
+
+
+async def flag_ativa(session: AsyncSession, codigo: str, usuario: UsuarioAutenticado) -> bool:
+    """Avaliação para um usuário autenticado de verdade (endpoint HTTP) --
+    ver flag_ativa_para_organizacao para a versão usada por código de
+    fundo sem usuário logado."""
+    return await flag_ativa_para_organizacao(
+        session, codigo, usuario.organizacao_id, administrador=_usuario_e_administrador(usuario)
+    )
 
 
 def exigir_feature_ativa(codigo: str) -> Callable[..., Awaitable[UsuarioAutenticado]]:

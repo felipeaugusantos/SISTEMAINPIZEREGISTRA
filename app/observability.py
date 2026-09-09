@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import traceback
 from collections.abc import Awaitable, Callable
 from time import perf_counter
 
@@ -14,6 +15,7 @@ from app.database import session_factory
 from app.models import EventoOperacional
 from app.proxy import cliente_ip
 from app.request_context import (
+    adicionar_detalhes_operacionais,
     definir_request_id,
     detalhes_operacionais,
     iniciar_detalhes_operacionais,
@@ -182,6 +184,10 @@ async def observar_requisicao(request: Request, call_next: CallNext) -> Response
             response = await call_next(request)
         except Exception as exc:
             duracao = max(0, round((perf_counter() - inicio) * 1000))
+            adicionar_detalhes_operacionais(
+                erro_mensagem=str(exc)[:500],
+                erro_traceback=traceback.format_exc()[-4000:],
+            )
             await _registrar(request, 500, duracao, type(exc).__name__)
             logger.exception(
                 json.dumps(

@@ -225,3 +225,64 @@ async function carregarPendenciasAuditoria() {
 }
 
 carregarPendenciasAuditoria();
+
+// Auditoria (achado do usuário): "Reportar problema" gravava no banco,
+// mas não existia nenhuma tela pra ver esses relatos -- caía num buraco
+// negro. Restrito ao departamento de Tech, mesmo padrão da seção acima.
+const STATUS_PROBLEMA_LABEL = { aberto: "Aberto", em_analise: "Em análise", resolvido: "Resolvido" };
+
+function dataHoraLabel(value) {
+  return value ? new Date(value).toLocaleString("pt-BR") : "—";
+}
+
+async function carregarProblemas() {
+  const secao = document.querySelector("#updates-problemas-section");
+  const statusFiltro = document.querySelector("#updates-problemas-filtro").elements.status.value;
+  const params = new URLSearchParams();
+  if (statusFiltro) params.set("status", statusFiltro);
+  const resposta = await fetch(`/v1/admin/atualizacoes/problemas?${params}`);
+  if (resposta.status === 403) { secao.hidden = true; return; }
+  if (!resposta.ok) return;
+  secao.hidden = false;
+  const dados = await resposta.json();
+  const linhas = document.querySelector("#updates-problemas-rows");
+  linhas.innerHTML = dados.itens.length
+    ? dados.itens.map((item) => `<tr class="${item.status === "aberto" ? "is-erro" : ""}">
+        <td>${dataHoraLabel(item.criado_em)}</td>
+        <td>${escapeHtml(item.versao)}</td>
+        <td>${escapeHtml(item.organizacao_nome)}</td>
+        <td>${escapeHtml(item.usuario_nome)}</td>
+        <td>${escapeHtml(item.categoria)}</td>
+        <td>${escapeHtml(item.modulo || "—")}</td>
+        <td>${escapeHtml(item.descricao)}</td>
+        <td>
+          <select data-problema-id="${item.id}">
+            ${Object.entries(STATUS_PROBLEMA_LABEL).map(([valor, rotulo]) => `<option value="${valor}" ${valor === item.status ? "selected" : ""}>${rotulo}</option>`).join("")}
+          </select>
+        </td>
+      </tr>`).join("")
+    : `<tr><td colspan="8">Nenhum problema relatado com esse filtro.</td></tr>`;
+  linhas.querySelectorAll("[data-problema-id]").forEach((select) => {
+    select.addEventListener("change", async () => {
+      select.disabled = true;
+      try {
+        await api(`/v1/admin/atualizacoes/problemas/${select.dataset.problemaId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: select.value }),
+        });
+      } catch (error) {
+        showStatus(error.message, "error");
+      } finally {
+        select.disabled = false;
+        await carregarProblemas();
+      }
+    });
+  });
+}
+
+document.querySelector("#updates-problemas-filtro").addEventListener("submit", (event) => {
+  event.preventDefault();
+  carregarProblemas();
+});
+
+carregarProblemas();

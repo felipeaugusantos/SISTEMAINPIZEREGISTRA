@@ -7,12 +7,15 @@ from pydantic import ValidationError
 
 from app.api.atualizacoes import (
     AdiarAvisoInput,
+    AtualizarStatusProblemaInput,
     ConfirmarLeituraInput,
     ReportarProblemaInput,
     adiar_aviso,
     atualizacao_publica,
+    atualizar_status_problema,
     confirmar_leitura,
     listar_atualizacoes,
+    listar_problemas,
     reportar_problema,
 )
 from app.models import EventoAuditoria, InteracaoVersaoSistema, ProblemaVersaoSistema, VersaoSistema
@@ -21,6 +24,11 @@ from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 def _usuario(org: int = 7):
     base = usuario_teste("operador", {"dashboard.view"})
+    return base.__class__(**{**base.__dict__, "organizacao_id": org})
+
+
+def _tech(org: int = 1):
+    base = usuario_teste("tech", {"production.view"})
     return base.__class__(**{**base.__dict__, "organizacao_id": org})
 
 
@@ -163,3 +171,87 @@ def test_interface_nao_contem_campos_tecnicos_restritos() -> None:
     )
     for campo in ("commit_sha", "migration_revision", "plano_rollback", "conteudo_hash", "publicado_por"):
         assert campo not in texto
+
+
+# --- Auditoria de problemas relatados (achado do usuário): "Reportar
+# problema" gravava no banco, mas não existia nenhuma tela nem endpoint
+# pra ver esses relatos. Restrito a Tech (production.view). ---
+
+
+def _problema(**kwargs: object) -> ProblemaVersaoSistema:
+    base = dict(
+        id=1,
+        versao_sistema_id=12,
+        organizacao_id=7,
+        usuario_id=3,
+        categoria="erro",
+        modulo="producao",
+        descricao="Ao abrir os detalhes, o conteúdo esperado não foi apresentado.",
+        status="aberto",
+        criado_em=datetime.now(UTC),
+    )
+    base.update(kwargs)
+    return ProblemaVersaoSistema(**base)
+
+
+@pytest.mark.asyncio
+async def test_listar_problemas_junta_versao_organizacao_e_usuario() -> None:
+    problema = _problema()
+    session = FakeSession(
+        resultados=[FakeResult(itens=[(problema, "1.0.72-2026-09-09", "Central de atualizações", "Cliente Teste", "Ana Operadora")])]
+    )
+
+    resposta = await listar_problemas(session, _tech(), status_filtro=None)
+
+    assert resposta["itens"] == [
+        {
+            "id": 1,
+            "versao_sistema_id": 12,
+            "versao": "1.0.72-2026-09-09",
+            "versao_titulo": "Central de atualizações",
+            "organizacao_nome": "Cliente Teste",
+            "usuario_nome": "Ana Operadora",
+            "categoria": "erro",
+            "modulo": "producao",
+            "descricao": problema.descricao,
+            "status": "aberto",
+            "criado_em": problema.criado_em,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_listar_problemas_rejeita_status_invalido() -> None:
+    session = FakeSession([])
+
+    with pytest.raises(HTTPException) as erro:
+        await listar_problemas(session, _tech(), status_filtro="cancelado")
+
+    assert erro.value.status_code == 422
+    assert session.executados == []
+
+
+@pytest.mark.asyncio
+async def test_atualizar_status_problema_audita_e_comita() -> None:
+    problema = _problema(status="aberto")
+    session = FakeSession(objetos_get=[problema])
+
+    resposta = await atualizar_status_problema(1, AtualizarStatusProblemaInput(status="resolvido"), session, _tech())
+
+    assert resposta == {"id": 1, "status": "resolvido"}
+    assert problema.status == "resolvido"
+    evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
+    assert evento.acao == "ATUALIZAR_STATUS_PROBLEMA_ATUALIZACAO"
+    assert evento.detalhes == {"status_anterior": "aberto", "status_novo": "resolvido"}
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_atualizar_status_problema_inexistente_devolve_404() -> None:
+    session = FakeSession(objetos_get=[None])
+
+    with pytest.raises(HTTPException) as erro:
+        await atualizar_status_problema(999, AtualizarStatusProblemaInput(status="resolvido"), session, _tech())
+
+    assert erro.value.status_code == 404
+    assert session.commits == 0

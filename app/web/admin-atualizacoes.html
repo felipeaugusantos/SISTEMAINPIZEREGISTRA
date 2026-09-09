@@ -7,7 +7,7 @@
     <title>Central de atualizações — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=55" />
     <script src="/static/admin-shell.js?v=43" defer></script>
-    <script src="/static/admin-atualizacoes.js?v=2" defer></script>
+    <script src="/static/admin-atualizacoes.js?v=3" defer></script>
   </head>
   <body class="admin-body" data-admin-section="updates">
     <main class="admin-main updates-page">
@@ -42,6 +42,30 @@
           <table>
             <thead><tr><th>Versão</th><th>Título</th><th>Tipo</th><th>Pendentes</th><th>Total de usuários</th></tr></thead>
             <tbody id="updates-pendencias-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="updates-problemas-section" class="overview-section" hidden>
+        <header>
+          <div><p class="eyebrow">Auditoria</p><h2>Problemas relatados</h2></div>
+          <span>Restrito ao departamento de Tech</span>
+        </header>
+        <form id="updates-problemas-filtro" class="admin-filters">
+          <label><span>Status</span>
+            <select name="status">
+              <option value="">Todos</option>
+              <option value="aberto" selected>Aberto</option>
+              <option value="em_analise">Em análise</option>
+              <option value="resolvido">Resolvido</option>
+            </select>
+          </label>
+          <button class="primary-button" type="submit">Filtrar</button>
+        </form>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Quando</th><th>Versão</th><th>Organização</th><th>Relatado por</th><th>Categoria</th><th>Módulo</th><th>Descrição</th><th>Status</th></tr></thead>
+            <tbody id="updates-problemas-rows"></tbody>
           </table>
         </div>
       </section>

@@ -2,21 +2,22 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.versoes_sistema import MODULOS_RELEASE, _texto_seguro
+from app.api.versoes_sistema import MODULOS_RELEASE, ViewDep, _texto_seguro
 from app.auditing import criar_evento_auditoria
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
-from app.models import InteracaoVersaoSistema, ProblemaVersaoSistema, VersaoSistema
+from app.models import InteracaoVersaoSistema, Organizacao, ProblemaVersaoSistema, UsuarioOperacoes, VersaoSistema
 from app.settings import get_settings
 
 router = APIRouter(prefix="/v1/admin/atualizacoes", tags=["central de atualizações"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 UsuarioDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("dashboard.view"))]
+STATUS_PROBLEMA_VALIDOS = frozenset({"aberto", "em_analise", "resolvido"})
 
 
 class ConfirmarLeituraInput(BaseModel):
@@ -27,6 +28,11 @@ class ConfirmarLeituraInput(BaseModel):
 class AdiarAvisoInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dias: int = Field(ge=1, le=30)
+
+
+class AtualizarStatusProblemaInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["aberto", "em_analise", "resolvido"]
 
 
 class ReportarProblemaInput(BaseModel):
@@ -292,3 +298,72 @@ async def reportar_problema(
     if problema.criado_em is None:
         problema.criado_em = datetime.now(UTC)
     return {"id": problema.id, "status": "aberto", "criado_em": problema.criado_em}
+
+
+# --- Auditoria (Fase 3, achado do usuário): "reportar problema" gravava no
+# banco, mas não existia nenhuma tela nem endpoint pra ver esses relatos --
+# caía num buraco negro visível só via banco direto. Restrito a Tech
+# (mesmo nível de app.api.versoes_sistema, Fase 1). ---
+
+
+@router.get("/problemas")
+async def listar_problemas(
+    session: SessionDep,
+    _: ViewDep,
+    status_filtro: Annotated[str | None, Query(alias="status")] = None,
+) -> dict:
+    if status_filtro is not None and status_filtro not in STATUS_PROBLEMA_VALIDOS:
+        raise HTTPException(422, "Status inválido")
+    consulta = (
+        select(ProblemaVersaoSistema, VersaoSistema.versao, VersaoSistema.titulo, Organizacao.nome, UsuarioOperacoes.nome)
+        .join(VersaoSistema, VersaoSistema.id == ProblemaVersaoSistema.versao_sistema_id)
+        .join(Organizacao, Organizacao.id == ProblemaVersaoSistema.organizacao_id)
+        .join(UsuarioOperacoes, UsuarioOperacoes.id == ProblemaVersaoSistema.usuario_id)
+        .order_by(ProblemaVersaoSistema.criado_em.desc())
+    )
+    if status_filtro is not None:
+        consulta = consulta.where(ProblemaVersaoSistema.status == status_filtro)
+    linhas = (await session.execute(consulta)).all()
+    return {
+        "itens": [
+            {
+                "id": problema.id,
+                "versao_sistema_id": problema.versao_sistema_id,
+                "versao": versao,
+                "versao_titulo": versao_titulo,
+                "organizacao_nome": organizacao_nome,
+                "usuario_nome": usuario_nome,
+                "categoria": problema.categoria,
+                "modulo": problema.modulo,
+                "descricao": problema.descricao,
+                "status": problema.status,
+                "criado_em": problema.criado_em,
+            }
+            for problema, versao, versao_titulo, organizacao_nome, usuario_nome in linhas
+        ]
+    }
+
+
+@router.patch("/problemas/{problema_id}")
+async def atualizar_status_problema(
+    problema_id: int, dados: AtualizarStatusProblemaInput, session: SessionDep, usuario: ViewDep
+) -> dict:
+    problema = await session.get(ProblemaVersaoSistema, problema_id)
+    if problema is None:
+        raise HTTPException(404, "Relato não encontrado")
+    status_anterior = problema.status
+    problema.status = dados.status
+    session.add(
+        criar_evento_auditoria(
+            organizacao_id=problema.organizacao_id,
+            actor_id=usuario.id,
+            ator=usuario.email,
+            acao="ATUALIZAR_STATUS_PROBLEMA_ATUALIZACAO",
+            recurso=f"problema_versao:{problema.id}",
+            sucesso=True,
+            status_http=200,
+            detalhes={"status_anterior": status_anterior, "status_novo": dados.status},
+        )
+    )
+    await session.commit()
+    return {"id": problema.id, "status": problema.status}

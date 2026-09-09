@@ -270,6 +270,8 @@ async def test_atualizar_status_problema_inexistente_devolve_404() -> None:
     with pytest.raises(HTTPException) as erro:
         await atualizar_status_problema(999, AtualizarStatusProblemaInput(status="resolvido"), session, _tech())
 
+    assert erro.value.status_code == 404
+
 
 # --- Fase 6: reporte estruturado (etapas/resultado/gravidade/anexo) ---------
 # Critério de aceite: todo problema fica vinculado à versão (versao_sistema_id,

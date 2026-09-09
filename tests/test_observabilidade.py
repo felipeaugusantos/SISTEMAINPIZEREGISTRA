@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app.api.observabilidade import _erros_por_versao, desligar_flag_imediatamente, painel_tecnico
+from app.api.observabilidade import _erros_por_versao, desligar_flag_imediatamente, painel_tecnico, religar_flag
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
@@ -227,6 +227,29 @@ def test_desligar_flag_inexistente_devolve_404() -> None:
         asyncio.run(desligar_flag_imediatamente("nao-existe", session, usuario_teste(perfil="tech")))
 
     assert erro.value.status_code == 404
+
+
+def test_religar_flag_reativa_e_audita() -> None:
+    flag = FeatureFlag(id=1, codigo="nova-busca", nome="Nova busca", ativo=False)
+    session = FakeSession([FakeResult(scalar=flag)])
+
+    resposta = asyncio.run(religar_flag("nova-busca", session, usuario_teste(perfil="tech")))
+
+    assert resposta == {"codigo": "nova-busca", "ativo": True, "ja_estava_ligada": False}
+    assert flag.ativo is True
+    evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
+    assert evento.acao == "FLAG_RELIGAR"
+    assert session.commits == 1
+
+
+def test_religar_flag_ja_ligada_nao_audita_de_novo() -> None:
+    flag = FeatureFlag(id=1, codigo="nova-busca", nome="Nova busca", ativo=True)
+    session = FakeSession([FakeResult(scalar=flag)])
+
+    resposta = asyncio.run(religar_flag("nova-busca", session, usuario_teste(perfil="tech")))
+
+    assert resposta == {"codigo": "nova-busca", "ativo": True, "ja_estava_ligada": True}
+    assert session.commits == 0
 
 
 def test_desligar_flag_exige_acesso_tech() -> None:

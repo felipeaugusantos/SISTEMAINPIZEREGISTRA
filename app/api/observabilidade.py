@@ -524,3 +524,33 @@ async def desligar_flag_imediatamente(codigo: str, session: SessionDep, usuario:
     )
     await session.commit()
     return {"codigo": flag.codigo, "ativo": False, "ja_estava_desligada": False}
+
+
+@router.post("/feature-flags/{codigo}/religar")
+async def religar_flag(codigo: str, session: SessionDep, usuario: TechDep) -> dict:
+    """Contrapartida de /desligar -- sem isso, o kill-switch de emergência
+    não tinha volta pela API (achado ao verificar /desligar ao vivo em
+    produção logo após implementar: precisou de UPDATE manual no banco pra
+    desfazer). Reativa a flag; estágio/percentual continuam exatamente
+    como estavam antes de desligar (não readianta nada sozinho)."""
+    _exigir_acesso_tech(usuario)
+    flag = await obter_flag(session, codigo)
+    if flag is None:
+        raise HTTPException(404, "Feature flag não encontrada")
+    if flag.ativo:
+        return {"codigo": flag.codigo, "ativo": True, "ja_estava_ligada": True}
+    flag.ativo = True
+    session.add(
+        criar_evento_auditoria(
+            organizacao_id=None,
+            actor_id=usuario.id,
+            ator=usuario.email,
+            acao="FLAG_RELIGAR",
+            recurso=f"feature_flag:{flag.id}",
+            sucesso=True,
+            status_http=200,
+            detalhes={"codigo": flag.codigo, "origem": "painel_tecnico"},
+        )
+    )
+    await session.commit()
+    return {"codigo": flag.codigo, "ativo": True, "ja_estava_ligada": False}

@@ -52,6 +52,7 @@ function renderFlagCard(flag) {
         <p><small>Módulos: ${flag.modulos_envolvidos.map(escapeHtml).join(", ") || "—"} · Dependências: ${flag.dependencias.map(escapeHtml).join(", ") || "nenhuma"}</small></p>
         <p class="ff-ativacao-info"><small>Ativação: ${dateLabel(flag.data_ativacao)} · Expira: ${dateLabel(flag.data_expiracao)}</small></p>
       </div>
+      ${flag.ativo ? "" : `<button type="button" class="primary-button ff-religar" title="Reativar esta feature flag (kill-switch)">Religar</button>`}
       <button type="button" class="secondary-button ff-excluir" title="Excluir esta feature flag">Excluir</button>
     </header>
     <form class="admin-filters ff-acao-form">
@@ -95,6 +96,20 @@ function renderFlagCard(flag) {
       </div>
     </div>
   `;
+  const botaoReligar = artigo.querySelector(".ff-religar");
+  if (botaoReligar) {
+    botaoReligar.addEventListener("click", async () => {
+      botaoReligar.disabled = true;
+      try {
+        await api(`/v1/admin/feature-flags/${flag.codigo}/religar`, { method: "POST" });
+        mostrarMensagem(`Flag "${flag.codigo}" religada.`);
+        await carregarFlags();
+      } catch (error) {
+        mostrarMensagem(error.message, "error");
+        botaoReligar.disabled = false;
+      }
+    });
+  }
   artigo.querySelector(".ff-excluir").addEventListener("click", async () => {
     if (!confirm(`Excluir definitivamente a flag "${flag.codigo}"? Isso remove também os estados por organização.`)) return;
     try {

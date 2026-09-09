@@ -1,6 +1,7 @@
 const adminSections = [
   { id: "overview", label: "Visão geral", href: "/admin", symbol: "VG", permission: "dashboard.view" },
   { id: "updates", label: "Atualizações", href: "/admin/atualizacoes", symbol: "AT", permission: "dashboard.view" },
+  { id: "feature-flags", label: "Feature flags", href: "/admin/feature-flags", symbol: "FF", permission: "dashboard.view", superadmin: true },
   { id: "consulta", label: "Consulta de marcas", href: "/admin/consulta", symbol: "CM", permission: "leads.view" },
   { id: "figurativa", label: "Busca figurativa", href: "/admin/figurativa", symbol: "BF", permission: "leads.view" },
   { id: "leads", label: "Leads, pesquisas e análises", href: "/admin/pesquisas", symbol: "AN", permission: "leads.view" },

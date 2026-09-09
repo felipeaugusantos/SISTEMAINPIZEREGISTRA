@@ -74,6 +74,10 @@ td { border-top: 1px solid var(--line); }
 .admin-aviso-acoes { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
 tr.is-erro { background: #fdf0ee; }
 
+.ff-descricao-campo { grid-column: 1 / -1; }
+.ff-card .ff-acao-form { align-items: end; }
+.ff-card .ff-acao-form button { min-height: 44px; }
+
 dialog { border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow); max-width: min(720px, calc(100vw - 32px)); }
 dialog::backdrop { background: rgba(23, 35, 28, .38); }
 

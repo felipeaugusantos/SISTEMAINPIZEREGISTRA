@@ -3391,6 +3391,81 @@ class ProblemaVersaoSistema(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class FeatureFlag(Base):
+    """Fase 4: ativação controlada por organização, só para funcionalidades
+    novas e compatíveis com a flag desligada -- nunca para correção de
+    segurança (essas sempre são deploy normal, nunca opt-in; ver
+    confirmar_nao_e_correcao_seguranca em app.api.feature_flags).
+
+    Regras de produto (decisão do usuário, não impostas pelo schema):
+    migrations associadas a uma flag nunca podem depender do estado dela
+    (rodam sempre, incondicionalmente); API e banco continuam funcionando
+    normalmente com a flag desligada; o backend valida a flag em cada
+    chamada (ver app.feature_flags.exigir_feature_ativa) -- ocultar só a
+    interface nunca é suficiente."""
+
+    __tablename__ = "feature_flags"
+    __table_args__ = (
+        CheckConstraint(
+            "estado_padrao IN ('desligado', 'somente_administradores', 'ligado')",
+            name="ck_feature_flag_estado_padrao",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    codigo: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    nome: Mapped[str] = mapped_column(String(180))
+    descricao: Mapped[str] = mapped_column(Text)
+    modulos_envolvidos: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Códigos de outras FeatureFlag.codigo que precisam estar ativas para
+    # esta fazer sentido (checado na criação/edição, não força ativação em
+    # cascata das dependências).
+    dependencias: Mapped[list[str]] = mapped_column(JSON, default=list)
+    estado_padrao: Mapped[str] = mapped_column(String(30), default="desligado")
+    # Kill-switch global -- desligar aqui derruba a flag para TODAS as
+    # organizações, mesmo as com estado "ativo" explícito. Diferente do
+    # "desativado" por organização (app.models.FeatureFlagOrganizacao), que
+    # é uma decisão pontual daquela organização.
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+    responsavel_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
+    )
+    data_ativacao: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    data_expiracao: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class FeatureFlagOrganizacao(Base):
+    """Estado de uma FeatureFlag numa organização específica -- autorização
+    granular (achado do critério de aceite: uma organização testa sem
+    afetar as demais). Sem registro aqui para o par (flag, organização), a
+    organização usa FeatureFlag.estado_padrao."""
+
+    __tablename__ = "feature_flags_organizacoes"
+    __table_args__ = (
+        UniqueConstraint("feature_flag_id", "organizacao_id", name="uq_feature_flag_organizacao"),
+        CheckConstraint(
+            "estado IN ('ativo', 'somente_administradores', 'adiado', 'desativado')",
+            name="ck_feature_flag_org_estado",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    feature_flag_id: Mapped[int] = mapped_column(ForeignKey("feature_flags.id", ondelete="CASCADE"), index=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    estado: Mapped[str] = mapped_column(String(30))
+    adiado_ate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    responsavel_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
+    )
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ControleProducao(Base):
     __tablename__ = "controle_producao"
 

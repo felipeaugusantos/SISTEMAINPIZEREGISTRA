@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Feature flags — Zé Registra</title>
+    <link rel="stylesheet" href="/static/styles.css?v=54" />
+    <script src="/static/admin-shell.js?v=42" defer></script>
+    <script src="/static/admin-feature-flags.js?v=1" defer></script>
+  </head>
+  <body class="admin-body" data-admin-section="feature-flags">
+    <main class="admin-main">
+      <section class="admin-heading">
+        <div>
+          <p class="eyebrow">Fase 4 · restrito a superadmin</p>
+          <h1>Feature flags</h1>
+          <p>Ativação controlada por organização, só para funcionalidades novas e compatíveis com a flag desligada. Correção de segurança nunca é feature flag.</p>
+        </div>
+      </section>
+
+      <div id="ff-message" class="status-message" role="status" hidden></div>
+
+      <section class="overview-section">
+        <header><div><p class="eyebrow">Cadastro</p><h2>Nova feature flag</h2></div></header>
+        <form id="ff-form" class="admin-filters">
+          <label><span>Código</span><input name="codigo" placeholder="ex.: nova-busca" pattern="[a-z0-9][a-z0-9-]*" maxlength="80" required></label>
+          <label><span>Nome</span><input name="nome" maxlength="180" required></label>
+          <label><span>Estado padrão</span>
+            <select name="estado_padrao">
+              <option value="desligado" selected>Desligado</option>
+              <option value="somente_administradores">Somente administradores</option>
+              <option value="ligado">Ligado</option>
+            </select>
+          </label>
+          <label><span>Módulos envolvidos (separados por vírgula)</span><input name="modulos_envolvidos" placeholder="ex.: consulta,leads" required></label>
+          <label><span>Dependências (códigos, opcional)</span><input name="dependencias" placeholder="ex.: outra-flag"></label>
+          <label><span>Expira em (opcional)</span><input name="data_expiracao" type="date"></label>
+          <label class="ff-descricao-campo"><span>Descrição</span><textarea name="descricao" rows="2" maxlength="3000" required></textarea></label>
+          <label class="filter-check"><input type="checkbox" name="confirmar_nao_e_correcao_seguranca" required><span>Confirmo que esta flag não é uma correção de segurança</span></label>
+          <button class="primary-button" type="submit">Criar flag</button>
+        </form>
+      </section>
+
+      <section class="overview-section">
+        <header><div><p class="eyebrow">Cadastradas</p><h2>Flags e organizações autorizadas</h2></div></header>
+        <div id="ff-lista"></div>
+      </section>
+    </main>
+  </body>
+</html>

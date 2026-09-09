@@ -29,6 +29,7 @@ from app.api.escritorio import router as escritorio_router
 from app.api.exclusoes import router as exclusoes_router
 from app.api.fase2 import router as fase2_router
 from app.api.fase3 import router as fase3_router
+from app.api.feature_flags import router as feature_flags_router
 from app.api.figurativa import router as figurativa_router
 from app.api.financeiro import exigir_acesso_log_financeiro
 from app.api.financeiro import router as financeiro_router
@@ -144,6 +145,7 @@ app.include_router(portfolio_pi_portal_router)
 app.include_router(observabilidade_router)
 app.include_router(versoes_sistema_router)
 app.include_router(atualizacoes_router)
+app.include_router(feature_flags_router)
 app.include_router(analises_router)
 app.include_router(producao_router)
 app.include_router(propostas_config_router)
@@ -246,6 +248,11 @@ async def painel_administrativo() -> FileResponse:
 )
 async def painel_atualizacoes() -> FileResponse:
     return FileResponse(web_dir / "admin-atualizacoes.html")
+
+
+@app.get("/admin/feature-flags", include_in_schema=False, dependencies=[Depends(exigir_superadmin)])
+async def painel_feature_flags() -> FileResponse:
+    return FileResponse(web_dir / "admin-feature-flags.html")
 
 
 @app.get(

@@ -1840,6 +1840,14 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
   display: none;
 }
 
+.admin-sidebar-collapsed .admin-sidebar-nav {
+  /* Reserva o mesmo espaco da barra de rolagem dos dois lados, senao ela
+     "come" espaco so da direita e os icones centralizados ficam com vies
+     visual para a esquerda. */
+  scrollbar-gutter: stable both-edges;
+  padding-right: 0;
+}
+
 .admin-sidebar-collapsed .admin-sidebar-nav a {
   justify-content: center;
   padding: 0;

@@ -11,7 +11,7 @@ from app.api.feature_flags import (
     ativar_para_organizacao,
     criar_flag,
     desativar_para_organizacao,
-    testar_somente_administradores,
+    restringir_a_administradores,
     verificar_para_mim,
 )
 from app.feature_flags import exigir_feature_ativa, flag_ativa
@@ -252,12 +252,12 @@ def test_adiar_ativacao_calcula_data_futura() -> None:
     assert resposta["adiado_ate"] > antes + timedelta(days=6)
 
 
-def test_testar_somente_administradores_define_estado_correto() -> None:
+def test_restringir_a_administradores_define_estado_correto() -> None:
     flag = _flag()
     organizacao = Organizacao(id=5, nome="Cliente Teste", slug="cliente-teste", plano_id=1)
     session = FakeSession([FakeResult(scalar=flag), FakeResult(scalar=None)], objetos_get=[organizacao])
 
-    resposta = asyncio.run(testar_somente_administradores("nova-busca", 5, session, usuario_teste()))
+    resposta = asyncio.run(restringir_a_administradores("nova-busca", 5, session, usuario_teste()))
 
     assert resposta["estado"] == "somente_administradores"
 

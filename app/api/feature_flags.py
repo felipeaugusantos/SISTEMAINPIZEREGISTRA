@@ -231,7 +231,7 @@ async def ativar_para_organizacao(
 
 
 @router.post("/{codigo}/organizacoes/{organizacao_id}/testar-administradores")
-async def testar_somente_administradores(
+async def restringir_a_administradores(
     codigo: str, organizacao_id: int, session: SessionDep, usuario: SuperAdminDep
 ) -> dict:
     return await _aplicar_estado_organizacao(

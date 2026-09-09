@@ -3376,12 +3376,23 @@ class InteracaoVersaoSistema(Base):
 
 
 class ProblemaVersaoSistema(Base):
-    """Relato do operador sobre uma atualização, sem anexos ou diagnóstico sensível."""
+    """Relato do operador sobre uma atualização (Fase 3), estruturado como
+    um reporte de bug de verdade desde a Fase 6: etapas de reprodução,
+    resultado esperado x encontrado, gravidade e anexo opcional (print,
+    log). Organização, usuário e versão são sempre identificados
+    automaticamente pelo backend (contexto da sessão + versão do card
+    clicado) -- nunca digitados pelo operador. O anexo nunca é capturado
+    automaticamente (sem screenshot/DOM/console/localStorage do backend);
+    é sempre um arquivo que o operador escolhe explicitamente, varrido por
+    antivírus (app.malware_scan) antes de persistir."""
 
     __tablename__ = "problemas_versoes_sistema"
     __table_args__ = (
         CheckConstraint("categoria IN ('erro', 'duvida', 'regressao')", name="ck_problema_versao_categoria"),
         CheckConstraint("status IN ('aberto', 'em_analise', 'resolvido')", name="ck_problema_versao_status"),
+        CheckConstraint(
+            "gravidade IN ('baixa', 'media', 'alta', 'critica')", name="ck_problema_versao_gravidade"
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -3395,6 +3406,15 @@ class ProblemaVersaoSistema(Base):
     categoria: Mapped[str] = mapped_column(String(20))
     modulo: Mapped[str | None] = mapped_column(String(60), nullable=True)
     descricao: Mapped[str] = mapped_column(Text)
+    etapas_reproduzir: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resultado_esperado: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resultado_encontrado: Mapped[str | None] = mapped_column(Text, nullable=True)
+    gravidade: Mapped[str] = mapped_column(String(20), default="media", index=True)
+    anexo_nome: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    anexo_caminho: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    anexo_content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    anexo_tamanho: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    anexo_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="aberto", index=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 

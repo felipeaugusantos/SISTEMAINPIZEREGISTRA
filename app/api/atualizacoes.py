@@ -1,8 +1,11 @@
+import base64
+import hashlib
+import re
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,13 +14,22 @@ from app.api.versoes_sistema import MODULOS_RELEASE, ViewDep, _texto_seguro
 from app.auditing import criar_evento_auditoria
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
+from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import InteracaoVersaoSistema, Organizacao, ProblemaVersaoSistema, UsuarioOperacoes, VersaoSistema
 from app.settings import get_settings
+from app.storage import StorageError, read_bytes, save_bytes
 
 router = APIRouter(prefix="/v1/admin/atualizacoes", tags=["central de atualizações"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 UsuarioDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("dashboard.view"))]
 STATUS_PROBLEMA_VALIDOS = frozenset({"aberto", "em_analise", "resolvido"})
+# Fase 6, achado do usuário ("sem dados sensíveis"): só tipos de arquivo que
+# não costumam carregar segredo embutido (nada de .docx/.zip/executável --
+# superfície mínima, e ainda passa pelo ClamAV antes de persistir).
+TIPOS_ANEXO_PERMITIDOS = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf", "text/plain"}
+)
+TAMANHO_MAXIMO_ANEXO = 8 * 1024 * 1024
 
 
 class ConfirmarLeituraInput(BaseModel):
@@ -35,16 +47,46 @@ class AtualizarStatusProblemaInput(BaseModel):
     status: Literal["aberto", "em_analise", "resolvido"]
 
 
+class AnexoProblemaInput(BaseModel):
+    """Sempre um arquivo escolhido explicitamente pelo operador -- nunca um
+    screenshot/DOM/console/localStorage capturado automaticamente pelo
+    backend (achado do usuário, Fase 6)."""
+
+    model_config = ConfigDict(extra="forbid")
+    nome: str = Field(min_length=1, max_length=180)
+    content_type: str
+    conteudo_base64: str = Field(min_length=1)
+
+    @field_validator("content_type")
+    @classmethod
+    def validar_content_type(cls, valor: str) -> str:
+        if valor not in TIPOS_ANEXO_PERMITIDOS:
+            raise ValueError(
+                f"Tipo de arquivo não permitido para anexo ({valor}). "
+                f"Aceitos: {', '.join(sorted(TIPOS_ANEXO_PERMITIDOS))}"
+            )
+        return valor
+
+
 class ReportarProblemaInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     categoria: Literal["erro", "duvida", "regressao"]
     modulo: str | None = Field(default=None, max_length=60)
     descricao: str = Field(min_length=20, max_length=3000)
+    etapas_reproduzir: str | None = Field(default=None, max_length=3000)
+    resultado_esperado: str | None = Field(default=None, max_length=1000)
+    resultado_encontrado: str | None = Field(default=None, max_length=1000)
+    gravidade: Literal["baixa", "media", "alta", "critica"] = "media"
+    # Aviso explícito na tela (não é filtro automático de conteúdo -- não dá
+    # pra "detectar" segredo em texto livre de forma confiável): "não inclua
+    # senhas, tokens ou dados de clientes". Ver docstring de
+    # AnexoProblemaInput sobre a captura nunca ser automática.
+    anexo: AnexoProblemaInput | None = None
 
-    @field_validator("descricao")
+    @field_validator("descricao", "etapas_reproduzir", "resultado_esperado", "resultado_encontrado")
     @classmethod
-    def validar_descricao(cls, valor: str) -> str:
-        return _texto_seguro(valor)
+    def validar_texto(cls, valor: str | None) -> str | None:
+        return _texto_seguro(valor) if valor else valor
 
     @field_validator("modulo")
     @classmethod
@@ -261,6 +303,37 @@ async def adiar_aviso(
     return {"confirmado_em": None, "adiado_ate": interacao.adiado_ate}
 
 
+def _slug_anexo(valor: str) -> str:
+    return re.sub(r"_+", "_", re.sub(r"[^a-zA-Z0-9._-]", "_", valor))[:180] or "anexo"
+
+
+async def _anexar_arquivo(
+    problema: ProblemaVersaoSistema, anexo: AnexoProblemaInput, organizacao_id: int
+) -> None:
+    try:
+        conteudo = base64.b64decode(anexo.conteudo_base64, validate=True)
+    except Exception as exc:
+        raise HTTPException(422, "Anexo inválido (base64 malformado)") from exc
+    if not conteudo:
+        raise HTTPException(422, "Anexo vazio")
+    if len(conteudo) > TAMANHO_MAXIMO_ANEXO:
+        raise HTTPException(413, f"Anexo excede o tamanho máximo de {TAMANHO_MAXIMO_ANEXO // (1024 * 1024)} MB")
+    await escanear_upload_ou_rejeitar(conteudo)
+    digest = hashlib.sha256(conteudo).hexdigest()
+    try:
+        caminho = save_bytes(
+            f"problemas-versao/{organizacao_id}/{problema.id}/{digest}-{_slug_anexo(anexo.nome)}",
+            conteudo,
+        )
+    except StorageError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    problema.anexo_nome = anexo.nome
+    problema.anexo_caminho = caminho
+    problema.anexo_content_type = anexo.content_type
+    problema.anexo_tamanho = len(conteudo)
+    problema.anexo_hash = digest
+
+
 @router.post("/{versao_id}/problemas", status_code=status.HTTP_201_CREATED, response_model=ProblemaCriadoResponse)
 async def reportar_problema(
     versao_id: int,
@@ -278,10 +351,16 @@ async def reportar_problema(
         categoria=dados.categoria,
         modulo=dados.modulo,
         descricao=dados.descricao,
+        etapas_reproduzir=dados.etapas_reproduzir,
+        resultado_esperado=dados.resultado_esperado,
+        resultado_encontrado=dados.resultado_encontrado,
+        gravidade=dados.gravidade,
         status="aberto",
     )
     session.add(problema)
     await session.flush()
+    if dados.anexo is not None:
+        await _anexar_arquivo(problema, dados.anexo, usuario.organizacao_id)
     session.add(
         criar_evento_auditoria(
             organizacao_id=usuario.organizacao_id,
@@ -291,7 +370,13 @@ async def reportar_problema(
             recurso=f"problema_versao:{problema.id}",
             sucesso=True,
             status_http=201,
-            detalhes={"versao_id": item.id, "categoria": dados.categoria, "modulo": dados.modulo},
+            detalhes={
+                "versao_id": item.id,
+                "categoria": dados.categoria,
+                "modulo": dados.modulo,
+                "gravidade": dados.gravidade,
+                "com_anexo": dados.anexo is not None,
+            },
         )
     )
     await session.commit()
@@ -336,12 +421,42 @@ async def listar_problemas(
                 "categoria": problema.categoria,
                 "modulo": problema.modulo,
                 "descricao": problema.descricao,
+                "etapas_reproduzir": problema.etapas_reproduzir,
+                "resultado_esperado": problema.resultado_esperado,
+                "resultado_encontrado": problema.resultado_encontrado,
+                "gravidade": problema.gravidade,
+                "anexo": (
+                    {
+                        "nome": problema.anexo_nome,
+                        "content_type": problema.anexo_content_type,
+                        "tamanho": problema.anexo_tamanho,
+                    }
+                    if problema.anexo_caminho
+                    else None
+                ),
                 "status": problema.status,
                 "criado_em": problema.criado_em,
             }
             for problema, versao, versao_titulo, organizacao_nome, usuario_nome in linhas
         ]
     }
+
+
+@router.get("/problemas/{problema_id}/anexo")
+async def baixar_anexo_problema(problema_id: int, session: SessionDep, _: ViewDep) -> Response:
+    problema = await session.get(ProblemaVersaoSistema, problema_id)
+    if problema is None or not problema.anexo_caminho:
+        raise HTTPException(404, "Anexo não encontrado")
+    try:
+        conteudo = read_bytes(problema.anexo_caminho)
+    except (StorageError, OSError) as exc:
+        raise HTTPException(503, "Não foi possível recuperar o anexo") from exc
+    nome = problema.anexo_nome or "anexo"
+    return Response(
+        content=conteudo,
+        media_type=problema.anexo_content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{_slug_anexo(nome)}"'},
+    )
 
 
 @router.patch("/problemas/{problema_id}")

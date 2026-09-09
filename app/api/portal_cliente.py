@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import hmac
 import json
@@ -30,7 +29,7 @@ from app.auth import exigir_permissao, hash_ip, hash_senha, hash_token, verifica
 from app.clicksign import configuracao as configuracao_clicksign
 from app.database import get_session
 from app.emailing import enviar_recuperacao_portal
-from app.malware_scan import ArquivoInfectadoError, ScannerIndisponivelError, escanear
+from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import (
     ArquivoClientePortal,
     AssinaturaDocumentoLead,
@@ -1109,30 +1108,6 @@ async def enviar_mensagem_portal(
     return {"id": item.id}
 
 
-async def _escanear_upload(conteudo: bytes) -> None:
-    """Achado FASE6-13 da auditoria (04/09/2026): varredura de malware antes
-    de aceitar um upload do portal do cliente. Desligado por padrão
-    (CLAMAV_ENABLED) -- quando ligado, falha fechada: se o ClamAV não
-    responder, o upload é recusado (nunca aceita sem confirmação)."""
-    settings = get_settings()
-    if not settings.clamav_enabled:
-        return
-    try:
-        await asyncio.to_thread(
-            escanear,
-            conteudo,
-            host=settings.clamav_host,
-            port=settings.clamav_port,
-            timeout=settings.clamav_timeout_seconds,
-        )
-    except ArquivoInfectadoError as exc:
-        logger.warning("Upload rejeitado pelo ClamAV: %s", exc.assinatura)
-        raise HTTPException(status_code=422, detail="Arquivo rejeitado: malware detectado.") from exc
-    except ScannerIndisponivelError as exc:
-        logger.error("ClamAV indisponível para varredura de upload: %s", exc)
-        raise HTTPException(status_code=503, detail="Varredura de segurança indisponível no momento.") from exc
-
-
 @router.post("/v1/portal/arquivos", status_code=status.HTTP_201_CREATED)
 async def enviar_arquivo_portal(
     request: Request, cliente: ClientDep, session: SessionDep, arquivo: UploadFile = File(...)
@@ -1143,7 +1118,7 @@ async def enviar_arquivo_portal(
     conteudo = await arquivo.read()
     if len(conteudo) > 15 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
-    await _escanear_upload(conteudo)
+    await escanear_upload_ou_rejeitar(conteudo)
     try:
         caminho = save_bytes(f"portal/{cliente.organizacao_id}/{cliente.id}/{nome}", conteudo)
     except StorageError as exc:

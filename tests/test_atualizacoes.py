@@ -1,3 +1,5 @@
+import base64
+import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,6 +15,7 @@ from app.api.atualizacoes import (
     adiar_aviso,
     atualizacao_publica,
     atualizar_status_problema,
+    baixar_anexo_problema,
     confirmar_leitura,
     listar_atualizacoes,
     listar_problemas,
@@ -187,6 +190,15 @@ def _problema(**kwargs: object) -> ProblemaVersaoSistema:
         categoria="erro",
         modulo="producao",
         descricao="Ao abrir os detalhes, o conteúdo esperado não foi apresentado.",
+        etapas_reproduzir=None,
+        resultado_esperado=None,
+        resultado_encontrado=None,
+        gravidade="media",
+        anexo_nome=None,
+        anexo_caminho=None,
+        anexo_content_type=None,
+        anexo_tamanho=None,
+        anexo_hash=None,
         status="aberto",
         criado_em=datetime.now(UTC),
     )
@@ -214,6 +226,11 @@ async def test_listar_problemas_junta_versao_organizacao_e_usuario() -> None:
             "categoria": "erro",
             "modulo": "producao",
             "descricao": problema.descricao,
+            "etapas_reproduzir": None,
+            "resultado_esperado": None,
+            "resultado_encontrado": None,
+            "gravidade": "media",
+            "anexo": None,
             "status": "aberto",
             "criado_em": problema.criado_em,
         }
@@ -252,6 +269,145 @@ async def test_atualizar_status_problema_inexistente_devolve_404() -> None:
 
     with pytest.raises(HTTPException) as erro:
         await atualizar_status_problema(999, AtualizarStatusProblemaInput(status="resolvido"), session, _tech())
+
+
+# --- Fase 6: reporte estruturado (etapas/resultado/gravidade/anexo) ---------
+# Critério de aceite: todo problema fica vinculado à versão (versao_sistema_id,
+# já obrigatório desde a Fase 3) e pode ser acompanhado até a resolução
+# (status, já rastreado desde a Fase 3 -- ver testes acima).
+
+
+@pytest.mark.asyncio
+async def test_relato_gravidade_padrao_e_media() -> None:
+    item = _versao()
+    session = FakeSession(objetos_get=[item])
+    dados = ReportarProblemaInput(
+        categoria="erro", descricao="Ao salvar o formulário, a tela ficou em branco sem mensagem de erro."
+    )
+
+    await reportar_problema(12, dados, session, _usuario())
+
+    problema = next(obj for obj in session.adicionados if isinstance(obj, ProblemaVersaoSistema))
+    assert problema.gravidade == "media"
+
+
+@pytest.mark.asyncio
+async def test_relato_com_etapas_e_resultado_persiste_tudo() -> None:
+    item = _versao()
+    session = FakeSession(objetos_get=[item])
+    dados = ReportarProblemaInput(
+        categoria="regressao",
+        descricao="O botão de exportar parou de funcionar depois da última atualização.",
+        etapas_reproduzir="1. Abrir relatório\n2. Clicar em exportar",
+        resultado_esperado="Um arquivo CSV deveria ser baixado.",
+        resultado_encontrado="Nada acontece, sem erro visível.",
+        gravidade="alta",
+    )
+
+    await reportar_problema(12, dados, session, _usuario())
+
+    problema = next(obj for obj in session.adicionados if isinstance(obj, ProblemaVersaoSistema))
+    assert problema.etapas_reproduzir == "1. Abrir relatório\n2. Clicar em exportar"
+    assert problema.resultado_esperado == "Um arquivo CSV deveria ser baixado."
+    assert problema.resultado_encontrado == "Nada acontece, sem erro visível."
+    assert problema.gravidade == "alta"
+    evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
+    assert evento.detalhes["gravidade"] == "alta"
+    assert evento.detalhes["com_anexo"] is False
+
+
+def test_anexo_rejeita_tipo_de_arquivo_nao_permitido() -> None:
+    with pytest.raises(ValidationError):
+        ReportarProblemaInput(
+            categoria="erro",
+            descricao="Descrição válida para o relato do operador sobre o erro encontrado.",
+            anexo={"nome": "script.exe", "content_type": "application/x-msdownload", "conteudo_base64": "eA=="},
+        )
+
+
+@pytest.mark.asyncio
+async def test_relato_com_anexo_calcula_hash_e_persiste_via_storage() -> None:
+    import app.api.atualizacoes as atualizacoes_modulo
+
+    caminhos_salvos: list[tuple[str, bytes]] = []
+
+    def _save_bytes_fake(key: str, content: bytes) -> str:
+        caminhos_salvos.append((key, content))
+        return f"data/uploads/{key}"
+
+    original = atualizacoes_modulo.save_bytes
+    atualizacoes_modulo.save_bytes = _save_bytes_fake
+    try:
+        item = _versao()
+        session = FakeSession(objetos_get=[item])
+        conteudo = b"print de tela em bytes fake"
+        dados = ReportarProblemaInput(
+            categoria="erro",
+            descricao="A tela de resultados mostrou um valor incorreto no total.",
+            anexo={
+                "nome": "print-erro.png",
+                "content_type": "image/png",
+                "conteudo_base64": base64.b64encode(conteudo).decode(),
+            },
+        )
+
+        resposta = await reportar_problema(12, dados, session, _usuario())
+    finally:
+        atualizacoes_modulo.save_bytes = original
+
+    assert resposta["status"] == "aberto"
+    assert len(caminhos_salvos) == 1
+    problema = next(obj for obj in session.adicionados if isinstance(obj, ProblemaVersaoSistema))
+    assert problema.anexo_nome == "print-erro.png"
+    assert problema.anexo_hash == hashlib.sha256(conteudo).hexdigest()
+    assert problema.anexo_tamanho == len(conteudo)
+    evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
+    assert evento.detalhes["com_anexo"] is True
+
+
+@pytest.mark.asyncio
+async def test_relato_com_anexo_excedendo_tamanho_maximo_rejeita() -> None:
+    item = _versao()
+    session = FakeSession(objetos_get=[item])
+    conteudo_grande = b"x" * (9 * 1024 * 1024)
+    dados = ReportarProblemaInput(
+        categoria="erro",
+        descricao="Anexo grande demais para testar o limite de tamanho do upload.",
+        anexo={
+            "nome": "grande.png",
+            "content_type": "image/png",
+            "conteudo_base64": base64.b64encode(conteudo_grande).decode(),
+        },
+    )
+
+    with pytest.raises(HTTPException) as erro:
+        await reportar_problema(12, dados, session, _usuario())
+
+    assert erro.value.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_listar_problemas_expoe_metadados_do_anexo_sem_o_conteudo() -> None:
+    problema = _problema(anexo_nome="print.png", anexo_content_type="image/png", anexo_tamanho=2048)
+    session = FakeSession(
+        resultados=[FakeResult(itens=[(problema, "1.0.72-2026-09-09", "Central de atualizações", "Cliente Teste", "Ana Operadora")])]
+    )
+
+    resposta = await listar_problemas(session, _tech(), status_filtro=None)
+
+    assert resposta["itens"][0]["anexo"] == {"nome": "print.png", "content_type": "image/png", "tamanho": 2048}
+    assert "anexo_caminho" not in str(resposta)
+
+
+@pytest.mark.asyncio
+async def test_baixar_anexo_problema_sem_anexo_devolve_404() -> None:
+    problema = _problema()
+    session = FakeSession(objetos_get=[problema])
+
+    with pytest.raises(HTTPException) as erro:
+        await baixar_anexo_problema(1, session, _tech())
+
+    assert erro.value.status_code == 404
 
     assert erro.value.status_code == 404
     assert session.commits == 0

@@ -168,23 +168,46 @@ function openReport(item) {
 
 document.querySelector(".updates-close").addEventListener("click", () => dialog.close());
 document.querySelector(".updates-cancel").addEventListener("click", () => dialog.close());
+const TAMANHO_MAXIMO_ANEXO = 8 * 1024 * 1024;
+
+function arquivoParaBase64(arquivo) {
+  return new Promise((resolve, reject) => {
+    const leitor = new FileReader();
+    leitor.onload = () => resolve(String(leitor.result).split(",", 2)[1] || "");
+    leitor.onerror = () => reject(new Error("Não foi possível ler o arquivo do anexo."));
+    leitor.readAsDataURL(arquivo);
+  });
+}
+
 document.querySelector("#updates-report-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const submit = event.submitter;
   const reportMessage = document.querySelector("#updates-report-message");
   submit.disabled = true;
   try {
+    const campoAnexo = document.querySelector("#updates-report-anexo");
+    const arquivo = campoAnexo.files[0];
+    let anexo = null;
+    if (arquivo) {
+      if (arquivo.size > TAMANHO_MAXIMO_ANEXO) throw new Error("Anexo maior que 8 MB.");
+      anexo = { nome: arquivo.name, content_type: arquivo.type, conteudo_base64: await arquivoParaBase64(arquivo) };
+    }
     await api(`/v1/admin/atualizacoes/${document.querySelector("#updates-report-version").value}/problemas`, {
       method: "POST",
       body: JSON.stringify({
         categoria: document.querySelector("#updates-report-category").value,
         modulo: document.querySelector("#updates-report-module").value || null,
+        gravidade: document.querySelector("#updates-report-gravidade").value,
         descricao: document.querySelector("#updates-report-description").value,
+        etapas_reproduzir: document.querySelector("#updates-report-etapas").value || null,
+        resultado_esperado: document.querySelector("#updates-report-esperado").value || null,
+        resultado_encontrado: document.querySelector("#updates-report-encontrado").value || null,
+        anexo,
       }),
     });
     dialog.close();
     event.currentTarget.reset();
-    showStatus("Problema reportado. A equipe poderá acompanhar o relato com segurança.");
+    showStatus("Problema reportado. A equipe poderá acompanhar o relato até a resolução.");
   } catch (error) {
     reportMessage.textContent = error.message;
     reportMessage.className = "status-message error";
@@ -230,6 +253,7 @@ carregarPendenciasAuditoria();
 // mas não existia nenhuma tela pra ver esses relatos -- caía num buraco
 // negro. Restrito ao departamento de Tech, mesmo padrão da seção acima.
 const STATUS_PROBLEMA_LABEL = { aberto: "Aberto", em_analise: "Em análise", resolvido: "Resolvido" };
+const GRAVIDADE_LABEL = { baixa: "Baixa", media: "Média", alta: "Alta", critica: "Crítica" };
 
 function dataHoraLabel(value) {
   return value ? new Date(value).toLocaleString("pt-BR") : "—";
@@ -247,21 +271,30 @@ async function carregarProblemas() {
   const dados = await resposta.json();
   const linhas = document.querySelector("#updates-problemas-rows");
   linhas.innerHTML = dados.itens.length
-    ? dados.itens.map((item) => `<tr class="${item.status === "aberto" ? "is-erro" : ""}">
+    ? dados.itens.map((item) => {
+        const detalhesExtra = [
+          item.etapas_reproduzir ? `<p><strong>Etapas para reproduzir:</strong><br>${escapeHtml(item.etapas_reproduzir).replace(/\n/g, "<br>")}</p>` : "",
+          item.resultado_esperado ? `<p><strong>Resultado esperado:</strong> ${escapeHtml(item.resultado_esperado)}</p>` : "",
+          item.resultado_encontrado ? `<p><strong>Resultado encontrado:</strong> ${escapeHtml(item.resultado_encontrado)}</p>` : "",
+          item.anexo ? `<p><strong>Anexo:</strong> <a href="/v1/admin/atualizacoes/problemas/${item.id}/anexo" target="_blank" rel="noopener">${escapeHtml(item.anexo.nome)}</a> (${Math.round((item.anexo.tamanho || 0) / 1024)} KB)</p>` : "",
+        ].filter(Boolean).join("");
+        return `<tr class="${item.status === "aberto" ? "is-erro" : ""}">
         <td>${dataHoraLabel(item.criado_em)}</td>
         <td>${escapeHtml(item.versao)}</td>
         <td>${escapeHtml(item.organizacao_nome)}</td>
         <td>${escapeHtml(item.usuario_nome)}</td>
         <td>${escapeHtml(item.categoria)}</td>
+        <td>${GRAVIDADE_LABEL[item.gravidade] || escapeHtml(item.gravidade)}</td>
         <td>${escapeHtml(item.modulo || "—")}</td>
-        <td>${escapeHtml(item.descricao)}</td>
+        <td>${escapeHtml(item.descricao)}${detalhesExtra ? `<details><summary>Mais detalhes</summary>${detalhesExtra}</details>` : ""}</td>
         <td>
           <select data-problema-id="${item.id}">
             ${Object.entries(STATUS_PROBLEMA_LABEL).map(([valor, rotulo]) => `<option value="${valor}" ${valor === item.status ? "selected" : ""}>${rotulo}</option>`).join("")}
           </select>
         </td>
-      </tr>`).join("")
-    : `<tr><td colspan="8">Nenhum problema relatado com esse filtro.</td></tr>`;
+      </tr>`;
+      }).join("")
+    : `<tr><td colspan="9">Nenhum problema relatado com esse filtro.</td></tr>`;
   linhas.querySelectorAll("[data-problema-id]").forEach((select) => {
     select.addEventListener("change", async () => {
       select.disabled = true;

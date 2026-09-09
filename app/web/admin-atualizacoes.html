@@ -7,7 +7,7 @@
     <title>Central de atualizações — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=58" />
     <script src="/static/admin-shell.js?v=44" defer></script>
-    <script src="/static/admin-atualizacoes.js?v=3" defer></script>
+    <script src="/static/admin-atualizacoes.js?v=4" defer></script>
   </head>
   <body class="admin-body" data-admin-section="updates">
     <main class="admin-main updates-page">
@@ -64,7 +64,7 @@
         </form>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Quando</th><th>Versão</th><th>Organização</th><th>Relatado por</th><th>Categoria</th><th>Módulo</th><th>Descrição</th><th>Status</th></tr></thead>
+            <thead><tr><th>Quando</th><th>Versão</th><th>Organização</th><th>Relatado por</th><th>Categoria</th><th>Gravidade</th><th>Módulo</th><th>Descrição</th><th>Status</th></tr></thead>
             <tbody id="updates-problemas-rows"></tbody>
           </table>
         </div>
@@ -89,8 +89,29 @@
         <label>Módulo
           <select id="updates-report-module"><option value="">Não sei informar</option></select>
         </label>
+        <label>Gravidade
+          <select id="updates-report-gravidade">
+            <option value="baixa">Baixa</option>
+            <option value="media" selected>Média</option>
+            <option value="alta">Alta</option>
+            <option value="critica">Crítica</option>
+          </select>
+        </label>
         <label>O que aconteceu?
           <textarea id="updates-report-description" minlength="20" maxlength="3000" rows="6" required placeholder="Descreva o que você estava fazendo e o resultado observado. Não informe senhas, tokens ou dados pessoais."></textarea>
+        </label>
+        <label>Etapas para reproduzir (opcional)
+          <textarea id="updates-report-etapas" maxlength="3000" rows="4" placeholder="1. Acesse...&#10;2. Clique em...&#10;3. Observe..."></textarea>
+        </label>
+        <label>Resultado esperado (opcional)
+          <textarea id="updates-report-esperado" maxlength="1000" rows="2" placeholder="O que deveria acontecer"></textarea>
+        </label>
+        <label>Resultado encontrado (opcional)
+          <textarea id="updates-report-encontrado" maxlength="1000" rows="2" placeholder="O que aconteceu de fato"></textarea>
+        </label>
+        <label>Anexo opcional (print de tela, log em .txt)
+          <input type="file" id="updates-report-anexo" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain">
+          <small>Máximo 8&nbsp;MB. Não anexe prints ou logs com senhas, tokens ou dados de clientes/processos.</small>
         </label>
         <div id="updates-report-message" class="status-message" role="status"></div>
         <div class="updates-dialog-actions">

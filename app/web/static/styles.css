@@ -4833,9 +4833,30 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
   object-fit: contain;
 }
 .branding-logo-editor img[hidden] { display: none; }
+.privacy-policy-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+.privacy-policy-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.privacy-policy-item > div:first-child { display: grid; gap: 3px; }
+.privacy-policy-item span,
+.privacy-policy-item small { color: var(--muted); }
+.privacy-policy-item small { max-width: 760px; }
+.privacy-dynamic-content { white-space: pre-wrap; }
 @media (max-width: 640px) {
   .branding-logo-editor { grid-template-columns: 1fr; }
   .branding-logo-editor img { width: 120px; }
+  .privacy-policy-item { align-items: flex-start; flex-direction: column; }
 }
 .form-submit { justify-self: start; }
 .reliability-actions {

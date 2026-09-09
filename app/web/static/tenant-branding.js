@@ -24,5 +24,29 @@
     document.querySelectorAll("[data-privacy-version]").forEach(el => {
       el.textContent = tenant.politica_privacidade_versao || "—";
     });
+    const policyContainer = document.querySelector("#privacy-policy-dynamic");
+    if (policyContainer) {
+      const policyResponse = await fetch("/v1/tenant/politica-privacidade/vigente");
+      if (policyResponse.ok) {
+        const policy = await policyResponse.json();
+        document.querySelectorAll("[data-privacy-version]").forEach(el => {
+          el.textContent = policy.versao;
+        });
+        const defaultContent = document.querySelector("#privacy-policy-default");
+        const content = document.querySelector("#privacy-policy-content");
+        const reference = document.querySelector("#privacy-policy-reference");
+        if (policy.conteudo) {
+          content.textContent = policy.conteudo;
+          defaultContent.hidden = true;
+          policyContainer.hidden = false;
+        } else if (policy.documento_referencia && policy.documento_referencia !== location.pathname) {
+          reference.href = policy.documento_referencia;
+          reference.referrerPolicy = "no-referrer";
+          reference.hidden = false;
+          defaultContent.hidden = true;
+          policyContainer.hidden = false;
+        }
+      }
+    }
   } catch (_) { /* Mantém a identidade padrão se o tenant não puder ser resolvido. */ }
 })();

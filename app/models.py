@@ -180,6 +180,52 @@ class Organizacao(Base):
     plano: Mapped[PlanoSaas] = relationship(lazy="selectin")
 
 
+class PoliticaPrivacidade(Base):
+    """Documento versionado; versões publicadas são imutáveis no banco."""
+
+    __tablename__ = "politicas_privacidade"
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "versao", name="uq_politica_privacidade_org_versao"),
+        CheckConstraint(
+            "status IN ('rascunho', 'publicada', 'revogada')",
+            name="ck_politica_privacidade_status",
+        ),
+        CheckConstraint(
+            "num_nonnulls(conteudo, documento_referencia) = 1",
+            name="ck_politica_privacidade_documento",
+        ),
+        CheckConstraint(
+            "status = 'rascunho' OR "
+            "(publicado_em IS NOT NULL AND vigencia_em IS NOT NULL AND aprovado_por IS NOT NULL)",
+            name="ck_politica_privacidade_publicacao",
+        ),
+        CheckConstraint("length(sha256) = 64", name="ck_politica_privacidade_sha256"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True
+    )
+    versao: Mapped[str] = mapped_column(String(30))
+    status: Mapped[str] = mapped_column(String(20), default="rascunho", index=True)
+    conteudo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    documento_referencia: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    publicado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    vigencia_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    criado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    criado_por: Mapped[str] = mapped_column(String(254))
+    aprovado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    aprovado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    motivo_alteracao: Mapped[str] = mapped_column(Text)
+    requer_novo_consentimento: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class PoliticaRetencao(Base):
     """Versão auditável da política de retenção de uma categoria do tenant.
 

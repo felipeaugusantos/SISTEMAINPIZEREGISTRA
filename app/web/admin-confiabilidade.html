@@ -7,7 +7,7 @@
   <title>Confiabilidade — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=52">
   <script src="/static/admin-shell.js?v=40" defer></script>
-  <script src="/static/admin-confiabilidade.js?v=7" defer></script>
+  <script src="/static/admin-confiabilidade.js?v=8" defer></script>
 </head>
 <body class="admin-body" data-admin-section="reliability">
   <main class="admin-main admin-dashboard">
@@ -85,7 +85,7 @@
     </section>
 
     <section class="overview-section">
-      <header><div><p class="eyebrow">Configuração</p><h2>Identidade visual e LGPD</h2></div></header>
+      <header><div><p class="eyebrow">Configuração</p><h2>Identidade visual e retenção</h2></div></header>
       <form id="reliability-form" class="reliability-form">
         <fieldset>
           <legend>Identidade visual</legend>
@@ -110,12 +110,9 @@
           </div>
         </fieldset>
         <fieldset>
-          <legend>Retenção e privacidade (LGPD)</legend>
+          <legend>Retenção de dados (LGPD)</legend>
           <div class="user-fields">
             <label>Retenção de dados (dias)<input name="retencao_dados_dias" type="number" min="30" max="3650" required></label>
-            <label>Versão da política de privacidade<input name="politica_privacidade_versao" required></label>
-            <label class="field-full">Justificativa da nova versão<input name="politica_privacidade_justificativa" minlength="20" maxlength="1000" placeholder="Obrigatória somente ao publicar uma versão diferente"></label>
-            <label class="consent-label field-full"><input name="confirmar_publicacao_politica" type="checkbox" class="consent-checkbox"> Confirmo que o conteúdo público foi revisado e corresponde à versão informada</label>
             <label class="field-full">Justificativa da alteração<input name="retencao_justificativa" minlength="20" maxlength="1000" placeholder="Obrigatória quando o prazo mudar"></label>
             <label class="field-full">Finalidade da retenção<input name="retencao_finalidade" minlength="10" maxlength="1000" placeholder="Por que esses dados precisam ser mantidos?"></label>
             <label class="field-full">Base legal<input name="retencao_base_legal" minlength="10" maxlength="1000" placeholder="Base legal validada pelo responsável de privacidade"></label>
@@ -130,6 +127,35 @@
         </fieldset>
         <button class="primary-button form-submit" type="submit">Salvar configuração</button>
       </form>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Privacidade</p><h2>Política versionada</h2></div></header>
+      <p id="privacy-policy-summary" class="section-hint">Carregando política vigente…</p>
+      <p id="privacy-policy-rule" class="field-hint"></p>
+      <form id="privacy-policy-form" class="reliability-form">
+        <input name="politica_id" type="hidden">
+        <div class="user-fields">
+          <label>Versão<input name="versao" maxlength="30" placeholder="Ex.: 2.0" required></label>
+          <label class="field-full">Conteúdo da política
+            <textarea name="conteudo" minlength="100" maxlength="100000" rows="10" placeholder="Informe o texto completo ou deixe vazio para usar uma referência pública."></textarea>
+          </label>
+          <label class="field-full">Referência pública do documento
+            <input name="documento_referencia" maxlength="500" placeholder="/privacidade ou https://…">
+          </label>
+          <label class="field-full">Motivo da alteração
+            <input name="motivo_alteracao" minlength="20" maxlength="2000" required>
+          </label>
+          <label class="consent-label field-full"><input name="requer_novo_consentimento" type="checkbox" class="consent-checkbox"> Exigir novo aceite dos titulares em uma futura interação pública</label>
+        </div>
+        <p class="field-hint">Informe somente o conteúdo ou somente a referência. Depois de publicada, a versão não poderá ser editada.</p>
+        <div class="reliability-actions">
+          <button class="primary-button" type="submit">Salvar rascunho</button>
+          <button id="privacy-policy-clear" class="secondary-button" type="button">Novo rascunho</button>
+        </div>
+        <p id="privacy-policy-status" class="status-message" role="status" aria-live="polite" hidden></p>
+      </form>
+      <div id="privacy-policy-list" class="privacy-policy-list"></div>
     </section>
 
     <section class="overview-section">

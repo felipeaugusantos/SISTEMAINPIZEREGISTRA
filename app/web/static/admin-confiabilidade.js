@@ -13,8 +13,10 @@ const legalHoldForm = document.querySelector("#legal-hold-form");
 const legalHoldStatus = document.querySelector("#legal-hold-status");
 const logoPreview = document.querySelector("#branding-logo-preview");
 const logoStatus = document.querySelector("#branding-logo-status");
+const privacyPolicyForm = document.querySelector("#privacy-policy-form");
+const privacyPolicyStatus = document.querySelector("#privacy-policy-status");
+const privacyPolicyList = document.querySelector("#privacy-policy-list");
 let prazoRetencaoCarregado = null;
-let versaoPoliticaCarregada = null;
 let ultimaSimulacaoId = null;
 
 async function api(url, options = {}) {
@@ -74,8 +76,6 @@ async function carregar() {
     prazoRetencaoCarregado = data.retencao?.matriz?.find(item => item.categoria === "lead")?.prazo_dias
       ?? org.retencao_dados_dias;
     form.elements.retencao_dados_dias.value = prazoRetencaoCarregado;
-    versaoPoliticaCarregada = org.politica_privacidade_versao;
-    form.elements.politica_privacidade_versao.value = versaoPoliticaCarregada;
     contexto.textContent = `${org.nome} · ${org.status} · ${org.assinatura_status}`;
     document.querySelector("#learning-pipeline-job").hidden = !data.permissoes?.superadmin;
     msg.hidden = true;
@@ -108,12 +108,6 @@ form.addEventListener("submit", async event => {
         retencao_vigencia_em: alterouRetencao ? vigencia : null,
         confirmar_reducao_retencao: dados.confirmar_reducao_retencao === "on",
         retencao_simulacao_id: alterouRetencao ? ultimaSimulacaoId : null,
-        politica_privacidade_versao: dados.politica_privacidade_versao,
-        politica_privacidade_justificativa:
-          dados.politica_privacidade_versao !== versaoPoliticaCarregada
-            ? dados.politica_privacidade_justificativa
-            : null,
-        confirmar_publicacao_politica: dados.confirmar_publicacao_politica === "on",
       }),
     });
     definirStatus(msg, "Configuração salva.", "success");
@@ -122,8 +116,6 @@ form.addEventListener("submit", async event => {
     form.elements.retencao_base_legal.value = "";
     form.elements.retencao_vigencia_em.value = "";
     form.elements.confirmar_reducao_retencao.checked = false;
-    form.elements.politica_privacidade_justificativa.value = "";
-    form.elements.confirmar_publicacao_politica.checked = false;
     ultimaSimulacaoId = null;
     await carregar();
   } catch (error) {
@@ -156,6 +148,104 @@ document.querySelector("#remove-branding-logo").addEventListener("click", async 
     definirStatus(logoStatus, error.message, "error");
   }
 });
+
+function limparFormularioPolitica() {
+  privacyPolicyForm.reset();
+  privacyPolicyForm.elements.politica_id.value = "";
+  privacyPolicyForm.querySelector('[type="submit"]').textContent = "Salvar rascunho";
+}
+
+function botaoPolitica(rotulo, acao) {
+  const botao = document.createElement("button");
+  botao.type = "button";
+  botao.className = "secondary-button";
+  botao.textContent = rotulo;
+  botao.addEventListener("click", acao);
+  return botao;
+}
+
+async function carregarPoliticas() {
+  try {
+    const dados = await api("/v1/admin/politicas-privacidade");
+    const resumo = document.querySelector("#privacy-policy-summary");
+    resumo.textContent = dados.vigente
+      ? `Vigente: versão ${dados.vigente.versao} · SHA-256 ${dados.vigente.sha256.slice(0, 12)}… · ${dados.consentimentos_pendentes} aceite(s) pendente(s)`
+      : "Nenhuma política vigente. Crie e publique um rascunho antes de captar novos consentimentos.";
+    document.querySelector("#privacy-policy-rule").textContent = dados.regra_novo_consentimento;
+    privacyPolicyList.replaceChildren(...dados.politicas.map(item => {
+      const article = document.createElement("article");
+      article.className = "privacy-policy-item";
+      const texto = document.createElement("div");
+      const titulo = document.createElement("strong");
+      titulo.textContent = `Versão ${item.versao}`;
+      const meta = document.createElement("span");
+      meta.textContent = `${item.status} · SHA-256 ${item.sha256.slice(0, 12)}…${item.requer_novo_consentimento ? " · novo aceite" : ""}`;
+      const motivo = document.createElement("small");
+      motivo.textContent = item.motivo_alteracao;
+      texto.append(titulo, meta, motivo);
+      const acoes = document.createElement("div");
+      acoes.className = "reliability-actions";
+      if (item.status === "rascunho") {
+        acoes.append(
+          botaoPolitica("Editar", () => {
+            privacyPolicyForm.elements.politica_id.value = item.id;
+            privacyPolicyForm.elements.versao.value = item.versao;
+            privacyPolicyForm.elements.conteudo.value = item.conteudo || "";
+            privacyPolicyForm.elements.documento_referencia.value = item.documento_referencia || "";
+            privacyPolicyForm.elements.motivo_alteracao.value = item.motivo_alteracao;
+            privacyPolicyForm.elements.requer_novo_consentimento.checked = item.requer_novo_consentimento;
+            privacyPolicyForm.querySelector('[type="submit"]').textContent = "Atualizar rascunho";
+            privacyPolicyForm.scrollIntoView({ behavior: "smooth", block: "start" });
+          }),
+          botaoPolitica("Publicar", async () => {
+            if (!confirm(`Publicar a versão ${item.versao}? A versão vigente será revogada e esta não poderá mais ser editada.`)) return;
+            try {
+              await api(`/v1/admin/politicas-privacidade/${item.id}/publicar`, {
+                method: "POST",
+                body: JSON.stringify({ confirmar_publicacao: true }),
+              });
+              definirStatus(privacyPolicyStatus, `Versão ${item.versao} publicada e auditada.`, "success");
+              limparFormularioPolitica();
+              await carregarPoliticas();
+            } catch (error) {
+              definirStatus(privacyPolicyStatus, error.message, "error");
+            }
+          }),
+        );
+      }
+      article.append(texto, acoes);
+      return article;
+    }));
+  } catch (error) {
+    definirStatus(privacyPolicyStatus, error.message, "error");
+  }
+}
+
+privacyPolicyForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const dados = Object.fromEntries(new FormData(privacyPolicyForm));
+  const politicaId = dados.politica_id;
+  const payload = {
+    versao: dados.versao,
+    conteudo: dados.conteudo || null,
+    documento_referencia: dados.documento_referencia || null,
+    motivo_alteracao: dados.motivo_alteracao,
+    requer_novo_consentimento: dados.requer_novo_consentimento === "on",
+  };
+  try {
+    await api(politicaId ? `/v1/admin/politicas-privacidade/${politicaId}` : "/v1/admin/politicas-privacidade", {
+      method: politicaId ? "PUT" : "POST",
+      body: JSON.stringify(payload),
+    });
+    definirStatus(privacyPolicyStatus, politicaId ? "Rascunho atualizado." : "Rascunho criado.", "success");
+    limparFormularioPolitica();
+    await carregarPoliticas();
+  } catch (error) {
+    definirStatus(privacyPolicyStatus, error.message, "error");
+  }
+});
+
+document.querySelector("#privacy-policy-clear").addEventListener("click", limparFormularioPolitica);
 
 form.elements.retencao_dados_dias.addEventListener("input", () => {
   ultimaSimulacaoId = null;
@@ -321,6 +411,7 @@ document.querySelector("#download-recovery").addEventListener("click", () => {
 });
 
 carregar();
+carregarPoliticas();
 
 async function carregarIdentidades() {
   try {

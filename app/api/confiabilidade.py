@@ -147,9 +147,6 @@ class ConfiguracaoTenantInput(BaseModel):
     retencao_vigencia_em: datetime | None = None
     confirmar_reducao_retencao: bool = False
     retencao_simulacao_id: int | None = Field(default=None, ge=1)
-    politica_privacidade_versao: str | None = Field(default=None, min_length=1, max_length=30)
-    politica_privacidade_justificativa: str | None = Field(default=None, min_length=20, max_length=1000)
-    confirmar_publicacao_politica: bool = False
 
 
 class SimulacaoRetencaoInput(BaseModel):
@@ -422,39 +419,13 @@ async def configurar(dados: ConfiguracaoTenantInput, request: Request, session: 
                     },
                 )
             )
-    if dados.politica_privacidade_versao is not None:
-        nova_versao = dados.politica_privacidade_versao.strip()
-        if nova_versao != org.politica_privacidade_versao:
-            if not dados.politica_privacidade_justificativa or not dados.confirmar_publicacao_politica:
-                raise HTTPException(
-                    422,
-                    "Publicar nova versão da política exige justificativa e confirmação explícita.",
-                )
-            versao_anterior = org.politica_privacidade_versao
-            org.politica_privacidade_versao = nova_versao
-            session.add(
-                EventoAuditoria(
-                    organizacao_id=org.id,
-                    actor_id=usuario.id,
-                    ator=usuario.email,
-                    acao="PUBLICAR_VERSAO_POLITICA_PRIVACIDADE",
-                    recurso="organizacao:politica_privacidade",
-                    sucesso=True,
-                    status_http=200,
-                    detalhes={
-                        "versao_anterior": versao_anterior,
-                        "versao_nova": nova_versao,
-                        "justificativa": dados.politica_privacidade_justificativa.strip(),
-                    },
-                )
-            )
     if alteracoes_identidade:
         session.add(
             EventoAuditoria(
                 organizacao_id=org.id,
                 actor_id=usuario.id,
                 ator=usuario.email,
-                acao="ALTERAR_IDENTIDADE_VISUAL",
+                acao="ALTERAR_IDENTIDADE",
                 recurso="organizacao:branding_publico",
                 sucesso=True,
                 status_http=200,
@@ -507,7 +478,7 @@ async def enviar_logo(
             organizacao_id=org.id,
             actor_id=usuario.id,
             ator=usuario.email,
-            acao="ENVIAR_LOGO_IDENTIDADE_VISUAL",
+            acao="ENVIAR_LOGO",
             recurso="organizacao:branding_publico",
             sucesso=True,
             status_http=201,
@@ -555,7 +526,7 @@ async def remover_logo(session: SessionDep, usuario: AdminDep) -> dict:
             organizacao_id=org.id,
             actor_id=usuario.id,
             ator=usuario.email,
-            acao="REMOVER_LOGO_IDENTIDADE_VISUAL",
+            acao="REMOVER_LOGO",
             recurso="organizacao:branding_publico",
             sucesso=True,
             status_http=200,

@@ -40,6 +40,8 @@ from app.api.pagamentos import router_admin as pagamentos_admin_router
 from app.api.pagamentos import router_webhook as pagamentos_webhook_router
 from app.api.painel import router as painel_router
 from app.api.pesquisas import router as pesquisas_router
+from app.api.politicas_privacidade import public_router as politicas_privacidade_public_router
+from app.api.politicas_privacidade import router as politicas_privacidade_router
 from app.api.portal_cliente import router as portal_cliente_router
 from app.api.portfolio_pi import portal_router as portfolio_pi_portal_router
 from app.api.portfolio_pi import router as portfolio_pi_router
@@ -161,8 +163,10 @@ app.include_router(social_auth_router)
 app.include_router(usuarios_router)
 app.include_router(saas_router)
 app.include_router(confiabilidade_router)
+app.include_router(politicas_privacidade_router)
 app.include_router(contratacoes_router)
 app.include_router(tenant_router)
+app.include_router(politicas_privacidade_public_router)
 app.include_router(observabilidade_router)
 app.include_router(pagamentos_admin_router)
 app.include_router(pagamentos_webhook_router)

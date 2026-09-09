@@ -23,7 +23,8 @@
 - Substituição e remoção preservam todas as demais chaves de `branding` e são
   auditadas. Arquivos substituídos são removidos em melhor esforço depois do
   commit; uma falha de gravação não publica a configuração.
-- Alterar a versão da política exige justificativa e confirmação explícita de
+- A gestão da política foi substituída na Fase 5 por registros versionados, com
+  justificativa, aprovação e confirmação explícita de
   que o conteúdo público foi revisado. A mudança registra versões anterior e
   nova, responsável e justificativa em `eventos_auditoria`.
 - A versão publicada passa a aparecer na página de privacidade. Identidade

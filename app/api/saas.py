@@ -127,11 +127,6 @@ class CobrancaSandboxInput(BaseModel):
     dias_trial: int = Field(default=14, ge=1, le=90)
 
 
-class PrivacidadeInput(BaseModel):
-    retencao_dados_dias: int = Field(ge=30, le=3650)
-    politica_privacidade_versao: str = Field(min_length=1, max_length=30)
-
-
 def _senha_temporaria() -> str:
     alfabeto = string.ascii_letters + string.digits + "!@#$%"
     return "".join(secrets.choice(alfabeto) for _ in range(20))

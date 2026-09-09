@@ -91,7 +91,7 @@ def test_upload_de_logo_preserva_branding_e_nao_expoe_caminho(monkeypatch) -> No
     assert org.branding["logo_url"].startswith("/v1/tenant/logo?v=")
     assert org.branding["logo_asset"]["localizacao"] == localizacao
     evento = next(item for item in session.adicionados if isinstance(item, EventoAuditoria))
-    assert evento.acao == "ENVIAR_LOGO_IDENTIDADE_VISUAL"
+    assert evento.acao == "ENVIAR_LOGO"
     assert evento.organizacao_id == 7
 
 

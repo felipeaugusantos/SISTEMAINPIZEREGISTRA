@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: inpi
           POSTGRES_USER: inpi
@@ -55,7 +55,7 @@ jobs:
         run: uv run pytest -q tests/test_search_benchmark.py tests/test_search_ranking.py
       - name: Create restricted application role
         run: >-
-          docker exec "$(docker ps -q --filter ancestor=postgres:16-alpine)"
+          docker exec "$(docker ps -q --filter ancestor=pgvector/pgvector:pg16)"
           psql -U inpi -d inpi -c
           "CREATE ROLE inpi_app LOGIN PASSWORD 'ci-inpi-app';"
       - run: uv run alembic upgrade head
@@ -96,7 +96,7 @@ jobs:
           if-no-files-found: ignore
       - name: Verify tenant RLS contract
         run: >-
-          docker exec "$(docker ps -q --filter ancestor=postgres:16-alpine)"
+          docker exec "$(docker ps -q --filter ancestor=pgvector/pgvector:pg16)"
           psql -U inpi -d inpi -v ON_ERROR_STOP=1 -c
           "DO \$\$ DECLARE faltantes text; BEGIN
           SELECT string_agg(relname, ', ') INTO faltantes FROM pg_class

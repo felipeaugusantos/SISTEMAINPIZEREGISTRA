@@ -145,6 +145,7 @@ services:
     build: .
     environment:
       APP_ENV: development
+      APP_VERSION: ${APP_VERSION:-development}
       RUN_MIGRATIONS: "false"
       BOOTSTRAP_ADMIN: "true"
       DATABASE_URL: postgresql+asyncpg://inpi_app:${APP_DB_PASSWORD:-inpi-app-local-change-me}@db:5432/inpi
@@ -242,6 +243,7 @@ services:
       - app.cli.atualizar_rpis_automaticamente
     environment:
       APP_ENV: development
+      APP_VERSION: ${APP_VERSION:-development}
       RUN_MIGRATIONS: "false"
       BOOTSTRAP_ADMIN: "false"
       DATABASE_URL: postgresql+asyncpg://inpi_app:${APP_DB_PASSWORD:-inpi-app-local-change-me}@db:5432/inpi
@@ -261,6 +263,7 @@ services:
     command: [/app/.venv/bin/python, -m, app.worker]
     environment:
       APP_ENV: development
+      APP_VERSION: ${APP_VERSION:-development}
       RUN_MIGRATIONS: "false"
       BOOTSTRAP_ADMIN: "false"
       DATABASE_URL: postgresql+asyncpg://inpi_app:${APP_DB_PASSWORD:-inpi-app-local-change-me}@db:5432/inpi

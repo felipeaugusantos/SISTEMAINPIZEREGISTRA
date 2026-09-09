@@ -3306,6 +3306,9 @@ class VersaoSistema(Base):
     titulo: Mapped[str] = mapped_column(String(180))
     problema_identificado: Mapped[str] = mapped_column(Text)
     solucao_aplicada: Mapped[str] = mapped_column(Text)
+    impacto_usuario: Mapped[str | None] = mapped_column(Text, nullable=True)
+    documentacao_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    permite_adiar: Mapped[bool] = mapped_column(Boolean, default=False)
     tipo_atualizacao: Mapped[str] = mapped_column(String(30), index=True)
     modulos_afetados: Mapped[list[str]] = mapped_column(JSON, default=list)
     implantada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
@@ -3336,6 +3339,56 @@ class VersaoSistema(Base):
     arquivado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     arquivado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     arquivamento_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class InteracaoVersaoSistema(Base):
+    """Estado de leitura de uma versão, isolado por usuário e organização."""
+
+    __tablename__ = "interacoes_versoes_sistema"
+    __table_args__ = (
+        UniqueConstraint(
+            "versao_sistema_id", "organizacao_id", "usuario_id", name="uq_interacao_versao_usuario"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    versao_sistema_id: Mapped[int] = mapped_column(
+        ForeignKey("versoes_sistema.id", ondelete="RESTRICT"), index=True
+    )
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    usuario_id: Mapped[int] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="CASCADE"), index=True
+    )
+    confirmado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    adiado_ate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ProblemaVersaoSistema(Base):
+    """Relato do operador sobre uma atualização, sem anexos ou diagnóstico sensível."""
+
+    __tablename__ = "problemas_versoes_sistema"
+    __table_args__ = (
+        CheckConstraint("categoria IN ('erro', 'duvida', 'regressao')", name="ck_problema_versao_categoria"),
+        CheckConstraint("status IN ('aberto', 'em_analise', 'resolvido')", name="ck_problema_versao_status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    versao_sistema_id: Mapped[int] = mapped_column(
+        ForeignKey("versoes_sistema.id", ondelete="RESTRICT"), index=True
+    )
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    usuario_id: Mapped[int] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="RESTRICT"), index=True
+    )
+    categoria: Mapped[str] = mapped_column(String(20))
+    modulo: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    descricao: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="aberto", index=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 class ControleProducao(Base):

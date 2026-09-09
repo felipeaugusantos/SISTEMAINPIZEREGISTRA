@@ -15,6 +15,7 @@ from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from app.api.admin import router as admin_router
 from app.api.analises import router as analises_router
 from app.api.aprendizado import router as aprendizado_router
+from app.api.atualizacoes import router as atualizacoes_router
 from app.api.auth_routes import router as auth_router
 from app.api.busca_admin import router as busca_admin_router
 from app.api.carteira import router as carteira_router
@@ -142,6 +143,7 @@ app.include_router(portfolio_pi_router)
 app.include_router(portfolio_pi_portal_router)
 app.include_router(observabilidade_router)
 app.include_router(versoes_sistema_router)
+app.include_router(atualizacoes_router)
 app.include_router(analises_router)
 app.include_router(producao_router)
 app.include_router(propostas_config_router)
@@ -235,6 +237,15 @@ async def painel_leads() -> FileResponse:
 @app.get("/admin", include_in_schema=False, dependencies=[Depends(exigir_permissao("dashboard.view"))])
 async def painel_administrativo() -> FileResponse:
     return FileResponse(web_dir / "admin.html")
+
+
+@app.get(
+    "/admin/atualizacoes",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("dashboard.view"))],
+)
+async def painel_atualizacoes() -> FileResponse:
+    return FileResponse(web_dir / "admin-atualizacoes.html")
 
 
 @app.get(

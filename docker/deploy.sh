@@ -55,6 +55,7 @@ fi
 echo "$VERSAO" > "$ARQUIVO_VERSAO"
 DATA="$(date +%Y-%m-%d)"
 TAG_VERSAO="${VERSAO}-${DATA}"
+export APP_VERSION="$TAG_VERSAO"
 echo "==> versao: $TAG_VERSAO (commit $(git rev-parse --short HEAD))"
 
 echo "==> verificando ambiente efetivo (compose.yaml + compose.production.yaml)"

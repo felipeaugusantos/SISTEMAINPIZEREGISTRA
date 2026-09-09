@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,6 +81,9 @@ class VersaoRascunhoInput(BaseModel):
     titulo: str = Field(min_length=5, max_length=180)
     problema_identificado: str = Field(min_length=20, max_length=10_000)
     solucao_aplicada: str = Field(min_length=20, max_length=10_000)
+    impacto_usuario: str = Field(min_length=10, max_length=3000)
+    documentacao_url: HttpUrl | None = None
+    permite_adiar: bool = False
     tipo_atualizacao: Literal["critica", "correcao", "funcionalidade"]
     modulos_afetados: list[str] = Field(min_length=1, max_length=30)
     implantada_em: datetime | None = None
@@ -117,7 +120,16 @@ class VersaoRascunhoInput(BaseModel):
             raise ValueError("Revisão de migration inválida")
         return revision
 
-    @field_validator("titulo", "problema_identificado", "solucao_aplicada", "instrucoes", "plano_rollback")
+    @field_validator("documentacao_url")
+    @classmethod
+    def validar_documentacao_url(cls, valor: HttpUrl | None) -> HttpUrl | None:
+        if valor is not None and valor.scheme != "https":
+            raise ValueError("A documentação deve usar HTTPS")
+        return valor
+
+    @field_validator(
+        "titulo", "problema_identificado", "solucao_aplicada", "impacto_usuario", "instrucoes", "plano_rollback"
+    )
     @classmethod
     def validar_textos(cls, valor: str) -> str:
         return _texto_seguro(valor)
@@ -151,6 +163,12 @@ class VersaoRascunhoInput(BaseModel):
             raise ValueError("A data de implantação não pode estar no futuro")
         return implantada
 
+    @model_validator(mode="after")
+    def critica_nao_pode_ser_adiada(self) -> "VersaoRascunhoInput":
+        if self.tipo_atualizacao == "critica" and self.permite_adiar:
+            raise ValueError("Uma correção crítica não pode permitir adiamento")
+        return self
+
 
 class PublicarVersaoInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -178,6 +196,9 @@ class VersaoSistemaResponse(BaseModel):
     titulo: str
     problema_identificado: str
     solucao_aplicada: str
+    impacto_usuario: str
+    documentacao_url: HttpUrl | None
+    permite_adiar: bool
     tipo_atualizacao: Literal["critica", "correcao", "funcionalidade"]
     modulos_afetados: list[str]
     implantada_em: datetime | None
@@ -221,6 +242,9 @@ def versao_json(item: VersaoSistema) -> dict:
         "titulo": item.titulo,
         "problema_identificado": item.problema_identificado,
         "solucao_aplicada": item.solucao_aplicada,
+        "impacto_usuario": item.impacto_usuario or "Impacto ao usuário não informado nesta versão.",
+        "documentacao_url": item.documentacao_url,
+        "permite_adiar": item.permite_adiar,
         "tipo_atualizacao": item.tipo_atualizacao,
         "modulos_afetados": item.modulos_afetados,
         "implantada_em": item.implantada_em,
@@ -255,6 +279,9 @@ def _aplicar_rascunho(item: VersaoSistema, dados: VersaoRascunhoInput) -> None:
     item.titulo = dados.titulo
     item.problema_identificado = dados.problema_identificado
     item.solucao_aplicada = dados.solucao_aplicada
+    item.impacto_usuario = dados.impacto_usuario
+    item.documentacao_url = str(dados.documentacao_url) if dados.documentacao_url else None
+    item.permite_adiar = dados.permite_adiar
     item.tipo_atualizacao = dados.tipo_atualizacao
     item.modulos_afetados = dados.modulos_afetados
     item.implantada_em = dados.implantada_em

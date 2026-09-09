@@ -98,6 +98,14 @@ def test_dockerfile_aceita_git_sha_como_label_oci():
     assert 'LABEL org.opencontainers.image.revision="${GIT_SHA}"' in dockerfile
 
 
+def test_deploy_e_rollback_informam_versao_real_ao_container():
+    compose = (RAIZ / "compose.yaml").read_text(encoding="utf-8")
+
+    assert 'export APP_VERSION="$TAG_VERSAO"' in DEPLOY_SH
+    assert 'export APP_VERSION="$VERSAO"' in ROLLBACK_SH
+    assert compose.count("APP_VERSION: ${APP_VERSION:-development}") == 3
+
+
 # --- Checagens de composicao efetiva (precisam de Docker -- puladas se indisponivel) ---
 
 _ENV_TESTE_PRODUCAO = {

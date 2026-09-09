@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Central de atualizações — Zé Registra</title>
+    <link rel="stylesheet" href="/static/styles.css?v=52" />
+    <script src="/static/admin-shell.js?v=41" defer></script>
+    <script src="/static/admin-atualizacoes.js?v=1" defer></script>
+  </head>
+  <body class="admin-body" data-admin-section="updates">
+    <main class="admin-main updates-page">
+      <section class="admin-heading updates-heading">
+        <div>
+          <p class="eyebrow">Comunicação da plataforma</p>
+          <h1>Central de atualizações</h1>
+          <p>Veja o que mudou, como isso afeta seu trabalho e confirme a leitura dos avisos importantes.</p>
+        </div>
+        <div class="updates-current" aria-label="Versão implantada">
+          <span>Versão em execução</span>
+          <strong id="updates-current-version">Carregando…</strong>
+        </div>
+      </section>
+
+      <div id="updates-message" class="status-message loading" role="status">Carregando atualizações…</div>
+
+      <section class="overview-section updates-section" aria-labelledby="updates-title">
+        <header>
+          <div><p class="eyebrow">Histórico publicado</p><h2 id="updates-title">Novidades disponíveis</h2></div>
+          <span id="updates-summary"></span>
+        </header>
+        <div id="updates-list" class="updates-list"></div>
+      </section>
+    </main>
+
+    <dialog id="updates-report-dialog" class="updates-dialog">
+      <form id="updates-report-form">
+        <input id="updates-report-version" type="hidden" />
+        <div class="updates-dialog-heading">
+          <div><p class="eyebrow">Ajude a equipe</p><h2>Reportar problema</h2></div>
+          <button class="updates-close" type="button" aria-label="Fechar">×</button>
+        </div>
+        <p id="updates-report-title" class="updates-dialog-context"></p>
+        <label>Tipo do relato
+          <select id="updates-report-category" required>
+            <option value="erro">Erro</option>
+            <option value="regressao">Algo que funcionava parou</option>
+            <option value="duvida">Dúvida</option>
+          </select>
+        </label>
+        <label>Módulo
+          <select id="updates-report-module"><option value="">Não sei informar</option></select>
+        </label>
+        <label>O que aconteceu?
+          <textarea id="updates-report-description" minlength="20" maxlength="3000" rows="6" required placeholder="Descreva o que você estava fazendo e o resultado observado. Não informe senhas, tokens ou dados pessoais."></textarea>
+        </label>
+        <div id="updates-report-message" class="status-message" role="status"></div>
+        <div class="updates-dialog-actions">
+          <button class="secondary-button updates-cancel" type="button">Cancelar</button>
+          <button class="primary-button" type="submit">Enviar relato</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

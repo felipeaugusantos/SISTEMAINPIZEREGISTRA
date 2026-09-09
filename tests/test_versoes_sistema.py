@@ -43,6 +43,9 @@ def _dados(*, versao: str = "1.0.71-2026-09-09", implantada: bool = True) -> Ver
         titulo="Cadastro técnico de versões",
         problema_identificado="As alterações implantadas não possuíam um histórico técnico centralizado.",
         solucao_aplicada="Foi criado um registro versionado, auditável e protegido contra alterações posteriores.",
+        impacto_usuario="A equipe passa a consultar as mudanças da plataforma em um único local.",
+        documentacao_url="https://app.zeregistra.com.br/sobre",
+        permite_adiar=True,
         tipo_atualizacao="funcionalidade",
         modulos_afetados=["producao", "plataforma", "producao"],
         implantada_em=datetime.now(UTC) if implantada else None,
@@ -72,6 +75,9 @@ def _versao(status: str = "rascunho", *, implantada: bool = True) -> VersaoSiste
         titulo=dados.titulo,
         problema_identificado=dados.problema_identificado,
         solucao_aplicada=dados.solucao_aplicada,
+        impacto_usuario=dados.impacto_usuario,
+        documentacao_url=str(dados.documentacao_url),
+        permite_adiar=dados.permite_adiar,
         tipo_atualizacao=dados.tipo_atualizacao,
         modulos_afetados=dados.modulos_afetados,
         implantada_em=dados.implantada_em,
@@ -118,6 +124,11 @@ def test_entrada_normaliza_modulos_e_exige_commit_completo() -> None:
 
     payload = dados.model_dump()
     payload["commit_sha"] = "abc1234"
+    with pytest.raises(ValidationError):
+        VersaoRascunhoInput.model_validate(payload)
+
+    payload = dados.model_dump()
+    payload["documentacao_url"] = "http://documentacao.insegura.local/versao"
     with pytest.raises(ValidationError):
         VersaoRascunhoInput.model_validate(payload)
 

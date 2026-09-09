@@ -45,6 +45,7 @@ fi
 
 echo "==> revertendo ${IMAGEM} para ${VERSAO}"
 docker tag "${IMAGEM}:${VERSAO}" "${IMAGEM}:latest"
+export APP_VERSION="$VERSAO"
 $COMPOSE up -d "$SERVICO"
 
 echo "==> pronto. Lembrete: isso NAO desfaz migrations aplicadas depois dessa versao."

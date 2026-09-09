@@ -11,6 +11,7 @@ TAMANHO_MINIMO_TOKEN_INTEGRACAO = 32
 class Settings(BaseSettings):
     app_name: str = "INPI API"
     app_env: str = "development"
+    app_version: str = "development"
     database_url: str = "postgresql+asyncpg://inpi:inpi@localhost:5432/inpi"
     app_db_password: str | None = None
     admin_username: str = "admin"

@@ -3274,6 +3274,70 @@ class EventoAuditoria(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class VersaoSistema(Base):
+    """Release global da plataforma, imutável depois da publicação."""
+
+    __tablename__ = "versoes_sistema"
+    __table_args__ = (
+        CheckConstraint(
+            "tipo_atualizacao IN ('critica', 'correcao', 'funcionalidade')",
+            name="ck_versao_sistema_tipo",
+        ),
+        CheckConstraint(
+            "status IN ('rascunho', 'publicada', 'arquivada')",
+            name="ck_versao_sistema_status",
+        ),
+        CheckConstraint("length(commit_sha) = 40", name="ck_versao_sistema_commit_sha"),
+        CheckConstraint("length(conteudo_hash) = 64", name="ck_versao_sistema_hash"),
+        CheckConstraint(
+            "status = 'rascunho' OR "
+            "(implantada_em IS NOT NULL AND publicado_em IS NOT NULL AND publicado_por IS NOT NULL)",
+            name="ck_versao_sistema_publicacao",
+        ),
+        CheckConstraint(
+            "status <> 'arquivada' OR "
+            "(arquivado_em IS NOT NULL AND arquivado_por IS NOT NULL AND arquivamento_motivo IS NOT NULL)",
+            name="ck_versao_sistema_arquivamento",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    versao: Mapped[str] = mapped_column(String(60), unique=True, index=True)
+    titulo: Mapped[str] = mapped_column(String(180))
+    problema_identificado: Mapped[str] = mapped_column(Text)
+    solucao_aplicada: Mapped[str] = mapped_column(Text)
+    tipo_atualizacao: Mapped[str] = mapped_column(String(30), index=True)
+    modulos_afetados: Mapped[list[str]] = mapped_column(JSON, default=list)
+    implantada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    commit_sha: Mapped[str] = mapped_column(String(40), index=True)
+    migration_revision: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    evidencias_testes: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    riscos_conhecidos: Mapped[list[str]] = mapped_column(JSON, default=list)
+    instrucoes: Mapped[str] = mapped_column(Text)
+    plano_rollback: Mapped[str] = mapped_column(Text)
+    conteudo_hash: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="rascunho", index=True)
+    criado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    criado_por: Mapped[str] = mapped_column(String(254))
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    publicado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    publicado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    publicado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    arquivado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    arquivado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    arquivado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    arquivamento_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class ControleProducao(Base):
     __tablename__ = "controle_producao"
 

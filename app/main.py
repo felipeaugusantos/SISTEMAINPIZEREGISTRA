@@ -57,6 +57,7 @@ from app.api.saas import exigir_superadmin
 from app.api.saas import router as saas_router
 from app.api.social_auth import router as social_auth_router
 from app.api.usuarios import router as usuarios_router
+from app.api.versoes_sistema import router as versoes_sistema_router
 from app.api.vigilancia import router as vigilancia_router
 from app.api.visual import router as visual_router
 from app.auth import exigir_permissao
@@ -140,6 +141,7 @@ app.include_router(portal_cliente_router)
 app.include_router(portfolio_pi_router)
 app.include_router(portfolio_pi_portal_router)
 app.include_router(observabilidade_router)
+app.include_router(versoes_sistema_router)
 app.include_router(analises_router)
 app.include_router(producao_router)
 app.include_router(propostas_config_router)

@@ -64,6 +64,12 @@ class AdiarInput(BaseModel):
     dias: int = Field(ge=1, le=365)
 
 
+class ExcluirFlagInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmar_exclusao: bool
+
+
 def flag_json(item: FeatureFlag) -> dict:
     return {
         "id": item.id,
@@ -261,6 +267,33 @@ async def desativar_para_organizacao(
     return await _aplicar_estado_organizacao(
         codigo, organizacao_id, session, usuario, estado="desativado", acao="DESATIVAR_FEATURE_FLAG"
     )
+
+
+@router.delete("/{codigo}")
+async def excluir_flag(codigo: str, dados: ExcluirFlagInput, session: SessionDep, usuario: SuperAdminDep) -> dict:
+    """Exclusão definitiva (cascata sobre FeatureFlagOrganizacao) -- exige
+    confirmação explícita, mesmo padrão de confirmar_publicacao/
+    confirmar_arquivamento em app.api.versoes_sistema. Uso esperado:
+    limpeza de flags de teste, não desligar uma flag em produção (para
+    isso, use o kill-switch `ativo` ou desative por organização)."""
+    if not dados.confirmar_exclusao:
+        raise HTTPException(422, "Confirme expressamente a exclusão")
+    flag = await _obter_flag_ou_404(session, codigo)
+    session.add(
+        criar_evento_auditoria(
+            organizacao_id=None,
+            actor_id=usuario.id,
+            ator=usuario.email,
+            acao="EXCLUIR_FEATURE_FLAG",
+            recurso=f"feature_flag:{flag.id}",
+            sucesso=True,
+            status_http=200,
+            detalhes={"codigo": flag.codigo},
+        )
+    )
+    await session.delete(flag)
+    await session.commit()
+    return {"excluido": True, "codigo": codigo}
 
 
 @router.get("/{codigo}/verificar")

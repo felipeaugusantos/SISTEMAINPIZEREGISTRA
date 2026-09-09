@@ -6,11 +6,13 @@ from fastapi import HTTPException
 
 from app.api.feature_flags import (
     AdiarInput,
+    ExcluirFlagInput,
     FeatureFlagInput,
     adiar_ativacao,
     ativar_para_organizacao,
     criar_flag,
     desativar_para_organizacao,
+    excluir_flag,
     restringir_a_administradores,
     verificar_para_mim,
 )
@@ -268,3 +270,31 @@ def test_verificar_para_mim_reflete_flag_ativa() -> None:
     resposta = asyncio.run(verificar_para_mim("nova-busca", session, usuario_teste()))
 
     assert resposta == {"codigo": "nova-busca", "ativa": True}
+
+
+# --- Exclusão --------------------------------------------------------------
+
+
+def test_excluir_flag_exige_confirmacao() -> None:
+    session = FakeSession([])
+
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(excluir_flag("kanban-v2", ExcluirFlagInput(confirmar_exclusao=False), session, usuario_teste()))
+
+    assert erro.value.status_code == 422
+    assert session.deletados == []
+
+
+def test_excluir_flag_sucesso_audita_deleta_e_comita() -> None:
+    flag = _flag(codigo="kanban-v2")
+    session = FakeSession([FakeResult(scalar=flag)])
+
+    resposta = asyncio.run(
+        excluir_flag("kanban-v2", ExcluirFlagInput(confirmar_exclusao=True), session, usuario_teste())
+    )
+
+    assert resposta == {"excluido": True, "codigo": "kanban-v2"}
+    assert flag in session.deletados
+    evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
+    assert evento.acao == "EXCLUIR_FEATURE_FLAG"
+    assert session.commits == 1

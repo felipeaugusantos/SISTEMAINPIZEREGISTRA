@@ -43,6 +43,7 @@ function renderFlagCard(flag) {
         <p><small>Módulos: ${flag.modulos_envolvidos.map(escapeHtml).join(", ") || "—"} · Dependências: ${flag.dependencias.map(escapeHtml).join(", ") || "nenhuma"}</small></p>
         <p class="ff-ativacao-info"><small>Ativação: ${dateLabel(flag.data_ativacao)} · Expira: ${dateLabel(flag.data_expiracao)}</small></p>
       </div>
+      <button type="button" class="secondary-button ff-excluir" title="Excluir esta feature flag">Excluir</button>
     </header>
     <form class="admin-filters ff-acao-form">
       <label><span>ID da organização</span><input type="number" name="organizacao_id" min="1" required></label>
@@ -58,6 +59,19 @@ function renderFlagCard(flag) {
       </table>
     </div>
   `;
+  artigo.querySelector(".ff-excluir").addEventListener("click", async () => {
+    if (!confirm(`Excluir definitivamente a flag "${flag.codigo}"? Isso remove também os estados por organização.`)) return;
+    try {
+      await api(`/v1/admin/feature-flags/${flag.codigo}`, {
+        method: "DELETE",
+        body: JSON.stringify({ confirmar_exclusao: true }),
+      });
+      mostrarMensagem(`Flag "${flag.codigo}" excluída.`);
+      await carregarFlags();
+    } catch (error) {
+      mostrarMensagem(error.message, "error");
+    }
+  });
   const form = artigo.querySelector(".ff-acao-form");
   form.addEventListener("submit", async (event) => {
     event.preventDefault();

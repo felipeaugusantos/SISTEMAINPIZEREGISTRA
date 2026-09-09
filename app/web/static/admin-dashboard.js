@@ -379,6 +379,15 @@ async function loadRpiMonitor() {
     // dava nenhuma pista sobre o motivo real da falha.
     throw new Error("Não foi possível carregar o monitoramento da RPI (falha de conexão -- tente novamente em alguns segundos).");
   }
+  if (response.status === 403) {
+    // Achado do usuário: quem não tem a permissão rpi.view (ex.: perfil
+    // "operador") via a seção inteira aparecer vazia/com erro -- a seção
+    // nem deveria existir pra esse usuário. O backend já é a fonte de
+    // verdade sobre a permissão (403 = sem acesso); só escondemos aqui em
+    // vez de duplicar a checagem de permissão no frontend.
+    document.querySelector("#rpi-monitor").hidden = true;
+    return;
+  }
   if (!response.ok) {
     const corpo = await response.json().catch(() => ({}));
     throw new Error(corpo.detail || `Não foi possível carregar o monitoramento da RPI (HTTP ${response.status}).`);

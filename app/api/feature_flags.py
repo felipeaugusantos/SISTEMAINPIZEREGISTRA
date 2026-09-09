@@ -145,7 +145,7 @@ async def criar_flag(dados: FeatureFlagInput, session: SessionDep, usuario: Supe
             organizacao_id=None,
             actor_id=usuario.id,
             ator=usuario.email,
-            acao="CRIAR_FEATURE_FLAG",
+            acao="FLAG_CRIAR",
             recurso=f"feature_flag:{item.id}",
             sucesso=True,
             status_http=201,
@@ -232,7 +232,7 @@ async def ativar_para_organizacao(
     codigo: str, organizacao_id: int, session: SessionDep, usuario: SuperAdminDep
 ) -> dict:
     return await _aplicar_estado_organizacao(
-        codigo, organizacao_id, session, usuario, estado="ativo", acao="ATIVAR_FEATURE_FLAG"
+        codigo, organizacao_id, session, usuario, estado="ativo", acao="FLAG_ATIVAR"
     )
 
 
@@ -246,7 +246,7 @@ async def restringir_a_administradores(
         session,
         usuario,
         estado="somente_administradores",
-        acao="TESTAR_FEATURE_FLAG_ADMINISTRADORES",
+        acao="FLAG_SOMENTE_ADMIN",
     )
 
 
@@ -256,7 +256,7 @@ async def adiar_ativacao(
 ) -> dict:
     adiado_ate = datetime.now(UTC) + timedelta(days=dados.dias)
     return await _aplicar_estado_organizacao(
-        codigo, organizacao_id, session, usuario, estado="adiado", adiado_ate=adiado_ate, acao="ADIAR_FEATURE_FLAG"
+        codigo, organizacao_id, session, usuario, estado="adiado", adiado_ate=adiado_ate, acao="FLAG_ADIAR"
     )
 
 
@@ -265,7 +265,7 @@ async def desativar_para_organizacao(
     codigo: str, organizacao_id: int, session: SessionDep, usuario: SuperAdminDep
 ) -> dict:
     return await _aplicar_estado_organizacao(
-        codigo, organizacao_id, session, usuario, estado="desativado", acao="DESATIVAR_FEATURE_FLAG"
+        codigo, organizacao_id, session, usuario, estado="desativado", acao="FLAG_DESATIVAR"
     )
 
 
@@ -284,7 +284,7 @@ async def excluir_flag(codigo: str, dados: ExcluirFlagInput, session: SessionDep
             organizacao_id=None,
             actor_id=usuario.id,
             ator=usuario.email,
-            acao="EXCLUIR_FEATURE_FLAG",
+            acao="FLAG_EXCLUIR",
             recurso=f"feature_flag:{flag.id}",
             sucesso=True,
             status_http=200,

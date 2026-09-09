@@ -241,7 +241,7 @@ async def test_atualizar_status_problema_audita_e_comita() -> None:
     assert resposta == {"id": 1, "status": "resolvido"}
     assert problema.status == "resolvido"
     evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
-    assert evento.acao == "ATUALIZAR_STATUS_PROBLEMA_ATUALIZACAO"
+    assert evento.acao == "STATUS_PROBLEMA"
     assert evento.detalhes == {"status_anterior": "aberto", "status_novo": "resolvido"}
     assert session.commits == 1
 

@@ -229,7 +229,7 @@ def test_criar_flag_sucesso_audita_e_comita() -> None:
     item = next(obj for obj in session.adicionados if isinstance(obj, FeatureFlag))
     assert item.estado_padrao == "desligado"
     evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
-    assert evento.acao == "CRIAR_FEATURE_FLAG"
+    assert evento.acao == "FLAG_CRIAR"
     assert session.commits == 1
 
 
@@ -316,5 +316,5 @@ def test_excluir_flag_sucesso_audita_deleta_e_comita() -> None:
     assert resposta == {"excluido": True, "codigo": "kanban-v2"}
     assert flag in session.deletados
     evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
-    assert evento.acao == "EXCLUIR_FEATURE_FLAG"
+    assert evento.acao == "FLAG_EXCLUIR"
     assert session.commits == 1

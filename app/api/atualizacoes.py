@@ -358,7 +358,7 @@ async def atualizar_status_problema(
             organizacao_id=problema.organizacao_id,
             actor_id=usuario.id,
             ator=usuario.email,
-            acao="ATUALIZAR_STATUS_PROBLEMA_ATUALIZACAO",
+            acao="STATUS_PROBLEMA",
             recurso=f"problema_versao:{problema.id}",
             sucesso=True,
             status_http=200,

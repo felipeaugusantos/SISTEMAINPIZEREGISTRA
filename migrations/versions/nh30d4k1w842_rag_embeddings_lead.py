@@ -1,7 +1,7 @@
 """RAG local (pgvector): embeddings de leads com resultado conhecido
 
 Revision ID: nh30d4k1w842
-Revises: mg08b3i9u620
+Revises: h19r4t0n731
 
 Fase de "casos semelhantes" da IA em sombra (08/09/2026): antes de sugerir a
 proxima acao de um lead, o modelo local passa a receber precedentes reais --
@@ -23,7 +23,7 @@ from alembic import op
 from pgvector.sqlalchemy import Vector
 
 revision: str = "nh30d4k1w842"
-down_revision: str | None = "mg08b3i9u620"
+down_revision: str | None = "h19r4t0n731"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

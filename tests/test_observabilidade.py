@@ -1,12 +1,15 @@
-from datetime import UTC, datetime
+import asyncio
+from datetime import UTC, datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from app.api.observabilidade import _erros_por_versao, desligar_flag_imediatamente, painel_tecnico
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
-from app.models import EventoOperacional
+from app.models import EventoAuditoria, EventoOperacional, FeatureFlag, VersaoSistema
 from tests.conftest import FakeResult, FakeSession, auth_override, usuario_teste
 
 # --- Achado FASE6-4 da auditoria (04/09/2026): dead-letter queue visível e
@@ -137,3 +140,113 @@ def test_listar_eventos_operacionais_exige_acesso_tech() -> None:
     resposta = TestClient(app).get("/v1/admin/observabilidade/eventos")
 
     assert resposta.status_code == 403
+
+
+# --- Fase 7: painel técnico de observabilidade e rollback. Critério de
+# aceite: a equipe identifica rapidamente uma regressão e consegue limitar
+# seu impacto. ---
+
+
+def _versao_publicada(**kwargs: object) -> VersaoSistema:
+    base = dict(
+        id=1,
+        versao="1.0.90",
+        titulo="Fase 5",
+        tipo_atualizacao="funcionalidade",
+        modulos_afetados=["producao"],
+        implantada_em=datetime.now(UTC) - timedelta(hours=2),
+        commit_sha="a" * 40,
+        migration_revision="p42d8f6r286",
+        evidencias_testes=[{"resultado": "aprovado"}],
+        status="publicada",
+        publicado_por="tech@zeregistra.com",
+    )
+    base.update(kwargs)
+    return VersaoSistema(**base)
+
+
+def test_erros_por_versao_usa_janela_entre_implantacoes() -> None:
+    v2 = _versao_publicada(id=2, versao="1.0.91", implantada_em=datetime.now(UTC) - timedelta(hours=1))
+    v1 = _versao_publicada(id=1, versao="1.0.90", implantada_em=datetime.now(UTC) - timedelta(hours=5))
+    session = FakeSession(
+        [
+            FakeResult(itens=[v2, v1]),
+            FakeResult(itens=[(100, 5)]),  # janela da v2 (mais recente): 100 requisicoes, 5 erros
+            FakeResult(itens=[(40, 0)]),  # janela da v1: 40 requisicoes, 0 erros
+        ]
+    )
+
+    resultado = asyncio.run(_erros_por_versao(session))
+
+    assert resultado[0]["versao"] == "1.0.91"
+    assert resultado[0]["requisicoes"] == 100
+    assert resultado[0]["erros"] == 5
+    assert resultado[0]["taxa_erro"] == 0.05
+    assert resultado[1]["versao"] == "1.0.90"
+    assert resultado[1]["taxa_erro"] is None  # 0 requisicoes -- nao divide por zero
+
+
+def test_desligar_flag_imediatamente_corta_para_todas_as_organizacoes() -> None:
+    flag = FeatureFlag(id=1, codigo="nova-busca", nome="Nova busca", ativo=True)
+    session = FakeSession([FakeResult(scalar=flag)])
+
+    resposta = asyncio.run(desligar_flag_imediatamente("nova-busca", session, usuario_teste(perfil="tech")))
+
+    assert resposta == {"codigo": "nova-busca", "ativo": False, "ja_estava_desligada": False}
+    assert flag.ativo is False
+    evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
+    assert evento.acao == "FLAG_DESLIGAR"
+    assert session.commits == 1
+
+
+def test_desligar_flag_ja_desligada_nao_audita_de_novo() -> None:
+    flag = FeatureFlag(id=1, codigo="nova-busca", nome="Nova busca", ativo=False)
+    session = FakeSession([FakeResult(scalar=flag)])
+
+    resposta = asyncio.run(desligar_flag_imediatamente("nova-busca", session, usuario_teste(perfil="tech")))
+
+    assert resposta == {"codigo": "nova-busca", "ativo": False, "ja_estava_desligada": True}
+    assert session.commits == 0
+    assert session.adicionados == []
+
+
+def test_desligar_flag_inexistente_devolve_404() -> None:
+    session = FakeSession([FakeResult(scalar=None)])
+
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(desligar_flag_imediatamente("nao-existe", session, usuario_teste(perfil="tech")))
+
+    assert erro.value.status_code == 404
+
+
+def test_desligar_flag_exige_acesso_tech() -> None:
+    session = FakeSession([])
+
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(desligar_flag_imediatamente("nova-busca", session, usuario_teste(perfil="operador")))
+
+    assert erro.value.status_code == 403
+    assert session.executados == []
+
+
+def test_painel_tecnico_com_dados_vazios_nao_quebra() -> None:
+    session = FakeSession(
+        [
+            FakeResult(scalar=None),  # heartbeat do worker
+            FakeResult(itens=[]),  # feature flags ativas
+            FakeResult(itens=[]),  # organizacoes afetadas
+            FakeResult(scalar=None),  # ultimo deploy
+            FakeResult(scalar=None),  # migration atual
+            FakeResult(itens=[]),  # versoes publicadas (erros_por_versao)
+        ],
+        objetos_get=[None],  # RpiSyncEstado
+    )
+
+    resposta = asyncio.run(painel_tecnico(session, usuario_teste(perfil="tech")))
+
+    assert resposta["processos"]["worker"]["status"] == "indisponivel"
+    assert resposta["processos"]["rpi_sync"]["status"] == "indisponivel"
+    assert resposta["feature_flags_ativas"] == []
+    assert resposta["organizacoes_afetadas"] == []
+    assert resposta["erros_por_versao"] == []
+    assert resposta["ultimo_deploy"] is None

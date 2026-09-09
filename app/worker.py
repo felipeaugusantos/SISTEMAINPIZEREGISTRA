@@ -29,6 +29,7 @@ from app.models import (
     Movimentacao,
     Organizacao,
     Processo,
+    ProcessoHeartbeat,
     ProcessoMonitorado,
     RenovacaoFinanceira,
     StatusLead,
@@ -834,6 +835,22 @@ async def _loop_fila_principal(redis) -> None:
                 await redis.hincrby(METRICS_KEY, "falhas", 1)
 
 
+async def _atualizar_heartbeat_worker() -> None:
+    """Fase 7 (painel técnico): prova de vida do worker -- consumidor de
+    fila em loop, sem endpoint HTTP próprio pra ser checado ao vivo como a
+    API. Falha silenciosa: heartbeat nunca pode derrubar a manutenção."""
+    try:
+        async with session_factory() as session:
+            await session.execute(
+                pg_insert(ProcessoHeartbeat)
+                .values(processo="worker")
+                .on_conflict_do_update(index_elements=["processo"], set_={"heartbeat_em": datetime.now(UTC)})
+            )
+            await session.commit()
+    except Exception:
+        return
+
+
 async def _loop_manutencao(redis) -> None:
     """Achado FASE6-6/7/8 da auditoria (04/09/2026): antes, motor jurídico,
     cadências, retenção, vigilância e alto renome só rodavam dentro do "if
@@ -859,6 +876,7 @@ async def _loop_manutencao(redis) -> None:
         if agora >= proximo_alto_renome:
             await _executar_tarefa_manutencao(redis, "alto_renome.sincronizar")
             proximo_alto_renome = datetime.now(UTC) + INTERVALO_ALTO_RENOME
+        await _atualizar_heartbeat_worker()
         await asyncio.sleep(30)
 
 

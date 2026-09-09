@@ -3553,6 +3553,25 @@ class FeatureFlagOrganizacao(Base):
     )
 
 
+class ProcessoHeartbeat(Base):
+    """Fase 7 (painel técnico): liveness de processos de fundo que não têm
+    endpoint HTTP próprio para checar. `processo` é a chave (ex.: "worker")
+    -- upsert por process, uma linha cada. O RPI Sync já tem seu próprio
+    heartbeat dedicado (RpiSyncEstado, mais rico -- rpi_atual etc.), não
+    precisa duplicar aqui; API é verificada ao vivo pelo próprio fato de
+    responder a chamada. Só o worker (consumidor de fila em loop, sem
+    endpoint HTTP) precisava de um jeito de provar que está vivo."""
+
+    __tablename__ = "processos_heartbeat"
+    __mapper_args__ = {"eager_defaults": True}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    processo: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+    heartbeat_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ControleProducao(Base):
     __tablename__ = "controle_producao"
 

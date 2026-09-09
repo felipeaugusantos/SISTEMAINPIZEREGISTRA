@@ -6,9 +6,22 @@ from pydantic import BaseModel, Field
 from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auditing import criar_evento_auditoria
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import engine, get_session
-from app.models import EventoAuditoria, EventoOperacional, Organizacao, RpiImportacao, RpiSyncEstado, RpiSyncExecucao
+from app.feature_flags import obter_flag
+from app.models import (
+    EventoAuditoria,
+    EventoOperacional,
+    FeatureFlag,
+    FeatureFlagEvento,
+    Organizacao,
+    ProcessoHeartbeat,
+    RpiImportacao,
+    RpiSyncEstado,
+    RpiSyncExecucao,
+    VersaoSistema,
+)
 from app.proxy import cliente_ip
 from app.queueing import descartar_falha, listar_falhas, reprocessar_falha, status_fila
 from app.rpi.health import avaliar_saude_rpi
@@ -311,3 +324,203 @@ async def listar_eventos_operacionais(
             for item in itens
         ],
     }
+
+
+# --- Fase 7: painel técnico de observabilidade e rollback. Critério de
+# aceite: a equipe identifica rapidamente uma regressão e consegue limitar
+# seu impacto. Junta o que já existia espalhado (versão/commit, saúde de
+# banco/fila/RPI, feature flags, telemetria por grupo da Fase 5) com o que
+# faltava (heartbeat do worker, migration atual, erros por versão,
+# organizações afetadas, resumo do último deploy) numa tela só. ---
+
+LIMIAR_HEARTBEAT_WORKER_SEGUNDOS = 90
+QUANTIDADE_VERSOES_PAINEL = 5
+
+
+async def _saude_worker(session: AsyncSession) -> dict:
+    heartbeat = (
+        await session.execute(
+            select(ProcessoHeartbeat.heartbeat_em).where(ProcessoHeartbeat.processo == "worker")
+        )
+    ).scalar_one_or_none()
+    limite = datetime.now(UTC) - timedelta(seconds=LIMIAR_HEARTBEAT_WORKER_SEGUNDOS)
+    online = bool(heartbeat and heartbeat >= limite)
+    return {"status": "ok" if online else "indisponivel", "heartbeat_em": heartbeat}
+
+
+async def _migration_atual(session: AsyncSession) -> str | None:
+    return (await session.execute(text("SELECT version_num FROM alembic_version"))).scalar_one_or_none()
+
+
+async def _erros_por_versao(session: AsyncSession) -> list[dict]:
+    """Requisições e erros na janela de tempo em que cada versão esteve
+    "no ar" (do próprio implantada_em até a próxima versão publicada, ou
+    agora, para a mais recente) -- é o proxy mais direto disponível pra
+    "erros por versão" sem instrumentar toda chamada com o id da versão
+    (achado registrado como limitação também em docs/fase5, seção
+    "impacto nos módulos existentes")."""
+    versoes = (
+        await session.execute(
+            select(VersaoSistema)
+            .where(VersaoSistema.status == "publicada")
+            .order_by(VersaoSistema.implantada_em.desc())
+            .limit(QUANTIDADE_VERSOES_PAINEL)
+        )
+    ).scalars().all()
+    agora = datetime.now(UTC)
+    resultado = []
+    fim_janela = agora
+    for versao in versoes:
+        inicio_janela = versao.implantada_em
+        metricas = (
+            await session.execute(
+                select(func.count(), func.sum(case((EventoOperacional.sucesso.is_(False), 1), else_=0))).where(
+                    EventoOperacional.criado_em >= inicio_janela, EventoOperacional.criado_em < fim_janela
+                )
+            )
+        ).one()
+        requisicoes = int(metricas[0] or 0)
+        erros = int(metricas[1] or 0)
+        resultado.append(
+            {
+                "versao_id": versao.id,
+                "versao": versao.versao,
+                "titulo": versao.titulo,
+                "tipo_atualizacao": versao.tipo_atualizacao,
+                "implantada_em": versao.implantada_em,
+                "requisicoes": requisicoes,
+                "erros": erros,
+                "taxa_erro": round(erros / requisicoes, 4) if requisicoes else None,
+            }
+        )
+        fim_janela = inicio_janela
+    return resultado
+
+
+@router.get("/observabilidade/painel-tecnico")
+async def painel_tecnico(session: SessionDep, usuario: TechDep) -> dict:
+    _exigir_acesso_tech(usuario)
+    settings = get_settings()
+    agora = datetime.now(UTC)
+
+    processo_comum = {"versao": settings.app_version, "commit": settings.git_sha}
+    saude_worker = await _saude_worker(session)
+    estado_rpi = await session.get(RpiSyncEstado, 1)
+    limite_rpi = agora - timedelta(seconds=max(60, settings.rpi_sync_poll_seconds * 3))
+    rpi_online = bool(estado_rpi and estado_rpi.heartbeat_em and estado_rpi.heartbeat_em >= limite_rpi)
+
+    flags = (
+        await session.execute(select(FeatureFlag).where(FeatureFlag.ativo.is_(True)).order_by(FeatureFlag.codigo))
+    ).scalars().all()
+
+    desde_organizacoes = agora - timedelta(hours=24)
+    linhas_organizacoes = (
+        await session.execute(
+            select(
+                FeatureFlagEvento.organizacao_id,
+                Organizacao.nome,
+                FeatureFlag.codigo,
+                func.count(),
+            )
+            .join(Organizacao, Organizacao.id == FeatureFlagEvento.organizacao_id)
+            .join(FeatureFlag, FeatureFlag.id == FeatureFlagEvento.feature_flag_id)
+            .where(
+                FeatureFlagEvento.tipo.in_(("erro", "falha_integracao")),
+                FeatureFlagEvento.criado_em >= desde_organizacoes,
+            )
+            .group_by(FeatureFlagEvento.organizacao_id, Organizacao.nome, FeatureFlag.codigo)
+        )
+    ).all()
+    organizacoes_afetadas: dict[int, dict] = {}
+    for organizacao_id, nome, codigo_flag, total in linhas_organizacoes:
+        item = organizacoes_afetadas.setdefault(
+            organizacao_id, {"organizacao_id": organizacao_id, "organizacao_nome": nome, "eventos": 0, "flags": []}
+        )
+        item["eventos"] += total
+        item["flags"].append({"codigo": codigo_flag, "eventos": total})
+
+    ultimo_deploy_item = (
+        await session.execute(
+            select(VersaoSistema)
+            .where(VersaoSistema.status == "publicada")
+            .order_by(VersaoSistema.implantada_em.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    return {
+        "gerado_em": agora,
+        "processos": {
+            "api": {**processo_comum, "status": "ok"},
+            "worker": {**processo_comum, **saude_worker},
+            "rpi_sync": {
+                **processo_comum,
+                "status": "ok" if rpi_online else "indisponivel",
+                "heartbeat_em": estado_rpi.heartbeat_em if estado_rpi else None,
+            },
+        },
+        "migration_atual": await _migration_atual(session),
+        "erros_por_versao": await _erros_por_versao(session),
+        "feature_flags_ativas": [
+            {
+                "codigo": flag.codigo,
+                "nome": flag.nome,
+                "estado_padrao": flag.estado_padrao,
+                "estagio_rollout": flag.estagio_rollout,
+                "percentual_rollout": flag.percentual_rollout,
+                "pausado_em": flag.pausado_em,
+                "pausado_motivo": flag.pausado_motivo,
+            }
+            for flag in flags
+        ],
+        "organizacoes_afetadas": sorted(organizacoes_afetadas.values(), key=lambda item: -item["eventos"]),
+        "ultimo_deploy": (
+            {
+                "versao_id": ultimo_deploy_item.id,
+                "versao": ultimo_deploy_item.versao,
+                "titulo": ultimo_deploy_item.titulo,
+                "tipo_atualizacao": ultimo_deploy_item.tipo_atualizacao,
+                "commit_sha": ultimo_deploy_item.commit_sha,
+                "migration_revision": ultimo_deploy_item.migration_revision,
+                "implantada_em": ultimo_deploy_item.implantada_em,
+                "publicado_por": ultimo_deploy_item.publicado_por,
+                "evidencias_aprovadas": sum(
+                    1 for ev in (ultimo_deploy_item.evidencias_testes or []) if ev.get("resultado") == "aprovado"
+                ),
+                "evidencias_total": len(ultimo_deploy_item.evidencias_testes or []),
+            }
+            if ultimo_deploy_item
+            else None
+        ),
+    }
+
+
+@router.post("/feature-flags/{codigo}/desligar")
+async def desligar_flag_imediatamente(codigo: str, session: SessionDep, usuario: TechDep) -> dict:
+    """Fase 7, critério de rollback: "feature flag pode ser desligada
+    imediatamente". Kill-switch direto (FeatureFlag.ativo=False, já
+    existente desde a Fase 4) -- diferente de interromper_rollout (Fase 5,
+    recua um estágio), esta ação corta a flag para TODAS as organizações
+    de uma vez, sem exigir motivo (é a ação de emergência: já existe
+    /interromper para quando dá tempo de registrar o porquê)."""
+    _exigir_acesso_tech(usuario)
+    flag = await obter_flag(session, codigo)
+    if flag is None:
+        raise HTTPException(404, "Feature flag não encontrada")
+    if not flag.ativo:
+        return {"codigo": flag.codigo, "ativo": False, "ja_estava_desligada": True}
+    flag.ativo = False
+    session.add(
+        criar_evento_auditoria(
+            organizacao_id=None,
+            actor_id=usuario.id,
+            ator=usuario.email,
+            acao="FLAG_DESLIGAR",
+            recurso=f"feature_flag:{flag.id}",
+            sucesso=True,
+            status_http=200,
+            detalhes={"codigo": flag.codigo, "origem": "painel_tecnico"},
+        )
+    )
+    await session.commit()
+    return {"codigo": flag.codigo, "ativo": False, "ja_estava_desligada": False}

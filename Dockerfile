@@ -27,6 +27,10 @@ FROM base AS production
 # Sem --build-arg (ex.: build local avulso) fica "unknown", nunca quebra o build.
 ARG GIT_SHA=unknown
 LABEL org.opencontainers.image.revision="${GIT_SHA}"
+# Fase 7 (painel tecnico): ARG sozinho so existe em build-time -- promovido
+# pra ENV aqui pra o processo em execucao conseguir ler seu proprio commit
+# (os.environ["GIT_SHA"]), sem precisar de acesso ao socket do Docker.
+ENV GIT_SHA="${GIT_SHA}"
 
 RUN uv sync --frozen --no-dev
 

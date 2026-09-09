@@ -26,6 +26,94 @@ async function carregarObservabilidade() {
 document.querySelector("#observability-refresh").addEventListener("click", carregarObservabilidade);
 carregarObservabilidade();
 
+// Fase 7: painel técnico de observabilidade e rollback. Critério de
+// aceite: a equipe identifica rapidamente uma regressão e consegue
+// limitar seu impacto.
+function escapeHtmlSeguro(value) { const el = document.createElement("span"); el.textContent = value ?? ""; return el.innerHTML; }
+function dataHoraCurta(value) { return value ? new Date(value).toLocaleString("pt-BR") : "—"; }
+async function apiPainel(url, options = {}) {
+  const resposta = await fetch(url, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
+  const corpo = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) throw new Error(corpo.detail || `Falha na operação (${resposta.status})`);
+  return corpo;
+}
+
+async function carregarPainelTecnico() {
+  const message = document.querySelector("#painel-tecnico-message");
+  try {
+    const dados = await apiPainel("/v1/admin/observabilidade/painel-tecnico");
+    message.hidden = true;
+    document.querySelector("#painel-tecnico-atualizado").textContent = `Atualizado ${new Date(dados.gerado_em).toLocaleTimeString("pt-BR")}`;
+
+    const processos = dados.processos;
+    document.querySelector("#painel-tecnico-processos").innerHTML = Object.entries(processos).map(([nome, info]) => metric(
+      info.status === "ok" ? "Saudável" : "Indisponível",
+      nome === "rpi_sync" ? "RPI Sync" : nome === "api" ? "API" : "Worker",
+      `${info.versao} · commit ${(info.commit || "").slice(0, 10)}${info.heartbeat_em ? ` · heartbeat ${dataHoraCurta(info.heartbeat_em)}` : ""}`,
+    )).join("");
+    document.querySelector("#painel-tecnico-migration").textContent = dados.migration_atual || "—";
+
+    const flagsRows = document.querySelector("#painel-tecnico-flags-rows");
+    flagsRows.innerHTML = dados.feature_flags_ativas.length
+      ? dados.feature_flags_ativas.map((flag) => `<tr class="${flag.pausado_em ? "is-erro" : ""}">
+          <td>${escapeHtmlSeguro(flag.codigo)}</td>
+          <td>${escapeHtmlSeguro(flag.nome)}</td>
+          <td>${escapeHtmlSeguro(flag.estagio_rollout || flag.estado_padrao)}</td>
+          <td>${flag.pausado_em ? `Sim — ${escapeHtmlSeguro(flag.pausado_motivo || "")}` : "Não"}</td>
+          <td><button type="button" class="secondary-button" data-desligar-flag="${flag.codigo}">Desligar agora</button></td>
+        </tr>`).join("")
+      : `<tr><td colspan="5">Nenhuma feature flag ativa no momento.</td></tr>`;
+    flagsRows.querySelectorAll("[data-desligar-flag]").forEach((botao) => {
+      botao.addEventListener("click", async () => {
+        const codigo = botao.dataset.desligarFlag;
+        if (!confirm(`Desligar a flag "${codigo}" para TODAS as organizações imediatamente?`)) return;
+        botao.disabled = true;
+        try {
+          await apiPainel(`/v1/admin/feature-flags/${codigo}/desligar`, { method: "POST" });
+          await carregarPainelTecnico();
+        } catch (error) {
+          alert(error.message);
+          botao.disabled = false;
+        }
+      });
+    });
+
+    const versoesRows = document.querySelector("#painel-tecnico-versoes-rows");
+    versoesRows.innerHTML = dados.erros_por_versao.length
+      ? dados.erros_por_versao.map((item) => `<tr class="${item.taxa_erro && item.taxa_erro > 0.05 ? "is-erro" : ""}">
+          <td>${escapeHtmlSeguro(item.versao)}</td>
+          <td>${escapeHtmlSeguro(item.titulo)}</td>
+          <td>${dataHoraCurta(item.implantada_em)}</td>
+          <td>${item.requisicoes}</td>
+          <td>${item.erros}</td>
+          <td>${item.taxa_erro != null ? `${(item.taxa_erro * 100).toFixed(2)}%` : "—"}</td>
+        </tr>`).join("")
+      : `<tr><td colspan="6">Nenhuma versão publicada ainda.</td></tr>`;
+
+    const orgRows = document.querySelector("#painel-tecnico-organizacoes-rows");
+    orgRows.innerHTML = dados.organizacoes_afetadas.length
+      ? dados.organizacoes_afetadas.map((item) => `<tr>
+          <td>${escapeHtmlSeguro(item.organizacao_nome)}</td>
+          <td>${item.eventos}</td>
+          <td>${item.flags.map((f) => `${escapeHtmlSeguro(f.codigo)} (${f.eventos})`).join(", ")}</td>
+        </tr>`).join("")
+      : `<tr><td colspan="3">Nenhuma organização afetada nas últimas 24 horas.</td></tr>`;
+
+    const deployTarget = document.querySelector("#painel-tecnico-deploy");
+    const deploy = dados.ultimo_deploy;
+    deployTarget.innerHTML = deploy
+      ? `<p><strong>${escapeHtmlSeguro(deploy.versao)}</strong> — ${escapeHtmlSeguro(deploy.titulo)} (${escapeHtmlSeguro(deploy.tipo_atualizacao)})</p>
+         <p><small>Implantada em ${dataHoraCurta(deploy.implantada_em)} por ${escapeHtmlSeguro(deploy.publicado_por || "—")} · commit ${escapeHtmlSeguro((deploy.commit_sha || "").slice(0, 10))} · migration ${escapeHtmlSeguro(deploy.migration_revision || "—")} · evidências ${deploy.evidencias_aprovadas}/${deploy.evidencias_total} aprovadas</small></p>
+         <p><a class="secondary-button" href="/admin/atualizacoes">Ver na central de atualizações</a> — para arquivar/reverter esta versão, use a ação de arquivamento na Central de Atualizações (gera auditoria automaticamente).</p>`
+      : `<p>Nenhuma versão publicada ainda.</p>`;
+  } catch (error) {
+    message.hidden = false;
+    message.className = "status-message error";
+    message.textContent = error.message;
+  }
+}
+carregarPainelTecnico();
+
 // Achado de uma auditoria sistemática (08/09/2026, mesmo padrão do achado
 // de EnvioCadenciaEmail): EventoOperacional era gravado a cada requisição
 // mas só ficava visível de forma agregada (contagens/médias) -- ninguém

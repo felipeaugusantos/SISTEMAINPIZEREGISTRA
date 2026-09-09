@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     app_name: str = "INPI API"
     app_env: str = "development"
     app_version: str = "development"
+    # Fase 7 (painel tecnico): promovido de ARG pra ENV no Dockerfile --
+    # "unknown" fora de um build via docker/deploy.sh (ex.: rodando local).
+    git_sha: str = "unknown"
     database_url: str = "postgresql+asyncpg://inpi:inpi@localhost:5432/inpi"
     app_db_password: str | None = None
     admin_username: str = "admin"

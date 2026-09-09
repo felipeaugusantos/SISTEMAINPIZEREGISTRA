@@ -6,7 +6,7 @@
   <title>Observabilidade — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=58">
   <script src="/static/admin-shell.js?v=44" defer></script>
-  <script src="/static/admin-observabilidade.js?v=2" defer></script>
+  <script src="/static/admin-observabilidade.js?v=3" defer></script>
 </head>
 <body class="admin-body" data-admin-section="observability">
   <main class="admin-main admin-dashboard">
@@ -15,6 +15,49 @@
       <div class="observability-toolbar"><span id="observability-updated">Carregando…</span><button id="observability-refresh" class="secondary-button" type="button">Atualizar</button></div>
     </section>
     <div id="observability-message" class="status-message loading" role="status" aria-live="polite">Carregando saúde da plataforma…</div>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Fase 7</p><h2>Painel técnico — versão e processos</h2></div><span id="painel-tecnico-atualizado"></span></header>
+      <div id="painel-tecnico-message" class="status-message loading" role="status">Carregando…</div>
+      <div id="painel-tecnico-processos" class="observability-detail-grid"></div>
+      <p><small>Migration atual: <strong id="painel-tecnico-migration">—</strong></small></p>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Rollback</p><h2>Feature flags ativas</h2><p>Desligar corta a flag para todas as organizações imediatamente — para recuar só um estágio, use a tela de Feature Flags.</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Código</th><th>Nome</th><th>Estágio</th><th>Interrompida</th><th></th></tr></thead>
+          <tbody id="painel-tecnico-flags-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Diagnóstico</p><h2>Erros por versão</h2><p>Requisições e erros na janela em que cada versão esteve implantada.</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Versão</th><th>Título</th><th>Implantada em</th><th>Requisições</th><th>Erros</th><th>Taxa de erro</th></tr></thead>
+          <tbody id="painel-tecnico-versoes-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Impacto</p><h2>Organizações afetadas (24h)</h2><p>Organizações com erro ou falha de integração registrados por alguma feature flag nas últimas 24 horas.</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Organização</th><th>Eventos</th><th>Flags envolvidas</th></tr></thead>
+          <tbody id="painel-tecnico-organizacoes-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Rollback</p><h2>Último deploy</h2></div></header>
+      <div id="painel-tecnico-deploy"></div>
+    </section>
+
     <section class="overview-section"><header><div><p class="eyebrow">Serviços</p><h2>Status atual</h2></div></header><div id="observability-services" class="overview-primary-metrics"></div></section>
     <section class="overview-section"><header><div><p class="eyebrow">Indicadores</p><h2>Aplicação e infraestrutura</h2></div></header><div id="observability-metrics" class="overview-primary-metrics"></div></section>
     <section class="overview-section"><header><div><p class="eyebrow">RPI</p><h2>Sincronização e integridade</h2></div></header><div id="observability-rpi" class="observability-detail-grid"></div></section>

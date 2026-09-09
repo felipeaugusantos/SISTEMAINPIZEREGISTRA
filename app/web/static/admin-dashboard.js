@@ -58,8 +58,16 @@ function statusLabel(status) {
 }
 
 async function loadOverview() {
-  const response = await fetch("/v1/admin/resumo");
-  if (!response.ok) throw new Error("Não foi possível atualizar os indicadores.");
+  let response;
+  try {
+    response = await fetch("/v1/admin/resumo");
+  } catch {
+    throw new Error("Não foi possível atualizar os indicadores (falha de conexão -- tente novamente em alguns segundos).");
+  }
+  if (!response.ok) {
+    const corpo = await response.json().catch(() => ({}));
+    throw new Error(corpo.detail || `Não foi possível atualizar os indicadores (HTTP ${response.status}).`);
+  }
   const data = await response.json();
 
   document.querySelector("#overview-searches").textContent = formatNumber(data.pesquisas_total);
@@ -361,8 +369,20 @@ function renderHistory(items) {
 }
 
 async function loadRpiMonitor() {
-  const response = await fetch("/v1/admin/rpi");
-  if (!response.ok) throw new Error("Não foi possível carregar o monitoramento da RPI.");
+  let response;
+  try {
+    response = await fetch("/v1/admin/rpi");
+  } catch {
+    // Falha de rede/conexão (nem chegou a ter uma resposta HTTP) -- ex.: o
+    // usuário acessou a tela bem na janela curta em que um deploy recria o
+    // container da api. Achado do usuário: a mensagem genérica antiga não
+    // dava nenhuma pista sobre o motivo real da falha.
+    throw new Error("Não foi possível carregar o monitoramento da RPI (falha de conexão -- tente novamente em alguns segundos).");
+  }
+  if (!response.ok) {
+    const corpo = await response.json().catch(() => ({}));
+    throw new Error(corpo.detail || `Não foi possível carregar o monitoramento da RPI (HTTP ${response.status}).`);
+  }
   const data = await response.json();
   const badge = document.querySelector("#rpi-status-badge");
   badge.textContent = data.status_rotulo;

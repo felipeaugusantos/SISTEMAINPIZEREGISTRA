@@ -440,7 +440,6 @@
   min-height: 62px;
   min-width: 0;
   padding: 12px 14px 11px 51px;
-  overflow: hidden;
   border: 1px solid #dfe2da;
   border-radius: 15px;
   background: #fff;
@@ -467,16 +466,11 @@
 .lead-contact-summary > div:nth-child(3)::before { content: "PJ"; }
 .lead-contact-summary > div:nth-child(4)::before { content: "OK"; }
 
-.lead-contact-summary span,
-.lead-contact-summary a,
-.lead-contact-summary strong {
+.lead-contact-summary span {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.lead-contact-summary span {
   margin-bottom: 5px;
   color: #6f7b74;
   font-size: 0.66rem;
@@ -487,6 +481,8 @@
 
 .lead-contact-summary a,
 .lead-contact-summary strong {
+  display: block;
+  overflow-wrap: anywhere;
   color: #17271f;
   font-size: 0.84rem;
   font-weight: 750;

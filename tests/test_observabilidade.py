@@ -183,7 +183,17 @@ def test_erros_por_versao_usa_janela_entre_implantacoes() -> None:
     assert resultado[0]["erros"] == 5
     assert resultado[0]["taxa_erro"] == 0.05
     assert resultado[1]["versao"] == "1.0.90"
-    assert resultado[1]["taxa_erro"] is None  # 0 requisicoes -- nao divide por zero
+    assert resultado[1]["taxa_erro"] == 0.0  # 40 requisicoes, 0 erros
+
+
+def test_erros_por_versao_sem_requisicoes_nao_divide_por_zero() -> None:
+    v1 = _versao_publicada(id=1, versao="1.0.90")
+    session = FakeSession([FakeResult(itens=[v1]), FakeResult(itens=[(0, 0)])])
+
+    resultado = asyncio.run(_erros_por_versao(session))
+
+    assert resultado[0]["requisicoes"] == 0
+    assert resultado[0]["taxa_erro"] is None
 
 
 def test_desligar_flag_imediatamente_corta_para_todas_as_organizacoes() -> None:

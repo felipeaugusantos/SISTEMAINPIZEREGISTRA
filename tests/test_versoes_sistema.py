@@ -14,11 +14,14 @@ from app.api.versoes_sistema import (
     calcular_hash_versao,
     criar_versao,
     editar_versao,
+    lembrar_atualizacoes_pendentes,
+    listar_confirmacoes_versao,
     listar_versoes,
     publicar_versao,
+    relatorio_pendencias,
 )
 from app.auth import UsuarioAutenticado
-from app.models import EventoAuditoria, VersaoSistema
+from app.models import AlertaSistema, EventoAuditoria, InteracaoVersaoSistema, VersaoSistema
 from tests.conftest import FakeResult, FakeSession
 
 
@@ -300,3 +303,101 @@ def test_ci_usa_postgres_com_pgvector() -> None:
 
     assert "image: pgvector/pgvector:pg16" in texto
     assert "ancestor=postgres:16-alpine" not in texto
+
+
+# --- Fase 3: continuação da Fase 2 (central de atualizações) -- contagem
+# de usuários pendentes de confirmação e lembrete periódico. Reaproveita
+# VersaoSistema/InteracaoVersaoSistema já existentes, sem tabela nova. ---
+
+
+def _versao_publicada(*, tipo_atualizacao: str = "funcionalidade", versao_id: int = 10) -> VersaoSistema:
+    item = _versao("publicada")
+    item.id = versao_id
+    item.tipo_atualizacao = tipo_atualizacao
+    return item
+
+
+@pytest.mark.asyncio
+async def test_relatorio_pendencias_calcula_por_versao_publicada() -> None:
+    versao = _versao_publicada(tipo_atualizacao="critica")
+    session = FakeSession(
+        resultados=[
+            FakeResult(itens=[versao]),  # versoes publicadas
+            FakeResult(scalar=8),  # total_usuarios
+            FakeResult(scalar=3),  # confirmados
+        ]
+    )
+
+    resposta = await relatorio_pendencias(session, _superadmin())
+
+    assert resposta["itens"] == [
+        {
+            "id": versao.id,
+            "versao": versao.versao,
+            "titulo": versao.titulo,
+            "critico": True,
+            "total_usuarios": 8,
+            "pendentes": 5,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_listar_confirmacoes_versao_devolve_pendentes_e_lista() -> None:
+    versao = _versao_publicada()
+    interacao = InteracaoVersaoSistema(
+        versao_sistema_id=versao.id, organizacao_id=1, usuario_id=7, confirmado_em=datetime.now(UTC)
+    )
+    session = FakeSession(
+        resultados=[
+            FakeResult(scalar=10),  # total_usuarios
+            FakeResult(scalar=1),  # confirmados
+            FakeResult(itens=[interacao]),  # confirmacoes
+        ],
+        objetos_get=[versao],
+    )
+
+    resposta = await listar_confirmacoes_versao(versao.id, session, _superadmin())
+
+    assert resposta["pendentes"] == 9
+    assert resposta["confirmacoes"] == [{"usuario_id": 7, "confirmado_em": interacao.confirmado_em}]
+
+
+@pytest.mark.asyncio
+async def test_lembrar_atualizacoes_pendentes_critica_com_pendencia_gera_alerta() -> None:
+    versao = _versao_publicada(tipo_atualizacao="critica")
+    session = FakeSession(
+        resultados=[
+            FakeResult(itens=[versao]),  # versoes criticas/correcao publicadas
+            FakeResult(scalar=8),  # total_usuarios
+            FakeResult(scalar=3),  # confirmados
+            FakeResult(scalar=None),  # registrar_alerta_plataforma: alerta existente
+        ]
+    )
+
+    total = await lembrar_atualizacoes_pendentes(session)
+
+    assert total == 1
+    alertas = [item for item in session.adicionados if isinstance(item, AlertaSistema)]
+    assert len(alertas) == 1
+    assert alertas[0].codigo == f"ATUALIZACAO_PENDENTE_{versao.id}"
+    assert alertas[0].severidade == "critico"
+    assert alertas[0].detalhes["pendentes"] == 5
+
+
+@pytest.mark.asyncio
+async def test_lembrar_atualizacoes_pendentes_resolve_quando_todos_confirmam() -> None:
+    versao = _versao_publicada(tipo_atualizacao="correcao")
+    session = FakeSession(
+        resultados=[
+            FakeResult(itens=[versao]),  # versoes criticas/correcao publicadas
+            FakeResult(scalar=5),  # total_usuarios
+            FakeResult(scalar=5),  # confirmados
+            FakeResult(itens=[]),  # resolver_alerta_plataforma: alertas abertos
+        ]
+    )
+
+    total = await lembrar_atualizacoes_pendentes(session)
+
+    assert total == 0
+    assert session.adicionados == []

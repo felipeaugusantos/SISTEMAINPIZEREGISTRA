@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Central de atualizações — Zé Registra</title>
-    <link rel="stylesheet" href="/static/styles.css?v=52" />
+    <link rel="stylesheet" href="/static/styles.css?v=53" />
     <script src="/static/admin-shell.js?v=41" defer></script>
-    <script src="/static/admin-atualizacoes.js?v=1" defer></script>
+    <script src="/static/admin-atualizacoes.js?v=2" defer></script>
   </head>
   <body class="admin-body" data-admin-section="updates">
     <main class="admin-main updates-page">
@@ -31,6 +31,19 @@
           <span id="updates-summary"></span>
         </header>
         <div id="updates-list" class="updates-list"></div>
+      </section>
+
+      <section id="updates-pendencias-section" class="overview-section" hidden>
+        <header>
+          <div><p class="eyebrow">Fase 3 · auditoria</p><h2>Confirmações pendentes</h2></div>
+          <span>Restrito ao departamento de Tech</span>
+        </header>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Versão</th><th>Título</th><th>Tipo</th><th>Pendentes</th><th>Total de usuários</th></tr></thead>
+            <tbody id="updates-pendencias-rows"></tbody>
+          </table>
+        </div>
       </section>
     </main>
 

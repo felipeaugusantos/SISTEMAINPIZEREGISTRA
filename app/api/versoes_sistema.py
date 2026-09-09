@@ -10,11 +10,12 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.alertas_plataforma import registrar_alerta_plataforma, resolver_alerta_plataforma
 from app.api.saas import SuperAdminDep
 from app.auditing import criar_evento_auditoria
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
-from app.models import VersaoSistema
+from app.models import InteracaoVersaoSistema, UsuarioOperacoes, VersaoSistema
 
 router = APIRouter(prefix="/v1/admin/versoes-sistema", tags=["versões do sistema"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -463,6 +464,135 @@ async def publicar_versao(
     )
     await session.commit()
     return versao_json(item)
+
+
+# --- Fase 3: contagem de pendentes e lembrete periódico -------------------
+# Continuação da Fase 2 (central de atualizações): quem já confirmou a
+# leitura já existia (InteracaoVersaoSistema); faltava o lado do admin --
+# quantos ainda não visualizaram, e um lembrete recorrente enquanto uma
+# atualização importante seguir pendente. Reaproveita tudo que já existe
+# (VersaoSistema, InteracaoVersaoSistema) em vez de criar um sistema
+# paralelo. ---
+
+
+async def _contar_pendentes_versao(session: AsyncSession, versao: VersaoSistema) -> tuple[int, int]:
+    """(total de usuários ativos, quantos ainda não confirmaram a leitura
+    desta versão) -- filtrado pela organização em contexto via RLS, mesmo
+    princípio de app.avisos_versao (frente descartada em favor deste
+    sistema já existente) e de app.ia_sombra."""
+    total_usuarios = (
+        await session.execute(select(func.count()).select_from(UsuarioOperacoes).where(UsuarioOperacoes.ativo.is_(True)))
+    ).scalar_one()
+    confirmados = (
+        await session.execute(
+            select(func.count())
+            .select_from(InteracaoVersaoSistema)
+            .where(
+                InteracaoVersaoSistema.versao_sistema_id == versao.id,
+                InteracaoVersaoSistema.confirmado_em.is_not(None),
+            )
+        )
+    ).scalar_one()
+    total = int(total_usuarios)
+    return total, max(0, total - int(confirmados))
+
+
+@router.get("/relatorio/pendencias")
+async def relatorio_pendencias(session: SessionDep, usuario: ViewDep) -> dict:
+    """Fase 3: para cada versão publicada, quantos usuários ativos ainda
+    não confirmaram a leitura -- alimenta a tela de auditoria e o mesmo
+    cálculo usado pelo lembrete periódico (app.worker
+    "atualizacoes.lembrar_pendentes")."""
+    versoes = (
+        (await session.execute(select(VersaoSistema).where(VersaoSistema.status == "publicada").order_by(VersaoSistema.implantada_em.desc())))
+        .scalars()
+        .all()
+    )
+    itens = []
+    for versao in versoes:
+        total, pendentes = await _contar_pendentes_versao(session, versao)
+        itens.append(
+            {
+                "id": versao.id,
+                "versao": versao.versao,
+                "titulo": versao.titulo,
+                "critico": versao.tipo_atualizacao == "critica",
+                "total_usuarios": total,
+                "pendentes": pendentes,
+            }
+        )
+    return {"itens": itens}
+
+
+@router.get("/{versao_id}/confirmacoes")
+async def listar_confirmacoes_versao(versao_id: int, session: SessionDep, usuario: ViewDep) -> dict:
+    """Auditoria (Fase 3): quem confirmou a leitura desta versão, quando, e
+    quantos ainda faltam."""
+    versao = await _obter_versao(session, versao_id)
+    total, pendentes = await _contar_pendentes_versao(session, versao)
+    confirmacoes = (
+        (
+            await session.execute(
+                select(InteracaoVersaoSistema)
+                .where(
+                    InteracaoVersaoSistema.versao_sistema_id == versao.id,
+                    InteracaoVersaoSistema.confirmado_em.is_not(None),
+                )
+                .order_by(InteracaoVersaoSistema.confirmado_em.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "versao": versao.versao,
+        "titulo": versao.titulo,
+        "total_usuarios": total,
+        "pendentes": pendentes,
+        "confirmacoes": [
+            {"usuario_id": item.usuario_id, "confirmado_em": item.confirmado_em} for item in confirmacoes
+        ],
+    }
+
+
+async def lembrar_atualizacoes_pendentes(session: AsyncSession) -> int:
+    """Job de manutenção periódica ("atualizacoes.lembrar_pendentes",
+    app.worker): para cada versão publicada crítica ou de correção
+    (achado do usuário: "atualizações importantes") com usuário ativo
+    pendente de confirmação, mantém um AlertaSistema aberto (reaproveita
+    app.alertas_plataforma, mesmo e-mail de reforço); resolve quando zera.
+    Devolve quantas versões ainda têm pendência."""
+    versoes = (
+        (
+            await session.execute(
+                select(VersaoSistema).where(
+                    VersaoSistema.status == "publicada",
+                    VersaoSistema.tipo_atualizacao.in_(("critica", "correcao")),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    total_com_pendencia = 0
+    for versao in versoes:
+        _total, pendentes = await _contar_pendentes_versao(session, versao)
+        codigo = f"ATUALIZACAO_PENDENTE_{versao.id}"
+        if pendentes > 0:
+            total_com_pendencia += 1
+            await registrar_alerta_plataforma(
+                session,
+                codigo=codigo,
+                severidade="critico" if versao.tipo_atualizacao == "critica" else "aviso",
+                mensagem=(
+                    f'Atualização "{versao.titulo}" (versão {versao.versao}) '
+                    f"ainda pendente de confirmação para {pendentes} usuário(s)."
+                ),
+                detalhes={"versao_id": versao.id, "versao": versao.versao, "pendentes": pendentes},
+            )
+        else:
+            await resolver_alerta_plataforma(session, codigo=codigo)
+    return total_com_pendencia
 
 
 @router.post("/{versao_id}/arquivar", response_model=VersaoSistemaResponse)

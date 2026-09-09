@@ -193,6 +193,83 @@ document.querySelector("#admin-logout").addEventListener("click", async () => {
   await fetch("/v1/auth/logout", { method: "POST" }); location.href = "/login";
 });
 
+// Fase 3 da central de atualizações (continuação da Fase 2,
+// app.api.atualizacoes): faixa não-bloqueante no topo de toda tela admin
+// avisando de atualizações pendentes de leitura, com destaque para
+// críticas -- reaproveita os endpoints da Fase 2 (a Fase 2 já tinha a
+// página /admin/atualizacoes, só faltava o aviso proativo). Correção
+// crítica nunca tem botão de adiar (leitura_obrigatoria=true e
+// pode_adiar=false vêm calculados assim pelo backend); nunca é modal.
+async function carregarAtualizacoesPendentes() {
+  const resposta = await originalFetch("/v1/admin/atualizacoes");
+  if (!resposta.ok) return;
+  const dados = await resposta.json();
+  const agora = new Date();
+  const pendentes = dados.novidades.filter((item) => {
+    if (item.estado.confirmada_em) return false;
+    if (item.estado.adiada_ate && new Date(item.estado.adiada_ate) > agora) return false;
+    return true;
+  });
+  renderAtualizacoesBanner(pendentes);
+}
+
+function escapeAdminHtml(value) {
+  const element = document.createElement("span");
+  element.textContent = value ?? "";
+  return element.innerHTML;
+}
+
+function renderAtualizacoesBanner(itens) {
+  document.querySelector("#admin-atualizacoes-banner")?.remove();
+  if (!itens.length) return;
+  const banner = document.createElement("div");
+  banner.id = "admin-atualizacoes-banner";
+  banner.className = "admin-avisos-banner";
+  banner.innerHTML = itens.map((item) => `
+    <article class="admin-aviso-item ${item.classificacao === "critica" ? "is-critico" : ""}" data-atualizacao-id="${item.id}">
+      <div>
+        <strong>${item.classificacao === "critica" ? "Atualização crítica" : "Nova versão"} · ${escapeAdminHtml(item.versao)}</strong>
+        <span>${escapeAdminHtml(item.titulo)}</span>
+      </div>
+      <p>${escapeAdminHtml(item.impacto_usuario)}</p>
+      <div class="admin-aviso-acoes">
+        ${item.leitura_obrigatoria ? `<button type="button" class="primary-button" data-confirmar-atualizacao="${item.id}">Confirmar leitura</button>` : ""}
+        ${item.pode_adiar ? `<button type="button" class="secondary-button" data-adiar-atualizacao="${item.id}">Lembrar em 7 dias</button>` : ""}
+        <a class="secondary-button" href="/admin/atualizacoes">Ver central de atualizações</a>
+      </div>
+    </article>
+  `).join("");
+  document.body.prepend(banner);
+  banner.querySelectorAll("[data-confirmar-atualizacao]").forEach((botao) => {
+    botao.addEventListener("click", async () => {
+      botao.disabled = true;
+      const resposta = await fetch(`/v1/admin/atualizacoes/${botao.dataset.confirmarAtualizacao}/confirmar-leitura`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmar: true }),
+      });
+      if (resposta.ok) banner.querySelector(`[data-atualizacao-id="${botao.dataset.confirmarAtualizacao}"]`)?.remove();
+      else botao.disabled = false;
+      if (!banner.querySelector(".admin-aviso-item")) banner.remove();
+    });
+  });
+  banner.querySelectorAll("[data-adiar-atualizacao]").forEach((botao) => {
+    botao.addEventListener("click", async () => {
+      botao.disabled = true;
+      const resposta = await fetch(`/v1/admin/atualizacoes/${botao.dataset.adiarAtualizacao}/adiar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dias: 7 }),
+      });
+      if (resposta.ok) banner.querySelector(`[data-atualizacao-id="${botao.dataset.adiarAtualizacao}"]`)?.remove();
+      else botao.disabled = false;
+      if (!banner.querySelector(".admin-aviso-item")) banner.remove();
+    });
+  });
+}
+
+carregarAtualizacoesPendentes();
+
 // Corrige textos legados com mojibake sem alterar dados persistidos.
 function normalizarEncodingVisual() {
   const mapa = { "Ã§": "ç", "Ã£": "ã", "Ã¡": "á", "Ã©": "é", "Ã³": "ó", "Ãº": "ú", "Ã‰": "É", "Ãš": "Ú", "Ã§Ã£o": "ção", "â€”": "—", "â€“": "–", "â€¦": "…", "Â·": "·", "Ã—": "×" };

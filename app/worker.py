@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.alertas_plataforma import verificar_saude_plataforma
 from app.api.juridico import executar_motor_organizacao
+from app.api.versoes_sistema import lembrar_atualizacoes_pendentes
 from app.cadencia_email import processar_envios_cadencia_pendentes
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
 from app.crm import gerar_lembretes_sla_primeiro_atendimento, reconciliar_automacoes_fluxo_contratacao
@@ -255,6 +256,14 @@ async def processar(tipo: str, payload: dict) -> None:
             # app.ia_sombra.gerar_sugestao_lead). Mesmo par de flags dos
             # jobs de IA em sombra acima.
             await indexar_embeddings_leads_pendentes(session)
+        elif tipo == "atualizacoes.lembrar_pendentes":
+            # Fase 3 da central de atualizacoes (continuacao da Fase 2,
+            # app.api.atualizacoes): mantem um AlertaSistema aberto
+            # (app.alertas_plataforma) enquanto uma versao critica ou de
+            # correcao tiver usuario ativo pendente de confirmacao de
+            # leitura -- resolve sozinho quando zera. Ver
+            # app.api.versoes_sistema.lembrar_atualizacoes_pendentes.
+            await lembrar_atualizacoes_pendentes(session)
         elif tipo == "analise.gerar_explicacoes_risco":
             # IA em sombra (analise de marca): traduz em linguagem simples o
             # risco ja calculado pelo motor deterministico -- nunca
@@ -752,6 +761,7 @@ TAREFAS_MANUTENCAO_HORARIA: tuple[str, ...] = (
     "juridico.executar_motor",
     "vigilancia.executar_semanal",
     "plataforma.verificar_saude",
+    "atualizacoes.lembrar_pendentes",
 )
 INTERVALO_MANUTENCAO_HORARIA = timedelta(hours=1)
 INTERVALO_ALTO_RENOME = timedelta(days=7)

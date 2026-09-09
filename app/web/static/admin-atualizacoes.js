@@ -194,3 +194,34 @@ document.querySelector("#updates-report-form").addEventListener("submit", async 
 });
 
 load().catch((error) => showStatus(error.message, "error"));
+
+// Fase 3 (auditoria): quantos usuários ainda não confirmaram cada versão
+// publicada -- restrito ao departamento de Tech (production.view), por
+// isso só mostra a seção depois de confirmar acesso em vez de exibir o
+// formulário/tabela pra quem vai receber 403.
+function escapeHtml(value) {
+  const node = document.createElement("span");
+  node.textContent = value ?? "";
+  return node.innerHTML;
+}
+
+async function carregarPendenciasAuditoria() {
+  const secao = document.querySelector("#updates-pendencias-section");
+  const resposta = await fetch("/v1/admin/versoes-sistema/relatorio/pendencias");
+  if (resposta.status === 403) { secao.hidden = true; return; }
+  if (!resposta.ok) return;
+  secao.hidden = false;
+  const dados = await resposta.json();
+  const linhas = document.querySelector("#updates-pendencias-rows");
+  linhas.innerHTML = dados.itens.length
+    ? dados.itens.map((item) => `<tr class="${item.critico ? "is-erro" : ""}">
+        <td>${escapeHtml(item.versao)}</td>
+        <td>${escapeHtml(item.titulo)}${item.critico ? " · <strong>crítico</strong>" : ""}</td>
+        <td>${item.critico ? "Correção crítica" : "Não crítico"}</td>
+        <td>${item.pendentes}</td>
+        <td>${item.total_usuarios}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="5">Nenhuma versão publicada ainda.</td></tr>`;
+}
+
+carregarPendenciasAuditoria();

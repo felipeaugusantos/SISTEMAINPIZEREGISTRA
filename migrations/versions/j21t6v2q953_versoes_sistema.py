@@ -154,6 +154,10 @@ def upgrade() -> None:
             RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
         END;
         $$;
+        """
+    )
+    op.execute(
+        """
         CREATE TRIGGER trg_proteger_versao_sistema
         BEFORE UPDATE OR DELETE ON versoes_sistema
         FOR EACH ROW EXECUTE FUNCTION proteger_versao_sistema_publicada();

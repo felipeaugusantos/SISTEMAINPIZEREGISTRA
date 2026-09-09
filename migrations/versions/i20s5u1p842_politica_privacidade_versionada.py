@@ -189,6 +189,10 @@ def upgrade() -> None:
             RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
         END;
         $$;
+        """
+    )
+    op.execute(
+        """
         CREATE TRIGGER trg_proteger_politica_privacidade
         BEFORE UPDATE OR DELETE ON politicas_privacidade
         FOR EACH ROW EXECUTE FUNCTION proteger_politica_privacidade_publicada();

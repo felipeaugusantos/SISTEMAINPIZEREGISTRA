@@ -1,4 +1,4 @@
-const updatesState = { items: [] };
+const updatesState = { items: [], todos: [], atualizacaoImplantadaId: null };
 const message = document.querySelector("#updates-message");
 const list = document.querySelector("#updates-list");
 const dialog = document.querySelector("#updates-report-dialog");
@@ -56,15 +56,19 @@ function renderItem(item, currentId) {
   header.append(heading);
   article.append(header);
 
-  article.append(detailBlock("Impacto para você", item.impacto_usuario));
+  // Card recolhido por padrão mostra só o essencial (badges, título,
+  // versão) -- impacto, módulos e detalhes técnicos ficam atrás do mesmo
+  // toggle "Ver detalhes"/"Ocultar detalhes", pra manter a lista
+  // escaneável mesmo com muitas versões publicadas (achado do usuário).
+  const details = element("div", "update-details");
+  details.hidden = true;
+  details.append(detailBlock("Impacto para você", item.impacto_usuario));
 
   const modules = element("div", "update-modules");
   modules.append(element("strong", "", "Módulos afetados"));
   item.modulos_afetados.forEach((name) => modules.append(element("span", "", moduleLabels[name] || name)));
-  article.append(modules);
+  details.append(modules);
 
-  const details = element("div", "update-details");
-  details.hidden = true;
   details.append(
     detailBlock("Problema identificado", item.problema),
     detailBlock("O que foi corrigido", item.correcao),
@@ -94,13 +98,29 @@ function renderItem(item, currentId) {
   return article;
 }
 
-function render(data) {
-  document.querySelector("#updates-current-version").textContent = data.versao_implantada;
-  document.querySelector("#updates-summary").textContent = `${data.novidades.length} atualização(ões) publicada(s)`;
-  updatesState.items = data.novidades;
+function itensNoPeriodo(todos) {
+  const form = document.querySelector("#updates-periodo-filtro");
+  const de = form.elements.de.value;
+  const ate = form.elements.ate.value;
+  if (!de && !ate) return todos;
+  return todos.filter((item) => {
+    const dataImplantacao = item.implantada_em.slice(0, 10);
+    if (de && dataImplantacao < de) return false;
+    if (ate && dataImplantacao > ate) return false;
+    return true;
+  });
+}
+
+function render() {
+  const novidades = itensNoPeriodo(updatesState.todos);
+  document.querySelector("#updates-summary").textContent = novidades.length === updatesState.todos.length
+    ? `${updatesState.todos.length} atualização(ões) publicada(s)`
+    : `${novidades.length} de ${updatesState.todos.length} atualização(ões) (período filtrado)`;
+  updatesState.items = novidades;
   list.replaceChildren();
-  if (!data.novidades.length) list.append(element("p", "updates-empty", "Nenhuma atualização foi publicada ainda."));
-  data.novidades.forEach((item) => list.append(renderItem(item, data.atualizacao_implantada_id)));
+  if (!updatesState.todos.length) list.append(element("p", "updates-empty", "Nenhuma atualização foi publicada ainda."));
+  else if (!novidades.length) list.append(element("p", "updates-empty", "Nenhuma atualização publicada no período selecionado."));
+  novidades.forEach((item) => list.append(renderItem(item, updatesState.atualizacaoImplantadaId)));
   message.textContent = "";
   message.className = "status-message";
 }
@@ -115,8 +135,23 @@ async function api(url, options = {}) {
 }
 
 async function load() {
-  render(await api("/v1/admin/atualizacoes"));
+  const data = await api("/v1/admin/atualizacoes");
+  document.querySelector("#updates-current-version").textContent = data.versao_implantada;
+  updatesState.todos = data.novidades;
+  updatesState.atualizacaoImplantadaId = data.atualizacao_implantada_id;
+  render();
 }
+
+document.querySelector("#updates-periodo-filtro").addEventListener("submit", (event) => {
+  event.preventDefault();
+  render();
+});
+document.querySelector("#updates-periodo-limpar").addEventListener("click", () => {
+  const form = document.querySelector("#updates-periodo-filtro");
+  form.elements.de.value = "";
+  form.elements.ate.value = "";
+  render();
+});
 
 function showStatus(text, kind = "success") {
   message.textContent = text;
@@ -278,6 +313,11 @@ async function carregarProblemas() {
           item.resultado_encontrado ? `<p><strong>Resultado encontrado:</strong> ${escapeHtml(item.resultado_encontrado)}</p>` : "",
           item.anexo ? `<p><strong>Anexo:</strong> <a href="/v1/admin/atualizacoes/problemas/${item.id}/anexo" target="_blank" rel="noopener">${escapeHtml(item.anexo.nome)}</a> (${Math.round((item.anexo.tamanho || 0) / 1024)} KB)</p>` : "",
         ].filter(Boolean).join("");
+        const LIMITE_DESCRICAO = 120;
+        const descricaoLonga = item.descricao.length > LIMITE_DESCRICAO;
+        const descricaoCurta = descricaoLonga ? `${escapeHtml(item.descricao.slice(0, LIMITE_DESCRICAO))}…` : escapeHtml(item.descricao);
+        const descricaoCompletaBloco = descricaoLonga ? `<p>${escapeHtml(item.descricao)}</p>` : "";
+        const temMaisDetalhes = Boolean(detalhesExtra || descricaoCompletaBloco);
         return `<tr class="${item.status === "aberto" ? "is-erro" : ""}">
         <td>${dataHoraLabel(item.criado_em)}</td>
         <td>${escapeHtml(item.versao)}</td>
@@ -286,7 +326,7 @@ async function carregarProblemas() {
         <td>${escapeHtml(item.categoria)}</td>
         <td>${GRAVIDADE_LABEL[item.gravidade] || escapeHtml(item.gravidade)}</td>
         <td>${escapeHtml(item.modulo || "—")}</td>
-        <td>${escapeHtml(item.descricao)}${detalhesExtra ? `<details><summary>Mais detalhes</summary>${detalhesExtra}</details>` : ""}</td>
+        <td class="updates-problema-descricao">${descricaoCurta}${temMaisDetalhes ? `<details><summary>Mais detalhes</summary>${descricaoCompletaBloco}${detalhesExtra}</details>` : ""}</td>
         <td>
           <select data-problema-id="${item.id}">
             ${Object.entries(STATUS_PROBLEMA_LABEL).map(([valor, rotulo]) => `<option value="${valor}" ${valor === item.status ? "selected" : ""}>${rotulo}</option>`).join("")}

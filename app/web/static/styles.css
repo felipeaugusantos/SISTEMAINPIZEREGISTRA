@@ -5406,6 +5406,15 @@ h1,h2,h3,h4,h5 { font-family:var(--font-display); font-weight:var(--fw-semibold)
 .update-modules span { background:#f1f5f2; color:var(--foreground); font-weight:600; }
 .update-details { margin-top:18px; padding:2px 18px 18px; border:1px solid var(--line); border-radius:var(--radius-md); background:#f8faf8; }
 .update-details[hidden] { display:none; }
+
+/* Descrição de relato de problema (tela de auditoria): overflow-wrap:anywhere
+   do padrão global de <td> quebra no meio da palavra mesmo quando não
+   precisa -- ruim de ler em texto corrido. break-word só quebra quando a
+   palavra realmente não cabe, e a coluna ganha mais espaço pra respirar. */
+.updates-problema-descricao { overflow-wrap: break-word; word-break: normal; min-width: 22ch; max-width: 46ch; }
+.updates-problema-descricao details { margin-top: 6px; }
+.updates-problema-descricao summary { cursor: pointer; color: var(--forest); font-weight: 600; font-size: .82rem; }
+.updates-problema-descricao details p { margin: 6px 0 0; }
 .updates-doc-link { display:inline-block; margin-top:18px; font-weight:700; color:var(--brand-deep); }
 .update-actions { margin-top:20px; padding-top:16px; border-top:1px solid var(--line); }
 .update-postponed { margin:16px 0 0; color:#76500c; font-weight:600; }

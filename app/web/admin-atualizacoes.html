@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Central de atualizações — Zé Registra</title>
-    <link rel="stylesheet" href="/static/styles.css?v=58" />
+    <link rel="stylesheet" href="/static/styles.css?v=59" />
     <script src="/static/admin-shell.js?v=45" defer></script>
-    <script src="/static/admin-atualizacoes.js?v=5" defer></script>
+    <script src="/static/admin-atualizacoes.js?v=6" defer></script>
   </head>
   <body class="admin-body" data-admin-section="updates">
     <main class="admin-main updates-page">
@@ -30,6 +30,12 @@
           <div><p class="eyebrow">Histórico publicado</p><h2 id="updates-title">Novidades disponíveis</h2></div>
           <span id="updates-summary"></span>
         </header>
+        <form id="updates-periodo-filtro" class="admin-filters">
+          <label><span>De</span><input type="date" name="de"></label>
+          <label><span>Até</span><input type="date" name="ate"></label>
+          <button class="primary-button" type="submit">Filtrar</button>
+          <button class="secondary-button" type="button" id="updates-periodo-limpar">Limpar</button>
+        </form>
         <div id="updates-list" class="updates-list"></div>
       </section>
 

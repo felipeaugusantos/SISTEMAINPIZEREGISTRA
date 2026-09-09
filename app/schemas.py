@@ -118,8 +118,13 @@ class BrandingConfig(BaseModel):
     @field_validator("logo_url")
     @classmethod
     def validar_logo(cls, valor: str | None) -> str | None:
-        if valor and not (valor.startswith("https://") or valor.startswith("/static/")):
-            raise ValueError("A logo deve usar HTTPS ou um recurso interno /static/")
+        recurso = valor and (
+            valor.startswith("/static/")
+            or valor == "/v1/tenant/logo"
+            or valor.startswith("/v1/tenant/logo?")
+        )
+        if valor and not (valor.startswith("https://") or recurso):
+            raise ValueError("A logo deve usar HTTPS ou um recurso interno autorizado")
         return valor
 
 

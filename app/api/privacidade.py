@@ -18,6 +18,7 @@ from app.emailing import enviar_confirmacao_exclusao
 from app.models import ArquivoClientePortal, EventoAuditoria, Lead, Organizacao, SolicitacaoAnonimizacaoLead
 from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
+from app.retencao import motivos_bloqueio_lead, prazo_retencao_vigente
 from app.settings import get_settings
 from app.storage import delete_object
 from app.tenancy import OrganizacaoPublicaDep
@@ -160,23 +161,60 @@ async def descartar_lead_por_retencao(
     if lead is None:
         raise HTTPException(404, "Lead não encontrado")
     if lead.anonimizado_em is not None:
-        raise HTTPException(422, "Lead já foi anonimizado.")
+        return {"anonimizado": True, "arquivos_removidos": 0, "ja_processado": True}
     org = await session.get(Organizacao, usuario.organizacao_id)
-    limite = datetime.now(UTC) - timedelta(days=org.retencao_dados_dias)
+    prazo_dias = await prazo_retencao_vigente(session, org)
+    limite = datetime.now(UTC) - timedelta(days=prazo_dias)
     if lead.criado_em >= limite:
         raise HTTPException(
             422,
             "Lead ainda está dentro do prazo de retenção configurado -- descarte manual só é "
             "permitido depois que o prazo vence.",
         )
+    bloqueios = await motivos_bloqueio_lead(session, lead)
+    if bloqueios:
+        raise HTTPException(
+            409,
+            {
+                "mensagem": "Lead protegido contra descarte por retenção.",
+                "bloqueios": bloqueios,
+            },
+        )
 
     arquivos = (
-        (await session.execute(select(ArquivoClientePortal).where(ArquivoClientePortal.lead_id == lead_id)))
+        (
+            await session.execute(
+                select(ArquivoClientePortal).where(
+                    ArquivoClientePortal.lead_id == lead_id,
+                    ArquivoClientePortal.organizacao_id == usuario.organizacao_id,
+                )
+            )
+        )
         .scalars()
         .all()
     )
+    try:
+        for arquivo in arquivos:
+            delete_object(arquivo.caminho)
+    except Exception as exc:
+        await session.rollback()
+        session.add(
+            EventoAuditoria(
+                organizacao_id=usuario.organizacao_id,
+                actor_id=usuario.id,
+                ator=usuario.ator,
+                acao="descartar_lead",
+                recurso=f"lead:{lead_id}",
+                sucesso=False,
+                status_http=503,
+                ip_hash=hash_ip(cliente_ip(request)),
+                detalhes={"erro": "falha_remocao_arquivo", "tipo": type(exc).__name__},
+            )
+        )
+        await session.commit()
+        raise HTTPException(503, "Não foi possível remover os arquivos; o lead não foi anonimizado.") from exc
+
     for arquivo in arquivos:
-        delete_object(arquivo.caminho)
         await session.delete(arquivo)
 
     _anonimizar_lead(lead)
@@ -194,4 +232,4 @@ async def descartar_lead_por_retencao(
         )
     )
     await session.commit()
-    return {"anonimizado": True, "arquivos_removidos": len(arquivos)}
+    return {"anonimizado": True, "arquivos_removidos": len(arquivos), "ja_processado": False}

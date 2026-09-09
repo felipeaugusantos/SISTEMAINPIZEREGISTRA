@@ -180,6 +180,91 @@ class Organizacao(Base):
     plano: Mapped[PlanoSaas] = relationship(lazy="selectin")
 
 
+class PoliticaRetencao(Base):
+    """Versão auditável da política de retenção de uma categoria do tenant.
+
+    A configuração histórica ``Organizacao.retencao_dados_dias`` permanece
+    como fallback. Novas alterações são append-only nesta tabela e só passam
+    a valer a partir de ``vigencia_em``.
+    """
+
+    __tablename__ = "politicas_retencao"
+    __table_args__ = (
+        CheckConstraint("categoria IN ('lead')", name="ck_politica_retencao_categoria"),
+        CheckConstraint("prazo_dias BETWEEN 30 AND 3650", name="ck_politica_retencao_prazo"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    categoria: Mapped[str] = mapped_column(String(30), index=True)
+    prazo_dias: Mapped[int] = mapped_column(Integer)
+    marco_inicial: Mapped[str] = mapped_column(String(80))
+    finalidade: Mapped[str] = mapped_column(Text)
+    base_legal: Mapped[str] = mapped_column(Text)
+    vigencia_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    justificativa: Mapped[str] = mapped_column(Text)
+    excecoes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    reducao: Mapped[bool] = mapped_column(Boolean, default=False)
+    reducao_confirmada: Mapped[bool] = mapped_column(Boolean, default=False)
+    criado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    criado_por: Mapped[str] = mapped_column(String(254))
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class SimulacaoRetencao(Base):
+    """Evidência de impacto calculada antes de alterar uma política."""
+
+    __tablename__ = "simulacoes_retencao"
+    __table_args__ = (
+        CheckConstraint("categoria IN ('lead')", name="ck_simulacao_retencao_categoria"),
+        CheckConstraint("prazo_dias BETWEEN 30 AND 3650", name="ck_simulacao_retencao_prazo"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    categoria: Mapped[str] = mapped_column(String(30), index=True)
+    prazo_dias: Mapped[int] = mapped_column(Integer)
+    resultado: Mapped[dict] = mapped_column(JSON)
+    criado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    criado_por: Mapped[str] = mapped_column(String(254))
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    usada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class BloqueioRetencao(Base):
+    """Legal hold ou bloqueio operacional aplicado a um recurso do tenant."""
+
+    __tablename__ = "bloqueios_retencao"
+    __table_args__ = (
+        UniqueConstraint(
+            "organizacao_id", "categoria", "recurso_id", name="uq_bloqueio_retencao_recurso"
+        ),
+        CheckConstraint("categoria IN ('lead')", name="ck_bloqueio_retencao_categoria"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    categoria: Mapped[str] = mapped_column(String(30), index=True)
+    recurso_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    motivo: Mapped[str] = mapped_column(Text)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    criado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
+    )
+    criado_por: Mapped[str] = mapped_column(String(254))
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    liberado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
+    )
+    liberado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    liberado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
 class DominioOrganizacao(Base):
     __tablename__ = "dominios_organizacao"
 

@@ -11,7 +11,7 @@ from app.crm import (
 )
 from app.database import get_session
 from app.main import app
-from app.models import ArquivoClientePortal, Lead, Organizacao, SolicitacaoAnonimizacaoLead
+from app.models import ArquivoClientePortal, EventoAuditoria, Lead, Organizacao, SolicitacaoAnonimizacaoLead, StatusLead
 from tests.conftest import FakeResult, FakeSession, auth_override, sessao_override, usuario_teste
 
 
@@ -163,7 +163,7 @@ def test_descartar_lead_inexistente_retorna_404() -> None:
     assert resposta.status_code == 404
 
 
-def test_descartar_lead_ja_anonimizado_retorna_422() -> None:
+def test_descartar_lead_ja_anonimizado_e_idempotente() -> None:
     lead = _lead(anonimizado_em=datetime.now(UTC))
     _sessao_admin(FakeResult(scalar=lead))
 
@@ -171,7 +171,8 @@ def test_descartar_lead_ja_anonimizado_retorna_422() -> None:
         "/v1/admin/privacidade/leads/9/descartar", headers={"X-CSRF-Token": "csrf-teste"}
     )
 
-    assert resposta.status_code == 422
+    assert resposta.status_code == 200
+    assert resposta.json()["ja_processado"] is True
 
 
 def test_descartar_lead_dentro_do_prazo_de_retencao_retorna_422() -> None:
@@ -191,7 +192,19 @@ def test_descartar_lead_vencido_anonimiza_e_apaga_arquivos(monkeypatch: pytest.M
     caminhos_apagados = []
     monkeypatch.setattr("app.api.privacidade.delete_object", lambda caminho: caminhos_apagados.append(caminho))
 
-    lead = _lead(criado_em=datetime.now(UTC) - timedelta(days=400), anonimizado_em=None)
+    async def prazo_vigente(*_args, **_kwargs):
+        return 365
+
+    async def sem_bloqueios(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr("app.api.privacidade.prazo_retencao_vigente", prazo_vigente)
+    monkeypatch.setattr("app.api.privacidade.motivos_bloqueio_lead", sem_bloqueios)
+    lead = _lead(
+        criado_em=datetime.now(UTC) - timedelta(days=400),
+        anonimizado_em=None,
+        status=StatusLead.DESCARTADO,
+    )
     org = Organizacao(id=1, retencao_dados_dias=365)
     arquivo = ArquivoClientePortal(
         id=1, organizacao_id=1, lead_id=9, cliente_id=1, nome="comprovante.pdf",
@@ -207,8 +220,80 @@ def test_descartar_lead_vencido_anonimiza_e_apaga_arquivos(monkeypatch: pytest.M
 
     assert resposta.status_code == 200
     corpo = resposta.json()
-    assert corpo == {"anonimizado": True, "arquivos_removidos": 1}
+    assert corpo == {"anonimizado": True, "arquivos_removidos": 1, "ja_processado": False}
     assert caminhos_apagados == ["data/uploads/comprovante.pdf"]
     assert session.deletados == [arquivo]
     assert lead.anonimizado_em is not None
+    auditorias = [item for item in session.adicionados if isinstance(item, EventoAuditoria)]
+    assert auditorias and auditorias[-1].sucesso is True
+
+
+@pytest.mark.parametrize("motivo", ["processo_ativo", "contrato_ativo", "documento_obrigacao_juridica", "legal_hold"])
+def test_descartar_lead_bloqueado_retorna_409(monkeypatch: pytest.MonkeyPatch, motivo: str) -> None:
+    async def prazo_vigente(*_args, **_kwargs):
+        return 365
+
+    async def bloqueado(*_args, **_kwargs):
+        return [motivo]
+
+    monkeypatch.setattr("app.api.privacidade.prazo_retencao_vigente", prazo_vigente)
+    monkeypatch.setattr("app.api.privacidade.motivos_bloqueio_lead", bloqueado)
+    lead = _lead(
+        criado_em=datetime.now(UTC) - timedelta(days=400),
+        anonimizado_em=None,
+        status=StatusLead.DESCARTADO,
+    )
+    org = Organizacao(id=1, retencao_dados_dias=365)
+    session = _sessao_admin(FakeResult(scalar=lead), objetos_get=[org])
+
+    resposta = TestClient(app).post(
+        "/v1/admin/privacidade/leads/9/descartar", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 409
+    assert motivo in resposta.json()["detail"]["bloqueios"]
+    assert lead.anonimizado_em is None
+    assert session.commits == 0
+
+
+def test_falha_ao_remover_arquivo_nao_anonimiza_e_audita(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def prazo_vigente(*_args, **_kwargs):
+        return 365
+
+    async def sem_bloqueios(*_args, **_kwargs):
+        return []
+
+    def falhar(_caminho: str) -> None:
+        raise OSError("falha simulada")
+
+    monkeypatch.setattr("app.api.privacidade.prazo_retencao_vigente", prazo_vigente)
+    monkeypatch.setattr("app.api.privacidade.motivos_bloqueio_lead", sem_bloqueios)
+    monkeypatch.setattr("app.api.privacidade.delete_object", falhar)
+    lead = _lead(
+        criado_em=datetime.now(UTC) - timedelta(days=400),
+        anonimizado_em=None,
+        status=StatusLead.DESCARTADO,
+    )
+    org = Organizacao(id=1, retencao_dados_dias=365)
+    arquivo = ArquivoClientePortal(
+        id=1,
+        organizacao_id=1,
+        lead_id=9,
+        cliente_id=1,
+        nome="falha.pdf",
+        caminho="data/uploads/falha.pdf",
+        tamanho=100,
+    )
+    session = _sessao_admin(FakeResult(scalar=lead), FakeResult(itens=[arquivo]), objetos_get=[org])
+
+    resposta = TestClient(app).post(
+        "/v1/admin/privacidade/leads/9/descartar", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 503
+    assert lead.anonimizado_em is None
+    assert session.deletados == []
+    auditorias = [item for item in session.adicionados if isinstance(item, EventoAuditoria)]
+    assert auditorias and auditorias[-1].sucesso is False
+    assert auditorias[-1].detalhes["erro"] == "falha_remocao_arquivo"
     assert session.commits == 1

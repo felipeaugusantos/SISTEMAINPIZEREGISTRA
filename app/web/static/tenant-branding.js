@@ -15,7 +15,14 @@
       document.querySelectorAll(".brand-wordmark").forEach(el => { el.textContent = tenant.nome_exibido; });
     }
     if (tenant.logo_url) {
-      document.querySelectorAll(".brand-avatar").forEach(img => { img.src = tenant.logo_url; });
+      document.querySelectorAll(".brand-avatar").forEach(img => {
+        img.referrerPolicy = "no-referrer";
+        img.src = tenant.logo_url;
+        img.addEventListener("error", () => { img.hidden = true; }, { once: true });
+      });
     }
+    document.querySelectorAll("[data-privacy-version]").forEach(el => {
+      el.textContent = tenant.politica_privacidade_versao || "—";
+    });
   } catch (_) { /* Mantém a identidade padrão se o tenant não puder ser resolvido. */ }
 })();

@@ -44,6 +44,7 @@ from app.queueing import (
     promover_retentativas,
 )
 from app.request_context import definir_request_id, request_id_atual, restaurar_request_id
+from app.retencao import simular_retencao_leads
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
 from app.trademarks.agent import reconciliar_resultados_reais, reprocessar_agentes_pendentes
@@ -94,30 +95,14 @@ async def processar(tipo: str, payload: dict) -> None:
                     )
                 )
         elif tipo == "privacidade.verificar_retencao":
-            orgs = (await session.execute(select(Organizacao))).scalars()
-            agora = datetime.now(UTC)
+            filtro_org = payload.get("organizacao_id")
+            consulta_orgs = select(Organizacao)
+            if filtro_org is not None:
+                consulta_orgs = consulta_orgs.where(Organizacao.id == int(filtro_org))
+            orgs = (await session.execute(consulta_orgs)).scalars()
             for org in orgs:
-                limite = agora - timedelta(days=org.retencao_dados_dias)
-                # Achado FASE6-14 da auditoria (04/09/2026): faltava excluir
-                # os já anonimizados -- sem isso "total" nunca chegava a
-                # zero, então o alerta nunca se resolvia sozinho mesmo depois
-                # de um humano descartar todos os leads vencidos (ver
-                # app/api/privacidade.py::descartar_lead_por_retencao).
-                lead_ids = list(
-                    (
-                        await session.execute(
-                            select(Lead.id)
-                            .where(
-                                Lead.organizacao_id == org.id,
-                                Lead.criado_em < limite,
-                                Lead.anonimizado_em.is_(None),
-                            )
-                            .order_by(Lead.criado_em.asc())
-                            .limit(200)
-                        )
-                    ).scalars()
-                )
-                total = len(lead_ids)
+                simulacao = await simular_retencao_leads(session, org)
+                total = simulacao["total_afetado"]
                 existente = (
                     await session.execute(
                         select(AlertaSistema).where(
@@ -128,6 +113,15 @@ async def processar(tipo: str, payload: dict) -> None:
                     )
                 ).scalar_one_or_none()
                 if total:
+                    detalhes = {
+                        **simulacao,
+                        "data_corte": simulacao["data_corte"].isoformat(),
+                        "registro_mais_antigo": (
+                            simulacao["registro_mais_antigo"].isoformat()
+                            if simulacao["registro_mais_antigo"]
+                            else None
+                        ),
+                    }
                     if not existente:
                         session.add(
                             AlertaSistema(
@@ -135,13 +129,13 @@ async def processar(tipo: str, payload: dict) -> None:
                                 severidade="aviso",
                                 codigo="RETENCAO_PENDENTE",
                                 mensagem=(f"{total} lead(s) excedem a política de retenção e aguardam revisão humana."),
-                                detalhes={"total": total, "lead_ids": lead_ids},
+                                detalhes=detalhes,
                             )
                         )
                     else:
-                        existente.detalhes = {"total": total, "lead_ids": lead_ids}
+                        existente.detalhes = detalhes
                 elif existente:
-                    existente.resolvido_em = agora
+                    existente.resolvido_em = datetime.now(UTC)
         elif tipo == "crm.reengajamento_inatividade":
             # Achado da auditoria do CRM: a política de "próxima ação obrigatória"
             # (app/crm.py::aplicar_politica_oportunidade) só é aplicada quando

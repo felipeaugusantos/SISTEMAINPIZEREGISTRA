@@ -1,7 +1,6 @@
 const adminSections = [
   { id: "overview", label: "Visão geral", href: "/admin", symbol: "VG", permission: "dashboard.view" },
   { id: "updates", label: "Atualizações", href: "/admin/atualizacoes", symbol: "AT", permission: "dashboard.view" },
-  { id: "feature-flags", label: "Feature flags", href: "/admin/feature-flags", symbol: "FF", permission: "dashboard.view", superadmin: true },
   { id: "consulta", label: "Consulta de marcas", href: "/admin/consulta", symbol: "CM", permission: "leads.view" },
   { id: "figurativa", label: "Busca figurativa", href: "/admin/figurativa", symbol: "BF", permission: "leads.view" },
   { id: "leads", label: "Leads, pesquisas e análises", href: "/admin/pesquisas", symbol: "AN", permission: "leads.view" },
@@ -29,9 +28,41 @@ const adminSections = [
   { id: "config-rpi", label: "Consulta RPI", href: "/admin/configuracao/consulta-rpi?v=7", symbol: "RPI", permission: "rpi.view", parent: "configuracao" },
   { id: "config-clicksign", label: "Clicksign", href: "/admin/configuracao/clicksign", symbol: "CS", permission: "production.view", parent: "configuracao" },
   { id: "config-onboarding", label: "Onboarding SaaS", href: "/admin/configuracao/onboarding", symbol: "ON", permission: "dashboard.view", parent: "configuracao", superadmin: true },
+  { id: "config-feature-flags", label: "Feature flags", href: "/admin/feature-flags", symbol: "FF", permission: "dashboard.view", parent: "configuracao", superadmin: true },
   { id: "users", label: "Usuários e acessos", href: "/admin/usuarios", symbol: "UA", permission: "users.view" },
   { id: "saas", label: "Empresas e planos", href: "/admin/saas", symbol: "SA", superadmin: true },
 ];
+
+// Ícones dos itens de nível superior do menu (achado do usuário: a
+// abreviação de 2 letras é difícil de reconhecer de relance com o menu
+// recolhido -- só os itens de nível superior ficam visíveis nesse estado,
+// os de submenu somem por completo). Mesmo estilo já usado no ícone do
+// botão de recolher (viewBox 0 0 24 24, stroke=currentColor). Itens sem
+// entrada aqui (submenus) continuam com a abreviação de texto.
+const ADMIN_NAV_ICONS = {
+  overview: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  updates: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+  consulta: '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  figurativa: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+  leads: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>',
+  crm: '<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="5" height="13" rx="1"/>',
+  prospeccao: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor"/>',
+  portfolio: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  legal: '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+  finance: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+  production: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  reliability: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  observability: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  configuracao: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+  users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  saas: '<rect x="4" y="3" width="16" height="18" rx="1"/><rect x="8" y="7" width="2" height="2"/><rect x="14" y="7" width="2" height="2"/><rect x="8" y="12" width="2" height="2"/><rect x="14" y="12" width="2" height="2"/><rect x="10" y="17" width="4" height="4"/>',
+};
+
+function navSymbolMarkup(section) {
+  const icone = ADMIN_NAV_ICONS[section.id];
+  if (!icone) return section.symbol;
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icone}</svg>`;
+}
 
 function readCookie(name) { return decodeURIComponent(document.cookie.split("; ").find(x => x.startsWith(`${name}=`))?.split("=").slice(1).join("=") || ""); }
 const originalFetch = window.fetch.bind(window);
@@ -75,7 +106,7 @@ function createAdminShell() {
       <p>Operação</p>
       ${adminSections.map((section) => {
         const link = `<a href="${section.href}" data-permission="${section.permission}" title="${section.label}" ${section.parent ? `data-submenu-parent="${section.parent}"` : ""} class="${section.parent ? "admin-nav-subitem " : ""}${section.id === activeSection ? "active" : ""}" ${section.id === activeSection ? 'aria-current="page"' : ""}>
-          <span class="admin-nav-symbol" aria-hidden="true">${section.symbol}</span>
+          <span class="admin-nav-symbol${ADMIN_NAV_ICONS[section.id] ? " admin-nav-icon" : ""}" aria-hidden="true">${navSymbolMarkup(section)}</span>
           <span>${section.label}</span>
         </a>`;
         if (!["finance", "production", "configuracao"].includes(section.id)) return link;
@@ -155,7 +186,7 @@ function createAdminShell() {
   const productionHasActiveChild = activeSection === "finance-log";
   const productionPreference = localStorage.getItem("zr_admin_submenu_production");
   setSubmenu("production", productionHasActiveChild || productionPreference !== "closed");
-  const configHasActiveChild = ["config-regras", "config-rpi"].includes(activeSection);
+  const configHasActiveChild = ["config-regras", "config-rpi", "config-feature-flags"].includes(activeSection);
   const configPreference = localStorage.getItem("zr_admin_submenu_configuracao");
   setSubmenu("configuracao", configHasActiveChild || configPreference !== "closed");
 

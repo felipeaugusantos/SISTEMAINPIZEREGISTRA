@@ -1749,6 +1749,11 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
   background: #f4c369;
 }
 
+.admin-nav-symbol.admin-nav-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
 .admin-sidebar-footer {
   display: grid;
   gap: 12px;

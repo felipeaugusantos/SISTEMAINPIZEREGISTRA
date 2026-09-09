@@ -83,7 +83,7 @@ def _bucket_percentual(codigo: str, organizacao_id: int) -> int:
     para flag (mistura o código), mas nunca "pisca" pra mesma flag: usar
     hash() nativo do Python seria instável entre processos (salgado por
     padrão), por isso sha256."""
-    digest = hashlib.sha256(f"{codigo}:{organizacao_id}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{codigo}:{organizacao_id}".encode()).hexdigest()
     return int(digest, 16) % 100
 
 

@@ -433,7 +433,7 @@ async def monitoramento_rollout(codigo: str, session: SessionDep, _: SuperAdminD
             alvo["erros"] = total
         elif tipo == "falha_integracao":
             alvo["falhas_integracao"] = total
-    for grupo, dados_grupo in por_grupo.items():
+    for dados_grupo in por_grupo.values():
         total_eventos = dados_grupo["uso"] + dados_grupo["erros"] + dados_grupo["falhas_integracao"]
         dados_grupo["taxa_erro"] = (
             round((dados_grupo["erros"] + dados_grupo["falhas_integracao"]) / total_eventos, 4)

@@ -186,7 +186,7 @@ async def observar_requisicao(request: Request, call_next: CallNext) -> Response
             duracao = max(0, round((perf_counter() - inicio) * 1000))
             adicionar_detalhes_operacionais(
                 erro_mensagem=str(exc)[:500],
-                erro_traceback=traceback.format_exc()[-4000:],
+                erro_traceback=traceback.format_exc()[:6000],
             )
             await _registrar(request, 500, duracao, type(exc).__name__)
             logger.exception(

@@ -70,12 +70,12 @@ def test_migrations_tem_uma_unica_head() -> None:
     down_revisoes: set[str] = set()
     for arquivo in pasta.glob("*.py"):
         texto = arquivo.read_text(encoding="utf-8")
-        rev = re.search(r'^revision:\s*str\s*=\s*"([^"]+)"', texto, re.MULTILINE)
+        rev = re.search(r'^revision(?::\s*str)?\s*=\s*"([^"]+)"', texto, re.MULTILINE)
         assert rev, f"{arquivo.name} sem `revision` no formato esperado"
         revisoes.add(rev.group(1))
-        for down in re.findall(r'down_revision:\s*str\s*\|\s*None\s*=\s*"([^"]+)"', texto):
+        for down in re.findall(r'^down_revision(?::[^=]*)?\s*=\s*"([^"]+)"', texto, re.MULTILINE):
             down_revisoes.add(down)
-        for down in re.findall(r'down_revision:\s*[^=]*=\s*\(([^)]*)\)', texto):
+        for down in re.findall(r'^down_revision(?::[^=]*)?\s*=\s*\(([^)]*)\)', texto, re.MULTILINE):
             down_revisoes.update(v.strip(' "\'') for v in down.split(",") if v.strip())
 
     heads = revisoes - down_revisoes

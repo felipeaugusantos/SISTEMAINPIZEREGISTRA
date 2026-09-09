@@ -390,7 +390,12 @@ async def test_relato_com_anexo_excedendo_tamanho_maximo_rejeita() -> None:
 
 @pytest.mark.asyncio
 async def test_listar_problemas_expoe_metadados_do_anexo_sem_o_conteudo() -> None:
-    problema = _problema(anexo_nome="print.png", anexo_content_type="image/png", anexo_tamanho=2048)
+    problema = _problema(
+        anexo_nome="print.png",
+        anexo_caminho="data/uploads/problemas-versao/7/1/hash-print.png",
+        anexo_content_type="image/png",
+        anexo_tamanho=2048,
+    )
     session = FakeSession(
         resultados=[FakeResult(itens=[(problema, "1.0.72-2026-09-09", "Central de atualizações", "Cliente Teste", "Ana Operadora")])]
     )

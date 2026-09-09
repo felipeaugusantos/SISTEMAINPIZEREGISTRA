@@ -5411,7 +5411,7 @@ h1,h2,h3,h4,h5 { font-family:var(--font-display); font-weight:var(--fw-semibold)
    do padrão global de <td> quebra no meio da palavra mesmo quando não
    precisa -- ruim de ler em texto corrido. break-word só quebra quando a
    palavra realmente não cabe, e a coluna ganha mais espaço pra respirar. */
-.updates-problema-descricao { overflow-wrap: break-word; word-break: normal; min-width: 22ch; max-width: 46ch; }
+.admin-body td.updates-problema-descricao { overflow-wrap: break-word; word-break: normal; min-width: 22ch; max-width: 46ch; }
 .updates-problema-descricao details { margin-top: 6px; }
 .updates-problema-descricao summary { cursor: pointer; color: var(--forest); font-weight: 600; font-size: .82rem; }
 .updates-problema-descricao details p { margin: 6px 0 0; }

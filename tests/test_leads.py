@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.juridico import FUSO_BRASIL
 from app.api.leads import (
     _lead_response,
     _resumir_alteracoes,
@@ -936,7 +937,13 @@ def _sessao_admin(*resultados: FakeResult) -> FakeSession:
 
 
 def test_serie_temporal_leads_agrega_criacoes_e_funil_por_dia() -> None:
-    hoje = datetime.now(UTC).date()
+    # O endpoint agrupa por dia civil de Brasília (achado D1 da auditoria de
+    # 06/09/2026, app.api.leads.serie_temporal_leads), não por dia em UTC --
+    # perto da virada do dia (21h-23h59 UTC = já é o dia seguinte em UTC mas
+    # ainda o dia anterior em Brasília) os dois divergem. "hoje" precisa ser
+    # calculado com a mesma conversão de fuso do endpoint para o teste não
+    # ficar dependente do horário em que a suíte roda.
+    hoje = datetime.now(UTC).astimezone(FUSO_BRASIL).date()
     ontem = hoje - timedelta(days=1)
     _sessao_admin(
         FakeResult(itens=[(ontem, 3), (hoje, 1)]),

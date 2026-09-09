@@ -12,7 +12,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.saas import SuperAdminDep
@@ -20,8 +20,16 @@ from app.api.versoes_sistema import MODULOS_RELEASE, _texto_seguro
 from app.auditing import criar_evento_auditoria
 from app.auth import UsuarioAtualDep, UsuarioAutenticado
 from app.database import get_session
-from app.feature_flags import ESTADOS_ORGANIZACAO_VALIDOS, flag_ativa, obter_flag, obter_override
-from app.models import FeatureFlag, FeatureFlagOrganizacao, Organizacao
+from app.feature_flags import (
+    ESTADOS_ORGANIZACAO_VALIDOS,
+    ESTAGIOS_ROLLOUT,
+    flag_ativa,
+    interromper_rollout,
+    obter_flag,
+    obter_override,
+    retomar_rollout,
+)
+from app.models import FeatureFlag, FeatureFlagEvento, FeatureFlagOrganizacao, Organizacao, ProblemaVersaoSistema
 
 router = APIRouter(prefix="/v1/admin/feature-flags", tags=["feature flags"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -39,6 +47,13 @@ class FeatureFlagInput(BaseModel):
     dependencias: list[str] = Field(default_factory=list, max_length=30)
     estado_padrao: Literal["desligado", "somente_administradores", "ligado"] = "desligado"
     data_expiracao: datetime | None = None
+    # Fase 5: dial fino de audiencia, so relevante quando estado_padrao ==
+    # "ligado" (ver app.feature_flags._grupo_correspondente). Toda flag
+    # nova comeca em "liberacao_geral" (comportamento de sempre) -- avancar
+    # pra um rollout gradual e uma acao explicita depois, via
+    # PATCH /{codigo}/rollout.
+    limite_taxa_erro: float | None = Field(default=None, gt=0, le=1)
+    limite_eventos_minimo: int = Field(default=20, ge=1, le=100_000)
     # Regra do usuário: correção de segurança nunca é feature flag --
     # exige confirmação explícita na criação, mesmo padrão de
     # confirmar_publicacao em app.api.versoes_sistema.
@@ -70,6 +85,34 @@ class ExcluirFlagInput(BaseModel):
     confirmar_exclusao: bool
 
 
+class RolloutInput(BaseModel):
+    """Fase 5: avança (ou recua) o estágio de liberação gradual e/ou o
+    percentual usado no estágio "percentual_limitado". Ação isolada do
+    resto da flag -- mesmo espírito das ações por organização (Ativar/
+    Testar administradores/Adiar/Desativar), só que na dimensão do
+    estágio global em vez de uma organização específica."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    estagio_rollout: Literal[
+        "ambiente_interno", "administradores", "organizacoes_piloto", "percentual_limitado", "liberacao_geral"
+    ]
+    percentual_rollout: int = Field(default=100, ge=0, le=100)
+    limite_taxa_erro: float | None = Field(default=None, gt=0, le=1)
+    limite_eventos_minimo: int = Field(default=20, ge=1, le=100_000)
+
+
+class InterromperRolloutInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    motivo: str = Field(min_length=10, max_length=2000)
+
+    @field_validator("motivo")
+    @classmethod
+    def validar_motivo(cls, valor: str) -> str:
+        return _texto_seguro(valor)
+
+
 def flag_json(item: FeatureFlag) -> dict:
     return {
         "id": item.id,
@@ -83,6 +126,13 @@ def flag_json(item: FeatureFlag) -> dict:
         "responsavel_id": item.responsavel_id,
         "data_ativacao": item.data_ativacao,
         "data_expiracao": item.data_expiracao,
+        "estagio_rollout": item.estagio_rollout,
+        "percentual_rollout": item.percentual_rollout,
+        "limite_taxa_erro": item.limite_taxa_erro,
+        "limite_eventos_minimo": item.limite_eventos_minimo,
+        "pausado_em": item.pausado_em,
+        "pausado_motivo": item.pausado_motivo,
+        "pausado_por": item.pausado_por,
         "criado_em": item.criado_em,
         "atualizado_em": item.atualizado_em,
     }
@@ -137,6 +187,8 @@ async def criar_flag(dados: FeatureFlagInput, session: SessionDep, usuario: Supe
         estado_padrao=dados.estado_padrao,
         responsavel_id=usuario.id,
         data_expiracao=dados.data_expiracao,
+        limite_taxa_erro=dados.limite_taxa_erro,
+        limite_eventos_minimo=dados.limite_eventos_minimo,
     )
     session.add(item)
     await session.flush()
@@ -267,6 +319,150 @@ async def desativar_para_organizacao(
     return await _aplicar_estado_organizacao(
         codigo, organizacao_id, session, usuario, estado="desativado", acao="FLAG_DESATIVAR"
     )
+
+
+@router.patch("/{codigo}/rollout")
+async def avancar_rollout(codigo: str, dados: RolloutInput, session: SessionDep, usuario: SuperAdminDep) -> dict:
+    """Fase 5: avança (ou recua) o estágio de liberação gradual. Não mexe
+    em estado_padrao/ativo -- o estágio só passa a valer quando
+    estado_padrao == "ligado" (ver app.feature_flags). Estourar o limite
+    de erro configurado aqui interrompe automaticamente (ver
+    app.feature_flags.avaliar_circuito_flags, rodado periodicamente pelo
+    worker)."""
+    flag = await _obter_flag_ou_404(session, codigo)
+    anterior = {
+        "estagio_rollout": flag.estagio_rollout,
+        "percentual_rollout": flag.percentual_rollout,
+        "limite_taxa_erro": flag.limite_taxa_erro,
+    }
+    flag.estagio_rollout = dados.estagio_rollout
+    flag.percentual_rollout = dados.percentual_rollout
+    flag.limite_taxa_erro = dados.limite_taxa_erro
+    flag.limite_eventos_minimo = dados.limite_eventos_minimo
+    if flag.data_ativacao is None and dados.estagio_rollout != "ambiente_interno":
+        flag.data_ativacao = datetime.now(UTC)
+    session.add(
+        criar_evento_auditoria(
+            organizacao_id=None,
+            actor_id=usuario.id,
+            ator=usuario.email,
+            acao="FLAG_ROLLOUT",
+            recurso=f"feature_flag:{flag.id}",
+            sucesso=True,
+            status_http=200,
+            detalhes={"codigo": flag.codigo, "estagio_anterior": anterior, "estagio_novo": dados.model_dump()},
+        )
+    )
+    await session.commit()
+    return flag_json(flag)
+
+
+@router.post("/{codigo}/interromper")
+async def interromper_rollout_manual(
+    codigo: str, dados: InterromperRolloutInput, session: SessionDep, usuario: SuperAdminDep
+) -> dict:
+    """Interrupção manual (mesma ação que o circuito automático toma
+    sozinho): recua um estágio, ou desativa a flag se já estiver no
+    estágio mínimo -- critério de aceite da Fase 5, sem derrubar quem já
+    está usando."""
+    flag = await _obter_flag_ou_404(session, codigo)
+    resumo = await interromper_rollout(session, flag, motivo=dados.motivo, por=usuario.email)
+    await session.commit()
+    return {**flag_json(flag), "resultado": resumo}
+
+
+@router.post("/{codigo}/retomar")
+async def retomar_rollout_manual(codigo: str, session: SessionDep, usuario: SuperAdminDep) -> dict:
+    """Limpa a marca de interrupção. Não readianta o estágio sozinho --
+    quem retoma decide explicitamente pra onde avançar de novo (PATCH
+    /{codigo}/rollout)."""
+    flag = await _obter_flag_ou_404(session, codigo)
+    if flag.pausado_em is None:
+        raise HTTPException(409, "Esta flag não está interrompida")
+    retomar_rollout(flag)
+    session.add(
+        criar_evento_auditoria(
+            organizacao_id=None,
+            actor_id=usuario.id,
+            ator=usuario.email,
+            acao="FLAG_RETOMAR",
+            recurso=f"feature_flag:{flag.id}",
+            sucesso=True,
+            status_http=200,
+            detalhes={"codigo": flag.codigo},
+        )
+    )
+    await session.commit()
+    return flag_json(flag)
+
+
+@router.get("/{codigo}/monitoramento")
+async def monitoramento_rollout(codigo: str, session: SessionDep, _: SuperAdminDep, horas: int = 24) -> dict:
+    """Fase 5: erros, tempo de resposta e uso por grupo de implantação,
+    mais reclamações relatadas (Central de Atualizações, app.api.
+    atualizacoes) para os módulos desta flag desde que ela começou a ser
+    ativada -- proxy razoável já que reclamação não é uma ação atômica
+    ligada a uma flag específica, e sim um relato livre do operador."""
+    horas = max(1, min(horas, 24 * 30))
+    flag = await _obter_flag_ou_404(session, codigo)
+    desde = datetime.now(UTC) - timedelta(hours=horas)
+    linhas = (
+        await session.execute(
+            select(
+                FeatureFlagEvento.grupo,
+                FeatureFlagEvento.tipo,
+                func.count().label("total"),
+                func.avg(FeatureFlagEvento.duracao_ms).label("duracao_media_ms"),
+            )
+            .where(FeatureFlagEvento.feature_flag_id == flag.id, FeatureFlagEvento.criado_em >= desde)
+            .group_by(FeatureFlagEvento.grupo, FeatureFlagEvento.tipo)
+        )
+    ).all()
+    por_grupo: dict[str, dict] = {
+        grupo: {"grupo": grupo, "uso": 0, "erros": 0, "falhas_integracao": 0, "duracao_media_ms": None}
+        for grupo in ESTAGIOS_ROLLOUT
+    }
+    for grupo, tipo, total, duracao_media_ms in linhas:
+        alvo = por_grupo.setdefault(
+            grupo, {"grupo": grupo, "uso": 0, "erros": 0, "falhas_integracao": 0, "duracao_media_ms": None}
+        )
+        if tipo == "uso":
+            alvo["uso"] = total
+            alvo["duracao_media_ms"] = round(duracao_media_ms) if duracao_media_ms is not None else None
+        elif tipo == "erro":
+            alvo["erros"] = total
+        elif tipo == "falha_integracao":
+            alvo["falhas_integracao"] = total
+    for grupo, dados_grupo in por_grupo.items():
+        total_eventos = dados_grupo["uso"] + dados_grupo["erros"] + dados_grupo["falhas_integracao"]
+        dados_grupo["taxa_erro"] = (
+            round((dados_grupo["erros"] + dados_grupo["falhas_integracao"]) / total_eventos, 4)
+            if total_eventos
+            else None
+        )
+    reclamacoes = 0
+    if flag.modulos_envolvidos:
+        janela_reclamacao = flag.data_ativacao or desde
+        reclamacoes = (
+            await session.execute(
+                select(func.count())
+                .select_from(ProblemaVersaoSistema)
+                .where(
+                    ProblemaVersaoSistema.modulo.in_(flag.modulos_envolvidos),
+                    ProblemaVersaoSistema.criado_em >= janela_reclamacao,
+                )
+            )
+        ).scalar_one()
+    return {
+        "codigo": flag.codigo,
+        "horas": horas,
+        "estagio_rollout": flag.estagio_rollout,
+        "pausado_em": flag.pausado_em,
+        "pausado_motivo": flag.pausado_motivo,
+        "pausado_por": flag.pausado_por,
+        "grupos": [por_grupo[grupo] for grupo in ESTAGIOS_ROLLOUT],
+        "reclamacoes": reclamacoes or 0,
+    }
 
 
 @router.delete("/{codigo}")

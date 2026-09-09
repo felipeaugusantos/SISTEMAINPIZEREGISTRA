@@ -14,6 +14,7 @@ from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_reno
 from app.crm import gerar_lembretes_sla_primeiro_atendimento, reconciliar_automacoes_fluxo_contratacao
 from app.database import session_factory
 from app.emailing import enviar_alerta_atividades_atrasadas
+from app.feature_flags import avaliar_circuito_flags
 from app.ia_sombra import (
     gerar_explicacoes_risco_pendentes,
     gerar_qualificacao_lead,
@@ -264,6 +265,13 @@ async def processar(tipo: str, payload: dict) -> None:
             # leitura -- resolve sozinho quando zera. Ver
             # app.api.versoes_sistema.lembrar_atualizacoes_pendentes.
             await lembrar_atualizacoes_pendentes(session)
+        elif tipo == "feature_flags.avaliar_circuito":
+            # Fase 5 (liberacao gradual): circuito de interrupcao
+            # automatica. Roda a cada hora (mesma cadencia desta lista);
+            # avaliar_circuito_flags olha a janela movel dos ultimos
+            # JANELA_CIRCUITO_MINUTOS (app.feature_flags), entao cobre o
+            # intervalo continuamente mesmo rodando so uma vez por hora.
+            await avaliar_circuito_flags(session)
         elif tipo == "analise.gerar_explicacoes_risco":
             # IA em sombra (analise de marca): traduz em linguagem simples o
             # risco ja calculado pelo motor deterministico -- nunca
@@ -762,6 +770,7 @@ TAREFAS_MANUTENCAO_HORARIA: tuple[str, ...] = (
     "vigilancia.executar_semanal",
     "plataforma.verificar_saude",
     "atualizacoes.lembrar_pendentes",
+    "feature_flags.avaliar_circuito",
 )
 INTERVALO_MANUTENCAO_HORARIA = timedelta(hours=1)
 INTERVALO_ALTO_RENOME = timedelta(days=7)

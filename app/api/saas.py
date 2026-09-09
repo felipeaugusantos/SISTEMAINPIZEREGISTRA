@@ -95,6 +95,10 @@ class OrganizacaoUpdate(BaseModel):
     telefone_contato: str | None = Field(default=None, max_length=30)
     branding: BrandingConfig | None = None
     modulos_liberados: list[str] | None = None
+    # Fase 5 (liberacao gradual de feature flags): marca a organizacao
+    # usada para testar novas flags antes de qualquer outra audiencia
+    # (estagio "ambiente_interno" -- ver app.feature_flags).
+    ambiente_interno: bool | None = None
 
 
 class DominioInput(BaseModel):
@@ -146,6 +150,7 @@ def _org_json(org: Organizacao, usuarios: int = 0, leads: int = 0, pesquisas: in
         if org.modulos_liberados is not None
         else None,
         "branding": org.branding or {},
+        "ambiente_interno": org.ambiente_interno,
         "criado_em": org.criado_em,
         "trial_ate": org.trial_ate,
         "retencao_dados_dias": org.retencao_dados_dias,

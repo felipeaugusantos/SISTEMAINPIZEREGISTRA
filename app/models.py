@@ -155,6 +155,7 @@ class PlanoSaas(Base):
 
 class Organizacao(Base):
     __tablename__ = "organizacoes"
+    __mapper_args__ = {"eager_defaults": True}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     nome: Mapped[str] = mapped_column(String(180), index=True)
@@ -171,6 +172,9 @@ class Organizacao(Base):
     billing_customer_id: Mapped[str | None] = mapped_column(String(150), nullable=True, index=True)
     trial_ate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     suspender_automaticamente: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Fase 5: organizacao usada para testar novas flags antes de qualquer
+    # outra audiencia (estagio de rollout "ambiente_interno").
+    ambiente_interno: Mapped[bool] = mapped_column(Boolean, default=False)
     retencao_dados_dias: Mapped[int] = mapped_column(Integer, default=730)
     politica_privacidade_versao: Mapped[str] = mapped_column(String(30), default="1.0")
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -3409,10 +3413,28 @@ class FeatureFlag(Base):
     interface nunca é suficiente."""
 
     __tablename__ = "feature_flags"
+    # eager_defaults evita MissingGreenlet em colunas com onupdate=func.now()
+    # apos um UPDATE seguido de leitura sincrona (ver app/models.py,
+    # VersaoSistema, e o incidente de producao documentado no commit que
+    # corrigiu isso).
+    __mapper_args__ = {"eager_defaults": True}
     __table_args__ = (
         CheckConstraint(
             "estado_padrao IN ('desligado', 'somente_administradores', 'ligado')",
             name="ck_feature_flag_estado_padrao",
+        ),
+        CheckConstraint(
+            "estagio_rollout IN "
+            "('ambiente_interno', 'administradores', 'organizacoes_piloto', "
+            "'percentual_limitado', 'liberacao_geral')",
+            name="ck_feature_flag_estagio_rollout",
+        ),
+        CheckConstraint(
+            "percentual_rollout >= 0 AND percentual_rollout <= 100", name="ck_feature_flag_percentual_rollout"
+        ),
+        CheckConstraint(
+            "limite_taxa_erro IS NULL OR (limite_taxa_erro > 0 AND limite_taxa_erro <= 1)",
+            name="ck_feature_flag_limite_taxa_erro",
         ),
     )
 
@@ -3436,10 +3458,51 @@ class FeatureFlag(Base):
     )
     data_ativacao: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     data_expiracao: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Fase 5: estagio de rollout, usado somente quando estado_padrao ==
+    # "ligado" -- ver app.feature_flags para a avaliacao. Padrao
+    # "liberacao_geral" preserva o comportamento de sempre (ligado = todo
+    # mundo) para quem nao usa liberacao gradual.
+    estagio_rollout: Mapped[str] = mapped_column(String(30), default="liberacao_geral")
+    percentual_rollout: Mapped[int] = mapped_column(Integer, default=100)
+    # Circuito de interrupcao automatica (app.feature_flags.avaliar_circuito_flags).
+    # None desativa o circuito para esta flag.
+    limite_taxa_erro: Mapped[float | None] = mapped_column(nullable=True)
+    limite_eventos_minimo: Mapped[int] = mapped_column(Integer, default=20)
+    pausado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    pausado_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pausado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class FeatureFlagEvento(Base):
+    """Fase 5: telemetria de uso/erro por grupo de rollout, para o
+    monitoramento por grupo e para o circuito de interrupcao automatica.
+    Tabela global de observabilidade, sem RLS -- mesmo padrao de
+    EventoOperacional (nao e dado de cliente, e telemetria interna)."""
+
+    __tablename__ = "feature_flags_eventos"
+    __table_args__ = (
+        CheckConstraint(
+            "grupo IN ('ambiente_interno', 'administradores', 'organizacoes_piloto', "
+            "'percentual_limitado', 'liberacao_geral')",
+            name="ck_feature_flag_evento_grupo",
+        ),
+        CheckConstraint("tipo IN ('uso', 'erro', 'falha_integracao')", name="ck_feature_flag_evento_tipo"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    feature_flag_id: Mapped[int] = mapped_column(ForeignKey("feature_flags.id", ondelete="CASCADE"), index=True)
+    organizacao_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    grupo: Mapped[str] = mapped_column(String(30), index=True)
+    tipo: Mapped[str] = mapped_column(String(20), index=True)
+    duracao_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    detalhes: Mapped[dict] = mapped_column(JSON, default=dict)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 class FeatureFlagOrganizacao(Base):

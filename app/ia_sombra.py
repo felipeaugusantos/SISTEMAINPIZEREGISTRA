@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cadencia_email import dentro_do_horario_comercial
 from app.crm import obter_politica_crm
-from app.feature_flags import flag_ativa_para_organizacao
+from app.feature_flags import flag_ativa_para_organizacao, registrar_resultado_flag
 from app.models import (
     AvaliacaoRiscoMarca,
     ContatoLead,
@@ -201,7 +201,15 @@ async def _contexto_casos_semelhantes(
         similares = await buscar_leads_similares(
             session, lead.organizacao_id, embedding_consulta, excluir_lead_id=lead.id
         )
-    except Exception:  # noqa: BLE001 -- indisponibilidade do RAG nunca quebra a sugestão principal
+    except Exception as exc:  # noqa: BLE001 -- indisponibilidade do RAG nunca quebra a sugestão principal
+        # Reporte opcional para o monitoramento por grupo da Fase 5 --
+        # "uso" já é registrado automaticamente por
+        # flag_ativa_para_organizacao acima; aqui só o resultado, pra
+        # alimentar o circuito de interrupção automática se o Ollama/
+        # pgvector começar a falhar muito.
+        await registrar_resultado_flag(
+            FEATURE_FLAG_RAG, lead.organizacao_id, "falha_integracao", detalhes={"erro": type(exc).__name__}
+        )
         return ""
     if not similares:
         return ""

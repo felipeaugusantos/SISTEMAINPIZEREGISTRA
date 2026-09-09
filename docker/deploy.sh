@@ -99,6 +99,18 @@ case " $SERVICOS " in
         else
             echo "==> backup antes da migration"
             ./docker/backup-banco.sh
+            # Fase 9 (ordem recomendada de deploy), item 1: "backup validado"
+            # -- ate aqui so validavamos o ARQUIVO do dump (backup-banco.sh),
+            # nunca se ele restaura de verdade com os dados certos, antes de
+            # aplicar a migration em cima dele. Opcional (nao muda o
+            # comportamento padrao) porque roda um pg_restore completo no
+            # db-test -- pode levar minutos com o banco em dezenas de GB.
+            # Recomendado (VALIDAR_BACKUP=1) para deploys com migration em
+            # producao; sempre ligado seria lento demais pra deploys triviais.
+            if [ "${VALIDAR_BACKUP:-}" = "1" ]; then
+                echo "==> validando backup (simulado de restauracao)"
+                ./docker/simulado-restauracao.sh
+            fi
             echo "==> aplicando migrations"
             $COMPOSE up -d migrate
             $COMPOSE wait migrate

@@ -74,6 +74,19 @@ def test_deploy_script_falha_se_commits_divergirem_entre_servicos():
     assert "org.opencontainers.image.revision" in DEPLOY_SH
 
 
+def test_deploy_script_valida_backup_antes_da_migration_quando_pedido():
+    """Fase 9 (ordem recomendada de deploy), item 1: "backup validado" --
+    VALIDAR_BACKUP=1 roda o simulado de restauracao (docker/simulado-
+    restauracao.sh) logo apos o backup, antes de aplicar a migration.
+    Opcional (nao muda o comportamento padrao de deploys sem migration
+    pendente ou sem a flag) porque o simulado e um pg_restore completo."""
+    assert "VALIDAR_BACKUP" in DEPLOY_SH
+    indice_backup = DEPLOY_SH.index("./docker/backup-banco.sh")
+    indice_validacao = DEPLOY_SH.index("./docker/simulado-restauracao.sh")
+    indice_migration = DEPLOY_SH.index('echo "==> aplicando migrations"')
+    assert indice_backup < indice_validacao < indice_migration
+
+
 def test_rollback_script_define_overlay_de_producao():
     assert "COMPOSE=\"docker compose -f compose.yaml -f compose.production.yaml\"" in ROLLBACK_SH
 

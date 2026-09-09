@@ -41,7 +41,7 @@ function renderFlagCard(flag) {
         <h2>${escapeHtml(flag.nome)}</h2>
         <p>${escapeHtml(flag.descricao)}</p>
         <p><small>Módulos: ${flag.modulos_envolvidos.map(escapeHtml).join(", ") || "—"} · Dependências: ${flag.dependencias.map(escapeHtml).join(", ") || "nenhuma"}</small></p>
-        <p><small>Ativação: ${dateLabel(flag.data_ativacao)} · Expira: ${dateLabel(flag.data_expiracao)}</small></p>
+        <p class="ff-ativacao-info"><small>Ativação: ${dateLabel(flag.data_ativacao)} · Expira: ${dateLabel(flag.data_expiracao)}</small></p>
       </div>
     </header>
     <form class="admin-filters ff-acao-form">
@@ -88,6 +88,8 @@ async function carregarOrganizacoes(codigo, artigo) {
   const linhas = artigo.querySelector(".ff-organizacoes-rows");
   try {
     const detalhe = await api(`/v1/admin/feature-flags/${codigo}`);
+    const ativacaoInfo = artigo.querySelector(".ff-ativacao-info");
+    if (ativacaoInfo) ativacaoInfo.innerHTML = `<small>Ativação: ${dateLabel(detalhe.data_ativacao)} · Expira: ${dateLabel(detalhe.data_expiracao)}</small>`;
     linhas.innerHTML = detalhe.organizacoes.length
       ? detalhe.organizacoes.map((item) => `<tr>
           <td>${escapeHtml(item.organizacao_nome)} (#${item.organizacao_id})</td>

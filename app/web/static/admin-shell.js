@@ -240,7 +240,11 @@ function renderAtualizacoesBanner(itens) {
       </div>
     </article>
   `).join("");
-  document.body.prepend(banner);
+  // Prepend dentro de .admin-main (nunca document.body): o sidebar é
+  // position:fixed e todo o conteúdo já tem margin-left pra não ficar por
+  // baixo dele -- um banner solto no body ficava com metade do texto
+  // escondida atrás do sidebar (achado do usuário, captura de tela).
+  (document.querySelector(".admin-main") || document.body).prepend(banner);
   banner.querySelectorAll("[data-confirmar-atualizacao]").forEach((botao) => {
     botao.addEventListener("click", async () => {
       botao.disabled = true;

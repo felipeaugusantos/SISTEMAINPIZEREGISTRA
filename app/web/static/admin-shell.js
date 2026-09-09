@@ -265,7 +265,7 @@ function renderAtualizacoesBanner(itens) {
       </div>
       <p>${escapeAdminHtml(item.impacto_usuario)}</p>
       <div class="admin-aviso-acoes">
-        ${item.leitura_obrigatoria ? `<button type="button" class="primary-button" data-confirmar-atualizacao="${item.id}">Confirmar leitura</button>` : ""}
+        <button type="button" class="${item.leitura_obrigatoria ? "primary-button" : "secondary-button"}" data-confirmar-atualizacao="${item.id}">${item.leitura_obrigatoria ? "Confirmar leitura" : "Dispensar"}</button>
         ${item.pode_adiar ? `<button type="button" class="secondary-button" data-adiar-atualizacao="${item.id}">Lembrar em 7 dias</button>` : ""}
         <a class="secondary-button" href="/admin/atualizacoes">Ver central de atualizações</a>
       </div>

@@ -85,8 +85,8 @@ function renderItem(item, currentId) {
 
   const actions = element("div", "update-actions");
   actions.append(button("Ver detalhes", "details", item.id));
-  if (item.leitura_obrigatoria && !item.estado.confirmada_em) {
-    actions.append(button("Confirmar leitura", "confirm", item.id, "primary-button"));
+  if (!item.estado.confirmada_em) {
+    actions.append(button("Confirmar leitura", "confirm", item.id, item.leitura_obrigatoria ? "primary-button" : "secondary-button"));
   }
   if (item.pode_adiar && !item.estado.confirmada_em) actions.append(button("Adiar aviso", "postpone", item.id));
   actions.append(button("Reportar problema", "report", item.id));

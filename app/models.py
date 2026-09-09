@@ -3278,6 +3278,10 @@ class VersaoSistema(Base):
     """Release global da plataforma, imutável depois da publicação."""
 
     __tablename__ = "versoes_sistema"
+    # eager_defaults evita MissingGreenlet: sem isso, "atualizado_em" (onupdate=func.now())
+    # fica marcado como expirado apos o UPDATE, e o proximo acesso sincrono ao atributo
+    # (fora de um `await session.X()`) tenta um lazy load fora do bridge async/greenlet.
+    __mapper_args__ = {"eager_defaults": True}
     __table_args__ = (
         CheckConstraint(
             "tipo_atualizacao IN ('critica', 'correcao', 'funcionalidade')",

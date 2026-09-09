@@ -3,6 +3,7 @@ from decimal import Decimal
 from enum import StrEnum
 from uuid import uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     BigInteger,
@@ -787,6 +788,29 @@ class SugestaoIALead(Base):
     revisado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     revisado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     erro: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+DIMENSOES_EMBEDDING_LEAD = 768  # nomic-embed-text (settings.ia_sombra_embedding_modelo)
+
+
+class EmbeddingLead(Base):
+    """RAG local (pgvector) da IA em sombra: embedding de um lead com
+    resultado conhecido (ganho/perdido), usado como precedente para
+    enriquecer a sugestão de próxima ação de outros leads (ver
+    app.ia_sombra.buscar_leads_similares). Um único registro por lead
+    (upsert quando o resultado muda) -- lead sem resultado ainda não tem o
+    que ensinar, não é indexado."""
+
+    __tablename__ = "embeddings_lead"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True, unique=True)
+    resumo_indexado: Mapped[str] = mapped_column(Text)
+    resultado: Mapped[str] = mapped_column(String(12))
+    modelo: Mapped[str] = mapped_column(String(120))
+    embedding: Mapped[list[float]] = mapped_column(Vector(DIMENSOES_EMBEDDING_LEAD))
+    gerado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ExplicacaoAnaliseMarca(Base):

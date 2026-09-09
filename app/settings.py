@@ -137,6 +137,10 @@ class Settings(BaseSettings):
     ia_sombra_host: str = "ollama"
     ia_sombra_port: int = 11434
     ia_sombra_modelo: str = "qwen2.5:7b-instruct-q4_K_M"
+    # Modelo de embeddings (mesmo servidor Ollama) usado pelo RAG local
+    # (pgvector) para indexar leads com resultado conhecido e buscar
+    # precedentes parecidos -- ver app.ia_sombra.gerar_embedding_ollama.
+    ia_sombra_embedding_modelo: str = "nomic-embed-text"
     ia_sombra_timeout_segundos: float = 120.0
     # Busca ao vivo por CNPJ direto no site público do INPI (pePI), além do
     # match por nome já feito na nossa base local -- achado do usuário

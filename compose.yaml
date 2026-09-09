@@ -50,6 +50,22 @@ services:
       ollama:
         condition: service_healthy
 
+  # RAG local (pgvector): baixa o modelo de embeddings usado por
+  # app.ia_sombra.gerar_embedding_ollama para indexar leads com resultado
+  # conhecido (ganho/perdido) e buscar precedentes parecidos -- mesmo
+  # servidor Ollama do modelo de geração acima, sem custo de API externa.
+  ollama-pull-embedding:
+    image: ollama/ollama:latest
+    profiles: ["ia-sombra"]
+    restart: "no"
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["ollama"]
+    command: ["pull", "nomic-embed-text"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
   mailpit:
     image: axllent/mailpit:v1.27
     ports:
@@ -76,7 +92,12 @@ services:
       retries: 10
 
   db:
-    image: postgres:16-alpine
+    # pgvector/pgvector:pg16 = postgres:16 (Debian) + extensao pgvector
+    # pre-instalada -- troca decidida para viabilizar o RAG local da IA em
+    # sombra (app.ia_sombra.buscar_leads_similares), sem imagem alpine
+    # oficial com pgvector disponivel. Mesmo volume de dados (Postgres 16
+    # padrao), so troca o container.
+    image: pgvector/pgvector:pg16
     # /dev/shm padrão do Docker (64MB) é pequeno para queries paralelas sobre as
     # tabelas grandes (movimentacoes ~27M) e causa "No space left on device".
     shm_size: 256mb
@@ -185,6 +206,7 @@ services:
       IA_SOMBRA_HOST: ${IA_SOMBRA_HOST:-ollama}
       IA_SOMBRA_PORT: ${IA_SOMBRA_PORT:-11434}
       IA_SOMBRA_MODELO: ${IA_SOMBRA_MODELO:-qwen2.5:7b-instruct-q4_K_M}
+      IA_SOMBRA_EMBEDDING_MODELO: ${IA_SOMBRA_EMBEDDING_MODELO:-nomic-embed-text}
       IA_SOMBRA_TIMEOUT_SEGUNDOS: ${IA_SOMBRA_TIMEOUT_SEGUNDOS:-120}
       PROSPECCAO_TITULARIDADE_INPI_AO_VIVO_ENABLED: ${PROSPECCAO_TITULARIDADE_INPI_AO_VIVO_ENABLED:-false}
       PROSPECCAO_TITULARIDADE_INPI_TIMEOUT_SEGUNDOS: ${PROSPECCAO_TITULARIDADE_INPI_TIMEOUT_SEGUNDOS:-8}
@@ -275,6 +297,7 @@ services:
       IA_SOMBRA_HOST: ${IA_SOMBRA_HOST:-ollama}
       IA_SOMBRA_PORT: ${IA_SOMBRA_PORT:-11434}
       IA_SOMBRA_MODELO: ${IA_SOMBRA_MODELO:-qwen2.5:7b-instruct-q4_K_M}
+      IA_SOMBRA_EMBEDDING_MODELO: ${IA_SOMBRA_EMBEDDING_MODELO:-nomic-embed-text}
       IA_SOMBRA_TIMEOUT_SEGUNDOS: ${IA_SOMBRA_TIMEOUT_SEGUNDOS:-120}
       PROSPECCAO_TITULARIDADE_INPI_AO_VIVO_ENABLED: ${PROSPECCAO_TITULARIDADE_INPI_AO_VIVO_ENABLED:-false}
       PROSPECCAO_TITULARIDADE_INPI_TIMEOUT_SEGUNDOS: ${PROSPECCAO_TITULARIDADE_INPI_TIMEOUT_SEGUNDOS:-8}
@@ -304,7 +327,7 @@ services:
   # Volume proprio (test_postgres_data), sem persistencia real entre execucoes
   # que importe (pode ser apagado a qualquer momento).
   db-test:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     profiles: ["test"]
     environment:
       POSTGRES_DB: inpi

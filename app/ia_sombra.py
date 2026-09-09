@@ -18,7 +18,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cadencia_email import dentro_do_horario_comercial
@@ -26,6 +26,7 @@ from app.crm import obter_politica_crm
 from app.models import (
     AvaliacaoRiscoMarca,
     ContatoLead,
+    EmbeddingLead,
     ExplicacaoAnaliseMarca,
     Lead,
     PesquisaMarca,
@@ -42,8 +43,10 @@ MAXIMO_LEADS_POR_EXECUCAO = 20
 TAMANHO_MAXIMO_CORPO_RESPOSTA = 500
 MARCADOR_RESUMO = "RESUMO:"
 MARCADOR_PROXIMA_ACAO = "PROXIMA_ACAO:"
+RESULTADOS_LEAD_CONHECIDOS = ("ganho", "perdido")
 
 ChamadaIA = Callable[[str], Awaitable[str]]
+ChamadaEmbedding = Callable[[str], Awaitable[list[float]]]
 
 
 def _prompt_sistema() -> str:
@@ -128,7 +131,184 @@ async def chamar_ollama(prompt: str, *, http_client: httpx.AsyncClient | None = 
             await cliente.aclose()
 
 
-async def gerar_sugestao_lead(session: AsyncSession, lead: Lead, *, chamar_ia: ChamadaIA = chamar_ollama) -> SugestaoIALead:
+async def gerar_embedding_ollama(texto: str, *, http_client: httpx.AsyncClient | None = None) -> list[float]:
+    """Gera o embedding de um texto via Ollama (mesmo servidor de
+    chamar_ollama, endpoint /api/embeddings), usado pelo RAG local
+    (pgvector) para indexar e buscar leads parecidos. Local, sem chave de
+    API, sem custo por chamada."""
+    settings = get_settings()
+    url = f"http://{settings.ia_sombra_host}:{settings.ia_sombra_port}/api/embeddings"
+    corpo = {"model": settings.ia_sombra_embedding_modelo, "prompt": texto}
+    cliente_proprio = http_client is None
+    cliente = http_client or httpx.AsyncClient(timeout=settings.ia_sombra_timeout_segundos)
+    try:
+        resposta = await cliente.post(url, json=corpo)
+        resposta.raise_for_status()
+        return list(resposta.json().get("embedding", []))
+    finally:
+        if cliente_proprio:
+            await cliente.aclose()
+
+
+async def buscar_leads_similares(
+    session: AsyncSession,
+    organizacao_id: int,
+    embedding_consulta: list[float],
+    *,
+    excluir_lead_id: int,
+    limite: int = 3,
+) -> list[EmbeddingLead]:
+    """Leads com resultado conhecido (ganho/perdido) mais parecidos com o
+    embedding de consulta, por distância de cosseno (pgvector). Usado como
+    precedente real na sugestão de próxima ação de outro lead."""
+    return list(
+        (
+            await session.execute(
+                select(EmbeddingLead)
+                .where(
+                    EmbeddingLead.organizacao_id == organizacao_id,
+                    EmbeddingLead.lead_id != excluir_lead_id,
+                )
+                .order_by(EmbeddingLead.embedding.cosine_distance(embedding_consulta))
+                .limit(limite)
+            )
+        ).scalars()
+    )
+
+
+async def _contexto_casos_semelhantes(
+    session: AsyncSession, *, lead: Lead, contexto: str, gerar_embedding: ChamadaEmbedding
+) -> str:
+    """Precedentes reais (leads com resultado conhecido) parecidos com o
+    lead atual, para o modelo ter exemplos concretos em vez de só o
+    histórico isolado. Indisponibilidade do modelo de embeddings ou do
+    pgvector nunca derruba a sugestão principal -- vira "sem precedentes"."""
+    try:
+        embedding_consulta = await gerar_embedding(contexto)
+        similares = await buscar_leads_similares(
+            session, lead.organizacao_id, embedding_consulta, excluir_lead_id=lead.id
+        )
+    except Exception:  # noqa: BLE001 -- indisponibilidade do RAG nunca quebra a sugestão principal
+        return ""
+    if not similares:
+        return ""
+    linhas = ["Casos semelhantes já concluídos (use só como referência, nunca repita literalmente):"]
+    linhas.extend(f"- Resultado: {item.resultado} — {item.resumo_indexado}" for item in similares)
+    return "\n".join(linhas)
+
+
+def montar_resumo_lead_resultado(
+    lead: Lead, contatos: list[ContatoLead], respostas: list[RespostaEmailLead], pesquisa: PesquisaMarca | None
+) -> str:
+    """Texto indexado em EmbeddingLead para um lead com resultado conhecido
+    -- mesmo recorte de montar_contexto_lead, mais o resultado final."""
+    contexto = montar_contexto_lead(lead, contatos, respostas, pesquisa)
+    return f"{contexto}\nResultado final: {lead.resultado}"
+
+
+async def indexar_lead_para_rag(
+    session: AsyncSession, lead: Lead, *, gerar_embedding: ChamadaEmbedding = gerar_embedding_ollama
+) -> EmbeddingLead | None:
+    """Indexa (embedding, upsert por lead_id) um lead com resultado
+    conhecido (ganho/perdido) para servir de precedente às sugestões de
+    outros leads. Sem resultado ainda não há o que aprender -- devolve None
+    sem indexar nem consultar nada."""
+    if lead.resultado not in RESULTADOS_LEAD_CONHECIDOS:
+        return None
+    settings = get_settings()
+    contatos = list(
+        (
+            await session.execute(
+                select(ContatoLead).where(ContatoLead.lead_id == lead.id).order_by(ContatoLead.criado_em.desc()).limit(5)
+            )
+        ).scalars()
+    )
+    respostas = list(
+        (
+            await session.execute(
+                select(RespostaEmailLead)
+                .where(RespostaEmailLead.lead_id == lead.id)
+                .order_by(RespostaEmailLead.recebido_em.desc())
+                .limit(3)
+            )
+        ).scalars()
+    )
+    pesquisa = (
+        await session.execute(
+            select(PesquisaMarca).where(PesquisaMarca.lead_id == lead.id).order_by(PesquisaMarca.criado_em.desc()).limit(1)
+        )
+    ).scalar_one_or_none()
+    resumo = montar_resumo_lead_resultado(lead, contatos, respostas, pesquisa)
+    embedding = await gerar_embedding(resumo)
+    existente = (
+        await session.execute(select(EmbeddingLead).where(EmbeddingLead.lead_id == lead.id))
+    ).scalar_one_or_none()
+    if existente is not None:
+        existente.resumo_indexado = resumo
+        existente.resultado = lead.resultado
+        existente.modelo = settings.ia_sombra_embedding_modelo
+        existente.embedding = embedding
+        return existente
+    registro = EmbeddingLead(
+        organizacao_id=lead.organizacao_id,
+        lead_id=lead.id,
+        resumo_indexado=resumo,
+        resultado=lead.resultado,
+        modelo=settings.ia_sombra_embedding_modelo,
+        embedding=embedding,
+    )
+    session.add(registro)
+    return registro
+
+
+async def indexar_embeddings_leads_pendentes(
+    session: AsyncSession, *, gerar_embedding: ChamadaEmbedding = gerar_embedding_ollama
+) -> int:
+    """Job de manutenção periódica: indexa leads com resultado conhecido que
+    ainda não têm embedding (ou cujo resultado mudou desde a última
+    indexação), nas organizações com IA em sombra ativa. Mesmo par de flags
+    (settings.ia_sombra_enabled + PoliticaCRM.ia_sombra_ativa) dos outros
+    jobs desta frente -- ver app.worker "leads.indexar_rag"."""
+    settings = get_settings()
+    if not settings.ia_sombra_enabled:
+        return 0
+    organizacoes_ativas = list(
+        (await session.execute(select(PoliticaCRM.organizacao_id).where(PoliticaCRM.ia_sombra_ativa.is_(True)))).scalars()
+    )
+    if not organizacoes_ativas:
+        return 0
+
+    pendentes = list(
+        (
+            await session.execute(
+                select(Lead)
+                .outerjoin(EmbeddingLead, EmbeddingLead.lead_id == Lead.id)
+                .where(
+                    Lead.organizacao_id.in_(organizacoes_ativas),
+                    Lead.resultado.in_(RESULTADOS_LEAD_CONHECIDOS),
+                    or_(EmbeddingLead.id.is_(None), EmbeddingLead.resultado != Lead.resultado),
+                )
+                .limit(MAXIMO_LEADS_POR_EXECUCAO)
+            )
+        ).scalars()
+    )
+    indexados = 0
+    for lead in pendentes:
+        try:
+            await indexar_lead_para_rag(session, lead, gerar_embedding=gerar_embedding)
+        except Exception:  # noqa: BLE001 -- job de manutenção não pode quebrar por falha do modelo
+            continue
+        indexados += 1
+    return indexados
+
+
+async def gerar_sugestao_lead(
+    session: AsyncSession,
+    lead: Lead,
+    *,
+    chamar_ia: ChamadaIA = chamar_ollama,
+    gerar_embedding: ChamadaEmbedding = gerar_embedding_ollama,
+) -> SugestaoIALead:
     """Gera (e persiste, sem commit) uma sugestão para um lead. Nunca propaga
     exceção de chamada ao modelo -- um erro vira SugestaoIALead.erro, para o
     job de manutenção seguir para o próximo lead sem interromper a leva."""
@@ -169,6 +349,11 @@ async def gerar_sugestao_lead(session: AsyncSession, lead: Lead, *, chamar_ia: C
     baseado_em_evento_em = max(eventos) if eventos else datetime.now(UTC)
 
     contexto = montar_contexto_lead(lead, contatos, respostas, pesquisa, avaliacao_risco)
+    casos_semelhantes = await _contexto_casos_semelhantes(
+        session, lead=lead, contexto=contexto, gerar_embedding=gerar_embedding
+    )
+    if casos_semelhantes:
+        contexto = f"{contexto}\n\n{casos_semelhantes}"
     # Valores explícitos em vez de depender dos defaults de coluna do
     # SQLAlchemy: eles só são aplicados no flush -- se algo ler o objeto
     # antes disso (como o caminho de erro abaixo, que nunca toca resumo/
@@ -191,7 +376,12 @@ async def gerar_sugestao_lead(session: AsyncSession, lead: Lead, *, chamar_ia: C
     return sugestao
 
 
-async def gerar_sugestoes_ia_pendentes(session: AsyncSession, *, chamar_ia: ChamadaIA = chamar_ollama) -> int:
+async def gerar_sugestoes_ia_pendentes(
+    session: AsyncSession,
+    *,
+    chamar_ia: ChamadaIA = chamar_ollama,
+    gerar_embedding: ChamadaEmbedding = gerar_embedding_ollama,
+) -> int:
     """Job de manutenção periódica (worker.TAREFAS_MANUTENCAO_HORARIA): gera
     sugestões para leads com atividade nova, nas organizações que optaram
     por ativar a IA em sombra. Sempre agendado -- inerte (devolve 0) quando
@@ -272,7 +462,7 @@ async def gerar_sugestoes_ia_pendentes(session: AsyncSession, *, chamar_ia: Cham
         ultima_sugestao = ultima_sugestao_por_lead.get(lead.id)
         if ultima_sugestao is not None and (ultima_atividade is None or ultima_atividade <= ultima_sugestao):
             continue
-        await gerar_sugestao_lead(session, lead, chamar_ia=chamar_ia)
+        await gerar_sugestao_lead(session, lead, chamar_ia=chamar_ia, gerar_embedding=gerar_embedding)
         criadas += 1
     return criadas
 

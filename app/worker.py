@@ -13,7 +13,12 @@ from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_reno
 from app.crm import gerar_lembretes_sla_primeiro_atendimento, reconciliar_automacoes_fluxo_contratacao
 from app.database import session_factory
 from app.emailing import enviar_alerta_atividades_atrasadas
-from app.ia_sombra import gerar_explicacoes_risco_pendentes, gerar_qualificacao_lead, gerar_sugestoes_ia_pendentes
+from app.ia_sombra import (
+    gerar_explicacoes_risco_pendentes,
+    gerar_qualificacao_lead,
+    gerar_sugestoes_ia_pendentes,
+    indexar_embeddings_leads_pendentes,
+)
 from app.imap_polling import verificar_respostas_email
 from app.models import (
     AlertaSistema,
@@ -249,6 +254,13 @@ async def processar(tipo: str, payload: dict) -> None:
             # E PoliticaCRM.ia_sombra_ativa de pelo menos uma organizacao
             # estarem ligados -- ver app.ia_sombra.
             await gerar_sugestoes_ia_pendentes(session)
+        elif tipo == "leads.indexar_rag":
+            # RAG local da IA em sombra (pgvector): indexa leads com
+            # resultado conhecido (ganho/perdido) para servir de precedente
+            # as sugestoes de outros leads (ver
+            # app.ia_sombra.gerar_sugestao_lead). Mesmo par de flags dos
+            # jobs de IA em sombra acima.
+            await indexar_embeddings_leads_pendentes(session)
         elif tipo == "analise.gerar_explicacoes_risco":
             # IA em sombra (analise de marca): traduz em linguagem simples o
             # risco ja calculado pelo motor deterministico -- nunca
@@ -737,6 +749,7 @@ TAREFAS_MANUTENCAO_HORARIA: tuple[str, ...] = (
     "crm.sla_primeiro_atendimento",
     "crm.fluxo_contratacao",
     "crm.gerar_sugestoes_ia",
+    "leads.indexar_rag",
     "analise.gerar_explicacoes_risco",
     "crm.gerar_renovacoes_marca",
     "cadencia.enviar_emails_pendentes",

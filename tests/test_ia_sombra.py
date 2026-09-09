@@ -5,19 +5,24 @@ from app.ia_sombra import (
     _analisar_explicacao,
     _analisar_qualificacao,
     _analisar_resposta,
+    buscar_leads_similares,
     enfileirar_qualificacao_ia_se_ativa,
     gerar_explicacao_risco,
     gerar_explicacoes_risco_pendentes,
     gerar_qualificacao_lead,
     gerar_sugestao_lead,
     gerar_sugestoes_ia_pendentes,
+    indexar_embeddings_leads_pendentes,
+    indexar_lead_para_rag,
     montar_contexto_avaliacao_risco,
     montar_contexto_captacao_lead,
     montar_contexto_lead,
+    montar_resumo_lead_resultado,
 )
 from app.models import (
     AvaliacaoRiscoMarca,
     ContatoLead,
+    EmbeddingLead,
     Lead,
     PoliticaCRM,
     QualificacaoIALead,
@@ -86,11 +91,23 @@ async def _chamada_com_falha(_prompt: str) -> str:
     raise TimeoutError("modelo não respondeu a tempo")
 
 
+async def _embedding_fake(_texto: str) -> list[float]:
+    return [0.1, 0.2, 0.3]
+
+
+async def _embedding_com_falha(_texto: str) -> list[float]:
+    raise TimeoutError("modelo de embeddings não respondeu a tempo")
+
+
 def test_gerar_sugestao_lead_usa_chamada_injetada_e_nao_comita() -> None:
     lead = _lead()
-    session = FakeSession([FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(scalar=None)])
+    session = FakeSession(
+        [FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(scalar=None), FakeResult(itens=[])]
+    )
 
-    sugestao = asyncio.run(gerar_sugestao_lead(session, lead, chamar_ia=_chamada_fake))
+    sugestao = asyncio.run(
+        gerar_sugestao_lead(session, lead, chamar_ia=_chamada_fake, gerar_embedding=_embedding_fake)
+    )
 
     assert sugestao.resumo == "Cliente ainda não retornou contato inicial."
     assert sugestao.sugestao_proxima_acao == "Ligar para o cliente."
@@ -101,13 +118,57 @@ def test_gerar_sugestao_lead_usa_chamada_injetada_e_nao_comita() -> None:
 
 def test_gerar_sugestao_lead_erro_na_chamada_vira_campo_erro_sem_propagar() -> None:
     lead = _lead()
-    session = FakeSession([FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(scalar=None)])
+    session = FakeSession(
+        [FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(scalar=None), FakeResult(itens=[])]
+    )
 
-    sugestao = asyncio.run(gerar_sugestao_lead(session, lead, chamar_ia=_chamada_com_falha))
+    sugestao = asyncio.run(
+        gerar_sugestao_lead(session, lead, chamar_ia=_chamada_com_falha, gerar_embedding=_embedding_fake)
+    )
 
     assert sugestao.erro is not None
     assert "TimeoutError" in sugestao.erro
     assert sugestao.resumo == ""
+
+
+def test_gerar_sugestao_lead_inclui_casos_semelhantes_no_prompt_quando_ha_precedente() -> None:
+    lead = _lead()
+    precedente = EmbeddingLead(
+        organizacao_id=1,
+        lead_id=99,
+        resumo_indexado="Lead parecido que fechou depois de 2 ligações.",
+        resultado="ganho",
+        modelo="nomic-embed-text",
+        embedding=[0.1, 0.2, 0.3],
+    )
+    session = FakeSession(
+        [FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(scalar=None), FakeResult(itens=[precedente])]
+    )
+    prompts_recebidos = []
+
+    async def _chamada_captura_prompt(prompt: str) -> str:
+        prompts_recebidos.append(prompt)
+        return await _chamada_fake(prompt)
+
+    asyncio.run(
+        gerar_sugestao_lead(session, lead, chamar_ia=_chamada_captura_prompt, gerar_embedding=_embedding_fake)
+    )
+
+    assert len(prompts_recebidos) == 1
+    assert "Casos semelhantes" in prompts_recebidos[0]
+    assert "Lead parecido que fechou depois de 2 ligações." in prompts_recebidos[0]
+
+
+def test_gerar_sugestao_lead_degrada_sem_erro_quando_embedding_falha() -> None:
+    lead = _lead()
+    session = FakeSession([FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(scalar=None)])
+
+    sugestao = asyncio.run(
+        gerar_sugestao_lead(session, lead, chamar_ia=_chamada_fake, gerar_embedding=_embedding_com_falha)
+    )
+
+    assert sugestao.erro is None
+    assert sugestao.resumo == "Cliente ainda não retornou contato inicial."
 
 
 def test_gerar_sugestoes_ia_pendentes_desligado_por_padrao_devolve_zero() -> None:
@@ -166,9 +227,12 @@ def test_gerar_sugestoes_ia_pendentes_pula_lead_sem_atividade_nova_e_gera_para_l
                 FakeResult(itens=[]),  # gerar_sugestao_lead(lead_com_novidade): contatos
                 FakeResult(itens=[]),  # respostas
                 FakeResult(scalar=None),  # pesquisa
+                FakeResult(itens=[]),  # casos semelhantes (nenhum precedente)
             ]
         )
-        resultado = asyncio.run(gerar_sugestoes_ia_pendentes(session, chamar_ia=_chamada_fake))
+        resultado = asyncio.run(
+            gerar_sugestoes_ia_pendentes(session, chamar_ia=_chamada_fake, gerar_embedding=_embedding_fake)
+        )
     finally:
         settings.ia_sombra_enabled = original
         modulo.dentro_do_horario_comercial = original_horario
@@ -441,3 +505,141 @@ def test_enfileirar_qualificacao_ia_enfileira_quando_tudo_ativo() -> None:
         modulo.enfileirar = original_enfileirar
 
     assert chamadas == [("leads.qualificar_ia", {"lead_id": 10, "organizacao_id": 1}, "10:qualificacao_ia")]
+
+
+# --- RAG local (pgvector): embeddings de leads com resultado conhecido
+# (ganho/perdido), usados como precedente na sugestão de próxima ação de
+# outros leads (ver gerar_sugestao_lead acima). Só indexa leads com
+# resultado -- sem resultado ainda não há o que aprender. ---
+
+
+def test_montar_resumo_lead_resultado_inclui_contexto_e_resultado_final() -> None:
+    lead = _lead(resultado="ganho")
+    resumo = montar_resumo_lead_resultado(lead, [], [], None)
+    assert "Cliente Teste" in resumo
+    assert "Resultado final: ganho" in resumo
+
+
+def test_indexar_lead_para_rag_sem_resultado_nao_indexa() -> None:
+    lead = _lead(resultado=None)
+    session = FakeSession([])
+
+    registro = asyncio.run(indexar_lead_para_rag(session, lead, gerar_embedding=_embedding_fake))
+
+    assert registro is None
+    assert session.adicionados == []
+    assert session.executados == []
+
+
+def test_indexar_lead_para_rag_cria_registro_novo() -> None:
+    lead = _lead(resultado="ganho")
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # contatos
+            FakeResult(itens=[]),  # respostas
+            FakeResult(scalar=None),  # pesquisa
+            FakeResult(scalar=None),  # embedding existente (nenhum ainda)
+        ]
+    )
+
+    registro = asyncio.run(indexar_lead_para_rag(session, lead, gerar_embedding=_embedding_fake))
+
+    assert isinstance(registro, EmbeddingLead)
+    assert registro.lead_id == lead.id
+    assert registro.resultado == "ganho"
+    assert registro.embedding == [0.1, 0.2, 0.3]
+    assert registro in session.adicionados
+
+
+def test_indexar_lead_para_rag_atualiza_registro_existente_sem_duplicar() -> None:
+    lead = _lead(resultado="perdido")
+    existente = EmbeddingLead(
+        organizacao_id=1,
+        lead_id=lead.id,
+        resumo_indexado="resumo antigo",
+        resultado="ganho",
+        modelo="nomic-embed-text",
+        embedding=[0.9, 0.9, 0.9],
+    )
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # contatos
+            FakeResult(itens=[]),  # respostas
+            FakeResult(scalar=None),  # pesquisa
+            FakeResult(scalar=existente),  # embedding já existia
+        ]
+    )
+
+    registro = asyncio.run(indexar_lead_para_rag(session, lead, gerar_embedding=_embedding_fake))
+
+    assert registro is existente
+    assert registro.resultado == "perdido"
+    assert registro.embedding == [0.1, 0.2, 0.3]
+    assert session.adicionados == []  # upsert -- não cria um segundo registro
+
+
+def test_buscar_leads_similares_devolve_itens_da_consulta() -> None:
+    precedente = EmbeddingLead(
+        organizacao_id=1, lead_id=2, resumo_indexado="parecido", resultado="ganho", modelo="m", embedding=[0.1]
+    )
+    session = FakeSession([FakeResult(itens=[precedente])])
+
+    resultado = asyncio.run(
+        buscar_leads_similares(session, 1, [0.1, 0.2, 0.3], excluir_lead_id=5)
+    )
+
+    assert resultado == [precedente]
+
+
+def test_indexar_embeddings_leads_pendentes_desligado_por_padrao_devolve_zero() -> None:
+    session = FakeSession([])
+    resultado = asyncio.run(indexar_embeddings_leads_pendentes(session))
+    assert resultado == 0
+    assert session.executados == []
+
+
+def test_indexar_embeddings_leads_pendentes_sem_organizacao_ativa_devolve_zero() -> None:
+    settings = get_settings()
+    original = settings.ia_sombra_enabled
+    settings.ia_sombra_enabled = True
+    try:
+        session = FakeSession([FakeResult(itens=[])])
+        resultado = asyncio.run(indexar_embeddings_leads_pendentes(session))
+    finally:
+        settings.ia_sombra_enabled = original
+
+    assert resultado == 0
+
+
+def test_indexar_embeddings_leads_pendentes_indexa_leads_com_resultado_conhecido() -> None:
+    settings = get_settings()
+    original = settings.ia_sombra_enabled
+    settings.ia_sombra_enabled = True
+
+    lead_ganho = _lead(id=1, resultado="ganho")
+    lead_perdido = _lead(id=2, resultado="perdido")
+
+    try:
+        session = FakeSession(
+            [
+                FakeResult(itens=[1]),  # organizacoes_ativas
+                FakeResult(itens=[lead_ganho, lead_perdido]),  # pendentes
+                FakeResult(itens=[]),  # lead_ganho: contatos
+                FakeResult(itens=[]),  # respostas
+                FakeResult(scalar=None),  # pesquisa
+                FakeResult(scalar=None),  # embedding existente
+                FakeResult(itens=[]),  # lead_perdido: contatos
+                FakeResult(itens=[]),  # respostas
+                FakeResult(scalar=None),  # pesquisa
+                FakeResult(scalar=None),  # embedding existente
+            ]
+        )
+        resultado = asyncio.run(
+            indexar_embeddings_leads_pendentes(session, gerar_embedding=_embedding_fake)
+        )
+    finally:
+        settings.ia_sombra_enabled = original
+
+    assert resultado == 2
+    registros_criados = [item for item in session.adicionados if isinstance(item, EmbeddingLead)]
+    assert {item.lead_id for item in registros_criados} == {1, 2}

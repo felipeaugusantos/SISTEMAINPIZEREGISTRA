@@ -25,6 +25,7 @@ from app.crm import (
     aplicar_politica_oportunidade,
     aplicar_regras_automacao,
     avancar_fase_lead,
+    DOMINIO_CLIENTE_SEM_EMAIL,
     buscar_lead_ativo_por_email,
     calcular_score_lead,
     distribuir_lead_automaticamente,
@@ -1126,13 +1127,18 @@ async def mover_pesquisa_para_outro_lead(
         novo = dados.novo_cliente
         assert novo is not None  # garantido por exigir_um_destino
         empresa = await obter_ou_criar_empresa(session, usuario.organizacao_id, novo.empresa)
-        # Sem telefone informado, usa o id da própria pesquisa (sempre único)
-        # como base do e-mail sintético -- usar novo.nome aqui derrubaria a
-        # unicidade sempre que o nome não tivesse nenhum dígito (todo cliente
-        # sem telefone e sem dígito no nome cairia no mesmo e-mail sintético
-        # "presencial-@...", reproduzindo o próprio bug que este endpoint
-        # existe para corrigir).
-        email = (novo.email or "").strip().lower() or email_sintetico_por_telefone(novo.telefone or pesquisa.id)
+        if novo.email:
+            email = novo.email.strip().lower()
+        elif novo.telefone.strip():
+            email = email_sintetico_por_telefone(novo.telefone)
+        else:
+            # Sem e-mail nem telefone: usa o id da própria pesquisa (sempre
+            # único, é um uuid4) direto no e-mail sintético -- passar por
+            # email_sintetico_por_telefone (extrai só dígitos) derrubaria a
+            # unicidade sempre que o id sorteado tivesse poucos ou nenhum
+            # dígito, reproduzindo o próprio bug que este endpoint existe
+            # para corrigir.
+            email = f"pesquisa-{pesquisa.id}@{DOMINIO_CLIENTE_SEM_EMAIL}"
         # uq_leads_org_email_ativos (migração h58f0d4c9e31) proíbe dois leads
         # ativos com o mesmo e-mail na mesma organização -- se esse e-mail já
         # é de outro cliente ativo, reaproveita o lead existente em vez de

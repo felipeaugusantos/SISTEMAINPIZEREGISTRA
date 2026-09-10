@@ -64,6 +64,12 @@ function renderKanban(data) {
     const atrasados = cards.filter(card => card.atrasado).length;
     return `<section class="crm-kanban-column" data-etapa="${esc(etapa.id)}"><header><h3>${esc(etapa.label)}</h3><span class="crm-kanban-column-badges">${atrasados ? `<strong class="crm-kanban-atrasados" title="${atrasados} card(s) fora do SLA">${atrasados}</strong>` : ""}<strong>${cards.length}</strong></span></header><div class="crm-kanban-dropzone" data-etapa="${esc(etapa.id)}">${cards.length ? cards.map(card => `<article class="crm-kanban-card-item${card.atrasado ? " atrasado" : ""}" draggable="${crmState.canManage}" data-lead-id="${card.id}">${card.atrasado ? `<span class="crm-kanban-sla-badge">⚠ Fora do SLA · ${tempoDecorrido(card.entrou_etapa_em)}</span>` : ""}<div><strong>${esc(card.nome)}</strong>${card.empresa ? `<small>${esc(card.empresa)}</small>` : ""}</div><span>${esc(card.marca || "Interesse geral")}</span><small>${esc(card.responsavel || "Não atribuído")}</small>${card.proxima_acao_em ? `<time>Próxima ação: ${dateTime.format(new Date(card.proxima_acao_em))}</time>` : `<time class="kanban-no-action">Sem próxima ação</time>`}<a href="/admin/pesquisas?lead_id=${card.id}">Abrir contato</a></article>`).join("") : `<p class="crm-kanban-empty">Nenhuma oportunidade</p>`}</div></section>`;
   }).join("");
+  const semResponsavel = kanbanState.cards.filter(card => !card.responsavel).length;
+  const botaoDistribuir = document.querySelector("#crm-kanban-distribuir");
+  if (botaoDistribuir) {
+    botaoDistribuir.hidden = !crmState.canManage || semResponsavel === 0;
+    botaoDistribuir.textContent = `Distribuir sem responsável (${semResponsavel})`;
+  }
   target.querySelectorAll(".crm-kanban-card-item[draggable='true']").forEach(card => card.addEventListener("dragstart", event => { event.dataTransfer.setData("text/plain", card.dataset.leadId); card.classList.add("dragging"); }));
   target.querySelectorAll(".crm-kanban-card-item").forEach(card => card.addEventListener("dragend", () => card.classList.remove("dragging")));
   target.querySelectorAll(".crm-kanban-dropzone").forEach(zone => {
@@ -141,6 +147,17 @@ document.querySelector("#crm-prev").addEventListener("click", () => { crmState.o
 document.querySelector("#crm-next").addEventListener("click", () => { if (crmState.offset + crmState.limit < crmState.total) { crmState.offset += crmState.limit; loadHistory().catch(error => show(error.message)); } });
 document.querySelector("#new-reminder").addEventListener("click", () => openReminder());
 document.querySelector("#crm-kanban-refresh")?.addEventListener("click", () => loadKanban().catch(error => show(error.message)));
+document.querySelector("#crm-kanban-distribuir")?.addEventListener("click", async event => {
+  const botao = event.currentTarget;
+  botao.disabled = true;
+  try {
+    const resultado = await api("/v1/admin/leads/distribuir", { method: "POST", body: JSON.stringify({}) });
+    const resumo = Object.entries(resultado.por_responsavel).map(([nome, quantidade]) => `${nome}: ${quantidade}`).join(" · ");
+    show(resultado.distribuidos ? `${resultado.distribuidos} lead(s) distribuído(s) — ${resumo}` : "Nenhum lead sem responsável para distribuir.", "success");
+    await loadKanban();
+  } catch (error) { show(error.message); }
+  finally { botao.disabled = false; }
+});
 document.querySelector("#close-reminder").addEventListener("click", () => reminderDialog.close());
 document.querySelector("#cancel-reminder").addEventListener("click", () => reminderDialog.close());
 document.querySelector("#crm-customer-alerts").addEventListener("click", event => { const button = event.target.closest(".create-update-reminder"); if (button) openReminder(button.dataset.leadId, "atualizar_cadastro"); });

@@ -970,6 +970,73 @@ async def listar_leads_kanban(session: SessionDep, usuario: LeadsViewDep) -> dic
     }
 
 
+async def _atendentes_elegiveis(session: AsyncSession, organizacao_id: int) -> list[UsuarioOperacoes]:
+    """Usuários ativos que podem receber leads em rodízio: administradores/superadmin
+    ou quem tem a permissão leads.manage. Evita distribuir para Tech ou outros
+    papéis sem relação com atendimento comercial."""
+    usuarios = (
+        (
+            await session.execute(
+                select(UsuarioOperacoes)
+                .where(UsuarioOperacoes.organizacao_id == organizacao_id, UsuarioOperacoes.ativo.is_(True))
+                .order_by(UsuarioOperacoes.nome)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        item
+        for item in usuarios
+        if item.superadmin or item.perfil == "administrador" or any(p.chave == "leads.manage" for p in item.permissoes)
+    ]
+
+
+@router.post("/v1/admin/leads/distribuir")
+async def distribuir_leads(session: SessionDep, request: Request, usuario: LeadsManageDep) -> dict:
+    """Distribui em rodízio (round-robin) os leads abertos sem responsável entre os
+    atendentes elegíveis, do mais antigo sem contato para o mais recente -- mesmo
+    critério de urgência já usado na ordenação do kanban."""
+    atendentes = await _atendentes_elegiveis(session, usuario.organizacao_id)
+    if not atendentes:
+        raise HTTPException(status_code=422, detail="Nenhum atendente elegível (administrador ou leads.manage) encontrado")
+    leads_sem_responsavel = (
+        (
+            await session.execute(
+                select(Lead)
+                .where(
+                    Lead.organizacao_id == usuario.organizacao_id,
+                    Lead.arquivado_em.is_(None),
+                    Lead.responsavel_id.is_(None),
+                    Lead.status.not_in((StatusLead.CONVERTIDO, StatusLead.DESCARTADO)),
+                )
+                .order_by(Lead.criado_em.asc(), Lead.id.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    por_responsavel: dict[str, int] = {}
+    for indice, lead in enumerate(leads_sem_responsavel):
+        atendente = atendentes[indice % len(atendentes)]
+        lead.responsavel_id = atendente.id
+        por_responsavel[atendente.nome] = por_responsavel.get(atendente.nome, 0) + 1
+    _auditar(
+        session,
+        usuario,
+        request,
+        "distribuir_leads",
+        "leads:rodizio",
+        {"distribuidos": len(leads_sem_responsavel), "por_responsavel": por_responsavel},
+    )
+    await session.commit()
+    return {
+        "distribuidos": len(leads_sem_responsavel),
+        "por_responsavel": por_responsavel,
+        "atendentes": [{"id": item.id, "nome": item.nome} for item in atendentes],
+    }
+
+
 class KanbanEtapaInput(BaseModel):
     etapa: str = Field(min_length=3, max_length=40)
 

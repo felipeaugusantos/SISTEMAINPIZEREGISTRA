@@ -22,6 +22,7 @@ from app.main import app
 from app.models import (
     EventoAuditoria,
     Lead,
+    PermissaoOperacoes,
     PesquisaMarca,
     QualificacaoIALead,
     RespostaEmailLead,
@@ -572,6 +573,71 @@ def test_leads_kanban_etapa_sem_sla_nunca_fica_atrasada() -> None:
     cartao = resposta.json()["cards"][0]
     assert cartao["sla_horas"] is None
     assert cartao["atrasado"] is False
+
+
+def test_distribuir_leads_round_robin_entre_atendentes_elegiveis() -> None:
+    ana = UsuarioOperacoes(id=1, organizacao_id=1, nome="Ana", perfil="administrador", ativo=True)
+    beto = UsuarioOperacoes(id=2, organizacao_id=1, nome="Beto", perfil="operador", ativo=True)
+    beto.permissoes = [PermissaoOperacoes(chave="leads.manage")]
+    tech = UsuarioOperacoes(id=3, organizacao_id=1, nome="Tech", perfil="operador", ativo=True)
+    tech.permissoes = []
+
+    leads = [
+        Lead(
+            id=10 + indice,
+            organizacao_id=1,
+            nome=f"Lead {indice}",
+            email=f"lead{indice}@example.com",
+            telefone="11900000000",
+            marca="ACME",
+            origem="processo",
+            status=StatusLead.NOVO,
+            responsavel_id=None,
+        )
+        for indice in range(3)
+    ]
+    for indice, lead in enumerate(leads):
+        lead.criado_em = datetime(2026, 9, 1, tzinfo=UTC) + timedelta(hours=indice)
+
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(itens=[ana, beto, tech]),
+        FakeResult(itens=leads),
+    )
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/distribuir",
+        json={},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["distribuidos"] == 3
+    assert leads[0].responsavel_id == 1
+    assert leads[1].responsavel_id == 2
+    assert leads[2].responsavel_id == 1
+    assert corpo["por_responsavel"] == {"Ana": 2, "Beto": 1}
+    assert {item["nome"] for item in corpo["atendentes"]} == {"Ana", "Beto"}
+
+
+def test_distribuir_leads_sem_atendente_elegivel_retorna_422() -> None:
+    tech = UsuarioOperacoes(id=3, organizacao_id=1, nome="Tech", perfil="operador", ativo=True)
+    tech.permissoes = []
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[tech]))
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/distribuir",
+        json={},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 422
 
 
 def test_admin_abre_contato_com_historico_de_pesquisas() -> None:

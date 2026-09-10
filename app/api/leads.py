@@ -971,25 +971,31 @@ async def listar_leads_kanban(session: SessionDep, usuario: LeadsViewDep) -> dic
 
 
 async def _atendentes_elegiveis(session: AsyncSession, organizacao_id: int) -> list[UsuarioOperacoes]:
-    """Usuários ativos que podem receber leads em rodízio: administradores/superadmin
-    ou quem tem a permissão leads.manage. Evita distribuir para Tech ou outros
-    papéis sem relação com atendimento comercial."""
+    """Usuários ativos com perfil "comercial" (atendimento/vendas) -- o único perfil
+    que corresponde de fato a quem atende lead no dia a dia.
+
+    Achado (10/09/2026): a primeira versão usava "superadmin ou administrador ou
+    permissão leads.manage", que na prática incluiu Tech (permissões amplas de
+    acesso não implicam papel de atendimento) e distribuiu leads reais para quem
+    não deveria recebê-los. Corrigido para usar o campo que reflete o papel de
+    negócio, não o nível de acesso ao sistema.
+    """
     usuarios = (
         (
             await session.execute(
                 select(UsuarioOperacoes)
-                .where(UsuarioOperacoes.organizacao_id == organizacao_id, UsuarioOperacoes.ativo.is_(True))
+                .where(
+                    UsuarioOperacoes.organizacao_id == organizacao_id,
+                    UsuarioOperacoes.ativo.is_(True),
+                    UsuarioOperacoes.perfil == "comercial",
+                )
                 .order_by(UsuarioOperacoes.nome)
             )
         )
         .scalars()
         .all()
     )
-    return [
-        item
-        for item in usuarios
-        if item.superadmin or item.perfil == "administrador" or any(p.chave == "leads.manage" for p in item.permissoes)
-    ]
+    return list(usuarios)
 
 
 @router.post("/v1/admin/leads/distribuir")
@@ -999,7 +1005,7 @@ async def distribuir_leads(session: SessionDep, request: Request, usuario: Leads
     critério de urgência já usado na ordenação do kanban."""
     atendentes = await _atendentes_elegiveis(session, usuario.organizacao_id)
     if not atendentes:
-        raise HTTPException(status_code=422, detail="Nenhum atendente elegível (administrador ou leads.manage) encontrado")
+        raise HTTPException(status_code=422, detail="Nenhum atendente elegível (usuário ativo com perfil comercial) encontrado")
     leads_sem_responsavel = (
         (
             await session.execute(
@@ -1706,7 +1712,15 @@ async def atualizar_status_lead(
         )
     _auditar(session, usuario, request, "alterar", f"lead:{lead.id}", alteracoes)
     await session.commit()
-    await session.refresh(lead)
+    # Achado (10/09/2026, distribuicao de leads): session.refresh(lead) sozinho
+    # expira o relacionamento "responsavel" sem recarrega-lo -- o acesso
+    # sincrono a lead.responsavel.nome em _lead_response tentava um lazy load
+    # fora do bridge async/greenlet e derrubava o endpoint com 500
+    # (MissingGreenlet), sempre que responsavel_id mudava (inclusive para
+    # None). selectinload explicito evita o lazy load.
+    lead = (
+        await session.execute(select(Lead).options(selectinload(Lead.responsavel)).where(Lead.id == lead.id))
+    ).scalar_one()
     if responsavel_notificar is not None:
         await enviar_alerta_lead_atribuido(
             responsavel_notificar.nome, responsavel_notificar.email, lead.nome, lead.marca, lead.id
@@ -4229,7 +4243,11 @@ async def restaurar_lead(
     lead.arquivado_em = None
     _auditar(session, usuario, request, "restaurar", f"lead:{lead.id}", {})
     await session.commit()
-    await session.refresh(lead)
+    # Mesmo achado de MissingGreenlet do PATCH de lead (10/09/2026): refresh()
+    # sozinho expira o relacionamento "responsavel" sem recarregá-lo.
+    lead = (
+        await session.execute(select(Lead).options(selectinload(Lead.responsavel)).where(Lead.id == lead.id))
+    ).scalar_one()
     return _lead_response(lead, usuario)
 
 

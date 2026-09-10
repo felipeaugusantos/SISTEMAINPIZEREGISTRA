@@ -22,7 +22,6 @@ from app.main import app
 from app.models import (
     EventoAuditoria,
     Lead,
-    PermissaoOperacoes,
     PesquisaMarca,
     QualificacaoIALead,
     RespostaEmailLead,
@@ -576,11 +575,11 @@ def test_leads_kanban_etapa_sem_sla_nunca_fica_atrasada() -> None:
 
 
 def test_distribuir_leads_round_robin_entre_atendentes_elegiveis() -> None:
-    ana = UsuarioOperacoes(id=1, organizacao_id=1, nome="Ana", perfil="administrador", ativo=True)
-    beto = UsuarioOperacoes(id=2, organizacao_id=1, nome="Beto", perfil="operador", ativo=True)
-    beto.permissoes = [PermissaoOperacoes(chave="leads.manage")]
-    tech = UsuarioOperacoes(id=3, organizacao_id=1, nome="Tech", perfil="operador", ativo=True)
-    tech.permissoes = []
+    # FakeSession não avalia o .where() do SQLAlchemy -- o FakeResult já
+    # representa o resultado de "perfil == comercial" aplicado pelo banco,
+    # então só entram aqui os usuários que passariam nesse filtro.
+    ana = UsuarioOperacoes(id=1, organizacao_id=1, nome="Ana", perfil="comercial", ativo=True)
+    beto = UsuarioOperacoes(id=2, organizacao_id=1, nome="Beto", perfil="comercial", ativo=True)
 
     leads = [
         Lead(
@@ -600,7 +599,7 @@ def test_distribuir_leads_round_robin_entre_atendentes_elegiveis() -> None:
         lead.criado_em = datetime(2026, 9, 1, tzinfo=UTC) + timedelta(hours=indice)
 
     app.dependency_overrides[get_session] = sessao_override(
-        FakeResult(itens=[ana, beto, tech]),
+        FakeResult(itens=[ana, beto]),
         FakeResult(itens=leads),
     )
     usuario = usuario_teste()
@@ -624,9 +623,8 @@ def test_distribuir_leads_round_robin_entre_atendentes_elegiveis() -> None:
 
 
 def test_distribuir_leads_sem_atendente_elegivel_retorna_422() -> None:
-    tech = UsuarioOperacoes(id=3, organizacao_id=1, nome="Tech", perfil="operador", ativo=True)
-    tech.permissoes = []
-    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[tech]))
+    # Nenhum usuario com perfil comercial nesta organizacao.
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[]))
     usuario = usuario_teste()
     object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
     app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
@@ -638,6 +636,30 @@ def test_distribuir_leads_sem_atendente_elegivel_retorna_422() -> None:
     )
 
     assert resposta.status_code == 422
+
+
+def test_restaurar_lead_com_responsavel_nao_quebra_por_missing_greenlet() -> None:
+    # Achado (10/09/2026): session.refresh(lead) sozinho, seguido de acesso a
+    # lead.responsavel.nome, derrubava este endpoint com MissingGreenlet
+    # sempre que o lead restaurado tinha um responsavel_id definido.
+    lead = _lead_existente(id=7, arquivado_em=datetime.now(UTC), responsavel_id=5)
+    lead.responsavel = UsuarioOperacoes(id=5, organizacao_id=1, nome="Responsável Atual")
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(scalar=lead),
+        FakeResult(scalar=lead),
+    )
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/7/restaurar",
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.json()["responsavel_nome"] == "Responsável Atual"
+    assert lead.arquivado_em is None
 
 
 def test_admin_abre_contato_com_historico_de_pesquisas() -> None:
@@ -1011,9 +1033,10 @@ def test_atualizar_lead_novo_responsavel_dispara_alerta() -> None:
         operador = UsuarioOperacoes(
             id=5, organizacao_id=1, nome="Novo Responsável", usuario="novo", email="novo@teste.local"
         )
+        lead.responsavel = operador
         usuario = usuario_teste()
         object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
-        session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=operador)])
+        session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=operador), FakeResult(scalar=lead)])
         app.dependency_overrides[get_session] = _override_session(session)
         app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
 
@@ -1026,6 +1049,7 @@ def test_atualizar_lead_novo_responsavel_dispara_alerta() -> None:
         modulo.enviar_alerta_lead_atribuido = original
 
     assert resposta.status_code == 200
+    assert resposta.json()["responsavel_nome"] == "Novo Responsável"
     assert len(chamadas) == 1
     assert chamadas[0][1] == "novo@teste.local"
 
@@ -1045,9 +1069,10 @@ def test_atualizar_lead_mesmo_responsavel_nao_dispara_alerta() -> None:
         operador = UsuarioOperacoes(
             id=5, organizacao_id=1, nome="Mesmo Responsável", usuario="mesmo", email="mesmo@teste.local"
         )
+        lead.responsavel = operador
         usuario = usuario_teste()
         object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
-        session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=operador)])
+        session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=operador), FakeResult(scalar=lead)])
         app.dependency_overrides[get_session] = _override_session(session)
         app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
 

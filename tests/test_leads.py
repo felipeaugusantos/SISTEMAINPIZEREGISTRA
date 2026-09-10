@@ -651,6 +651,7 @@ def test_restaurar_lead_com_responsavel_nao_quebra_por_missing_greenlet() -> Non
     # lead.responsavel.nome, derrubava este endpoint com MissingGreenlet
     # sempre que o lead restaurado tinha um responsavel_id definido.
     lead = _lead_existente(id=7, arquivado_em=datetime.now(UTC), responsavel_id=5)
+    lead.criado_em = lead.atualizado_em = datetime.now(UTC)
     lead.responsavel = UsuarioOperacoes(id=5, organizacao_id=1, nome="Responsável Atual")
     app.dependency_overrides[get_session] = sessao_override(
         FakeResult(scalar=lead),
@@ -1038,6 +1039,7 @@ def test_atualizar_lead_novo_responsavel_dispara_alerta() -> None:
     modulo.enviar_alerta_lead_atribuido = _capturar
     try:
         lead = _lead_existente(id=7, responsavel_id=None, proxima_acao_em=datetime.now(UTC))
+        lead.criado_em = lead.atualizado_em = datetime.now(UTC)
         operador = UsuarioOperacoes(
             id=5, organizacao_id=1, nome="Novo Responsável", usuario="novo", email="novo@teste.local"
         )
@@ -1074,6 +1076,7 @@ def test_atualizar_lead_mesmo_responsavel_nao_dispara_alerta() -> None:
     modulo.enviar_alerta_lead_atribuido = _capturar
     try:
         lead = _lead_existente(id=7, responsavel_id=5, proxima_acao_em=datetime.now(UTC))
+        lead.criado_em = lead.atualizado_em = datetime.now(UTC)
         operador = UsuarioOperacoes(
             id=5, organizacao_id=1, nome="Mesmo Responsável", usuario="mesmo", email="mesmo@teste.local"
         )

@@ -178,18 +178,15 @@ async def criar_consulta(
     email = (
         email_sintetico_por_telefone(dados.telefone) if dados.cliente_sem_email else (dados.email or "").strip().lower()
     )
-    lead_encontrado = await buscar_lead_ativo_por_email(session, operador.organizacao_id, email)
-    # Achado real (10/09/2026): reaproveitar o lead so pela identidade (e-mail
-    # ou, agora, telefone sintetico) sem olhar a marca fazia o mesmo cliente
-    # pesquisando uma marca nova sobrescrever a oportunidade anterior -- e,
-    # com e-mail generico compartilhado entre clientes diferentes, misturava
-    # gente completamente distinta no mesmo lead. Mesma regra ja usada no
-    # upsert publico (POST /v1/leads): marca nova e diferente da atual vira
-    # uma nova oportunidade, nao atualiza a existente por cima.
-    mesma_oportunidade = lead_encontrado is not None and (
-        not primeira_marca.marca or lead_encontrado.marca.strip().lower() == primeira_marca.marca.strip().lower()
-    )
-    lead = lead_encontrado if mesma_oportunidade else None
+    # Acha o lead pela identidade (e-mail real ou, com cliente_sem_email,
+    # telefone sintetico). Não separa por marca aqui, diferente do upsert
+    # público (POST /v1/leads): o banco tem uma constraint real de e-mail
+    # único por organização entre leads ativos (uq_leads_org_email_ativos,
+    # migração h58f0d4c9e31) -- inserir um segundo lead ativo com o mesmo
+    # e-mail para uma marca nova quebraria essa constraint. Cada
+    # PesquisaMarca já preserva sua própria marca no histórico; só o
+    # Lead.marca (resumo/"último interesse") é atualizado a cada consulta.
+    lead = await buscar_lead_ativo_por_email(session, operador.organizacao_id, email)
     if lead is not None and lead.contato_id is not None:
         with session.no_autoflush:
             contato_valido = (

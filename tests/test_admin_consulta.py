@@ -102,7 +102,13 @@ async def test_consulta_mesma_marca_reaproveita_lead_existente() -> None:
 
 
 @pytest.mark.asyncio
-async def test_consulta_marca_diferente_nao_sobrescreve_oportunidade_existente() -> None:
+async def test_consulta_marca_diferente_ainda_reaproveita_o_mesmo_lead() -> None:
+    # Diferente do upsert público (POST /v1/leads), a consulta interna NÃO
+    # separa por marca: o banco tem uq_leads_org_email_ativos (e-mail único
+    # por organização entre leads ativos, migração h58f0d4c9e31) -- inserir
+    # um segundo lead ativo com o mesmo e-mail para uma marca nova violaria
+    # essa constraint. Lead.marca reflete só o interesse mais recente; cada
+    # PesquisaMarca preserva a própria marca no histórico.
     lead_existente = Lead(
         id=42,
         organizacao_id=1,
@@ -121,12 +127,10 @@ async def test_consulta_marca_diferente_nao_sobrescreve_oportunidade_existente()
 
     resultado = await criar_consulta(dados, session, usuario_teste())
 
-    assert resultado.lead_id != 42
-    assert lead_existente.marca == "NORTE STUDIO"
-    assert lead_existente.nome == "Cliente Antigo"
+    assert resultado.lead_id == 42
+    assert lead_existente.marca == "OUTRA MARCA"
     novos_leads = [item for item in session.adicionados if isinstance(item, Lead)]
-    assert len(novos_leads) == 1
-    assert novos_leads[0].marca == "OUTRA MARCA"
+    assert novos_leads == []
 
 
 def test_formulario_admin_nao_exige_atividade() -> None:

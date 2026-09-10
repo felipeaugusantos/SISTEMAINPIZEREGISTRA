@@ -25,6 +25,7 @@ from app.crm import (
     aplicar_politica_oportunidade,
     aplicar_regras_automacao,
     avancar_fase_lead,
+    buscar_lead_ativo_por_email,
     calcular_score_lead,
     distribuir_lead_automaticamente,
     email_sintetico_por_telefone,
@@ -1126,6 +1127,35 @@ async def mover_pesquisa_para_outro_lead(
         assert novo is not None  # garantido por exigir_um_destino
         empresa = await obter_ou_criar_empresa(session, usuario.organizacao_id, novo.empresa)
         email = (novo.email or "").strip().lower() or email_sintetico_por_telefone(novo.telefone or novo.nome)
+        # uq_leads_org_email_ativos (migração h58f0d4c9e31) proíbe dois leads
+        # ativos com o mesmo e-mail na mesma organização -- se esse e-mail já
+        # é de outro cliente ativo, reaproveita o lead existente em vez de
+        # tentar inserir um novo e derrubar com 500.
+        lead_destino = await buscar_lead_ativo_por_email(session, usuario.organizacao_id, email)
+        if lead_destino is not None:
+            if lead_destino.id == lead_origem_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Já existe um cliente ativo com esse e-mail/telefone — é o mesmo desta pesquisa",
+                )
+            pesquisa.lead_id = lead_destino.id
+            pesquisa.empresa_id = lead_destino.empresa_id
+            _auditar(
+                session,
+                usuario,
+                request,
+                "mover_pesquisa",
+                f"pesquisa:{pesquisa.id}",
+                {"lead_origem_id": lead_origem_id, "lead_destino_id": lead_destino.id, "cliente_ja_existia": True},
+            )
+            await session.commit()
+            return {
+                "pesquisa_id": pesquisa.id,
+                "lead_origem_id": lead_origem_id,
+                "lead_destino_id": lead_destino.id,
+                "lead_destino_nome": lead_destino.nome,
+                "cliente_ja_existia": True,
+            }
         lead_destino = Lead(
             organizacao_id=usuario.organizacao_id,
             empresa_id=empresa.id if empresa else None,

@@ -397,7 +397,7 @@ def test_politica_crm_usa_permissao_correta_e_checkboxes_compactos() -> None:
     script = (web_dir / "static" / "admin-regras-automaticas.js").read_text(encoding="utf-8")
     styles = (web_dir / "static" / "admin-crm-overrides.css").read_text(encoding="utf-8")
 
-    assert "admin-crm-overrides.css?v=2" in page
+    assert "admin-crm-overrides.css?v=5" in page
     assert "admin-regras-automaticas.js?v=5" in page
     assert 'includes("crm.manage")' in script
     assert 'includes("leads.manage")' not in script

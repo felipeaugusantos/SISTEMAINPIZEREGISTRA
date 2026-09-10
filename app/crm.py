@@ -885,6 +885,24 @@ async def verificar_conflito_interesse(
     return achados
 
 
+# Domínio reservado (nunca resolve de verdade) para a identidade sintética de
+# clientes sem e-mail -- achado real (10/09/2026): a equipe reaproveitava um
+# e-mail genérico próprio (ex.: ze@zeregistra.com.br) para clientes
+# particulares diferentes na Consulta de marcas, e o sistema tratava todos
+# como a MESMA pessoa, misturando pesquisas de empresas completamente
+# distintas no mesmo lead. Determinístico pelo telefone: o mesmo cliente
+# voltando com o mesmo telefone continua caindo no mesmo lead (correto);
+# telefones diferentes nunca colidem. Usado por app.api.consulta (pesquisa
+# nova) e pelo endpoint de mover pesquisa para um cliente novo (correção
+# manual de um vínculo errado).
+DOMINIO_CLIENTE_SEM_EMAIL = "sememail.zeregistra.com.br"
+
+
+def email_sintetico_por_telefone(telefone: str) -> str:
+    digitos = "".join(caractere for caractere in telefone if caractere.isdigit())
+    return f"presencial-{digitos}@{DOMINIO_CLIENTE_SEM_EMAIL}"
+
+
 async def buscar_lead_ativo_por_email(session: AsyncSession, organizacao_id: int, email: str) -> Lead | None:
     """Localiza o contato ativo pelo identificador único usado pelo banco.
 

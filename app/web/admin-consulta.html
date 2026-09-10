@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Consulta de marcas — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=60">
-  <link rel="stylesheet" href="/static/admin-consulta.css?v=2">
+  <link rel="stylesheet" href="/static/admin-consulta.css?v=3">
   <script src="/static/admin-shell.js?v=45" defer></script>
-  <script src="/static/admin-consulta.js?v=8" defer></script>
+  <script src="/static/admin-consulta.js?v=9" defer></script>
 </head>
 <body class="admin-body" data-admin-section="consulta">
   <main class="admin-main admin-dashboard">
@@ -51,9 +51,10 @@
           <div class="user-fields">
             <label>Nome <small>(obrigatório)</small><input name="nome" required minlength="2" maxlength="150" placeholder="Nome do cliente"></label>
             <label>Empresa<input name="empresa" maxlength="200"></label>
-            <label>E-mail <small>(obrigatório)</small><input name="email" type="email" required maxlength="254"></label>
-            <label>Telefone<input name="telefone" maxlength="30"></label>
+            <label id="campo-email">E-mail <small>(obrigatório)</small><input name="email" type="email" required maxlength="254"></label>
+            <label id="campo-telefone">Telefone <small id="telefone-obrigatorio" hidden>(obrigatório)</small><input name="telefone" maxlength="30"></label>
           </div>
+          <label class="consulta-sem-email"><input type="checkbox" name="cliente_sem_email" id="cliente-sem-email"> Cliente sem e-mail (atendimento presencial) — identifica pelo telefone, não reaproveite um e-mail genérico da equipe</label>
         </fieldset>
         <button class="primary-button form-submit" type="submit">Pesquisar</button>
       </form>

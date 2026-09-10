@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.juridico import FUSO_BRASIL
 from app.api.leads import (
+    MoverPesquisaInput,
     _lead_response,
     _resumir_alteracoes,
     _resumo_pesquisa,
@@ -644,6 +645,89 @@ def test_distribuir_leads_sem_atendente_elegivel_retorna_422() -> None:
     )
 
     assert resposta.status_code == 422
+
+
+# --- Achado real (10/09/2026): pesquisas de clientes diferentes caíram no
+# mesmo lead por causa de e-mail genérico reaproveitado -- correção manual
+# para os casos já misturados, movendo a pesquisa sem apagar nenhum dado. ---
+
+
+def test_mover_pesquisa_input_exige_um_destino() -> None:
+    with pytest.raises(ValueError):
+        MoverPesquisaInput()
+    with pytest.raises(ValueError):
+        MoverPesquisaInput(lead_id_destino=1, novo_cliente={"nome": "Fulano"})
+
+
+def test_mover_pesquisa_para_lead_existente() -> None:
+    pesquisa = PesquisaMarca(id="pesquisa-1", organizacao_id=1, lead_id=9, marca="ACME", tipo_pesquisa="completa")
+    lead_destino = Lead(
+        id=20,
+        organizacao_id=1,
+        nome="Cliente Certo",
+        email="certo@example.com",
+        telefone="11900000000",
+        marca="ACME",
+        origem="operador",
+        status=StatusLead.NOVO,
+    )
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(scalar=pesquisa),
+        FakeResult(scalar=lead_destino),
+    )
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/pesquisas/pesquisa-1/mover-lead",
+        json={"lead_id_destino": 20},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["lead_origem_id"] == 9
+    assert corpo["lead_destino_id"] == 20
+    assert pesquisa.lead_id == 20
+
+
+def test_mover_pesquisa_para_o_mesmo_lead_retorna_422() -> None:
+    pesquisa = PesquisaMarca(id="pesquisa-1", organizacao_id=1, lead_id=9, marca="ACME", tipo_pesquisa="completa")
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=pesquisa))
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/pesquisas/pesquisa-1/mover-lead",
+        json={"lead_id_destino": 9},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 422
+
+
+def test_mover_pesquisa_cria_novo_cliente() -> None:
+    pesquisa = PesquisaMarca(
+        id="pesquisa-1", organizacao_id=1, lead_id=9, marca="ACME", atividade="Comércio", tipo_pesquisa="completa"
+    )
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=pesquisa))
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/pesquisas/pesquisa-1/mover-lead",
+        json={"novo_cliente": {"nome": "Cliente Novo", "telefone": "11988887777"}},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["lead_origem_id"] == 9
+    assert corpo["lead_destino_id"] != 9
+    assert pesquisa.lead_id == corpo["lead_destino_id"]
 
 
 def test_restaurar_lead_com_responsavel_nao_quebra_por_missing_greenlet() -> None:

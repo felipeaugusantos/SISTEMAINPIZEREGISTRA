@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
@@ -8,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.pesquisas import detectar_pesquisa_duplicada, gerar_resumo_pesquisa
 from app.auth import UsuarioAutenticado, exigir_permissao
-from app.crm import buscar_lead_ativo_por_email, obter_ou_criar_empresa, registrar_consentimento_operador
+from app.crm import (
+    buscar_lead_ativo_por_email,
+    email_sintetico_por_telefone,
+    obter_ou_criar_empresa,
+    registrar_consentimento_operador,
+)
 from app.database import get_session
 from app.models import (
     Contato,
@@ -25,6 +31,7 @@ from app.trademarks.nice import CLASSES_NICE
 router = APIRouter(prefix="/v1/admin/consulta", tags=["consulta interna"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 OperadorDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
+_PADRAO_EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
 class MarcaConsultaInput(BaseModel):
@@ -73,17 +80,35 @@ class ConsultaOperadorInput(BaseModel):
     atividade: str | None = Field(default=None, max_length=500)
     classes_nice: list[str] = Field(default_factory=list, max_length=45)
     marcas: list[MarcaConsultaInput] = Field(default_factory=list, min_length=0, max_length=20)
-    # Nome e e-mail sao obrigatorios: toda consulta interna vira lead, para o
-    # comercial poder dar sequencia (ver app.api.consulta.criar_consulta).
+    # Nome e identificador (e-mail OU telefone) sao obrigatorios: toda
+    # consulta interna vira lead, para o comercial poder dar sequencia (ver
+    # app.api.consulta.criar_consulta). cliente_sem_email cobre o
+    # atendimento presencial de quem ainda nao passou o proprio e-mail --
+    # sem essa opcao, a equipe reaproveitava um e-mail generico proprio
+    # (achado real, 10/09/2026) e o sistema misturava clientes diferentes
+    # no mesmo lead.
     nome: str = Field(min_length=2, max_length=150)
     empresa: str | None = Field(default=None, max_length=200)
-    email: str = Field(min_length=5, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+    email: str | None = Field(default=None, max_length=254)
     telefone: str = Field(default="", max_length=30)
+    cliente_sem_email: bool = False
 
     @field_validator("marca")
     @classmethod
     def limpar_marca_opcional(cls, valor: str | None) -> str | None:
         return valor.strip() if valor is not None else None
+
+    @model_validator(mode="after")
+    def exigir_email_ou_telefone(self) -> "ConsultaOperadorInput":
+        if self.cliente_sem_email:
+            digitos = "".join(caractere for caractere in self.telefone if caractere.isdigit())
+            if len(digitos) < 10:
+                raise ValueError("Informe um telefone válido (com DDD) para cliente sem e-mail")
+        else:
+            email = (self.email or "").strip()
+            if len(email) < 5 or not _PADRAO_EMAIL.match(email):
+                raise ValueError("Informe um e-mail válido")
+        return self
 
     @field_validator("nome")
     @classmethod
@@ -150,8 +175,21 @@ async def criar_consulta(
     marcas = dados.itens_marca()
     primeira_marca = marcas[0]
     empresa = await obter_ou_criar_empresa(session, operador.organizacao_id, dados.empresa)
-    email = dados.email.strip().lower()
-    lead = await buscar_lead_ativo_por_email(session, operador.organizacao_id, email)
+    email = (
+        email_sintetico_por_telefone(dados.telefone) if dados.cliente_sem_email else (dados.email or "").strip().lower()
+    )
+    lead_encontrado = await buscar_lead_ativo_por_email(session, operador.organizacao_id, email)
+    # Achado real (10/09/2026): reaproveitar o lead so pela identidade (e-mail
+    # ou, agora, telefone sintetico) sem olhar a marca fazia o mesmo cliente
+    # pesquisando uma marca nova sobrescrever a oportunidade anterior -- e,
+    # com e-mail generico compartilhado entre clientes diferentes, misturava
+    # gente completamente distinta no mesmo lead. Mesma regra ja usada no
+    # upsert publico (POST /v1/leads): marca nova e diferente da atual vira
+    # uma nova oportunidade, nao atualiza a existente por cima.
+    mesma_oportunidade = lead_encontrado is not None and (
+        not primeira_marca.marca or lead_encontrado.marca.strip().lower() == primeira_marca.marca.strip().lower()
+    )
+    lead = lead_encontrado if mesma_oportunidade else None
     if lead is not None and lead.contato_id is not None:
         with session.no_autoflush:
             contato_valido = (

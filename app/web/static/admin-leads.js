@@ -18,6 +18,8 @@ const crmPipeline = document.querySelector("#crm-pipeline");
 const crmPriorities = document.querySelector("#crm-priorities");
 const researchDeleteDialog = document.querySelector("#research-delete-dialog");
 const researchDeleteForm = document.querySelector("#research-delete-form");
+const researchMoveDialog = document.querySelector("#research-move-dialog");
+const researchMoveForm = document.querySelector("#research-move-form");
 const proposalDialog = document.querySelector("#proposal-dialog");
 const proposalForm = document.querySelector("#proposal-form");
 let proposalContext = null;
@@ -25,7 +27,7 @@ let proposalContext = null;
 const state = {
   offset: 0, total: 0, owners: [], archiveId: null, loading: false,
   canManage: false, canArchive: false, canExport: false, canDeleteResearch: false, canPii: false,
-  openLeadId: null, deleteResearchId: null, deleteRequestId: null, deleteMode: null,
+  openLeadId: null, deleteResearchId: null, deleteRequestId: null, deleteMode: null, moveResearchId: null,
   viewMode: "researches", items: [], priority: "",
 };
 const statusLabels = {
@@ -134,6 +136,11 @@ function deletionAction(item) {
   }
   const label = state.canDeleteResearch ? "Excluir pesquisa" : "Solicitar exclusão";
   return `<button class="danger-button request-delete-research" type="button" data-research-id="${escapeHtml(item.id)}">${label}</button>`;
+}
+
+function moveAction(item) {
+  if (!state.canManage) return "";
+  return `<button class="secondary-button move-research" type="button" data-research-id="${escapeHtml(item.id)}" data-research-marca="${escapeHtml(item.marca)}">Não é este cliente — mover</button>`;
 }
 
 function contactChannelLabel(value) {
@@ -372,7 +379,7 @@ function researchCard(item) {
     <div><strong>${escapeHtml(item.marca)}</strong>${duplicateStatus(item)}<small>${formatDate(item.criado_em)}</small></div>
     <p>${escapeHtml(item.atividade || "Atividade não informada")}</p>
     <div class="lead-research-meta">${item.classe_nice ? `<span>NCL ${escapeHtml(item.classe_nice)}</span>` : ""}${item.risco_nivel ? `<span class="risk-pill risk-${escapeHtml(item.risco_nivel)}">Risco ${escapeHtml(riskLabels[item.risco_nivel] || item.risco_nivel)}${item.risco_pontuacao !== null ? ` · ${item.risco_pontuacao} pontos` : ""}</span>` : `<span>Análise ainda não calculada</span>`}${fullReportStatus(item)}</div>
-    <div class="lead-research-actions"><a class="secondary-button" href="/admin/analises/${encodeURIComponent(item.id)}">Abrir Central de Análise</a>${reportAction}${deletionAction(item)}</div>
+    <div class="lead-research-actions"><a class="secondary-button" href="/admin/analises/${encodeURIComponent(item.id)}">Abrir Central de Análise</a>${reportAction}${moveAction(item)}${deletionAction(item)}</div>
   </article>`;
 }
 
@@ -1210,6 +1217,54 @@ researchDeleteForm.addEventListener("submit", async event => {
   }
 });
 
+function openResearchMove(researchId, marcaAtual) {
+  state.moveResearchId = researchId;
+  researchMoveForm.reset();
+  document.querySelector("#research-move-description").textContent = `Pesquisa de "${marcaAtual}" — escolha para qual cliente ela pertence de verdade.`;
+  document.querySelector("#research-move-lead-id-field").hidden = false;
+  document.querySelector("#research-move-novo-fields").hidden = true;
+  document.querySelector("#research-move-message").hidden = true;
+  researchMoveDialog.showModal();
+}
+
+researchMoveForm.querySelectorAll('input[name="destino"]').forEach(radio => {
+  radio.addEventListener("change", () => {
+    const novo = researchMoveForm.destino.value === "novo";
+    document.querySelector("#research-move-lead-id-field").hidden = novo;
+    document.querySelector("#research-move-novo-fields").hidden = !novo;
+  });
+});
+
+document.querySelector("#cancel-research-move").addEventListener("click", () => {
+  researchMoveDialog.close();
+});
+
+researchMoveForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(researchMoveForm));
+  const statusBox = document.querySelector("#research-move-message");
+  statusBox.hidden = false;
+  statusBox.className = "status-message loading";
+  statusBox.textContent = "Movendo…";
+  try {
+    const body = data.destino === "novo"
+      ? { novo_cliente: { nome: data.novo_nome, email: data.novo_email || null, telefone: data.novo_telefone || "", empresa: data.novo_empresa || null } }
+      : { lead_id_destino: Number(data.lead_id_destino) };
+    const resultado = await responsePayload(await fetch(`/v1/admin/pesquisas/${encodeURIComponent(state.moveResearchId)}/mover-lead`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }));
+    researchMoveDialog.close();
+    showMessage(`Pesquisa movida para ${resultado.lead_destino_nome}.`, "success");
+    await loadLeads();
+    if (state.openLeadId && dialog.open) await openLead(state.openLeadId);
+  } catch (error) {
+    statusBox.className = "status-message error";
+    statusBox.textContent = error.message;
+  }
+});
+
 document.querySelector("#deletion-request-list").addEventListener("click", event => {
   const button = event.target.closest(".decide-deletion");
   if (!button) return;
@@ -1221,6 +1276,11 @@ dialogContent.addEventListener("click", async event => {
   const deleteResearch = event.target.closest(".request-delete-research");
   if (deleteResearch) {
     openResearchDelete(state.canDeleteResearch ? "direct" : "request", deleteResearch.dataset.researchId);
+    return;
+  }
+  const moveResearch = event.target.closest(".move-research");
+  if (moveResearch) {
+    openResearchMove(moveResearch.dataset.researchId, moveResearch.dataset.researchMarca);
     return;
   }
   const button = event.target.closest(".generate-full-report");

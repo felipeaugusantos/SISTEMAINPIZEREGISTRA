@@ -7,10 +7,10 @@
     <title>Painel de leads — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=60" />
     <link rel="stylesheet" href="/static/ze-brand.css?v=1" />
-    <link rel="stylesheet" href="/static/admin-leads.css?v=23" />
+    <link rel="stylesheet" href="/static/admin-leads.css?v=24" />
     <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=12 -->
     <script src="/static/admin-shell.js?v=45" defer></script>
-    <script src="/static/admin-leads.js?v=60" defer></script>
+    <script src="/static/admin-leads.js?v=61" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
     <header class="topbar">
@@ -169,6 +169,29 @@
         <div>
           <button id="cancel-research-delete" class="secondary-button" type="button">Cancelar</button>
           <button class="danger-button" type="submit">Confirmar</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="research-move-dialog" class="confirm-dialog">
+      <form id="research-move-form">
+        <h2>Mover pesquisa para outro cliente</h2>
+        <p id="research-move-description"></p>
+        <label class="research-move-option"><input type="radio" name="destino" value="existente" checked> Cliente já cadastrado (informe o ID do lead)</label>
+        <label id="research-move-lead-id-field">ID do lead de destino
+          <input name="lead_id_destino" type="number" min="1">
+          <small>Está na URL da tela do contato: /admin/pesquisas?lead_id=<b>123</b></small>
+        </label>
+        <label class="research-move-option"><input type="radio" name="destino" value="novo"> Cliente novo (ainda não cadastrado)</label>
+        <div id="research-move-novo-fields" hidden>
+          <label>Nome <input name="novo_nome" maxlength="150"></label>
+          <label>E-mail <input name="novo_email" type="email" maxlength="254"></label>
+          <label>Telefone <input name="novo_telefone" maxlength="30"></label>
+          <label>Empresa <input name="novo_empresa" maxlength="200"></label>
+        </div>
+        <div id="research-move-message" class="status-message" role="status" hidden></div>
+        <div>
+          <button id="cancel-research-move" class="secondary-button" type="button">Cancelar</button>
+          <button class="primary-button" type="submit">Mover pesquisa</button>
         </div>
       </form>
     </dialog>

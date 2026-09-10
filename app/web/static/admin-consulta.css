@@ -47,6 +47,19 @@
   .consulta-add-marca { width: 100%; }
 }
 
+.consulta-sem-email {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  font-size: 0.86rem;
+  color: var(--muted, #5c6b5f);
+}
+.consulta-sem-email input { width: 18px; height: 18px; flex: none; }
+
 .ia-explicacao-risco {
   margin: 16px 0;
   padding: 16px 20px;

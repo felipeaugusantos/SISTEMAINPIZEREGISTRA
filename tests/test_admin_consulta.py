@@ -12,7 +12,7 @@ from app.api.consulta import (
     obter_explicacao_ia,
     revisar_explicacao_ia,
 )
-from app.models import ExplicacaoAnaliseMarca, Lead, PesquisaMarca
+from app.models import ExplicacaoAnaliseMarca, Lead, PesquisaMarca, StatusLead
 
 
 def test_consulta_interna_aceita_atividade_ausente() -> None:
@@ -39,6 +39,94 @@ def test_consulta_interna_normaliza_atividade_vazia() -> None:
 def test_consulta_interna_exige_nome_e_email() -> None:
     with pytest.raises(ValueError):
         ConsultaOperadorInput.model_validate({"marca": "NORTE STUDIO"})
+
+
+# --- Achado real (10/09/2026): reaproveitar um e-mail genérico da equipe
+# (ex.: ze@zeregistra.com.br) para clientes particulares diferentes fazia o
+# sistema misturar pesquisas de empresas completamente distintas no mesmo
+# lead. cliente_sem_email usa uma identidade sintética por telefone; e,
+# mesmo com e-mail real repetido, marca diferente agora vira uma nova
+# oportunidade em vez de sobrescrever a existente (mesma regra do upsert
+# público em POST /v1/leads). ---
+
+
+def test_consulta_cliente_sem_email_exige_telefone_valido() -> None:
+    with pytest.raises(ValueError):
+        ConsultaOperadorInput.model_validate(
+            {"marca": "NORTE STUDIO", "nome": "Cliente Teste", "cliente_sem_email": True, "telefone": "123"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_consulta_cliente_sem_email_usa_identidade_sintetica_por_telefone() -> None:
+    session = SessaoConsultaComId()
+    dados = ConsultaOperadorInput.model_validate(
+        {
+            "marca": "NORTE STUDIO",
+            "nome": "Cliente Teste",
+            "cliente_sem_email": True,
+            "telefone": "(16) 99999-8888",
+        }
+    )
+
+    await criar_consulta(dados, session, usuario_teste())
+
+    novos_leads = [item for item in session.adicionados if isinstance(item, Lead)]
+    assert novos_leads[0].email == "presencial-16999998888@sememail.zeregistra.com.br"
+
+
+@pytest.mark.asyncio
+async def test_consulta_mesma_marca_reaproveita_lead_existente() -> None:
+    lead_existente = Lead(
+        id=42,
+        organizacao_id=1,
+        nome="Nome Antigo",
+        email="cliente@example.com",
+        telefone="11900000000",
+        marca="NORTE STUDIO",
+        origem="operador",
+        status=StatusLead.NOVO,
+        aceite_privacidade=True,
+    )
+    session = SessaoConsultaComId([FakeResult(scalar=lead_existente)])
+    dados = ConsultaOperadorInput.model_validate(
+        {"marca": "NORTE STUDIO", "nome": "Cliente Teste", "email": "cliente@example.com"}
+    )
+
+    resultado = await criar_consulta(dados, session, usuario_teste())
+
+    assert resultado.lead_id == 42
+    assert lead_existente.nome == "Cliente Teste"
+    pesquisas = [item for item in session.adicionados if isinstance(item, PesquisaMarca)]
+    assert pesquisas[0].lead_id == 42
+
+
+@pytest.mark.asyncio
+async def test_consulta_marca_diferente_nao_sobrescreve_oportunidade_existente() -> None:
+    lead_existente = Lead(
+        id=42,
+        organizacao_id=1,
+        nome="Cliente Antigo",
+        email="cliente@example.com",
+        telefone="11900000000",
+        marca="NORTE STUDIO",
+        origem="operador",
+        status=StatusLead.NOVO,
+        aceite_privacidade=True,
+    )
+    session = SessaoConsultaComId([FakeResult(scalar=lead_existente)])
+    dados = ConsultaOperadorInput.model_validate(
+        {"marca": "OUTRA MARCA", "nome": "Cliente Teste", "email": "cliente@example.com"}
+    )
+
+    resultado = await criar_consulta(dados, session, usuario_teste())
+
+    assert resultado.lead_id != 42
+    assert lead_existente.marca == "NORTE STUDIO"
+    assert lead_existente.nome == "Cliente Antigo"
+    novos_leads = [item for item in session.adicionados if isinstance(item, Lead)]
+    assert len(novos_leads) == 1
+    assert novos_leads[0].marca == "OUTRA MARCA"
 
 
 def test_formulario_admin_nao_exige_atividade() -> None:

@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import HTMLResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import case, desc, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -27,6 +27,8 @@ from app.crm import (
     avancar_fase_lead,
     calcular_score_lead,
     distribuir_lead_automaticamente,
+    email_sintetico_por_telefone,
+    obter_ou_criar_empresa,
     obter_politica_crm,
     registrar_consentimento_operador,
     registrar_consentimento_titular,
@@ -1053,6 +1055,112 @@ async def distribuir_leads(session: SessionDep, request: Request, usuario: Leads
         "distribuidos": distribuidos,
         "por_responsavel": por_responsavel,
         "atendentes": [{"id": item.id, "nome": item.nome} for item in atendentes],
+    }
+
+
+class NovoClienteMoverInput(BaseModel):
+    nome: str = Field(min_length=2, max_length=150)
+    email: str | None = Field(default=None, max_length=254)
+    telefone: str = Field(default="", max_length=30)
+    empresa: str | None = Field(default=None, max_length=200)
+
+    @field_validator("nome")
+    @classmethod
+    def limpar_nome(cls, valor: str) -> str:
+        return valor.strip()
+
+
+class MoverPesquisaInput(BaseModel):
+    """Corrige o vínculo de uma pesquisa que caiu no lead errado -- achado real
+    (10/09/2026): e-mail genérico reaproveitado para clientes particulares
+    diferentes misturou pesquisas de empresas distintas no mesmo lead."""
+
+    lead_id_destino: int | None = Field(default=None, ge=1)
+    novo_cliente: NovoClienteMoverInput | None = None
+
+    @model_validator(mode="after")
+    def exigir_um_destino(self) -> "MoverPesquisaInput":
+        if bool(self.lead_id_destino) == bool(self.novo_cliente):
+            raise ValueError("Informe o lead de destino ou os dados de um novo cliente, não os dois")
+        return self
+
+
+@router.post("/v1/admin/pesquisas/{pesquisa_id}/mover-lead")
+async def mover_pesquisa_para_outro_lead(
+    pesquisa_id: str,
+    dados: MoverPesquisaInput,
+    session: SessionDep,
+    usuario: LeadsManageDep,
+    request: Request,
+) -> dict:
+    """Corrige uma pesquisa vinculada ao cliente errado sem apagar nenhum dado:
+    a pesquisa muda de lead, o lead de origem e o de destino continuam intactos
+    (o de origem só perde essa pesquisa da lista)."""
+    pesquisa = (
+        await session.execute(
+            select(PesquisaMarca).where(
+                PesquisaMarca.id == pesquisa_id,
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if pesquisa is None:
+        raise HTTPException(status_code=404, detail="Pesquisa não encontrada")
+    lead_origem_id = pesquisa.lead_id
+    if dados.lead_id_destino is not None:
+        if dados.lead_id_destino == lead_origem_id:
+            raise HTTPException(status_code=422, detail="A pesquisa já está vinculada a esse cliente")
+        lead_destino = (
+            await session.execute(
+                select(Lead).where(
+                    Lead.id == dados.lead_id_destino,
+                    Lead.organizacao_id == usuario.organizacao_id,
+                    Lead.arquivado_em.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if lead_destino is None:
+            raise HTTPException(status_code=422, detail="Lead de destino inválido")
+    else:
+        novo = dados.novo_cliente
+        assert novo is not None  # garantido por exigir_um_destino
+        empresa = await obter_ou_criar_empresa(session, usuario.organizacao_id, novo.empresa)
+        email = (novo.email or "").strip().lower() or email_sintetico_por_telefone(novo.telefone or novo.nome)
+        lead_destino = Lead(
+            organizacao_id=usuario.organizacao_id,
+            empresa_id=empresa.id if empresa else None,
+            nome=novo.nome,
+            empresa=empresa.nome if empresa else None,
+            email=email,
+            telefone=novo.telefone.strip(),
+            marca=pesquisa.marca,
+            atividade=pesquisa.atividade,
+            origem="operador",
+            tipo_interesse=TipoProcesso.MARCA,
+            aceite_privacidade=True,
+            aceite_marketing=False,
+            responsavel_id=usuario.id,
+            status=StatusLead.NOVO,
+        )
+        registrar_consentimento_operador(lead_destino, usuario.id)
+        session.add(lead_destino)
+        await session.flush()
+    pesquisa.lead_id = lead_destino.id
+    pesquisa.empresa_id = lead_destino.empresa_id
+    _auditar(
+        session,
+        usuario,
+        request,
+        "mover_pesquisa",
+        f"pesquisa:{pesquisa.id}",
+        {"lead_origem_id": lead_origem_id, "lead_destino_id": lead_destino.id},
+    )
+    await session.commit()
+    return {
+        "pesquisa_id": pesquisa.id,
+        "lead_origem_id": lead_origem_id,
+        "lead_destino_id": lead_destino.id,
+        "lead_destino_nome": lead_destino.nome,
     }
 
 

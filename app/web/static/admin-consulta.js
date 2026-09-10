@@ -325,14 +325,27 @@ function renderOutrasClasses(itens) {
   );
 }
 
+const checkboxSemEmail = document.querySelector("#cliente-sem-email");
+const campoEmail = document.querySelector("#campo-email input");
+const telefoneObrigatorio = document.querySelector("#telefone-obrigatorio");
+checkboxSemEmail?.addEventListener("change", () => {
+  const semEmail = checkboxSemEmail.checked;
+  campoEmail.required = !semEmail;
+  campoEmail.disabled = semEmail;
+  if (semEmail) campoEmail.value = "";
+  telefoneObrigatorio.hidden = !semEmail;
+});
+
 form.addEventListener("submit", async event => {
   event.preventDefault();
   const formData = new FormData(form);
+  const semEmail = formData.get("cliente_sem_email") === "on";
   const dados = {
     nome: String(formData.get("nome") || "").trim(),
     empresa: String(formData.get("empresa") || "").trim() || null,
-    email: String(formData.get("email") || "").trim(),
+    email: semEmail ? null : String(formData.get("email") || "").trim(),
     telefone: String(formData.get("telefone") || "").trim(),
+    cliente_sem_email: semEmail,
     marcas: [...document.querySelectorAll(".consulta-marca-item")].map(item => ({
       marca: item.querySelector('[data-field="marca"]').value.trim(),
       atividade: item.querySelector('[data-field="atividade"]').value.trim() || null,

@@ -611,9 +611,11 @@ const ETAPA_KANBAN_LABELS = {
   ganho: "Ganho",
   protocolo_inpi: "Protocolo no INPI gerado",
   processo_inpi: "Processo no INPI",
+  perdidos: "Perdidos",
 };
 
 function etapaKanbanLead(lead) {
+  if (lead.status === "descartado") return "perdidos";
   if (lead.fase === "contato_inicial") return lead.status === "em_contato" ? "aguardando_contato_nosso" : "primeiro_contato";
   if (lead.fase === "relatorio_enviado" && lead.status === "sem_retorno") return "aguardando_retorno_cliente";
   return ETAPA_KANBAN_LABELS[lead.fase] ? lead.fase : "primeiro_contato";

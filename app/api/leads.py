@@ -136,6 +136,13 @@ KANBAN_ETAPAS = {
     "ganho": {"label": "Ganho", "fase": "ganho"},
     "protocolo_inpi": {"label": "Protocolo no INPI gerado", "fase": "protocolo_inpi"},
     "processo_inpi": {"label": "Processo no INPI", "fase": "processo_inpi"},
+    # Achado H3/P1 da auditoria (10/09/2026): lead descartado não tinha coluna
+    # própria e ficava preso na última coluna ativa antes do descarte,
+    # contado junto com oportunidades abertas. "fase" aqui não corresponde a
+    # nenhum valor de FaseLead (não avança o funil) -- é só o rótulo da
+    # coluna; a movimentação real acontece via PATCH status=descartado (que
+    # já exige motivo_perda), nunca arrastando o card, ver mover_lead_kanban.
+    "perdidos": {"label": "Perdidos", "fase": "perdidos"},
 }
 
 # Desenho do setor de Atendimento & Comercial (10/09/2026): prazo máximo sem
@@ -574,6 +581,32 @@ async def criar_lead(
         not marca_nova or existente.marca.strip().lower() == marca_nova.lower()
     )
     if mesma_oportunidade:
+        # Achado H7/P1 da auditoria (10/09/2026): reenviar o formulário
+        # público para uma oportunidade já CONVERTIDA (negócio fechado)
+        # sobrescrevia nome/e-mail/telefone do registro fechado. Só registra
+        # que o cliente voltou a se manifestar, sem mutar o negócio já
+        # ganho -- quem responde a esse novo interesse abre uma oportunidade
+        # nova manualmente, se for o caso.
+        if existente.status == StatusLead.CONVERTIDO:
+            registrar_evento_operacional(
+                session,
+                organizacao_id=existente.organizacao_id,
+                dominio="crm",
+                tipo="crm.lead_reenvio_ignorado",
+                entidade_tipo="lead",
+                entidade_id=existente.id,
+                ator="formulario_publico",
+                payload={"motivo": "oportunidade_ja_convertida", "email": dados.email.lower()},
+            )
+            await session.commit()
+            resposta = LeadResponse.model_validate(existente)
+            resposta.documento = _mascarar_documento(resposta.documento)
+            return resposta
+        # Achado H7/P1: oportunidade DESCARTADA que reaparece pelo formulário
+        # público é reaberta (o cliente voltou a manifestar interesse) em vez
+        # de continuar descartada para sempre com os dados silenciosamente
+        # sobrescritos por baixo.
+        reabrindo_descartado = existente.status == StatusLead.DESCARTADO
         existente.nome = dados.nome
         existente.email = dados.email.lower()
         existente.telefone = dados.telefone
@@ -589,6 +622,21 @@ async def criar_lead(
         existente.utm_medium_ultimo = dados.utm_medium or existente.utm_medium_ultimo
         existente.utm_campaign_ultimo = dados.utm_campaign or existente.utm_campaign_ultimo
         registrar_consentimento_titular(existente, organizacao.politica_privacidade_versao)
+        if reabrindo_descartado:
+            existente.status = StatusLead.NOVO
+            existente.resultado = None
+            existente.motivo_perda = None
+            existente.motivo_perda_detalhe = None
+            registrar_evento_operacional(
+                session,
+                organizacao_id=existente.organizacao_id,
+                dominio="crm",
+                tipo="crm.lead_reaberto",
+                entidade_tipo="lead",
+                entidade_id=existente.id,
+                ator="formulario_publico",
+                payload={"motivo": "reenvio_formulario_publico"},
+            )
         if existente.status not in (StatusLead.CONVERTIDO, StatusLead.DESCARTADO):
             await _garantir_proxima_acao_padrao(session, existente)
         await session.commit()
@@ -924,6 +972,11 @@ async def resumo_crm_leads(session: SessionDep, usuario: LeadsViewDep) -> dict:
 
 
 def _kanban_etapa(lead: Lead) -> str:
+    # Descartado sempre cai em "Perdidos", independentemente da fase em que
+    # estava -- checagem primeiro para não ser mascarada pelas regras de fase
+    # abaixo (achado H3/P1 da auditoria, 10/09/2026).
+    if lead.status == StatusLead.DESCARTADO:
+        return "perdidos"
     if lead.fase == "contato_inicial":
         return "aguardando_contato_nosso" if lead.status == StatusLead.EM_CONTATO else "primeiro_contato"
     if lead.fase == "relatorio_enviado" and lead.status == StatusLead.SEM_RETORNO:
@@ -1221,6 +1274,11 @@ async def mover_lead_kanban(
     etapa = KANBAN_ETAPAS.get(dados.etapa)
     if etapa is None:
         raise HTTPException(status_code=422, detail="Etapa do Kanban inválida")
+    if dados.etapa == "perdidos":
+        raise HTTPException(
+            status_code=422,
+            detail="Para descartar a oportunidade, informe o motivo da perda (PATCH de status), não arraste o card",
+        )
     lead = (
         await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one_or_none()
@@ -1703,6 +1761,15 @@ async def atualizar_status_lead(
             lead.motivo_perda = None
             lead.motivo_perda_detalhe = None
         elif dados.status == StatusLead.DESCARTADO:
+            # Achado H4/P1 da auditoria (10/09/2026): nada exigia motivo_perda
+            # ao descartar -- o backend aceitava a oportunidade fechada sem
+            # nenhum motivo estruturado, quebrando os relatórios de perda.
+            if not dados.motivo_perda:
+                raise HTTPException(
+                    status_code=422, detail="Motivo de perda é obrigatório ao descartar a oportunidade"
+                )
+            if dados.motivo_perda not in MOTIVOS_PERDA:
+                raise HTTPException(status_code=422, detail="Motivo de perda inválido")
             lead.resultado = "perdido"
         else:
             lead.resultado = None

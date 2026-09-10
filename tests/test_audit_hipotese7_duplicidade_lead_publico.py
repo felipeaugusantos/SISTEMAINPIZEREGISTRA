@@ -10,6 +10,12 @@ tests/test_leads.py::test_upsert_publico_telefone_com_mascara_diferente_reconhec
 Este arquivo cobre os três cenários ainda sem teste: lead convertido,
 descartado e arquivado reenviando o formulário público.
 
+Correção P1 aplicada em 10/09/2026: convertido não tem mais os dados
+sobrescritos (só registra o reenvio, sem mutar o negócio já ganho);
+descartado é reaberto (status volta a "novo") em vez de continuar
+descartado com os dados trocados por baixo. Arquivado permanece sem
+mudança (decisão registrada no relatório de auditoria).
+
 Isolados e determinísticos: usam FakeSession (tests/conftest.py), sem
 tocar banco real. Não substituem nem alteram nenhum teste existente.
 """
@@ -54,46 +60,49 @@ def _payload(**overrides: object) -> dict[str, object]:
     return base
 
 
-def test_lead_convertido_reenviando_o_formulario_tem_dados_sobrescritos_mas_status_preservado() -> None:
-    """CONFIRMADO: consulta_existente (app/api/leads.py::criar_lead) filtra
-    só organizacao_id e arquivado_em.is_(None) -- NÃO exclui status
-    CONVERTIDO da busca por duplicidade. Com a mesma marca, mesma_oportunidade
-    é True e o bloco de atualização roda por cima de um negócio JÁ GANHO:
-    nome/email/telefone são sobrescritos. status/resultado permanecem
-    intactos (esse bloco nunca os toca), e _garantir_proxima_acao_padrao é
-    pulado (guard explícito `if existente.status not in (CONVERTIDO,
-    DESCARTADO)`), então proxima_acao_em também não é mexido. Impacto:
-    dados de contato de um cliente já convertido podem ser silenciosamente
-    alterados por qualquer novo envio público com o mesmo e-mail/marca."""
+def test_lead_convertido_reenviando_o_formulario_nao_tem_dados_sobrescritos() -> None:
+    """CORRIGIDO (achado H7/P1, 10/09/2026): consulta_existente (app/api/
+    leads.py::criar_lead) continua encontrando o lead CONVERTIDO (não
+    exclui esse status da busca por duplicidade), mas o bloco de
+    "mesma_oportunidade" agora detecta status==CONVERTIDO antes de mutar
+    qualquer campo e devolve o registro tal como estava -- nome/email/
+    telefone do negócio já ganho não são mais sobrescritos por um reenvio
+    público."""
     lead = _lead_existente(status=StatusLead.CONVERTIDO, resultado="ganho")
-    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead))
 
     resposta = TestClient(app).post("/v1/leads", json=_payload(nome="Outro Nome Depois", telefone="11900001111"))
 
     assert resposta.status_code == 201
     corpo = resposta.json()
     assert corpo["id"] == 7
-    assert lead.nome == "Outro Nome Depois"
-    assert lead.telefone == "11900001111"
-    assert lead.status == StatusLead.CONVERTIDO, "status de um negócio ganho não deveria mudar sozinho"
+    assert lead.nome == "Fulano de Tal", "dados do negócio já ganho não devem ser sobrescritos"
+    assert lead.telefone == "11999998888"
+    assert lead.status == StatusLead.CONVERTIDO
     assert lead.resultado == "ganho"
 
 
-def test_lead_descartado_reenviando_o_formulario_tem_dados_sobrescritos_e_continua_descartado() -> None:
-    """CONFIRMADO: mesmo padrão do teste acima, para status DESCARTADO. O
-    lead volta a ter contato real (dados atualizados), mas continua
-    marcado como "descartado"/"perdido" -- fica invisível para a equipe
-    comercial no funil ativo, mesmo que o cliente tenha voltado a
-    demonstrar interesse pelo canal público."""
+def test_lead_descartado_reenviando_o_formulario_e_reaberto() -> None:
+    """CORRIGIDO (achado H7/P1, 10/09/2026): um lead DESCARTADO que reenvia o
+    formulário público agora é reaberto -- status volta a "novo",
+    resultado/motivo_perda são limpos e o lead volta a receber
+    proxima_acao_em (mesmo fallback usado para lead novo), em vez de
+    continuar invisível para a equipe comercial com os dados trocados por
+    baixo."""
     lead = _lead_existente(status=StatusLead.DESCARTADO, resultado="perdido", motivo_perda="sem_resposta")
+    # 1ª query: consulta_existente. 2ª: obter_politica_crm (dentro de
+    # _garantir_proxima_acao_padrao, agora executada pois o lead deixou de
+    # estar em CONVERTIDO/DESCARTADO).
     app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
 
     resposta = TestClient(app).post("/v1/leads", json=_payload(nome="Voltou Depois"))
 
     assert resposta.status_code == 201
     assert lead.nome == "Voltou Depois"
-    assert lead.status == StatusLead.DESCARTADO, "reenvio público não reabre um lead descartado"
-    assert lead.motivo_perda == "sem_resposta"
+    assert lead.status == StatusLead.NOVO, "reenvio público reabre um lead descartado"
+    assert lead.resultado is None
+    assert lead.motivo_perda is None
+    assert lead.proxima_acao_em is not None
 
 
 def test_lead_arquivado_reenviando_o_formulario_cria_lead_novo_sem_nenhum_vinculo() -> None:

@@ -500,6 +500,80 @@ def test_mover_kanban_permite_oportunidade_aberta_com_proxima_acao() -> None:
     assert resposta.status_code == 200
 
 
+def test_leads_kanban_marca_card_atrasado_fora_do_sla() -> None:
+    agora = datetime.now(UTC)
+    lead_atrasado = Lead(
+        id=1,
+        organizacao_id=1,
+        nome="Atrasado",
+        email="atrasado@example.com",
+        telefone="11999990000",
+        marca="ACME",
+        origem="processo",
+        status=StatusLead.NOVO,
+        fase="contato_inicial",
+        responsavel_id=None,
+        proxima_acao_em=None,
+        aceite_marketing=False,
+    )
+    lead_atrasado.atualizado_em = agora - timedelta(hours=10)
+    lead_no_prazo = Lead(
+        id=2,
+        organizacao_id=1,
+        nome="No prazo",
+        email="noprazo@example.com",
+        telefone="11999990001",
+        marca="ACME",
+        origem="processo",
+        status=StatusLead.NOVO,
+        fase="contato_inicial",
+        responsavel_id=None,
+        proxima_acao_em=None,
+        aceite_marketing=False,
+    )
+    lead_no_prazo.atualizado_em = agora - timedelta(hours=1)
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[lead_atrasado, lead_no_prazo]))
+    usuario = usuario_teste()
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).get("/v1/admin/leads-kanban")
+
+    assert resposta.status_code == 200
+    cartoes = {cartao["id"]: cartao for cartao in resposta.json()["cards"]}
+    assert cartoes[1]["etapa"] == "primeiro_contato"
+    assert cartoes[1]["sla_horas"] == 4
+    assert cartoes[1]["atrasado"] is True
+    assert cartoes[2]["atrasado"] is False
+
+
+def test_leads_kanban_etapa_sem_sla_nunca_fica_atrasada() -> None:
+    lead = Lead(
+        id=3,
+        organizacao_id=1,
+        nome="Processo em andamento",
+        email="processo@example.com",
+        telefone="11999990002",
+        marca="ACME",
+        origem="processo",
+        status=StatusLead.NOVO,
+        fase="processo_inpi",
+        responsavel_id=None,
+        proxima_acao_em=None,
+        aceite_marketing=False,
+    )
+    lead.atualizado_em = datetime.now(UTC) - timedelta(days=365)
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[lead]))
+    usuario = usuario_teste()
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).get("/v1/admin/leads-kanban")
+
+    assert resposta.status_code == 200
+    cartao = resposta.json()["cards"][0]
+    assert cartao["sla_horas"] is None
+    assert cartao["atrasado"] is False
+
+
 def test_admin_abre_contato_com_historico_de_pesquisas() -> None:
     lead = Lead(
         organizacao_id=1,

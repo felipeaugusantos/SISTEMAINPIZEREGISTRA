@@ -132,6 +132,22 @@ KANBAN_ETAPAS = {
     "protocolo_inpi": {"label": "Protocolo no INPI gerado", "fase": "protocolo_inpi"},
     "processo_inpi": {"label": "Processo no INPI", "fase": "processo_inpi"},
 }
+
+# Desenho do setor de Atendimento & Comercial (10/09/2026): prazo máximo sem
+# mexida no card antes de virar alerta de SLA no kanban. Etapas sem prazo
+# definido (acompanhamento de longo prazo, sem urgência de resposta) ficam
+# de fora do dict e nunca disparam alerta.
+SLA_HORAS_POR_ETAPA: dict[str, int] = {
+    "primeiro_contato": 4,
+    "aguardando_contato_nosso": 4,
+    "qualificado": 24,
+    "aguardando_retorno_cliente": 72,
+    "proposta_enviada": 48,
+    "proposta_aceita": 24,
+    "aguardando_pagamento": 48,
+    "pagamento_confirmado": 24,
+    "protocolo_inpi": 72,
+}
 KANBAN_ORDEM = tuple(KANBAN_ETAPAS)
 DataLead = Annotated[datetime | None, Query()]
 OrigemLead = Annotated[str | None, Query(max_length=30)]
@@ -925,19 +941,28 @@ async def listar_leads_kanban(session: SessionDep, usuario: LeadsViewDep) -> dic
         .scalars()
         .all()
     )
-    cards = [
-        {
-            "id": lead.id,
-            "nome": lead.nome,
-            "empresa": lead.empresa,
-            "marca": lead.marca,
-            "etapa": _kanban_etapa(lead),
-            "responsavel": getattr(lead.responsavel, "nome", None),
-            "proxima_acao_em": lead.proxima_acao_em,
-            "status": lead.status.value,
-        }
-        for lead in leads
-    ]
+    agora = datetime.now(UTC)
+    cards = []
+    for lead in leads:
+        etapa = _kanban_etapa(lead)
+        sla_horas = SLA_HORAS_POR_ETAPA.get(etapa)
+        entrou_etapa_em = lead.atualizado_em
+        atrasado = sla_horas is not None and agora - entrou_etapa_em > timedelta(hours=sla_horas)
+        cards.append(
+            {
+                "id": lead.id,
+                "nome": lead.nome,
+                "empresa": lead.empresa,
+                "marca": lead.marca,
+                "etapa": etapa,
+                "responsavel": getattr(lead.responsavel, "nome", None),
+                "proxima_acao_em": lead.proxima_acao_em,
+                "status": lead.status.value,
+                "entrou_etapa_em": entrou_etapa_em,
+                "sla_horas": sla_horas,
+                "atrasado": atrasado,
+            }
+        )
     return {
         "etapas": [{"id": etapa, **dados} for etapa, dados in KANBAN_ETAPAS.items()],
         "cards": cards,

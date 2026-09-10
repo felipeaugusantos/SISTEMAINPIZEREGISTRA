@@ -136,6 +136,14 @@ PERFIS = {
             "rpi.view",
         }
     ),
+    # Achado H9/P1 da auditoria (10/09/2026): o perfil "comercial" tinha
+    # permissao de GERENCIAR financeiro, juridico e carteira de processos,
+    # muito alem do que o atendimento comercial (leads/CRM/prospeccao)
+    # precisa. Confirmado com o negocio que ninguem no perfil de fato edita
+    # esses dados -- so consulta para dar contexto no atendimento (ex.: ver
+    # se o cliente ja pagou, prazos juridicos, processos em andamento).
+    # Reduzido a view-only nesses tres modulos; manage/export ficaram de
+    # fora (quem precisar deles usa outro perfil, ex. financeiro/tech).
     "comercial": frozenset(
         {
             "dashboard.view",
@@ -150,12 +158,8 @@ PERFIS = {
             "prospeccao.convert",
             "prospeccao.export",
             "portfolio.view",
-            "portfolio.manage",
             "legal.view",
-            "legal.manage",
             "finance.view",
-            "finance.manage",
-            "finance.export",
             "risk.view",
         }
     ),

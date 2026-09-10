@@ -180,11 +180,17 @@ def test_forma_de_pagamento_limita_parcelamento() -> None:
     assert "no máximo 10" in erro.value.detail
 
 
-def test_perfil_comercial_recebe_operacao_financeira_sem_aprovacao() -> None:
+def test_perfil_comercial_so_visualiza_financeiro_sem_gerenciar_ou_aprovar() -> None:
+    """Achado H9/P1 da auditoria de CRM/leads (10/09/2026): confirmado com o
+    negócio que ninguém no perfil comercial de fato edita lançamentos
+    financeiros -- finance.manage e finance.export foram removidas,
+    mantendo só finance.view (contexto no atendimento)."""
     from app.permissions import permissoes_do_perfil
 
     permissoes = permissoes_do_perfil("comercial")
-    assert {"finance.view", "finance.manage", "finance.export"} <= permissoes
+    assert "finance.view" in permissoes
+    assert "finance.manage" not in permissoes
+    assert "finance.export" not in permissoes
     assert "finance.approve" not in permissoes
 
 

@@ -1,15 +1,21 @@
 """Auditoria técnica (10/09/2026) — Hipótese 9: permissões do perfil
 "comercial" (app/permissions.py) -- mapeamento exato e avaliação pelo
-princípio do menor privilégio. Não altera nenhuma permissão.
+princípio do menor privilégio.
+
+Correção P1 aplicada em 10/09/2026: confirmado com o negócio que ninguém
+no perfil "comercial" de fato edita financeiro/jurídico/carteira -- só
+consulta para dar contexto no atendimento. portfolio.manage, legal.manage,
+finance.manage e finance.export foram removidas do perfil; a visualização
+(portfolio.view, legal.view, finance.view) foi mantida.
 """
 
 from app.permissions import permissoes_do_perfil
 
 
 def test_permissoes_exatas_do_perfil_comercial() -> None:
-    """CONFIRMADO por leitura direta de PERFIS["comercial"]
-    (app/permissions.py). Snapshot exato -- se alguém alterar o perfil
-    sem querer, este teste quebra e chama atenção para a mudança."""
+    """CORRIGIDO: snapshot exato do perfil após a redução de escopo -- se
+    alguém alterar o perfil sem querer, este teste quebra e chama atenção
+    para a mudança."""
     permissoes = permissoes_do_perfil("comercial")
 
     assert permissoes == frozenset(
@@ -26,30 +32,36 @@ def test_permissoes_exatas_do_perfil_comercial() -> None:
             "prospeccao.convert",
             "prospeccao.export",
             "portfolio.view",
-            "portfolio.manage",
             "legal.view",
-            "legal.manage",
             "finance.view",
-            "finance.manage",
-            "finance.export",
             "risk.view",
         }
     )
 
 
-def test_comercial_pode_gerenciar_carteira_e_dados_juridicos_e_financeiros() -> None:
-    """CONFIRMADO: o perfil "comercial" tem portfolio.manage, legal.manage,
-    finance.manage e finance.export -- pode criar/alterar processos
-    monitorados, dados jurídicos e lançamentos financeiros, além de
-    exportar dados financeiros. Nenhuma dessas quatro permissões está
-    ligada a atendimento comercial no sentido estrito (leads/CRM/
-    prospecção); são módulos operacionais distintos."""
+def test_comercial_nao_pode_mais_gerenciar_carteira_juridico_e_financeiro() -> None:
+    """CORRIGIDO (achado H9/P1): portfolio.manage, legal.manage,
+    finance.manage e finance.export foram removidas do perfil comercial --
+    nenhuma dessas quatro permissões está ligada a atendimento comercial no
+    sentido estrito (leads/CRM/prospecção); são módulos operacionais
+    distintos que ninguém no perfil de fato editava."""
     permissoes = permissoes_do_perfil("comercial")
 
-    assert "portfolio.manage" in permissoes
-    assert "legal.manage" in permissoes
-    assert "finance.manage" in permissoes
-    assert "finance.export" in permissoes
+    assert "portfolio.manage" not in permissoes
+    assert "legal.manage" not in permissoes
+    assert "finance.manage" not in permissoes
+    assert "finance.export" not in permissoes
+
+
+def test_comercial_mantem_visualizacao_de_carteira_juridico_e_financeiro() -> None:
+    """Visualização preservada -- o vendedor continua vendo status de
+    pagamento, prazos jurídicos e processos do cliente para dar contexto no
+    atendimento, só perde o poder de editar esses dados."""
+    permissoes = permissoes_do_perfil("comercial")
+
+    assert "portfolio.view" in permissoes
+    assert "legal.view" in permissoes
+    assert "finance.view" in permissoes
 
 
 def test_comercial_visualiza_dados_pessoais_completos() -> None:

@@ -1,4 +1,4 @@
-const crmState = { offset: 0, limit: 50, total: 0, references: null, canManage: false };
+const crmState = { offset: 0, limit: 50, total: 0, references: null, canManage: false, ultimoHistorico: null, atendimento: null };
 const kanbanState = { etapas: [], cards: [] };
 const form = document.querySelector("#crm-filter");
 const reminderFilter = document.querySelector("#crm-reminder-filter");
@@ -30,8 +30,18 @@ function params() {
   }
   query.set("limite", crmState.limit); query.set("deslocamento", crmState.offset); return query;
 }
+function formatarHoras(horas) {
+  if (!horas) return "—";
+  if (horas < 1) return `${Math.round(horas * 60)}min`;
+  if (horas < 24) return `${horas.toFixed(1)}h`;
+  return `${(horas / 24).toFixed(1)}d`;
+}
 function renderMetrics(data) {
   const rows = [["Total filtrado", data.total], ["Ligações", data.por_canal.telefone || 0], ["WhatsApp", data.por_canal.whatsapp || 0], ["E-mails", data.por_canal.email || 0], ["Reuniões", data.por_canal.reuniao || 0], ["Atendimentos", data.por_canal.outro || 0]];
+  if (crmState.atendimento) {
+    rows.push(["Tempo médio até 1º contato", formatarHoras(crmState.atendimento.tempo_medio_primeiro_atendimento_horas)]);
+    rows.push(["Leads sem atendimento", crmState.atendimento.leads_sem_atendimento]);
+  }
   document.querySelector("#crm-metrics").innerHTML = rows.map(([label, value]) => `<article><span>${label}</span><strong>${value}</strong></article>`).join("");
 }
 function tempoDecorrido(iso) {
@@ -70,7 +80,7 @@ function renderKanban(data) {
 }
 async function loadKanban() { renderKanban(await api("/v1/admin/leads-kanban")); }
 function renderHistory(data) {
-  crmState.total = data.total; renderMetrics(data);
+  crmState.total = data.total; crmState.ultimoHistorico = data; renderMetrics(data);
   document.querySelector("#crm-total").textContent = `${data.total} registro${data.total === 1 ? "" : "s"}`;
   const target = document.querySelector("#crm-history");
   target.innerHTML = data.itens.length ? data.itens.map(item => `<li class="crm-entry"><span class="crm-history-client"><strong>${esc(item.cliente)}</strong><small>${esc(item.empresa || item.marca || "Cliente sem empresa")}</small></span><time datetime="${esc(item.criado_em)}">${dateTime.format(new Date(item.criado_em))}</time><span class="crm-history-observation">${esc(item.observacao || item.resultado || "Sem observação")}</span><span class="crm-history-next">${item.proximo_contato ? dateTime.format(new Date(item.proximo_contato)) : "Sem próximo contato"}</span><a href="/admin/pesquisas?lead_id=${item.lead_id}">Abrir</a></li>`).join("") : `<li class="crm-empty"><strong>Nenhum atendimento foi encontrado.</strong><p>Revise nome, documento, telefone, status ou período informado.</p><a class="primary-button" href="/admin/pesquisas">Ir para Leads</a></li>`;
@@ -80,6 +90,10 @@ function renderHistory(data) {
   document.querySelector("#crm-next").disabled = !data.tem_mais;
 }
 async function loadHistory() { show(""); renderHistory(await api(`/v1/admin/crm/historico?${params()}`)); }
+async function loadAtendimentoStats() {
+  crmState.atendimento = await api("/v1/admin/leads-dashboard");
+  if (crmState.ultimoHistorico) renderMetrics(crmState.ultimoHistorico);
+}
 
 function reminderParams() {
   const query = new URLSearchParams(new FormData(reminderFilter));
@@ -144,6 +158,6 @@ reminderForm.addEventListener("submit", async event => {
   catch (error) { statusBox.className = "status-message error"; statusBox.textContent = error.message; }
 });
 
-references().then(() => Promise.all([loadHistory(), loadReminders(), loadKanban()])).then(() => {
+references().then(() => Promise.all([loadHistory(), loadReminders(), loadKanban(), loadAtendimentoStats()])).then(() => {
   const leadId = new URLSearchParams(location.search).get("lead_id"); if (/^\d+$/.test(leadId || "") && crmState.canManage) openReminder(leadId);
 }).catch(error => show(error.message));

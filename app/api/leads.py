@@ -1126,7 +1126,13 @@ async def mover_pesquisa_para_outro_lead(
         novo = dados.novo_cliente
         assert novo is not None  # garantido por exigir_um_destino
         empresa = await obter_ou_criar_empresa(session, usuario.organizacao_id, novo.empresa)
-        email = (novo.email or "").strip().lower() or email_sintetico_por_telefone(novo.telefone or novo.nome)
+        # Sem telefone informado, usa o id da própria pesquisa (sempre único)
+        # como base do e-mail sintético -- usar novo.nome aqui derrubaria a
+        # unicidade sempre que o nome não tivesse nenhum dígito (todo cliente
+        # sem telefone e sem dígito no nome cairia no mesmo e-mail sintético
+        # "presencial-@...", reproduzindo o próprio bug que este endpoint
+        # existe para corrigir).
+        email = (novo.email or "").strip().lower() or email_sintetico_por_telefone(novo.telefone or pesquisa.id)
         # uq_leads_org_email_ativos (migração h58f0d4c9e31) proíbe dois leads
         # ativos com o mesmo e-mail na mesma organização -- se esse e-mail já
         # é de outro cliente ativo, reaproveita o lead existente em vez de

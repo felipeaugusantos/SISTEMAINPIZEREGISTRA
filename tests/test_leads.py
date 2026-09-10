@@ -730,6 +730,43 @@ def test_mover_pesquisa_cria_novo_cliente() -> None:
     assert pesquisa.lead_id == corpo["lead_destino_id"]
 
 
+def test_mover_pesquisa_sem_telefone_usa_id_da_pesquisa_para_email_unico() -> None:
+    # Achado ao usar o proprio endpoint em producao (10/09/2026): sem
+    # telefone, usar novo.nome como base do e-mail sintetico derrubava a
+    # unicidade sempre que o nome nao tivesse nenhum digito -- dois clientes
+    # sem telefone caindo no mesmo "presencial-@..." reproduziria o proprio
+    # bug que este endpoint existe para corrigir. Duas pesquisas diferentes,
+    # sem telefone e com o mesmo nome (sem digito), devem gerar Leads com
+    # e-mails distintos (cada um usa o id da propria pesquisa, sempre unico,
+    # como base do e-mail sintetico).
+    pesquisa_a = PesquisaMarca(id="pesquisa-aaa", organizacao_id=1, lead_id=9, marca="ACME", tipo_pesquisa="completa")
+    pesquisa_b = PesquisaMarca(id="pesquisa-bbb", organizacao_id=1, lead_id=9, marca="ACME", tipo_pesquisa="completa")
+    session = FakeSession(
+        [FakeResult(scalar=pesquisa_a), FakeResult(scalar=None), FakeResult(scalar=pesquisa_b), FakeResult(scalar=None)]
+    )
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta_a = TestClient(app).post(
+        "/v1/admin/pesquisas/pesquisa-aaa/mover-lead",
+        json={"novo_cliente": {"nome": "Cliente Sem Nome Numerico"}},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+    resposta_b = TestClient(app).post(
+        "/v1/admin/pesquisas/pesquisa-bbb/mover-lead",
+        json={"novo_cliente": {"nome": "Cliente Sem Nome Numerico"}},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta_a.status_code == 200
+    assert resposta_b.status_code == 200
+    novos_leads = [item for item in session.adicionados if isinstance(item, Lead)]
+    assert len(novos_leads) == 2
+    assert novos_leads[0].email != novos_leads[1].email
+
+
 def test_restaurar_lead_com_responsavel_nao_quebra_por_missing_greenlet() -> None:
     # Achado (10/09/2026): session.refresh(lead) sozinho, seguido de acesso a
     # lead.responsavel.nome, derrubava este endpoint com MissingGreenlet

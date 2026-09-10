@@ -48,7 +48,9 @@ function renderKanban(data) {
   const target = document.querySelector("#crm-kanban");
   if (!target) return;
   target.innerHTML = kanbanState.etapas.map(etapa => {
-    const cards = kanbanState.cards.filter(card => card.etapa === etapa.id);
+    const cards = kanbanState.cards
+      .filter(card => card.etapa === etapa.id)
+      .sort((a, b) => new Date(a.entrou_etapa_em) - new Date(b.entrou_etapa_em));
     const atrasados = cards.filter(card => card.atrasado).length;
     return `<section class="crm-kanban-column" data-etapa="${esc(etapa.id)}"><header><h3>${esc(etapa.label)}</h3><span class="crm-kanban-column-badges">${atrasados ? `<strong class="crm-kanban-atrasados" title="${atrasados} card(s) fora do SLA">${atrasados}</strong>` : ""}<strong>${cards.length}</strong></span></header><div class="crm-kanban-dropzone" data-etapa="${esc(etapa.id)}">${cards.length ? cards.map(card => `<article class="crm-kanban-card-item${card.atrasado ? " atrasado" : ""}" draggable="${crmState.canManage}" data-lead-id="${card.id}">${card.atrasado ? `<span class="crm-kanban-sla-badge">⚠ Fora do SLA · ${tempoDecorrido(card.entrou_etapa_em)}</span>` : ""}<div><strong>${esc(card.nome)}</strong>${card.empresa ? `<small>${esc(card.empresa)}</small>` : ""}</div><span>${esc(card.marca || "Interesse geral")}</span><small>${esc(card.responsavel || "Não atribuído")}</small>${card.proxima_acao_em ? `<time>Próxima ação: ${dateTime.format(new Date(card.proxima_acao_em))}</time>` : `<time class="kanban-no-action">Sem próxima ação</time>`}<a href="/admin/pesquisas?lead_id=${card.id}">Abrir contato</a></article>`).join("") : `<p class="crm-kanban-empty">Nenhuma oportunidade</p>`}</div></section>`;
   }).join("");

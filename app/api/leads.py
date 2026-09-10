@@ -599,6 +599,7 @@ async def criar_lead(
                 payload={"motivo": "oportunidade_ja_convertida", "email": dados.email.lower()},
             )
             await session.commit()
+            await session.refresh(existente)
             resposta = LeadResponse.model_validate(existente)
             resposta.documento = _mascarar_documento(resposta.documento)
             return resposta

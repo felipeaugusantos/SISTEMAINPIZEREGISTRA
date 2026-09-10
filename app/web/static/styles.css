@@ -1860,6 +1860,29 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
   padding: 0;
 }
 
+.admin-sidebar-collapsed .admin-nav-parent-row {
+  /* Achado do usuario: com o menu recolhido, os grupos com submenu
+     (Comercial/Financeiro/Juridico/Configuracao) ficavam com o icone
+     deslocado para a esquerda em relacao aos itens soltos (Visao geral,
+     Atualizacoes, Producao, Empresas e planos). .admin-nav-parent-row usa
+     grid de 2 colunas (link + botao de expandir) para caber o botao ao
+     lado do link quando expandido; o botao vira display:none aqui, mas o
+     grid continua reservando a coluna dele (CSS grid nao remove uma
+     coluna so porque o conteudo esta oculto), entao o link centralizava
+     dentro de uma faixa mais estreita que o resto da barra. display:flex
+     deixa o link (unico filho visivel) ocupar a largura toda, igual aos
+     itens sem submenu. */
+  display: flex;
+}
+
+.admin-sidebar-collapsed .admin-nav-parent-row > a {
+  /* Sem isso, o link (agora um item flex comum, nao mais numa coluna de
+     grid dedicada) so ocupa a largura do proprio conteudo e fica
+     empurrado para a esquerda pelo justify-content padrao do flex pai,
+     em vez de esticar e centralizar o icone como os itens sem submenu. */
+  flex: 1;
+}
+
 .admin-body.admin-sidebar-collapsed .admin-main {
   width: calc(100% - 76px);
   margin-left: 76px;

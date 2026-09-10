@@ -20,12 +20,12 @@ from app.cadencia_email import processar_descadastro_cadencia, registrar_abertur
 from app.clicksign import configuracao as configuracao_clicksign
 from app.clicksign import criar_envelope
 from app.crm import (
+    DOMINIO_CLIENTE_SEM_EMAIL,
     aplicar_cadencia_a_lead,
     aplicar_cadencias_automaticas,
     aplicar_politica_oportunidade,
     aplicar_regras_automacao,
     avancar_fase_lead,
-    DOMINIO_CLIENTE_SEM_EMAIL,
     buscar_lead_ativo_por_email,
     calcular_score_lead,
     distribuir_lead_automaticamente,

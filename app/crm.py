@@ -108,7 +108,7 @@ async def obter_politica_crm(session: AsyncSession, organizacao_id: int) -> Poli
     )
 
 
-async def _distribuir_automaticamente(session: AsyncSession, lead: Lead, politica: PoliticaCRM) -> None:
+async def distribuir_lead_automaticamente(session: AsyncSession, lead: Lead, politica: PoliticaCRM) -> None:
     """Round-robin simples entre operadores de perfil "comercial" ativos da
     organização -- achado item 12 da auditoria completa do CRM (06/09/2026).
     Só roda quando o lead ainda não tem responsável e nenhum operador
@@ -116,7 +116,11 @@ async def _distribuir_automaticamente(session: AsyncSession, lead: Lead, politic
     (ultimo_responsavel_distribuido_id) fica na própria política para o
     próximo ciclo continuar de onde parou, mesmo entre reinícios do
     processo -- sem isso, reiniciar o worker/api sempre recomeçaria do
-    primeiro operador da lista."""
+    primeiro operador da lista.
+
+    Nome público (sem "_") porque também é chamada em lote pelo endpoint
+    POST /v1/admin/leads/distribuir (app/api/leads.py), reaproveitando o
+    mesmo cursor em vez de manter um segundo round-robin independente."""
     operadores = (
         (
             await session.execute(
@@ -148,7 +152,7 @@ async def aplicar_politica_oportunidade(session: AsyncSession, lead: Lead, opera
     if lead.responsavel_id is None and politica.atribuir_ao_operador and operador_id:
         lead.responsavel_id = operador_id
     if lead.responsavel_id is None and politica.distribuicao_automatica_ativa:
-        await _distribuir_automaticamente(session, lead, politica)
+        await distribuir_lead_automaticamente(session, lead, politica)
     if lead.proxima_acao_em is None and politica.dias_proxima_acao_padrao is not None:
         lead.proxima_acao_em = datetime.now(UTC) + timedelta(days=politica.dias_proxima_acao_padrao)
     faltando: list[str] = []

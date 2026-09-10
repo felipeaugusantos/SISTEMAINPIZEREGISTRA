@@ -598,9 +598,17 @@ def test_distribuir_leads_round_robin_entre_atendentes_elegiveis() -> None:
     for indice, lead in enumerate(leads):
         lead.criado_em = datetime(2026, 9, 1, tzinfo=UTC) + timedelta(hours=indice)
 
+    # distribuir_leads reaproveita distribuir_lead_automaticamente (app/crm.py):
+    # 1) _atendentes_elegiveis, 2) obter_politica_crm (None -> politica default),
+    # 3) leads sem responsavel, 4-6) uma consulta de ids comerciais por lead
+    # (distribuir_lead_automaticamente busca de novo a cada chamada).
     app.dependency_overrides[get_session] = sessao_override(
         FakeResult(itens=[ana, beto]),
+        FakeResult(scalar=None),
         FakeResult(itens=leads),
+        FakeResult(itens=[1, 2]),
+        FakeResult(itens=[1, 2]),
+        FakeResult(itens=[1, 2]),
     )
     usuario = usuario_teste()
     object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
@@ -1036,7 +1044,7 @@ def test_atualizar_lead_novo_responsavel_dispara_alerta() -> None:
         lead.responsavel = operador
         usuario = usuario_teste()
         object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
-        session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=operador), FakeResult(scalar=lead)])
+        session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=operador), FakeResult(scalar=None), FakeResult(scalar=lead)])
         app.dependency_overrides[get_session] = _override_session(session)
         app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
 
@@ -1072,7 +1080,7 @@ def test_atualizar_lead_mesmo_responsavel_nao_dispara_alerta() -> None:
         lead.responsavel = operador
         usuario = usuario_teste()
         object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
-        session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=operador), FakeResult(scalar=lead)])
+        session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=operador), FakeResult(scalar=None), FakeResult(scalar=lead)])
         app.dependency_overrides[get_session] = _override_session(session)
         app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
 

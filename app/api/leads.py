@@ -26,6 +26,7 @@ from app.crm import (
     aplicar_regras_automacao,
     avancar_fase_lead,
     calcular_score_lead,
+    distribuir_lead_automaticamente,
     obter_politica_crm,
     registrar_consentimento_operador,
     registrar_consentimento_titular,
@@ -1000,12 +1001,21 @@ async def _atendentes_elegiveis(session: AsyncSession, organizacao_id: int) -> l
 
 @router.post("/v1/admin/leads/distribuir")
 async def distribuir_leads(session: SessionDep, request: Request, usuario: LeadsManageDep) -> dict:
-    """Distribui em rodízio (round-robin) os leads abertos sem responsável entre os
-    atendentes elegíveis, do mais antigo sem contato para o mais recente -- mesmo
-    critério de urgência já usado na ordenação do kanban."""
+    """Distribui em rodízio os leads abertos sem responsável entre os atendentes
+    elegíveis, do mais antigo sem contato para o mais recente -- mesmo critério de
+    urgência já usado na ordenação do kanban.
+
+    Reaproveita distribuir_lead_automaticamente/obter_politica_crm (app/crm.py):
+    mesmo motor e mesmo cursor (PoliticaCRM.ultimo_responsavel_distribuido_id) do
+    round-robin automático por lead (achado item 12 da auditoria de CRM,
+    06/09/2026) -- este endpoint só aplica o mesmo mecanismo em lote, ao backlog
+    de leads que ficou sem responsável antes daquele mecanismo existir ou estar
+    ativo, em vez de manter um segundo round-robin com estado próprio.
+    """
     atendentes = await _atendentes_elegiveis(session, usuario.organizacao_id)
     if not atendentes:
         raise HTTPException(status_code=422, detail="Nenhum atendente elegível (usuário ativo com perfil comercial) encontrado")
+    politica = await obter_politica_crm(session, usuario.organizacao_id)
     leads_sem_responsavel = (
         (
             await session.execute(
@@ -1022,22 +1032,25 @@ async def distribuir_leads(session: SessionDep, request: Request, usuario: Leads
         .scalars()
         .all()
     )
+    nomes_por_id = {item.id: item.nome for item in atendentes}
     por_responsavel: dict[str, int] = {}
-    for indice, lead in enumerate(leads_sem_responsavel):
-        atendente = atendentes[indice % len(atendentes)]
-        lead.responsavel_id = atendente.id
-        por_responsavel[atendente.nome] = por_responsavel.get(atendente.nome, 0) + 1
+    for lead in leads_sem_responsavel:
+        await distribuir_lead_automaticamente(session, lead, politica)
+        if lead.responsavel_id is not None:
+            nome = nomes_por_id.get(lead.responsavel_id, f"usuário {lead.responsavel_id}")
+            por_responsavel[nome] = por_responsavel.get(nome, 0) + 1
+    distribuidos = sum(por_responsavel.values())
     _auditar(
         session,
         usuario,
         request,
         "distribuir_leads",
         "leads:rodizio",
-        {"distribuidos": len(leads_sem_responsavel), "por_responsavel": por_responsavel},
+        {"distribuidos": distribuidos, "por_responsavel": por_responsavel},
     )
     await session.commit()
     return {
-        "distribuidos": len(leads_sem_responsavel),
+        "distribuidos": distribuidos,
         "por_responsavel": por_responsavel,
         "atendentes": [{"id": item.id, "nome": item.nome} for item in atendentes],
     }

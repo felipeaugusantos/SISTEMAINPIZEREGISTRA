@@ -1,8 +1,9 @@
 # Auditoria técnica — Atendimento comercial, CRM, Leads (10/09/2026)
 
-**Escopo desta rodada:** ambiente de teste (suíte especificada) + Hipótese 1 (lead público
-sem responsável). Nenhuma correção de produção foi aplicada nesta etapa — apenas
-reprodução, evidência e um novo arquivo de teste de regressão isolado.
+**Escopo desta rodada:** ambiente de teste (suíte especificada) + Hipóteses 1 a 3 (lead
+público sem responsável; política ignorada pelo Kanban; lead descartado sem coluna
+própria). Nenhuma correção de produção foi aplicada nesta etapa — apenas reprodução,
+evidência e três novos arquivos de teste de regressão isolados.
 
 **Ambiente usado:** o repositório não tem `.venv` local nem `uv`/`python` instalados nesta
 máquina. A suíte foi executada na imagem de teste Docker isolada já usada neste projeto
@@ -120,31 +121,91 @@ um com um trade-off diferente; nenhum é "o certo" sem uma escolha do time:
 
 Nenhuma dessas opções foi aplicada; ficam registradas para decisão.
 
-## 3. Teste de regressão criado
+## 3. Hipótese 2 — Kanban ignora a política ao avançar sem responsável/próxima ação?
 
-`tests/test_audit_hipotese1_lead_publico.py` (novo arquivo, não commitado — aguardando
-decisão de manter na suíte). Isolado, determinístico, usa `FakeSession`
-(`tests/conftest.py`), sem tocar banco real. Executado e validado nesta rodada:
+### Pergunta original
+> O endpoint `POST /v1/admin/leads/{lead_id}/kanban` pode permitir avançar uma oportunidade
+> sem responsável e sem próxima ação para `aguardando_contato_nosso`,
+> `aguardando_retorno_cliente`, `proposta_enviada`, `proposta_aceita`.
+
+### Achado: **REFUTADO — a política é respeitada nas 4 etapas testadas.**
+
+`mover_lead_kanban` chama `aplicar_politica_oportunidade(session, lead, usuario.id)` e
+levanta `422` se `faltando` não estiver vazio, **sempre que o status resultante não for
+`CONVERTIDO`/`DESCARTADO`** — isso cobre as 4 etapas pedidas:
+
+| Etapa | Status atribuído pelo endpoint | Passa pela checagem de política? |
+| --- | --- | --- |
+| `aguardando_contato_nosso` | `EM_CONTATO` (explícito) | Sim — já coberto por teste existente |
+| `aguardando_retorno_cliente` | `SEM_RETORNO` (explícito) | Sim |
+| `proposta_enviada` | `PROPOSTA_ENVIADA` (via `MAPA_FASE_STATUS`) | Sim |
+| `proposta_aceita` | **nenhum** — `proposta_aceita` não está em `MAPA_FASE_STATUS`, o status permanece o que já era | Sim, mas por uma razão distinta: o status anterior também não é `CONVERTIDO`/`DESCARTADO` |
+
+A etapa `proposta_aceita` merece nota: ela não define um novo status, então o bloqueio
+funciona "por acidente" — se algum dia essa etapa passar a ser alcançável a partir de um
+status `CONVERTIDO`/`DESCARTADO` (hoje não é o caso), o comportamento mudaria. Não é um
+bug hoje, mas é um ponto frágil de manutenção a observar se o funil for alterado.
+
+Dois testes já existiam cobrindo `aguardando_contato_nosso`
+(`tests/test_leads.py::test_mover_kanban_bloqueia_oportunidade_aberta_sem_proxima_acao` e
+`::test_mover_kanban_permite_oportunidade_aberta_com_proxima_acao`). Os 4 testes novos
+estendem a mesma verificação às outras etapas pedidas.
+
+## 4. Hipótese 3 — Lead descartado não tem fase/coluna própria no Kanban
+
+### Pergunta original
+> O status `descartado` não parece possuir fase ou coluna própria. Em qual coluna aparece?
+> Continua contado? Deveria ir para "Perdidos"? O mesmo ocorre com convertidas?
+
+### Achado: **CONFIRMADO — é uma assimetria real, específica de `descartado`.**
+
+- **Em qual coluna aparece:** nenhuma. `MAPA_STATUS_FASE` (`app/crm.py`) não tem entrada
+  para `"descartado"` — `sincronizar_fase_por_status` (chamada em `atualizar_status_lead`
+  ao mudar o status) não altera `lead.fase` nesse caso. O lead **permanece na última fase
+  em que estava antes de ser descartado** (ex.: descartado enquanto "Qualificado" continua
+  aparecendo, para sempre, na coluna "Qualificado").
+- **Continua contado:** sim. `listar_leads_kanban` (`GET /v1/admin/leads-kanban`) filtra
+  só `organizacao_id` e `arquivado_em IS NULL` — **não exclui `status in (CONVERTIDO,
+  DESCARTADO)`**, diferente do dashboard principal (`dashboard_funil_produtividade` usa
+  `Lead.status.not_in((CONVERTIDO, DESCARTADO))` para o que conta como "aberta"). O lead
+  descartado entra no `cards` e no total exibido no cabeçalho da coluna, misturado com
+  oportunidades genuinamente abertas.
+- **Deveria ir para "Perdidos":** isso é uma decisão de produto, não uma conclusão técnica.
+  O sistema já modela perda de forma estruturada em outro lugar (`Lead.resultado="perdido"`
+  + `Lead.motivo_perda`, usados no dashboard) — só não existe uma projeção disso no Kanban.
+- **O mesmo ocorre com convertidas? Não.** `"convertido"` **tem** entrada em
+  `MAPA_STATUS_FASE` (→ `"ganho"`), e existe uma etapa `"ganho"` própria em
+  `KANBAN_ETAPAS`. Leads convertidos são corretamente separados das oportunidades abertas
+  numa coluna terminal distinta. A lacuna é específica de `descartado`, que não tem
+  nenhuma fase/coluna terminal equivalente.
+
+## 5. Testes de regressão criados
+
+Três arquivos novos, isolados e determinísticos (usam `FakeSession`,
+`tests/conftest.py`, sem tocar banco real). Todos commitados nesta rodada.
 
 ```
-collected 3 items
-tests/test_audit_hipotese1_lead_publico.py ...                           [100%]
-3 passed, 1 warning in 2.33s
+tests/test_audit_hipotese1_lead_publico.py .....................  3 passed
+tests/test_audit_hipotese2_kanban_politica.py ......................  4 passed
+tests/test_audit_hipotese3_kanban_descartado.py ...................  3 passed
 ```
 
-`ruff check` limpo no arquivo novo.
+`ruff check` limpo nos três arquivos.
 
-Os 3 testes:
-1. `test_lead_publico_sem_politica_configurada_fica_sem_responsavel_mas_com_proxima_acao`
-2. `test_lead_publico_nao_aplica_atribuir_ao_operador_mesmo_com_politica_ligada`
-3. `test_lead_publico_com_distribuicao_automatica_ativa_recebe_responsavel` (contraponto:
-   confirma que a distribuição automática *funciona* para leads públicos)
+- `test_audit_hipotese1_lead_publico.py` (3 testes) — ver seção 2.
+- `test_audit_hipotese2_kanban_politica.py` (4 testes) — bloqueio da política nas 4
+  etapas pedidas, mais um contraponto (`proposta_aceita` aceita quando responsável e
+  próxima ação estão preenchidos).
+- `test_audit_hipotese3_kanban_descartado.py` (3 testes) — coluna herdada por lead
+  descartado, contagem junto com abertos, e o contraste correto com lead convertido.
 
-## 4. Próximos passos sugeridos (não executados)
+## 6. Próximos passos sugeridos (não executados)
 
-- Confirmar com o time se a lacuna da seção 2.3 é aceitável ou se `atribuir_ao_operador`
-  deveria também cobrir o formulário público de alguma forma.
-- Se for decidido seguir a opção 2 da seção 2.5, isso é uma mudança de **dado**
-  (configuração da política), não de código.
-- Continuar a auditoria pelas próximas hipóteses do usuário (Kanban, cadências,
-  permissões, indicadores) quando fornecidas.
+- Confirmar com o time se a lacuna da seção 2.3 (Hipótese 1) é aceitável ou se
+  `atribuir_ao_operador` deveria também cobrir o formulário público de alguma forma.
+- Se for decidido seguir a opção 2 da seção 2.5 (Hipótese 1), isso é uma mudança de
+  **dado** (configuração da política), não de código.
+- Decidir se `descartado` merece uma coluna "Perdidos" própria no Kanban (Hipótese 3) —
+  mudança de código e de UX, não feita nesta rodada.
+- Continuar a auditoria pelas próximas hipóteses do usuário (cadências, permissões,
+  indicadores) quando fornecidas.

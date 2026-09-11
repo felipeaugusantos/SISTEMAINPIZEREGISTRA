@@ -5465,6 +5465,7 @@ h1,h2,h3,h4,h5 { font-family:var(--font-display); font-weight:var(--fw-semibold)
 .updates-create-modulos-label { margin:0; font-weight:700; }
 .updates-create-modulos { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; margin-top:-6px; }
 .updates-create-modulos label { display:flex; flex-direction:row; align-items:center; gap:7px; font-weight:400; font-size:.86rem; }
+.updates-create-modulos input { width:18px; min-height:18px; flex-shrink:0; }
 .updates-create-evidencias { border:1px solid var(--line); border-radius:var(--radius-md); padding:14px; display:grid; gap:10px; }
 .updates-create-evidencias legend { font-weight:700; font-size:.82rem; padding:0 4px; }
 .updates-create-evidencia-row { display:grid; grid-template-columns:2fr 1fr auto; gap:8px; align-items:start; }

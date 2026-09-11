@@ -9,6 +9,13 @@ escrita foi implementada), sempre restrito à organização do usuário logado
 parâmetro vindo do modelo), e usa a mesma chave/modelo/pacing de cota do
 Gemini já configurados para a IA em sombra.
 
+Acesso (achado do usuário, 11/09/2026): o widget flutuante fica disponível
+para QUALQUER usuário autenticado, não só quem tem leads.view -- mas isso
+não abre uma brecha de permissão: cada ferramenta abaixo checa
+usuario.pode("leads.view") por conta própria e devolve uma recusa em texto
+em vez de consultar o banco quando falta a permissão, exatamente como o
+resto do sistema já faz (ex.: mascaramento de PII em _lead_resumo).
+
 Fluxo por pergunta (sem persistir histórico bruto do Gemini -- só o texto
 visível entra na conversa seguinte, ver PerguntaInput.historico): o modelo
 pode pedir para chamar uma das ferramentas abaixo (contents com
@@ -22,13 +29,13 @@ import logging
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.leads import _filtros_lead
-from app.auth import UsuarioAutenticado, exigir_permissao
+from app.auth import UsuarioAtualDep, UsuarioAutenticado, exigir_csrf
 from app.database import get_session
 from app.ia_sombra import _respeitar_intervalo_minimo_gemini
 from app.models import Lead, StatusLead
@@ -37,7 +44,7 @@ from app.settings import get_settings
 logger = logging.getLogger("ze_registra.assistente_ia")
 router = APIRouter(prefix="/v1/admin/assistente", tags=["assistente ia"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-ViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
+MSG_SEM_PERMISSAO_LEADS = "Você não tem permissão para consultar dados de leads neste sistema."
 
 MAX_RODADAS_TOOL = 3
 MAX_MENSAGENS_HISTORICO = 12
@@ -127,6 +134,8 @@ def _lead_resumo(lead: Lead, usuario: UsuarioAutenticado) -> dict:
 
 
 async def _tool_contar_leads_por_status(session: AsyncSession, usuario: UsuarioAutenticado, _args: dict) -> dict:
+    if not usuario.pode("leads.view"):
+        return {"erro": MSG_SEM_PERMISSAO_LEADS}
     linhas = (
         await session.execute(
             select(Lead.status, func.count())
@@ -138,6 +147,8 @@ async def _tool_contar_leads_por_status(session: AsyncSession, usuario: UsuarioA
 
 
 async def _tool_buscar_leads(session: AsyncSession, usuario: UsuarioAutenticado, args: dict) -> dict:
+    if not usuario.pode("leads.view"):
+        return {"erro": MSG_SEM_PERMISSAO_LEADS}
     limite = max(1, min(int(args.get("limite") or LIMITE_PADRAO_LEADS), LIMITE_MAXIMO_LEADS))
     status_enum = None
     if args.get("status"):
@@ -155,6 +166,8 @@ async def _tool_buscar_leads(session: AsyncSession, usuario: UsuarioAutenticado,
 
 
 async def _tool_leads_prioritarios(session: AsyncSession, usuario: UsuarioAutenticado, args: dict) -> dict:
+    if not usuario.pode("leads.view"):
+        return {"erro": MSG_SEM_PERMISSAO_LEADS}
     limite = max(1, min(int(args.get("limite") or LIMITE_PADRAO_LEADS), LIMITE_MAXIMO_LEADS))
     criterio = args.get("criterio")
     if criterio not in {"atrasadas", "sem_responsavel", "sem_proxima_acao"}:
@@ -250,7 +263,15 @@ class PerguntaInput(BaseModel):
 
 
 @router.post("/perguntar")
-async def perguntar_endpoint(dados: PerguntaInput, session: SessionDep, usuario: ViewDep) -> dict:
+async def perguntar_endpoint(
+    dados: PerguntaInput, request: Request, session: SessionDep, usuario: UsuarioAtualDep
+) -> dict:
+    # Disponível para qualquer usuário autenticado (achado do usuário,
+    # 11/09/2026) -- não há Depends(exigir_permissao(...)) aqui, então o
+    # CSRF (normalmente checado por exigir_permissao) precisa ser validado
+    # manualmente. A restrição de dados real está dentro de cada ferramenta
+    # (usuario.pode("leads.view")), não no acesso ao endpoint.
+    exigir_csrf(request, usuario)
     settings = get_settings()
     if not settings.assistente_crm_enabled:
         raise HTTPException(status_code=503, detail="Assistente de IA desativado nesta instalação")

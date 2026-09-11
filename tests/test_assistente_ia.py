@@ -42,6 +42,40 @@ def _lead(**kwargs: object) -> Lead:
     return Lead(**base)
 
 
+def test_tool_contar_leads_por_status_recusa_sem_permissao_leads() -> None:
+    """Achado do usuário (11/09/2026): o assistente ficou disponível para
+    qualquer usuário autenticado, não só quem tem leads.view -- mas isso não
+    deve abrir uma brecha de permissão. Cada ferramenta recusa por conta
+    própria quando falta leads.view, sem tocar o banco."""
+    session = FakeSession([])
+    usuario = usuario_teste(perfil="financeiro", permissoes=frozenset({"finance.view"}))
+
+    resultado = asyncio.run(_tool_contar_leads_por_status(session, usuario, {}))
+
+    assert "erro" in resultado
+    assert session.executados == []
+
+
+def test_tool_buscar_leads_recusa_sem_permissao_leads() -> None:
+    session = FakeSession([])
+    usuario = usuario_teste(perfil="financeiro", permissoes=frozenset({"finance.view"}))
+
+    resultado = asyncio.run(_tool_buscar_leads(session, usuario, {}))
+
+    assert "erro" in resultado
+    assert session.executados == []
+
+
+def test_tool_leads_prioritarios_recusa_sem_permissao_leads() -> None:
+    session = FakeSession([])
+    usuario = usuario_teste(perfil="financeiro", permissoes=frozenset({"finance.view"}))
+
+    resultado = asyncio.run(_tool_leads_prioritarios(session, usuario, {"criterio": "atrasadas"}))
+
+    assert "erro" in resultado
+    assert session.executados == []
+
+
 def test_tool_contar_leads_por_status_agrupa_corretamente() -> None:
     session = FakeSession([FakeResult(itens=[(StatusLead.NOVO, 5), (StatusLead.QUALIFICADO, 2)])])
     usuario = usuario_teste()
@@ -185,6 +219,39 @@ def test_perguntar_endpoint_recusado_sem_chave_configurada() -> None:
         settings.gemini_api_key = original_key
 
     assert resposta.status_code == 503
+
+
+def test_perguntar_endpoint_aceita_usuario_sem_permissao_de_leads(monkeypatch) -> None:
+    """Achado do usuário (11/09/2026): o endpoint não exige mais leads.view
+    -- qualquer usuário autenticado pode conversar com o assistente. Quem
+    não tem leads.view continua sem ver dados de lead (a ferramenta recusa),
+    mas a conversa em si não é bloqueada com 403."""
+
+    async def _fake_chamar(contents, *, http_client):
+        return {"candidates": [{"content": {"role": "model", "parts": [{"text": "Não posso ver esses dados."}]}}]}
+
+    monkeypatch.setattr(modulo, "_chamar_gemini_bruto", _fake_chamar)
+    settings = get_settings()
+    original_enabled = settings.assistente_crm_enabled
+    original_key = settings.gemini_api_key
+    settings.assistente_crm_enabled = True
+    settings.gemini_api_key = "chave-de-teste"
+    usuario = usuario_teste(perfil="financeiro", permissoes=frozenset({"finance.view"}))
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = sessao_override()
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/assistente/perguntar",
+            json={"pergunta": "quantos leads temos?", "historico": []},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        settings.assistente_crm_enabled = original_enabled
+        settings.gemini_api_key = original_key
+
+    assert resposta.status_code == 200
+    assert resposta.json()["resposta"] == "Não posso ver esses dados."
 
 
 def test_perguntar_recorta_historico_longo_para_o_limite() -> None:

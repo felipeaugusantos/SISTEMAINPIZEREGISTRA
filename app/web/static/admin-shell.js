@@ -6,7 +6,7 @@ const adminSections = [
   { id: "figurativa", label: "Busca figurativa", href: "/admin/figurativa", symbol: "BF", permission: "leads.view", parent: "comercial" },
   { id: "leads", label: "Leads, pesquisas e análises", href: "/admin/pesquisas", symbol: "AN", permission: "leads.view", parent: "comercial" },
   { id: "crm", label: "CRM", href: "/admin/crm", symbol: "CR", permission: "leads.view", parent: "comercial" },
-  { id: "assistente", label: "Assistente (IA)", href: "/admin/assistente", symbol: "IA", permission: "leads.view", parent: "comercial" },
+  { id: "assistente", label: "Assistente (IA)", href: "/admin/assistente", symbol: "IA", permission: "*", parent: "comercial" },
   { id: "prospeccao", label: "Radar de Prospecção", href: "/admin/prospeccao", symbol: "RP", permission: "prospeccao.view", parent: "comercial" },
   { id: "finance", label: "Financeiro", href: "/admin/financeiro", symbol: "FI", permission: "finance.view" },
   { id: "finance-payable", label: "Contas a pagar", href: "/admin/financeiro/contas-a-pagar", symbol: "CP", permission: "finance.view", parent: "finance" },
@@ -209,6 +209,103 @@ function createAdminShell() {
 
 createAdminShell();
 
+// Assistente (IA) -- widget flutuante global (achado do usuário,
+// 11/09/2026): disponível em toda tela admin, para qualquer usuário
+// autenticado. Não duplica a tela dedicada (/admin/assistente): lá o
+// lançador flutuante fica escondido, a página já é o chat em tela cheia.
+function createAssistenteWidget() {
+  if (document.body.dataset.adminSection === "assistente") return;
+  const historico = [];
+  let aberto = false;
+
+  const lancador = document.createElement("button");
+  lancador.type = "button";
+  lancador.className = "assistente-widget-launcher";
+  lancador.setAttribute("aria-label", "Abrir assistente (IA)");
+  lancador.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
+
+  const painel = document.createElement("section");
+  painel.className = "assistente-widget-panel";
+  painel.hidden = true;
+  painel.innerHTML = `
+    <header class="assistente-widget-header">
+      <strong>Assistente (IA)</strong>
+      <button type="button" data-widget-fechar aria-label="Fechar">×</button>
+    </header>
+    <div class="assistente-widget-body" id="assistente-widget-body">
+      <div class="assistente-widget-msg assistente-widget-msg-model"><p>Oi! Pergunte sobre os leads da sua organização.</p></div>
+    </div>
+    <form class="assistente-widget-form" id="assistente-widget-form">
+      <textarea id="assistente-widget-input" maxlength="500" rows="1" placeholder="Digite sua pergunta…" required></textarea>
+      <button type="submit">Enviar</button>
+    </form>
+  `;
+
+  document.body.append(lancador, painel);
+
+  const corpo = painel.querySelector("#assistente-widget-body");
+  const form = painel.querySelector("#assistente-widget-form");
+  const input = painel.querySelector("#assistente-widget-input");
+
+  function escaparHtml(texto) {
+    const node = document.createElement("span");
+    node.textContent = texto ?? "";
+    return node.innerHTML;
+  }
+
+  function adicionarMensagem(papel, texto) {
+    const bloco = document.createElement("div");
+    bloco.className = `assistente-widget-msg assistente-widget-msg-${papel}`;
+    bloco.innerHTML = `<p>${escaparHtml(texto).replace(/\n/g, "<br>")}</p>`;
+    corpo.appendChild(bloco);
+    corpo.scrollTop = corpo.scrollHeight;
+    return bloco;
+  }
+
+  function alternarPainel(mostrar) {
+    aberto = mostrar ?? !aberto;
+    painel.hidden = !aberto;
+    if (aberto) input.focus();
+  }
+
+  lancador.addEventListener("click", () => alternarPainel());
+  painel.querySelector("[data-widget-fechar]").addEventListener("click", () => alternarPainel(false));
+
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    const pergunta = input.value.trim();
+    if (!pergunta) return;
+    adicionarMensagem("user", pergunta);
+    input.value = "";
+    const botao = form.querySelector("button");
+    input.disabled = true;
+    botao.disabled = true;
+    const carregando = adicionarMensagem("model", "Consultando…");
+    carregando.classList.add("assistente-widget-msg-loading");
+    try {
+      const response = await fetch("/v1/admin/assistente/perguntar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pergunta, historico }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Não foi possível consultar o assistente.");
+      carregando.remove();
+      adicionarMensagem("model", data.resposta);
+      historico.push({ role: "user", texto: pergunta }, { role: "model", texto: data.resposta });
+      if (historico.length > 12) historico.splice(0, historico.length - 12);
+    } catch (error) {
+      carregando.remove();
+      adicionarMensagem("error", error.message || "Não foi possível consultar o assistente.");
+    } finally {
+      input.disabled = false;
+      botao.disabled = false;
+      input.focus();
+    }
+  });
+}
+createAssistenteWidget();
+
 originalFetch("/v1/auth/me").then(async response => {
   if (!response.ok) { location.href = "/login"; return; }
   const user = await response.json();
@@ -225,6 +322,7 @@ originalFetch("/v1/auth/me").then(async response => {
     }
     if (section?.profiles && !section.profiles.includes(user.perfil)) link.remove();
     else if (section?.superadmin && !user.superadmin) link.remove();
+    else if (link.dataset.permission === "*") { /* disponível para qualquer usuário autenticado, ex.: Assistente (IA) */ }
     else if (!section?.superadmin && user.perfil !== "administrador" && !user.superadmin && !user.permissoes.includes(link.dataset.permission)) link.remove();
   });
   document.querySelectorAll(".admin-nav-parent-row").forEach(row => {

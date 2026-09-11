@@ -64,7 +64,7 @@ from app.api.usuarios import router as usuarios_router
 from app.api.versoes_sistema import router as versoes_sistema_router
 from app.api.vigilancia import router as vigilancia_router
 from app.api.visual import router as visual_router
-from app.auth import exigir_permissao
+from app.auth import exigir_permissao, obter_usuario_atual
 from app.database import get_session
 from app.models import EventoOperacional, RpiImportacao, RpiSyncEstado, RpiSyncExecucao
 from app.observability import observar_requisicao
@@ -469,7 +469,10 @@ async def painel_modelo_email_leads() -> FileResponse:
 @app.get(
     "/admin/assistente",
     include_in_schema=False,
-    dependencies=[Depends(exigir_permissao("leads.view"))],
+    # Disponível para qualquer usuário autenticado (achado do usuário,
+    # 11/09/2026) -- o widget flutuante também é global; a restrição real
+    # de dados fica dentro de cada ferramenta do assistente (leads.view).
+    dependencies=[Depends(obter_usuario_atual)],
 )
 async def painel_assistente_ia() -> FileResponse:
     return FileResponse(web_dir / "admin-assistente.html")

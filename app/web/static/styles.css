@@ -5453,7 +5453,7 @@ h1,h2,h3,h4,h5 { font-family:var(--font-display); font-weight:var(--fw-semibold)
 .updates-close { width:38px; height:38px; padding:0; border:1px solid var(--line); border-radius:999px; background:transparent; font-size:1.4rem; }
 .updates-dialog-context { margin:0; color:var(--muted); }
 .updates-dialog-actions { justify-content:flex-end; }
-/* Assistente (IA) -- widget flutuante global, injetado por admin-shell.js
+/* Zezinho das Marcas (assistente de IA) -- widget flutuante global, injetado por admin-shell.js
    em toda tela admin (achado do usuário, 11/09/2026). */
 .assistente-widget-launcher {
   position: fixed;

@@ -6,7 +6,7 @@ const adminSections = [
   { id: "figurativa", label: "Busca figurativa", href: "/admin/figurativa", symbol: "BF", permission: "leads.view", parent: "comercial" },
   { id: "leads", label: "Leads, pesquisas e análises", href: "/admin/pesquisas", symbol: "AN", permission: "leads.view", parent: "comercial" },
   { id: "crm", label: "CRM", href: "/admin/crm", symbol: "CR", permission: "leads.view", parent: "comercial" },
-  { id: "assistente", label: "Assistente (IA)", href: "/admin/assistente", symbol: "IA", permission: "*", parent: "comercial" },
+  { id: "assistente", label: "Zezinho das Marcas", href: "/admin/assistente", symbol: "IA", permission: "*", parent: "comercial" },
   { id: "prospeccao", label: "Radar de Prospecção", href: "/admin/prospeccao", symbol: "RP", permission: "prospeccao.view", parent: "comercial" },
   { id: "finance", label: "Financeiro", href: "/admin/financeiro", symbol: "FI", permission: "finance.view" },
   { id: "finance-payable", label: "Contas a pagar", href: "/admin/financeiro/contas-a-pagar", symbol: "CP", permission: "finance.view", parent: "finance" },
@@ -221,7 +221,7 @@ function createAssistenteWidget() {
   const lancador = document.createElement("button");
   lancador.type = "button";
   lancador.className = "assistente-widget-launcher";
-  lancador.setAttribute("aria-label", "Abrir assistente (IA)");
+  lancador.setAttribute("aria-label", "Abrir Zezinho das Marcas");
   lancador.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
 
   const painel = document.createElement("section");
@@ -229,11 +229,11 @@ function createAssistenteWidget() {
   painel.hidden = true;
   painel.innerHTML = `
     <header class="assistente-widget-header">
-      <strong>Assistente (IA)</strong>
+      <strong>Zezinho das Marcas</strong>
       <button type="button" data-widget-fechar aria-label="Fechar">×</button>
     </header>
     <div class="assistente-widget-body" id="assistente-widget-body">
-      <div class="assistente-widget-msg assistente-widget-msg-model"><p>Oi! Pergunte sobre os leads da sua organização.</p></div>
+      <div class="assistente-widget-msg assistente-widget-msg-model"><p>Oi! Eu sou o Zezinho das Marcas. Pergunte sobre os leads da sua organização.</p></div>
     </div>
     <form class="assistente-widget-form" id="assistente-widget-form">
       <textarea id="assistente-widget-input" maxlength="500" rows="1" placeholder="Digite sua pergunta…" required></textarea>

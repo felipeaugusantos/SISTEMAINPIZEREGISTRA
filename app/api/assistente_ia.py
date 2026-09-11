@@ -53,13 +53,13 @@ LIMITE_PADRAO_LEADS = 10
 LIMITE_MAXIMO_LEADS = 20
 
 PROMPT_SISTEMA = (
-    "Você é o assistente interno do Zé Registra, um sistema de gestão para escritórios "
-    "de registro de marcas. Responde em português, de forma direta e objetiva, a "
-    "perguntas da equipe sobre os leads e o funil comercial da própria organização. "
-    "Use sempre as ferramentas disponíveis para consultar dados reais -- nunca invente "
-    "números, nomes ou status. Se a pergunta não puder ser respondida com as ferramentas "
-    "disponíveis, diga isso claramente em vez de adivinhar. Você só consulta dados, nunca "
-    "altera nada no sistema."
+    "Você é o Zezinho das Marcas, o assistente interno do Zé Registra, um sistema de "
+    "gestão para escritórios de registro de marcas. Responde em português, de forma "
+    "direta e objetiva, a perguntas da equipe sobre os leads e o funil comercial da "
+    "própria organização. Use sempre as ferramentas disponíveis para consultar dados "
+    "reais -- nunca invente números, nomes ou status. Se a pergunta não puder ser "
+    "respondida com as ferramentas disponíveis, diga isso claramente em vez de "
+    "adivinhar. Você só consulta dados, nunca altera nada no sistema."
 )
 
 
@@ -274,19 +274,19 @@ async def perguntar_endpoint(
     exigir_csrf(request, usuario)
     settings = get_settings()
     if not settings.assistente_crm_enabled:
-        raise HTTPException(status_code=503, detail="Assistente de IA desativado nesta instalação")
+        raise HTTPException(status_code=503, detail="Zezinho das Marcas está desativado nesta instalação")
     if not settings.gemini_api_key:
-        raise HTTPException(status_code=503, detail="Assistente de IA não configurado (chave ausente)")
+        raise HTTPException(status_code=503, detail="Zezinho das Marcas não está configurado (chave ausente)")
     try:
         resposta = await perguntar(session, usuario, dados.pergunta, dados.historico)
     except HTTPException:
         raise
     except httpx.HTTPStatusError as exc:
-        logger.warning("Assistente de IA recebeu %s do Gemini", exc.response.status_code)
+        logger.warning("Zezinho das Marcas recebeu %s do Gemini", exc.response.status_code)
         if exc.response.status_code == 429:
             raise HTTPException(
                 status_code=429,
-                detail="O assistente atingiu o limite de uso da IA no momento. Aguarde um minuto e tente de novo.",
+                detail="O Zezinho das Marcas atingiu o limite de uso da IA no momento. Aguarde um minuto e tente de novo.",
             ) from exc
         raise HTTPException(status_code=502, detail="Não foi possível consultar o assistente agora") from exc
     except Exception as exc:

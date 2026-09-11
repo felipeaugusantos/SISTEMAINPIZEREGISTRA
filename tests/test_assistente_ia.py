@@ -312,3 +312,42 @@ def test_perguntar_endpoint_traduz_429_do_gemini_em_mensagem_clara(monkeypatch) 
 
     assert resposta.status_code == 429
     assert "limite" in resposta.json()["detail"].lower()
+
+
+def test_chamar_gemini_bruto_cai_para_fallback_quando_principal_devolve_429() -> None:
+    """Mesmo fallback automático de app.ia_sombra.chamar_gemini (achado do
+    usuário, 11/09/2026), aplicado à chamada com tools do assistente."""
+    settings = get_settings()
+    original_key = settings.gemini_api_key
+    original_intervalo = settings.gemini_intervalo_minimo_segundos
+    settings.gemini_api_key = "chave-teste"
+    settings.gemini_intervalo_minimo_segundos = 0.0
+
+    requisicao_fake = httpx.Request("POST", "https://generativelanguage.googleapis.com/fake")
+    urls_chamadas = []
+
+    class _ClienteFake:
+        def __init__(self) -> None:
+            self._respostas = [
+                httpx.Response(429, json={"error": "quota"}, request=requisicao_fake),
+                httpx.Response(
+                    200,
+                    json={"candidates": [{"content": {"role": "model", "parts": [{"text": "ok pelo fallback"}]}}]},
+                    request=requisicao_fake,
+                ),
+            ]
+
+        async def post(self, url, *, json, headers):
+            urls_chamadas.append(url)
+            return self._respostas.pop(0)
+
+    try:
+        dados = asyncio.run(modulo._chamar_gemini_bruto([{"role": "user", "parts": [{"text": "oi"}]}], http_client=_ClienteFake()))
+    finally:
+        settings.gemini_api_key = original_key
+        settings.gemini_intervalo_minimo_segundos = original_intervalo
+
+    assert dados["candidates"][0]["content"]["parts"][0]["text"] == "ok pelo fallback"
+    assert len(urls_chamadas) == 2
+    assert settings.gemini_modelo in urls_chamadas[0]
+    assert settings.gemini_modelo_fallback in urls_chamadas[1]

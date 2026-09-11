@@ -37,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.leads import _filtros_lead
 from app.auth import UsuarioAtualDep, UsuarioAutenticado, exigir_csrf
 from app.database import get_session
-from app.ia_sombra import _respeitar_intervalo_minimo_gemini
+from app.ia_sombra import _modelos_gemini_em_ordem, _respeitar_intervalo_minimo_gemini
 from app.models import Lead, StatusLead
 from app.settings import get_settings
 
@@ -193,17 +193,28 @@ FERRAMENTAS = {
 
 
 async def _chamar_gemini_bruto(contents: list[dict], *, http_client: httpx.AsyncClient) -> dict:
+    """Fallback automático (achado do usuário, 11/09/2026): se o modelo
+    principal devolver 429 (cota por minuto estourada), tenta na mesma
+    chamada o modelo fallback mais leve (settings.gemini_modelo_fallback)
+    antes de desistir -- só para 429, qualquer outro erro propaga direto.
+    Mesma lógica de app.ia_sombra.chamar_gemini, reaproveitada aqui."""
     settings = get_settings()
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY nao configurada")
-    await _respeitar_intervalo_minimo_gemini(settings.gemini_intervalo_minimo_segundos)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_modelo}:generateContent"
     corpo = {
         "contents": contents,
         "tools": _declaracoes_tools(),
         "systemInstruction": {"parts": [{"text": PROMPT_SISTEMA}]},
     }
-    resposta = await http_client.post(url, json=corpo, headers={"x-goog-api-key": settings.gemini_api_key})
+    modelos = _modelos_gemini_em_ordem(settings)
+    resposta = None
+    for indice, modelo in enumerate(modelos):
+        await _respeitar_intervalo_minimo_gemini(settings.gemini_intervalo_minimo_segundos)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent"
+        resposta = await http_client.post(url, json=corpo, headers={"x-goog-api-key": settings.gemini_api_key})
+        if resposta.status_code == 429 and indice < len(modelos) - 1:
+            continue
+        break
     resposta.raise_for_status()
     return resposta.json()
 

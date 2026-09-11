@@ -44,7 +44,7 @@ from app.models import (
     SugestaoIALead,
 )
 from app.queueing import enfileirar
-from app.settings import get_settings
+from app.settings import Settings, get_settings
 
 MAXIMO_LEADS_POR_EXECUCAO = 20
 TAMANHO_MAXIMO_CORPO_RESPOSTA = 500
@@ -174,21 +174,42 @@ async def _respeitar_intervalo_minimo_gemini(intervalo_minimo_segundos: float) -
         _ultima_chamada_gemini_em = time.monotonic()
 
 
+def _modelos_gemini_em_ordem(settings: Settings) -> list[str]:
+    """Modelo principal primeiro, depois o fallback mais leve (se
+    configurado e diferente do principal) -- ver comentário de
+    settings.gemini_modelo_fallback."""
+    modelos = [settings.gemini_modelo]
+    if settings.gemini_modelo_fallback and settings.gemini_modelo_fallback != settings.gemini_modelo:
+        modelos.append(settings.gemini_modelo_fallback)
+    return modelos
+
+
 async def chamar_gemini(prompt: str, *, http_client: httpx.AsyncClient | None = None) -> str:
     """Mesmo contrato de chamar_ollama (prompt -> texto), usando a API do
     Gemini como provider de geração (decisão do usuário, 11/09/2026). Só a
     geração muda de provider -- o RAG (embeddings) continua sempre local via
-    Ollama, ver settings.ia_sombra_embedding_modelo."""
+    Ollama, ver settings.ia_sombra_embedding_modelo.
+
+    Fallback automático (achado do usuário, 11/09/2026): se o modelo
+    principal devolver 429 (cota por minuto estourada), tenta na mesma
+    chamada o modelo fallback mais leve, em vez de falhar direto -- só para
+    429, qualquer outro erro propaga imediatamente."""
     settings = get_settings()
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY nao configurada")
-    await _respeitar_intervalo_minimo_gemini(settings.gemini_intervalo_minimo_segundos)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_modelo}:generateContent"
-    corpo = {"contents": [{"parts": [{"text": prompt}]}]}
     cliente_proprio = http_client is None
     cliente = http_client or httpx.AsyncClient(timeout=settings.gemini_timeout_segundos)
     try:
-        resposta = await cliente.post(url, json=corpo, headers={"x-goog-api-key": settings.gemini_api_key})
+        modelos = _modelos_gemini_em_ordem(settings)
+        corpo = {"contents": [{"parts": [{"text": prompt}]}]}
+        resposta = None
+        for indice, modelo in enumerate(modelos):
+            await _respeitar_intervalo_minimo_gemini(settings.gemini_intervalo_minimo_segundos)
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent"
+            resposta = await cliente.post(url, json=corpo, headers={"x-goog-api-key": settings.gemini_api_key})
+            if resposta.status_code == 429 and indice < len(modelos) - 1:
+                continue
+            break
         resposta.raise_for_status()
         candidatos = resposta.json().get("candidates") or []
         if not candidatos:

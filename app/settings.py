@@ -164,6 +164,14 @@ class Settings(BaseSettings):
     # alias "-latest" para sempre apontar ao modelo flash vigente, em vez de
     # fixar uma versao que a Google pode aposentar sem aviso prévio no app.
     gemini_modelo: str = "gemini-flash-latest"
+    # Fallback automático (achado do usuário, 11/09/2026): quando o modelo
+    # principal devolve 429 (cota por minuto do plano gratuito estourada,
+    # visto ao vivo em produção -- 20 RPM para o "flash" cheio), a chamada
+    # tenta na hora o modelo mais leve "flash-lite", que tem cota gratuita
+    # mais generosa. Nunca troca por qualquer outro erro (só 429) -- outros
+    # erros (chave inválida, timeout, etc.) continuam falhando direto.
+    # Vazio desativa o fallback (só o modelo principal é tentado).
+    gemini_modelo_fallback: str = "gemini-flash-lite-latest"
     gemini_timeout_segundos: float = 60.0
     # Salvaguarda de cota (achado do usuário, 11/09/2026): o plano gratuito
     # do Gemini tem só 10-15 RPM e 250 requisições/dia. Sem limite proprio,

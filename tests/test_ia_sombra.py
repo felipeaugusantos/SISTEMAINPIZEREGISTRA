@@ -2,13 +2,16 @@ import asyncio
 import time
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 
 from app.ia_sombra import (
     _analisar_explicacao,
     _analisar_qualificacao,
     _analisar_resposta,
+    _modelos_gemini_em_ordem,
     buscar_leads_similares,
+    chamar_gemini,
     enfileirar_qualificacao_ia_se_ativa,
     gerar_explicacao_risco,
     gerar_explicacoes_risco_pendentes,
@@ -879,3 +882,86 @@ def test_gerar_sugestoes_ia_pendentes_respeita_limite_menor_com_gemini() -> None
         modulo.dentro_do_horario_comercial = original_horario
 
     assert resultado == 1
+
+
+# --- Fallback automático entre modelos Gemini (achado do usuário,
+# 11/09/2026): 429 (cota por minuto do plano gratuito) no modelo principal
+# cai para o modelo fallback mais leve na mesma chamada. ---
+
+
+class _ClienteHttpFake:
+    """Fake mínimo de httpx.AsyncClient.post -- registra a URL de cada
+    chamada e devolve as respostas fornecidas em ordem."""
+
+    def __init__(self, respostas: list[httpx.Response]) -> None:
+        self._respostas = list(respostas)
+        self.urls_chamadas: list[str] = []
+
+    async def post(self, url: str, *, json: dict, headers: dict) -> httpx.Response:
+        self.urls_chamadas.append(url)
+        return self._respostas.pop(0)
+
+
+_REQUISICAO_FAKE = httpx.Request("POST", "https://generativelanguage.googleapis.com/fake")
+
+
+def _resposta_texto(texto: str) -> httpx.Response:
+    return httpx.Response(
+        200, json={"candidates": [{"content": {"parts": [{"text": texto}]}}]}, request=_REQUISICAO_FAKE
+    )
+
+
+def _resposta_429() -> httpx.Response:
+    return httpx.Response(429, json={"error": {"message": "quota"}}, request=_REQUISICAO_FAKE)
+
+
+def test_modelos_gemini_em_ordem_inclui_fallback_quando_diferente() -> None:
+    settings = get_settings()
+    assert settings.gemini_modelo != settings.gemini_modelo_fallback
+    assert _modelos_gemini_em_ordem(settings) == [settings.gemini_modelo, settings.gemini_modelo_fallback]
+
+
+def test_modelos_gemini_em_ordem_sem_fallback_quando_vazio() -> None:
+    settings = get_settings()
+    original = settings.gemini_modelo_fallback
+    settings.gemini_modelo_fallback = ""
+    try:
+        assert _modelos_gemini_em_ordem(settings) == [settings.gemini_modelo]
+    finally:
+        settings.gemini_modelo_fallback = original
+
+
+def test_chamar_gemini_cai_para_fallback_quando_principal_devolve_429() -> None:
+    settings = get_settings()
+    original_key = settings.gemini_api_key
+    original_intervalo = settings.gemini_intervalo_minimo_segundos
+    settings.gemini_api_key = "chave-teste"
+    settings.gemini_intervalo_minimo_segundos = 0.0
+    cliente = _ClienteHttpFake([_resposta_429(), _resposta_texto("ok pelo fallback")])
+    try:
+        resultado = asyncio.run(chamar_gemini("prompt", http_client=cliente))
+    finally:
+        settings.gemini_api_key = original_key
+        settings.gemini_intervalo_minimo_segundos = original_intervalo
+
+    assert resultado == "ok pelo fallback"
+    assert len(cliente.urls_chamadas) == 2
+    assert settings.gemini_modelo in cliente.urls_chamadas[0]
+    assert settings.gemini_modelo_fallback in cliente.urls_chamadas[1]
+
+
+def test_chamar_gemini_nao_tenta_fallback_em_erro_diferente_de_429() -> None:
+    settings = get_settings()
+    original_key = settings.gemini_api_key
+    original_intervalo = settings.gemini_intervalo_minimo_segundos
+    settings.gemini_api_key = "chave-teste"
+    settings.gemini_intervalo_minimo_segundos = 0.0
+    cliente = _ClienteHttpFake([httpx.Response(500, json={"error": "falhou"}, request=_REQUISICAO_FAKE)])
+    try:
+        with pytest.raises(httpx.HTTPStatusError):
+            asyncio.run(chamar_gemini("prompt", http_client=cliente))
+    finally:
+        settings.gemini_api_key = original_key
+        settings.gemini_intervalo_minimo_segundos = original_intervalo
+
+    assert len(cliente.urls_chamadas) == 1

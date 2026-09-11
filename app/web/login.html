@@ -22,14 +22,13 @@
       </div>
       <div class="portal-login-card">
         <div class="portal-card-heading"><p class="eyebrow">ACESSO SEGURO</p><h2>Bem-vindo de volta</h2><p>Entre com suas credenciais para acessar o Centro de Operações.</p></div>
-        <a href="/" class="auth-brand ops-login-brand"><img src="/static/assets/personagem.png" alt=""><strong>Zé Registra®</strong></a>
         <div id="social-login" class="social-login" hidden><div id="social-buttons" class="social-buttons"></div><div class="auth-divider"><span>ou use sua senha</span></div></div>
         <form id="login-form">
           <div id="password-login-fields" class="password-login-fields">
             <label>Usuário ou e-mail<input name="identificador" autocomplete="username" required></label>
             <label>Senha<input name="senha" type="password" autocomplete="current-password" required></label>
           </div>
-          <label>Código de segurança <small>(se MFA estiver ativo)</small><input name="codigo_mfa" inputmode="numeric" autocomplete="one-time-code" maxlength="20"></label>
+          <label id="mfa-field" hidden>Código de segurança <small>do seu autenticador</small><input name="codigo_mfa" inputmode="numeric" autocomplete="one-time-code" maxlength="20"></label>
           <button id="login-submit" class="primary-button portal-submit" type="submit">Entrar <span aria-hidden="true">→</span></button>
           <a id="forgot-password-link" class="secondary-button auth-secondary-link" href="/esqueci-senha">Esqueci minha senha</a>
           <div id="auth-message" class="status-message" role="alert" aria-live="polite"></div>

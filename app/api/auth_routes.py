@@ -201,7 +201,7 @@ async def login(
             {"motivo": "excesso_tentativas" if bloqueou else "credenciais_invalidas"},
         )
         await session.commit()
-        detalhe = "Código MFA inválido ou ausente" if usuario and usuario.mfa_ativo else "Usuario ou senha invalidos"
+        detalhe = "Código MFA inválido ou ausente" if usuario and usuario.mfa_ativo else "Usuário ou senha inválidos"
         raise HTTPException(status_code=401, detail=detalhe)
     usuario.tentativas_falhas = 0
     usuario.bloqueado_ate = None

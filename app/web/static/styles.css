@@ -60,6 +60,7 @@ th, td { padding: 11px 13px; vertical-align: middle; }
 td { border-top: 1px solid var(--line); }
 
 .status-message { border: 1px solid var(--line); border-radius: var(--radius-md); padding: 12px 14px; }
+#auth-message:empty { display: none; border: 0; padding: 0; }
 .status-message.error { background: #fff0ec; border-color: #efb4a6; color: #8f3021; }
 .status-message.success { background: #eaf7ed; border-color: #a9d8b2; color: #216f34; }
 .status-message.loading { background: #f5f8f5; color: var(--muted); }

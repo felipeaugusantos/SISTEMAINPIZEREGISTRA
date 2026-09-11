@@ -61,6 +61,7 @@ if (login && socialMfa) {
   document.querySelector("#password-login-fields").hidden = true;
   login.elements.identificador.disabled = true;
   login.elements.senha.disabled = true;
+  document.querySelector("#mfa-field").hidden = false;
   login.elements.codigo_mfa.required = true;
   document.querySelector("#login-submit").textContent = "Confirmar código de segurança";
   document.querySelector("#forgot-password-link").hidden = true;
@@ -85,6 +86,11 @@ login?.addEventListener("submit", async event => {
   } catch (erro) {
     msg.textContent = erro.message;
     msg.className = "status-message error";
+    if (!socialMfa && erro.message === "Código MFA inválido ou ausente") {
+      const campoMfa = document.querySelector("#mfa-field");
+      campoMfa.hidden = false;
+      login.elements.codigo_mfa.focus();
+    }
   }
 });
 

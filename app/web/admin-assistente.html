@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Assistente (IA) — Zé Registra</title><link rel="stylesheet" href="/static/styles.css?v=61"><link rel="stylesheet" href="/static/admin-assistente.css?v=1"><script src="/static/admin-shell.js?v=47" defer></script><script src="/static/admin-assistente.js?v=1" defer></script></head>
+<body class="admin-body" data-admin-section="assistente"><main class="admin-main">
+  <section class="admin-heading">
+    <div>
+      <p class="eyebrow">Relacionamento comercial</p>
+      <h1>Assistente (IA)</h1>
+      <p>Pergunte sobre os leads e o funil da sua organização. Ele só consulta dados — nunca altera nada.</p>
+    </div>
+  </section>
+  <div id="assistente-message" class="status-message" role="status"></div>
+  <section class="assistente-chat">
+    <div id="assistente-historico" class="assistente-historico" aria-live="polite">
+      <div class="assistente-msg assistente-msg-model">
+        <p>Oi! Posso responder perguntas sobre os leads da sua organização, por exemplo:</p>
+        <ul>
+          <li>"Quantos leads temos por status?"</li>
+          <li>"Busque leads com a marca ACME"</li>
+          <li>"Quais leads estão atrasados?"</li>
+        </ul>
+      </div>
+    </div>
+    <form id="assistente-form" class="assistente-form">
+      <textarea id="assistente-input" name="pergunta" maxlength="500" rows="2" placeholder="Digite sua pergunta…" required></textarea>
+      <button class="primary-button" type="submit">Perguntar</button>
+    </form>
+  </section>
+</main></body></html>

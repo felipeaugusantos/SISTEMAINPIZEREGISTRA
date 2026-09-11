@@ -173,6 +173,13 @@ class Settings(BaseSettings):
     # == "gemini" -- Ollama continua usando MAXIMO_LEADS_POR_EXECUCAO normal.
     gemini_max_chamadas_por_execucao: int = 5
     gemini_intervalo_minimo_segundos: float = 7.0
+    # Assistente interno de CRM (chat, decisão do usuário em 11/09/2026):
+    # diferente da IA em sombra acima (que só sugere em segundo plano), este
+    # é um chat que a equipe usa direto -- ainda assim só LÊ dados (nenhuma
+    # ferramenta de escrita), sempre restrito à organização do usuário
+    # logado, e reusa a mesma chave/modelo/pacing do Gemini acima.
+    # Desligado por padrão, como todo recurso de IA deste projeto.
+    assistente_crm_enabled: bool = False
     # Busca ao vivo por CNPJ direto no site público do INPI (pePI), além do
     # match por nome já feito na nossa base local -- achado do usuário
     # (08/09/2026): o pePI tem busca por CNPJ/CPF de titular, mais precisa

@@ -6,6 +6,7 @@ const adminSections = [
   { id: "figurativa", label: "Busca figurativa", href: "/admin/figurativa", symbol: "BF", permission: "leads.view", parent: "comercial" },
   { id: "leads", label: "Leads, pesquisas e análises", href: "/admin/pesquisas", symbol: "AN", permission: "leads.view", parent: "comercial" },
   { id: "crm", label: "CRM", href: "/admin/crm", symbol: "CR", permission: "leads.view", parent: "comercial" },
+  { id: "assistente", label: "Assistente (IA)", href: "/admin/assistente", symbol: "IA", permission: "leads.view", parent: "comercial" },
   { id: "prospeccao", label: "Radar de Prospecção", href: "/admin/prospeccao", symbol: "RP", permission: "prospeccao.view", parent: "comercial" },
   { id: "finance", label: "Financeiro", href: "/admin/financeiro", symbol: "FI", permission: "finance.view" },
   { id: "finance-payable", label: "Contas a pagar", href: "/admin/financeiro/contas-a-pagar", symbol: "CP", permission: "finance.view", parent: "finance" },

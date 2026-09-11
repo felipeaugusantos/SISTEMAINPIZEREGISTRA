@@ -15,6 +15,7 @@ from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from app.api.admin import router as admin_router
 from app.api.analises import router as analises_router
 from app.api.aprendizado import router as aprendizado_router
+from app.api.assistente_ia import router as assistente_ia_router
 from app.api.atualizacoes import router as atualizacoes_router
 from app.api.auth_routes import router as auth_router
 from app.api.busca_admin import router as busca_admin_router
@@ -151,6 +152,7 @@ app.include_router(analises_router)
 app.include_router(producao_router)
 app.include_router(propostas_config_router)
 app.include_router(email_leads_config_router)
+app.include_router(assistente_ia_router)
 app.include_router(rpi_admin_router)
 app.include_router(rpi_consulta_router)
 app.include_router(aprendizado_router)
@@ -462,6 +464,15 @@ async def painel_modelo_propostas() -> FileResponse:
 )
 async def painel_modelo_email_leads() -> FileResponse:
     return FileResponse(web_dir / "admin-modelo-email-leads.html")
+
+
+@app.get(
+    "/admin/assistente",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("leads.view"))],
+)
+async def painel_assistente_ia() -> FileResponse:
+    return FileResponse(web_dir / "admin-assistente.html")
 
 
 @app.get(

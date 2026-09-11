@@ -1,0 +1,62 @@
+/* Visual isolado do assistente de IA para evitar regressao e cache do CSS global. */
+.assistente-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 760px;
+}
+
+.assistente-historico {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fffef9;
+}
+
+.assistente-msg {
+  max-width: 82%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  line-height: 1.5;
+}
+
+.assistente-msg p { margin: 0; }
+.assistente-msg ul { margin: 8px 0 0; padding-left: 18px; }
+
+.assistente-msg-user {
+  align-self: flex-end;
+  background: #0f6b46;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.assistente-msg-model {
+  align-self: flex-start;
+  background: #f1efe4;
+  color: #152a21;
+  border-bottom-left-radius: 4px;
+}
+
+.assistente-msg-loading { opacity: .6; }
+
+.assistente-form {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.assistente-form textarea {
+  flex: 1;
+  resize: vertical;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font: inherit;
+}

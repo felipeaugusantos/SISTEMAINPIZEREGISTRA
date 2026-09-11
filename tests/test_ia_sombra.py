@@ -1,4 +1,5 @@
 import asyncio
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -782,3 +783,99 @@ def test_chamar_ia_configurada_usa_ollama_por_padrao() -> None:
 
     assert resultado == "ok"
     assert chamadas == ["prompt teste"]
+
+
+# --- Salvaguarda de cota do Gemini (achado do usuário, 11/09/2026): plano
+# gratuito tem só 10-15 RPM e 250 requisições/dia -- limite por execução
+# menor e espaçamento mínimo entre chamadas, só quando o provider é
+# "gemini" (Ollama continua sem limite, é local e sem cota). ---
+
+
+def test_limite_geracao_por_execucao_usa_maximo_padrao_com_ollama() -> None:
+    import app.ia_sombra as modulo
+
+    settings = get_settings()
+    original = settings.ia_sombra_provider
+    settings.ia_sombra_provider = "ollama"
+    try:
+        assert modulo._limite_geracao_por_execucao() == modulo.MAXIMO_LEADS_POR_EXECUCAO
+    finally:
+        settings.ia_sombra_provider = original
+
+
+def test_limite_geracao_por_execucao_usa_configuracao_menor_com_gemini() -> None:
+    import app.ia_sombra as modulo
+
+    settings = get_settings()
+    original_provider = settings.ia_sombra_provider
+    original_limite = settings.gemini_max_chamadas_por_execucao
+    settings.ia_sombra_provider = "gemini"
+    settings.gemini_max_chamadas_por_execucao = 5
+    try:
+        assert modulo._limite_geracao_por_execucao() == 5
+    finally:
+        settings.ia_sombra_provider = original_provider
+        settings.gemini_max_chamadas_por_execucao = original_limite
+
+
+def test_respeitar_intervalo_minimo_gemini_espaca_chamadas_consecutivas() -> None:
+    import app.ia_sombra as modulo
+
+    original = modulo._ultima_chamada_gemini_em
+    modulo._ultima_chamada_gemini_em = 0.0
+    try:
+        async def _duas_chamadas() -> float:
+            inicio = time.monotonic()
+            await modulo._respeitar_intervalo_minimo_gemini(0.05)
+            await modulo._respeitar_intervalo_minimo_gemini(0.05)
+            return time.monotonic() - inicio
+
+        decorrido = asyncio.run(_duas_chamadas())
+    finally:
+        modulo._ultima_chamada_gemini_em = original
+
+    # A segunda chamada precisa esperar -- decorrido deve ser próximo de
+    # 0.05s (intervalo mínimo), não instantâneo.
+    assert decorrido >= 0.04
+
+
+def test_gerar_sugestoes_ia_pendentes_respeita_limite_menor_com_gemini() -> None:
+    import app.ia_sombra as modulo
+
+    settings = get_settings()
+    original_enabled = settings.ia_sombra_enabled
+    original_provider = settings.ia_sombra_provider
+    original_limite = settings.gemini_max_chamadas_por_execucao
+    settings.ia_sombra_enabled = True
+    settings.ia_sombra_provider = "gemini"
+    settings.gemini_max_chamadas_por_execucao = 1
+    original_horario = modulo.dentro_do_horario_comercial
+    modulo.dentro_do_horario_comercial = lambda *_a, **_k: False
+
+    lead1 = _lead(id=1)
+    lead2 = _lead(id=2)
+
+    try:
+        session = FakeSession(
+            [
+                FakeResult(itens=[1]),  # organizacoes_ativas
+                FakeResult(itens=[]),  # ultima_sugestao_por_lead
+                FakeResult(itens=[]),  # ultimo_contato_por_lead
+                FakeResult(itens=[]),  # ultima_resposta_por_lead
+                FakeResult(itens=[lead1, lead2]),  # leads_abertos (2 leads, limite é 1)
+                FakeResult(itens=[]),  # gerar_sugestao_lead(lead1): contatos
+                FakeResult(itens=[]),  # respostas
+                FakeResult(scalar=None),  # pesquisa
+                FakeResult(scalar=None),  # flag do RAG
+            ]
+        )
+        resultado = asyncio.run(
+            gerar_sugestoes_ia_pendentes(session, chamar_ia=_chamada_fake, gerar_embedding=_embedding_fake)
+        )
+    finally:
+        settings.ia_sombra_enabled = original_enabled
+        settings.ia_sombra_provider = original_provider
+        settings.gemini_max_chamadas_por_execucao = original_limite
+        modulo.dentro_do_horario_comercial = original_horario
+
+    assert resultado == 1

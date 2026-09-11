@@ -165,6 +165,14 @@ class Settings(BaseSettings):
     # fixar uma versao que a Google pode aposentar sem aviso prévio no app.
     gemini_modelo: str = "gemini-flash-latest"
     gemini_timeout_segundos: float = 60.0
+    # Salvaguarda de cota (achado do usuário, 11/09/2026): o plano gratuito
+    # do Gemini tem só 10-15 RPM e 250 requisições/dia. Sem limite proprio,
+    # os jobs horários de IA em sombra (até MAXIMO_LEADS_POR_EXECUCAO=20
+    # leads cada, pensado pra Ollama local sem cota) estourariam a cota
+    # diária em menos de uma tarde. Só se aplica quando ia_sombra_provider
+    # == "gemini" -- Ollama continua usando MAXIMO_LEADS_POR_EXECUCAO normal.
+    gemini_max_chamadas_por_execucao: int = 5
+    gemini_intervalo_minimo_segundos: float = 7.0
     # Busca ao vivo por CNPJ direto no site público do INPI (pePI), além do
     # match por nome já feito na nossa base local -- achado do usuário
     # (08/09/2026): o pePI tem busca por CNPJ/CPF de titular, mais precisa

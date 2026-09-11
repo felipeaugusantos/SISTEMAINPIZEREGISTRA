@@ -18,6 +18,8 @@ O RAG (embeddings para precedentes parecidos) continua sempre local via
 Ollama independentemente do provider escolhido acima.
 """
 
+import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
@@ -54,6 +56,18 @@ RESULTADOS_LEAD_CONHECIDOS = ("ganho", "perdido")
 # /admin/feature-flags antes do rollout geral. Ver
 # app.feature_flags.flag_ativa_para_organizacao.
 FEATURE_FLAG_RAG = "rag-local-ia-sombra"
+
+
+def _limite_geracao_por_execucao() -> int:
+    """MAXIMO_LEADS_POR_EXECUCAO (20) foi pensado pro Ollama local, sem cota.
+    Com o provider Gemini, usa o limite mais conservador de
+    settings.gemini_max_chamadas_por_execucao -- ver comentário na settings.
+    O RAG (indexar_embeddings_leads_pendentes) sempre usa Ollama e não passa
+    por aqui, mesmo com ia_sombra_provider == "gemini"."""
+    settings = get_settings()
+    if settings.ia_sombra_provider == "gemini":
+        return settings.gemini_max_chamadas_por_execucao
+    return MAXIMO_LEADS_POR_EXECUCAO
 
 ChamadaIA = Callable[[str], Awaitable[str]]
 ChamadaEmbedding = Callable[[str], Awaitable[list[float]]]
@@ -141,6 +155,25 @@ async def chamar_ollama(prompt: str, *, http_client: httpx.AsyncClient | None = 
             await cliente.aclose()
 
 
+_ultima_chamada_gemini_em = 0.0
+_lock_pacing_gemini = asyncio.Lock()
+
+
+async def _respeitar_intervalo_minimo_gemini(intervalo_minimo_segundos: float) -> None:
+    """Espaça as chamadas ao Gemini para respeitar o limite de RPM do plano
+    (achado do usuário, 11/09/2026: só 10-15 RPM no free tier). Lock em vez
+    de comparar timestamps sem coordenação -- evita duas chamadas
+    concorrentes lendo o mesmo "última chamada em" e as duas decidindo que
+    já passou tempo suficiente."""
+    global _ultima_chamada_gemini_em
+    async with _lock_pacing_gemini:
+        agora = time.monotonic()
+        espera = _ultima_chamada_gemini_em + intervalo_minimo_segundos - agora
+        if espera > 0:
+            await asyncio.sleep(espera)
+        _ultima_chamada_gemini_em = time.monotonic()
+
+
 async def chamar_gemini(prompt: str, *, http_client: httpx.AsyncClient | None = None) -> str:
     """Mesmo contrato de chamar_ollama (prompt -> texto), usando a API do
     Gemini como provider de geração (decisão do usuário, 11/09/2026). Só a
@@ -149,6 +182,7 @@ async def chamar_gemini(prompt: str, *, http_client: httpx.AsyncClient | None = 
     settings = get_settings()
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY nao configurada")
+    await _respeitar_intervalo_minimo_gemini(settings.gemini_intervalo_minimo_segundos)
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_modelo}:generateContent"
     corpo = {"contents": [{"parts": [{"text": prompt}]}]}
     cliente_proprio = http_client is None
@@ -450,10 +484,12 @@ async def gerar_sugestoes_ia_pendentes(
 
     Só roda FORA do horário comercial (mesma janela de app.cadencia_email,
     invertida): cada chamada ao modelo local consome CPU cheia por vários
-    segundos, e até MAXIMO_LEADS_POR_EXECUCAO chamadas por execução
+    segundos, e até _limite_geracao_por_execucao() chamadas por execução
     competiriam com o tráfego real da API/banco justo durante o horário de
     maior uso -- decisão do usuário após avaliar os riscos de deixar a IA
-    em sombra ativa."""
+    em sombra ativa. Com o provider Gemini, o limite por execução também
+    protege a cota diária/por minuto da API (ver _limite_geracao_por_execucao
+    e settings.gemini_max_chamadas_por_execucao)."""
     settings = get_settings()
     if not settings.ia_sombra_enabled:
         return 0
@@ -510,8 +546,9 @@ async def gerar_sugestoes_ia_pendentes(
     )
 
     criadas = 0
+    limite = _limite_geracao_por_execucao()
     for lead in leads_abertos:
-        if criadas >= MAXIMO_LEADS_POR_EXECUCAO:
+        if criadas >= limite:
             break
         eventos_lead = [
             d
@@ -643,8 +680,9 @@ async def gerar_explicacoes_risco_pendentes(session: AsyncSession, *, chamar_ia:
     ).all()
 
     criadas = 0
+    limite = _limite_geracao_por_execucao()
     for avaliacao, organizacao_id in avaliacoes:
-        if criadas >= MAXIMO_LEADS_POR_EXECUCAO:
+        if criadas >= limite:
             break
         ultima = ultima_explicacao_por_avaliacao.get(avaliacao.id)
         if ultima is not None and avaliacao.calculado_em <= ultima:

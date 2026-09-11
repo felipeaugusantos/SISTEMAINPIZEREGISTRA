@@ -5460,20 +5460,23 @@ h1,h2,h3,h4,h5 { font-family:var(--font-display); font-weight:var(--fw-semibold)
   right: 22px;
   bottom: 22px;
   z-index: 90;
-  width: 56px;
-  height: 56px;
+  width: 60px;
+  height: 60px;
   border-radius: 999px;
-  border: 0;
+  border: 3px solid #fffef9;
   background: #0f6b46;
   color: #fff;
   display: grid;
   place-items: center;
   cursor: pointer;
+  padding: 0;
+  overflow: hidden;
   box-shadow: 0 10px 28px rgba(15, 107, 70, 0.35);
   transition: transform 160ms ease;
 }
 .assistente-widget-launcher:hover { transform: translateY(-2px); }
 .assistente-widget-launcher svg { width: 26px; height: 26px; }
+.assistente-widget-launcher img { width: 100%; height: 100%; object-fit: cover; }
 
 .assistente-widget-panel {
   position: fixed;

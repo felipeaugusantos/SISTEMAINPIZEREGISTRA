@@ -3288,7 +3288,7 @@ class VersaoSistema(Base):
     __mapper_args__ = {"eager_defaults": True}
     __table_args__ = (
         CheckConstraint(
-            "tipo_atualizacao IN ('critica', 'correcao', 'funcionalidade')",
+            "tipo_atualizacao IN ('critica', 'correcao', 'melhoria', 'funcionalidade')",
             name="ck_versao_sistema_tipo",
         ),
         CheckConstraint(

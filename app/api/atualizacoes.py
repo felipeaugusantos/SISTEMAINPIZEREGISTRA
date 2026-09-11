@@ -119,7 +119,7 @@ class AtualizacaoPublica(BaseModel):
     problema: str
     correcao: str
     impacto_usuario: str
-    classificacao: Literal["critica", "correcao", "funcionalidade"]
+    classificacao: Literal["critica", "correcao", "melhoria", "funcionalidade"]
     modulos_afetados: list[str]
     documentacao_url: str | None
     evidencias: EvidenciasPublicas

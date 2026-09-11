@@ -1,12 +1,27 @@
 const ITENS_POR_PAGINA = 8;
-const updatesState = { items: [], todos: [], atualizacaoImplantadaId: null, pagina: 1 };
+// Central de atualizações separada por categoria (achado do usuário): cada
+// categoria tem sua própria lista e paginação, em vez de uma lista única
+// misturando tipos. "critica" entra dentro de "Correção" (mesma família,
+// só muda a urgência -- o badge já diferencia "Correção crítica").
+const CATEGORIAS = [
+  { chave: "funcionalidade", tipos: ["funcionalidade"] },
+  { chave: "correcao", tipos: ["correcao", "critica"] },
+  { chave: "melhoria", tipos: ["melhoria"] },
+];
+const updatesState = {
+  items: [],
+  todos: [],
+  atualizacaoImplantadaId: null,
+  paginas: { funcionalidade: 1, correcao: 1, melhoria: 1 },
+};
 const message = document.querySelector("#updates-message");
-const list = document.querySelector("#updates-list");
+const updatesSection = document.querySelector(".updates-section");
 const dialog = document.querySelector("#updates-report-dialog");
 
 const typeLabels = {
   critica: "Correção crítica",
   correcao: "Correção",
+  melhoria: "Melhoria",
   funcionalidade: "Nova funcionalidade",
 };
 
@@ -112,18 +127,19 @@ function itensNoPeriodo(todos) {
   });
 }
 
-function renderPaginacao(total) {
-  const nav = document.querySelector("#updates-pagination");
+function renderPaginacaoCategoria(chave, total) {
+  const nav = document.querySelector(`#updates-pagination-${chave}`);
   if (total <= ITENS_POR_PAGINA) {
     nav.hidden = true;
     return;
   }
   nav.hidden = false;
-  const inicio = (updatesState.pagina - 1) * ITENS_POR_PAGINA + 1;
-  const fim = Math.min(updatesState.pagina * ITENS_POR_PAGINA, total);
-  document.querySelector("#updates-page-summary").textContent = `${inicio}–${fim} de ${total}`;
-  document.querySelector("#updates-page-prev").disabled = updatesState.pagina <= 1;
-  document.querySelector("#updates-page-next").disabled = fim >= total;
+  const pagina = updatesState.paginas[chave];
+  const inicio = (pagina - 1) * ITENS_POR_PAGINA + 1;
+  const fim = Math.min(pagina * ITENS_POR_PAGINA, total);
+  nav.querySelector("[data-resumo]").textContent = `${inicio}–${fim} de ${total}`;
+  nav.querySelector("[data-anterior]").disabled = pagina <= 1;
+  nav.querySelector("[data-proxima]").disabled = fim >= total;
 }
 
 function render() {
@@ -132,27 +148,34 @@ function render() {
     ? `${updatesState.todos.length} atualização(ões) publicada(s)`
     : `${novidades.length} de ${updatesState.todos.length} atualização(ões) (período filtrado)`;
   updatesState.items = novidades;
-  const totalPaginas = Math.max(1, Math.ceil(novidades.length / ITENS_POR_PAGINA));
-  if (updatesState.pagina > totalPaginas) updatesState.pagina = totalPaginas;
-  if (updatesState.pagina < 1) updatesState.pagina = 1;
-  const inicio = (updatesState.pagina - 1) * ITENS_POR_PAGINA;
-  const pagina = novidades.slice(inicio, inicio + ITENS_POR_PAGINA);
-  list.replaceChildren();
-  if (!updatesState.todos.length) list.append(element("p", "updates-empty", "Nenhuma atualização foi publicada ainda."));
-  else if (!novidades.length) list.append(element("p", "updates-empty", "Nenhuma atualização publicada no período selecionado."));
-  pagina.forEach((item) => list.append(renderItem(item, updatesState.atualizacaoImplantadaId)));
-  renderPaginacao(novidades.length);
+
+  CATEGORIAS.forEach(({ chave, tipos }) => {
+    const daCategoria = novidades.filter((item) => tipos.includes(item.classificacao));
+    const totalPaginas = Math.max(1, Math.ceil(daCategoria.length / ITENS_POR_PAGINA));
+    if (updatesState.paginas[chave] > totalPaginas) updatesState.paginas[chave] = totalPaginas;
+    if (updatesState.paginas[chave] < 1) updatesState.paginas[chave] = 1;
+    const inicio = (updatesState.paginas[chave] - 1) * ITENS_POR_PAGINA;
+    const pagina = daCategoria.slice(inicio, inicio + ITENS_POR_PAGINA);
+    const container = document.querySelector(`#updates-list-${chave}`);
+    container.replaceChildren();
+    pagina.forEach((item) => container.append(renderItem(item, updatesState.atualizacaoImplantadaId)));
+    renderPaginacaoCategoria(chave, daCategoria.length);
+  });
+
   message.textContent = "";
   message.className = "status-message";
 }
 
-document.querySelector("#updates-page-prev").addEventListener("click", () => {
-  updatesState.pagina -= 1;
-  render();
-});
-document.querySelector("#updates-page-next").addEventListener("click", () => {
-  updatesState.pagina += 1;
-  render();
+CATEGORIAS.forEach(({ chave }) => {
+  const nav = document.querySelector(`#updates-pagination-${chave}`);
+  nav.querySelector("[data-anterior]").addEventListener("click", () => {
+    updatesState.paginas[chave] -= 1;
+    render();
+  });
+  nav.querySelector("[data-proxima]").addEventListener("click", () => {
+    updatesState.paginas[chave] += 1;
+    render();
+  });
 });
 
 async function api(url, options = {}) {
@@ -172,16 +195,20 @@ async function load() {
   render();
 }
 
+function reiniciarPaginas() {
+  CATEGORIAS.forEach(({ chave }) => { updatesState.paginas[chave] = 1; });
+}
+
 document.querySelector("#updates-periodo-filtro").addEventListener("submit", (event) => {
   event.preventDefault();
-  updatesState.pagina = 1;
+  reiniciarPaginas();
   render();
 });
 document.querySelector("#updates-periodo-limpar").addEventListener("click", () => {
   const form = document.querySelector("#updates-periodo-filtro");
   form.elements.de.value = "";
   form.elements.ate.value = "";
-  updatesState.pagina = 1;
+  reiniciarPaginas();
   render();
 });
 
@@ -190,7 +217,7 @@ function showStatus(text, kind = "success") {
   message.className = `status-message ${kind}`;
 }
 
-list.addEventListener("click", async (event) => {
+updatesSection.addEventListener("click", async (event) => {
   const target = event.target.closest("[data-action]");
   if (!target) return;
   const item = updatesState.items.find((entry) => entry.id === Number(target.dataset.id));

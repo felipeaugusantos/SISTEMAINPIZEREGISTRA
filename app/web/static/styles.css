@@ -5411,10 +5411,15 @@ h1,h2,h3,h4,h5 { font-family:var(--font-display); font-weight:var(--fw-semibold)
 .updates-current span { display:block; color:var(--muted); font-size:.76rem; text-transform:uppercase; letter-spacing:.08em; }
 .updates-current strong { display:block; margin-top:5px; color:var(--brand-deep); font-size:1.15rem; }
 .updates-section { margin-top:18px; }
+.updates-categoria + .updates-categoria { margin-top:32px; }
+.updates-categoria-titulo { display:flex; align-items:center; gap:10px; margin:0 0 14px; font-size:1.05rem; }
+.updates-categoria-titulo .update-badge { font-size:.7rem; }
 .updates-list { display:grid; gap:16px; }
+.updates-list:empty::after { content:"Nenhuma atualização nesta categoria."; color:var(--muted); font-size:.85rem; }
 .update-card { padding:22px; border:1px solid var(--line); border-left:5px solid #3d8b62; border-radius:var(--radius-lg); background:var(--surface); box-shadow:var(--shadow-soft); }
 .update-card.update-critica { border-left-color:#b53a2c; }
 .update-card.update-correcao { border-left-color:#b57a16; }
+.update-card.update-melhoria { border-left-color:#2f6f8f; }
 .update-card-header { display:flex; justify-content:space-between; gap:16px; }
 .update-card-header h2 { margin:8px 0 3px; font-size:1.35rem; }
 .update-meta,.update-modules,.update-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
@@ -5422,6 +5427,7 @@ h1,h2,h3,h4,h5 { font-family:var(--font-display); font-weight:var(--fw-semibold)
 .update-badge { background:#e8f1eb; color:#205b3b; }
 .update-badge.critica { background:#fde9e5; color:#923225; }
 .update-badge.correcao { background:#fbf0d7; color:#76500c; }
+.update-badge.melhoria { background:#e3eef4; color:#1f5573; }
 .update-badge.current { background:#dff3e7; color:#126337; }
 .update-badge.read { background:#edf0f2; color:#42515a; }
 .update-version { margin:0; color:var(--muted); font-size:.85rem; }

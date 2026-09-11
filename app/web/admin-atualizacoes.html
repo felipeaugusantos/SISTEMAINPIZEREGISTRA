@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Central de atualizações — Zé Registra</title>
-    <link rel="stylesheet" href="/static/styles.css?v=61" />
+    <link rel="stylesheet" href="/static/styles.css?v=62" />
     <script src="/static/admin-shell.js?v=50" defer></script>
-    <script src="/static/admin-atualizacoes.js?v=7" defer></script>
+    <script src="/static/admin-atualizacoes.js?v=8" defer></script>
   </head>
   <body class="admin-body" data-admin-section="updates">
     <main class="admin-main updates-page">
@@ -39,12 +39,33 @@
           <button class="primary-button" type="submit">Filtrar</button>
           <button class="secondary-button" type="button" id="updates-periodo-limpar">Limpar</button>
         </form>
-        <div id="updates-list" class="updates-list"></div>
-        <nav class="lead-pagination" aria-label="Paginação das atualizações" id="updates-pagination" hidden>
-          <span id="updates-page-summary"></span>
-          <button id="updates-page-prev" class="secondary-button" type="button">Anterior</button>
-          <button id="updates-page-next" class="secondary-button" type="button">Próxima</button>
-        </nav>
+        <div class="updates-categoria" data-categoria="funcionalidade">
+          <h3 class="updates-categoria-titulo"><span class="update-badge">Nova funcionalidade</span></h3>
+          <div id="updates-list-funcionalidade" class="updates-list"></div>
+          <nav class="lead-pagination" aria-label="Paginação — Nova funcionalidade" id="updates-pagination-funcionalidade" hidden>
+            <span data-resumo></span>
+            <button data-anterior class="secondary-button" type="button">Anterior</button>
+            <button data-proxima class="secondary-button" type="button">Próxima</button>
+          </nav>
+        </div>
+        <div class="updates-categoria" data-categoria="correcao">
+          <h3 class="updates-categoria-titulo"><span class="update-badge correcao">Correção</span></h3>
+          <div id="updates-list-correcao" class="updates-list"></div>
+          <nav class="lead-pagination" aria-label="Paginação — Correção" id="updates-pagination-correcao" hidden>
+            <span data-resumo></span>
+            <button data-anterior class="secondary-button" type="button">Anterior</button>
+            <button data-proxima class="secondary-button" type="button">Próxima</button>
+          </nav>
+        </div>
+        <div class="updates-categoria" data-categoria="melhoria">
+          <h3 class="updates-categoria-titulo"><span class="update-badge melhoria">Melhoria</span></h3>
+          <div id="updates-list-melhoria" class="updates-list"></div>
+          <nav class="lead-pagination" aria-label="Paginação — Melhoria" id="updates-pagination-melhoria" hidden>
+            <span data-resumo></span>
+            <button data-anterior class="secondary-button" type="button">Anterior</button>
+            <button data-proxima class="secondary-button" type="button">Próxima</button>
+          </nav>
+        </div>
       </section>
 
       <section id="updates-pendencias-section" class="overview-section" hidden>

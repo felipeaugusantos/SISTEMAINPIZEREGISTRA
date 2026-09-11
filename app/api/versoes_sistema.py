@@ -85,7 +85,7 @@ class VersaoRascunhoInput(BaseModel):
     impacto_usuario: str = Field(min_length=10, max_length=3000)
     documentacao_url: HttpUrl | None = None
     permite_adiar: bool = False
-    tipo_atualizacao: Literal["critica", "correcao", "funcionalidade"]
+    tipo_atualizacao: Literal["critica", "correcao", "melhoria", "funcionalidade"]
     modulos_afetados: list[str] = Field(min_length=1, max_length=30)
     implantada_em: datetime | None = None
     commit_sha: str = Field(min_length=40, max_length=40)
@@ -200,7 +200,7 @@ class VersaoSistemaResponse(BaseModel):
     impacto_usuario: str
     documentacao_url: HttpUrl | None
     permite_adiar: bool
-    tipo_atualizacao: Literal["critica", "correcao", "funcionalidade"]
+    tipo_atualizacao: Literal["critica", "correcao", "melhoria", "funcionalidade"]
     modulos_afetados: list[str]
     implantada_em: datetime | None
     commit_sha: str
@@ -320,7 +320,7 @@ async def listar_versoes(
     session: SessionDep,
     _: ViewDep,
     status_filtro: Annotated[Literal["rascunho", "publicada", "arquivada"] | None, Query(alias="status")] = None,
-    tipo: Literal["critica", "correcao", "funcionalidade"] | None = None,
+    tipo: Literal["critica", "correcao", "melhoria", "funcionalidade"] | None = None,
     limite: Annotated[int, Query(ge=1, le=100)] = 50,
     deslocamento: Annotated[int, Query(ge=0)] = 0,
 ) -> dict:

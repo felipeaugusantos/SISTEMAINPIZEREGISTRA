@@ -9,6 +9,7 @@ monkeypatch na chamada real ao Gemini -- nunca tocam a API de verdade.
 
 import asyncio
 
+import httpx
 from fastapi.testclient import TestClient
 
 import app.api.assistente_ia as modulo
@@ -277,3 +278,37 @@ def test_perguntar_recorta_historico_longo_para_o_limite() -> None:
         modulo._chamar_gemini_bruto = monkeypatch_alvo
 
     assert resultado == "ok"
+
+
+def test_perguntar_endpoint_traduz_429_do_gemini_em_mensagem_clara(monkeypatch) -> None:
+    """Achado ao vivo em produção (11/09/2026): a cota gratuita do Gemini
+    estourou (429) durante um teste real -- o endpoint devolvia um 502
+    genérico. Agora reconhece 429 especificamente e devolve uma mensagem que
+    explica o motivo em vez de "não foi possível consultar"."""
+
+    async def _fake_chamar(contents, *, http_client):
+        resposta = httpx.Response(429, request=httpx.Request("POST", "https://example.com"))
+        raise httpx.HTTPStatusError("429", request=resposta.request, response=resposta)
+
+    monkeypatch.setattr(modulo, "_chamar_gemini_bruto", _fake_chamar)
+    settings = get_settings()
+    original_enabled = settings.assistente_crm_enabled
+    original_key = settings.gemini_api_key
+    settings.assistente_crm_enabled = True
+    settings.gemini_api_key = "chave-de-teste"
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = sessao_override()
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/assistente/perguntar",
+            json={"pergunta": "oi", "historico": []},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        settings.assistente_crm_enabled = original_enabled
+        settings.gemini_api_key = original_key
+
+    assert resposta.status_code == 429
+    assert "limite" in resposta.json()["detail"].lower()

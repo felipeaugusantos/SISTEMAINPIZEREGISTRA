@@ -281,6 +281,14 @@ async def perguntar_endpoint(
         resposta = await perguntar(session, usuario, dados.pergunta, dados.historico)
     except HTTPException:
         raise
+    except httpx.HTTPStatusError as exc:
+        logger.warning("Assistente de IA recebeu %s do Gemini", exc.response.status_code)
+        if exc.response.status_code == 429:
+            raise HTTPException(
+                status_code=429,
+                detail="O assistente atingiu o limite de uso da IA no momento. Aguarde um minuto e tente de novo.",
+            ) from exc
+        raise HTTPException(status_code=502, detail="Não foi possível consultar o assistente agora") from exc
     except Exception as exc:
         logger.exception("Falha ao consultar o assistente de IA")
         raise HTTPException(status_code=502, detail="Não foi possível consultar o assistente agora") from exc

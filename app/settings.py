@@ -159,7 +159,11 @@ class Settings(BaseSettings):
     # tratamento de falha que já existia para o Ollama fora do ar).
     ia_sombra_provider: str = "ollama"
     gemini_api_key: str = ""
-    gemini_modelo: str = "gemini-2.5-flash"
+    # "gemini-2.5-flash" foi descontinuado para novos usuarios em 2026 (a
+    # propria API passou a devolver 404 recomendando a troca) -- usamos o
+    # alias "-latest" para sempre apontar ao modelo flash vigente, em vez de
+    # fixar uma versao que a Google pode aposentar sem aviso prévio no app.
+    gemini_modelo: str = "gemini-flash-latest"
     gemini_timeout_segundos: float = 60.0
     # Busca ao vivo por CNPJ direto no site público do INPI (pePI), além do
     # match por nome já feito na nossa base local -- achado do usuário

@@ -1,5 +1,5 @@
 """IA em sombra (leads): resumo do histórico de atendimento + sugestão de
-próxima ação, gerados em segundo plano por um modelo local (Ollama).
+próxima ação, gerados em segundo plano.
 
 Escopo deliberadamente restrito (decisão do usuário): nunca gera rascunho
 de mensagem para o cliente, nunca envia nada sozinha -- toda sugestão
@@ -9,9 +9,13 @@ settings.ia_sombra_enabled (kill-switch global) e PoliticaCRM.ia_sombra_ativa
 (opt-in por organização) -- os dois precisam estar ativos para o job gerar
 qualquer coisa.
 
-O modelo roda localmente (sem chave de API, sem custo por chamada, nenhum
-dado de lead sai do servidor) via Ollama (compose.yaml, profile
-"ia-sombra", desligado por padrão -- ver docstring de settings.ia_sombra_enabled).
+Provider de geração configurável (settings.ia_sombra_provider, ver
+chamar_ia_configurada): "ollama" (padrão -- modelo local via Ollama,
+compose.yaml profile "ia-sombra", sem chave de API, nenhum dado de lead
+sai do servidor) ou "gemini" (API do Google, decisão do usuário em
+11/09/2026 -- dado do lead sai para a API externa, ver settings.gemini_*).
+O RAG (embeddings para precedentes parecidos) continua sempre local via
+Ollama independentemente do provider escolhido acima.
 """
 
 from collections.abc import Awaitable, Callable
@@ -135,6 +139,41 @@ async def chamar_ollama(prompt: str, *, http_client: httpx.AsyncClient | None = 
     finally:
         if cliente_proprio:
             await cliente.aclose()
+
+
+async def chamar_gemini(prompt: str, *, http_client: httpx.AsyncClient | None = None) -> str:
+    """Mesmo contrato de chamar_ollama (prompt -> texto), usando a API do
+    Gemini como provider de geração (decisão do usuário, 11/09/2026). Só a
+    geração muda de provider -- o RAG (embeddings) continua sempre local via
+    Ollama, ver settings.ia_sombra_embedding_modelo."""
+    settings = get_settings()
+    if not settings.gemini_api_key:
+        raise RuntimeError("GEMINI_API_KEY nao configurada")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_modelo}:generateContent"
+    corpo = {"contents": [{"parts": [{"text": prompt}]}]}
+    cliente_proprio = http_client is None
+    cliente = http_client or httpx.AsyncClient(timeout=settings.gemini_timeout_segundos)
+    try:
+        resposta = await cliente.post(url, json=corpo, headers={"x-goog-api-key": settings.gemini_api_key})
+        resposta.raise_for_status()
+        candidatos = resposta.json().get("candidates") or []
+        if not candidatos:
+            return ""
+        partes = candidatos[0].get("content", {}).get("parts", [])
+        return "".join(str(parte.get("text", "")) for parte in partes)
+    finally:
+        if cliente_proprio:
+            await cliente.aclose()
+
+
+async def chamar_ia_configurada(prompt: str, *, http_client: httpx.AsyncClient | None = None) -> str:
+    """Dispatcher usado como default nos pontos de chamada abaixo -- escolhe
+    Ollama ou Gemini conforme settings.ia_sombra_provider, sem precisar
+    trocar cada chamador manualmente quando o provider mudar."""
+    settings = get_settings()
+    if settings.ia_sombra_provider == "gemini":
+        return await chamar_gemini(prompt, http_client=http_client)
+    return await chamar_ollama(prompt, http_client=http_client)
 
 
 async def gerar_embedding_ollama(texto: str, *, http_client: httpx.AsyncClient | None = None) -> list[float]:
@@ -327,7 +366,7 @@ async def gerar_sugestao_lead(
     session: AsyncSession,
     lead: Lead,
     *,
-    chamar_ia: ChamadaIA = chamar_ollama,
+    chamar_ia: ChamadaIA = chamar_ia_configurada,
     gerar_embedding: ChamadaEmbedding = gerar_embedding_ollama,
 ) -> SugestaoIALead:
     """Gera (e persiste, sem commit) uma sugestão para um lead. Nunca propaga
@@ -400,7 +439,7 @@ async def gerar_sugestao_lead(
 async def gerar_sugestoes_ia_pendentes(
     session: AsyncSession,
     *,
-    chamar_ia: ChamadaIA = chamar_ollama,
+    chamar_ia: ChamadaIA = chamar_ia_configurada,
     gerar_embedding: ChamadaEmbedding = gerar_embedding_ollama,
 ) -> int:
     """Job de manutenção periódica (worker.TAREFAS_MANUTENCAO_HORARIA): gera
@@ -539,7 +578,7 @@ def _analisar_explicacao(texto: str) -> str:
 
 
 async def gerar_explicacao_risco(
-    session: AsyncSession, avaliacao: AvaliacaoRiscoMarca, organizacao_id: int, *, chamar_ia: ChamadaIA = chamar_ollama
+    session: AsyncSession, avaliacao: AvaliacaoRiscoMarca, organizacao_id: int, *, chamar_ia: ChamadaIA = chamar_ia_configurada
 ) -> ExplicacaoAnaliseMarca:
     """Gera (e persiste, sem commit) a explicação em linguagem simples de uma
     avaliação de risco. Nunca propaga exceção de chamada ao modelo.
@@ -567,7 +606,7 @@ async def gerar_explicacao_risco(
     return explicacao
 
 
-async def gerar_explicacoes_risco_pendentes(session: AsyncSession, *, chamar_ia: ChamadaIA = chamar_ollama) -> int:
+async def gerar_explicacoes_risco_pendentes(session: AsyncSession, *, chamar_ia: ChamadaIA = chamar_ia_configurada) -> int:
     """Job de manutenção periódica: gera explicações para avaliações de
     risco novas ou recalculadas desde a última explicação, nas organizações
     que optaram por ativar a IA em sombra. Inerte (devolve 0) quando a flag
@@ -672,7 +711,7 @@ def _analisar_qualificacao(texto: str) -> tuple[str, str]:
 
 
 async def gerar_qualificacao_lead(
-    session: AsyncSession, lead: Lead, *, chamar_ia: ChamadaIA = chamar_ollama
+    session: AsyncSession, lead: Lead, *, chamar_ia: ChamadaIA = chamar_ia_configurada
 ) -> QualificacaoIALead:
     """Gera (e persiste, sem commit) a qualificação de captação de um lead.
     Nunca propaga exceção de chamada ao modelo."""

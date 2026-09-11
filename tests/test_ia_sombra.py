@@ -1,6 +1,8 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from app.ia_sombra import (
     _analisar_explicacao,
     _analisar_qualificacao,
@@ -714,3 +716,69 @@ def test_indexar_embeddings_leads_pendentes_indexa_leads_com_resultado_conhecido
     assert resultado == 2
     registros_criados = [item for item in session.adicionados if isinstance(item, EmbeddingLead)]
     assert {item.lead_id for item in registros_criados} == {1, 2}
+
+
+# --- Provider Gemini (decisão do usuário, 11/09/2026): geração via API do
+# Google como alternativa ao Ollama local, escolhida por
+# settings.ia_sombra_provider. ---
+
+
+def test_chamar_gemini_sem_chave_configurada_levanta_erro() -> None:
+    import app.ia_sombra as modulo
+
+    settings = get_settings()
+    original = settings.gemini_api_key
+    settings.gemini_api_key = ""
+    try:
+        with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
+            asyncio.run(modulo.chamar_gemini("prompt qualquer"))
+    finally:
+        settings.gemini_api_key = original
+
+
+def test_chamar_ia_configurada_usa_gemini_quando_provider_e_gemini() -> None:
+    import app.ia_sombra as modulo
+
+    settings = get_settings()
+    original_provider = settings.ia_sombra_provider
+    settings.ia_sombra_provider = "gemini"
+    chamadas = []
+
+    async def _gemini_fake(prompt: str, *, http_client: object | None = None) -> str:
+        chamadas.append(prompt)
+        return "RESUMO: ok\nPROXIMA_ACAO: ok"
+
+    original_gemini = modulo.chamar_gemini
+    modulo.chamar_gemini = _gemini_fake
+    try:
+        resultado = asyncio.run(modulo.chamar_ia_configurada("prompt teste"))
+    finally:
+        settings.ia_sombra_provider = original_provider
+        modulo.chamar_gemini = original_gemini
+
+    assert resultado == "RESUMO: ok\nPROXIMA_ACAO: ok"
+    assert chamadas == ["prompt teste"]
+
+
+def test_chamar_ia_configurada_usa_ollama_por_padrao() -> None:
+    import app.ia_sombra as modulo
+
+    settings = get_settings()
+    original_provider = settings.ia_sombra_provider
+    settings.ia_sombra_provider = "ollama"
+    chamadas = []
+
+    async def _ollama_fake(prompt: str, *, http_client: object | None = None) -> str:
+        chamadas.append(prompt)
+        return "ok"
+
+    original_ollama = modulo.chamar_ollama
+    modulo.chamar_ollama = _ollama_fake
+    try:
+        resultado = asyncio.run(modulo.chamar_ia_configurada("prompt teste"))
+    finally:
+        settings.ia_sombra_provider = original_provider
+        modulo.chamar_ollama = original_ollama
+
+    assert resultado == "ok"
+    assert chamadas == ["prompt teste"]

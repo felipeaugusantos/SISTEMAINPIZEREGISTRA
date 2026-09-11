@@ -144,8 +144,23 @@ class Settings(BaseSettings):
     # Modelo de embeddings (mesmo servidor Ollama) usado pelo RAG local
     # (pgvector) para indexar leads com resultado conhecido e buscar
     # precedentes parecidos -- ver app.ia_sombra.gerar_embedding_ollama.
+    # O RAG continua sempre local (embeddings nunca saem para uma API
+    # externa), mesmo quando o provider de geração abaixo é "gemini".
     ia_sombra_embedding_modelo: str = "nomic-embed-text"
     ia_sombra_timeout_segundos: float = 120.0
+    # Provider do modelo de geração (resumo/sugestão/explicação/qualificação)
+    # usado pela IA em sombra -- "ollama" (padrão, local, sem chave de API)
+    # ou "gemini" (API do Google, decisão do usuário em 11/09/2026: trocar o
+    # modelo generalista da IA em sombra por Gemini). O RAG (embeddings)
+    # continua sempre em Ollama, ver comentário acima -- só a geração do
+    # texto final muda de provider. "gemini" exige gemini_api_key
+    # preenchida; sem ela, gerar_sugestao_lead/gerar_explicacao_risco/
+    # gerar_qualificacao_lead registram o erro em vez de travar o job (mesmo
+    # tratamento de falha que já existia para o Ollama fora do ar).
+    ia_sombra_provider: str = "ollama"
+    gemini_api_key: str = ""
+    gemini_modelo: str = "gemini-2.5-flash"
+    gemini_timeout_segundos: float = 60.0
     # Busca ao vivo por CNPJ direto no site público do INPI (pePI), além do
     # match por nome já feito na nossa base local -- achado do usuário
     # (08/09/2026): o pePI tem busca por CNPJ/CPF de titular, mais precisa

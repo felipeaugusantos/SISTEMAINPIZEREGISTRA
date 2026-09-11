@@ -1732,3 +1732,25 @@ def test_endpoint_revisar_qualificacao_ia_404_quando_nao_encontrada() -> None:
     )
 
     assert resposta.status_code == 404
+
+
+def test_listar_emails_leads_devolve_enderecos_do_filtro_atual() -> None:
+    _sessao_admin(FakeResult(itens=["ana@example.com", "beto@example.com"]))
+
+    resposta = TestClient(app).get("/v1/admin/leads-emails?status=novo")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["emails"] == ["ana@example.com", "beto@example.com"]
+    assert corpo["total"] == 2
+
+
+def test_listar_emails_leads_sem_permissao_pii_e_recusado() -> None:
+    session = FakeSession([])
+    usuario = usuario_teste(perfil="operador", permissoes=frozenset({"leads.export"}))
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).get("/v1/admin/leads-emails")
+
+    assert resposta.status_code == 403

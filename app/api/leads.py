@@ -4572,3 +4572,55 @@ async def exportar_leads(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="leads-inpi.csv"'},
     )
+
+
+LIMITE_COPIA_EMAILS = 500
+
+
+@router.get("/v1/admin/leads-emails")
+async def listar_emails_leads(
+    session: SessionDep,
+    usuario: LeadsExportDep,
+    request: Request,
+    busca: BuscaLead = None,
+    status_lead: StatusLeadFiltro = None,
+    origem: OrigemLead = None,
+    responsavel_id: ResponsavelLead = None,
+    data_inicio: DataLead = None,
+    data_fim: DataLead = None,
+    marketing: bool | None = None,
+    prioridade: PrioridadeLead = None,
+) -> dict:
+    """E-mails dos leads que batem com o filtro atual da tela, para copiar em lote
+    (ex.: colar no campo "Para"/"Cco" do cliente de e-mail ao enviar uma proposta em
+    massa). Mesma permissao e mesmos filtros do CSV -- so devolve o campo email."""
+    if not usuario.pode("leads.pii.view"):
+        raise HTTPException(status_code=403, detail="Sem permissao para exportar dados de contato")
+    filtros = _filtros_lead(
+        usuario,
+        busca,
+        status_lead,
+        origem,
+        responsavel_id,
+        data_inicio,
+        data_fim,
+        marketing,
+        False,
+        prioridade,
+    )
+    emails = (
+        (
+            await session.execute(
+                select(Lead.email)
+                .distinct()
+                .where(*filtros, Lead.email.is_not(None), Lead.email != "")
+                .order_by(Lead.email)
+                .limit(LIMITE_COPIA_EMAILS)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    _auditar(session, usuario, request, "copiar_email", "leads:emails", {"quantidade": len(emails)})
+    await session.commit()
+    return {"emails": emails, "total": len(emails), "limite": LIMITE_COPIA_EMAILS}

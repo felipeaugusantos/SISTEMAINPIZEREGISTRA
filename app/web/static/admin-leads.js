@@ -350,6 +350,7 @@ async function loadLeads() {
       document.querySelector('[data-view="archived"]').textContent = `Clientes arquivados (${data.total})`;
     }
     document.querySelector("#export-leads").hidden = !state.canExport;
+    document.querySelector("#copy-emails").hidden = !state.canExport;
     document.querySelector("#metric-global").textContent = data.total_global;
     document.querySelector("#metric-total").textContent = data.total;
     document.querySelector("#metric-searches").textContent = data.pesquisas_total;
@@ -1337,6 +1338,27 @@ pageSize.addEventListener("change", () => { state.offset = 0; loadLeads(); });
 document.querySelector("#lead-prev").addEventListener("click", () => { state.offset = Math.max(0, state.offset - Number(pageSize.value)); loadLeads(); });
 document.querySelector("#lead-next").addEventListener("click", () => { state.offset += Number(pageSize.value); loadLeads(); });
 document.querySelector("#export-leads").addEventListener("click", () => { location.href = `/v1/admin/leads.csv?${currentParams(false)}`; });
+document.querySelector("#copy-emails").addEventListener("click", async event => {
+  const button = event.currentTarget;
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "Copiando…";
+  try {
+    const dados = await responsePayload(await fetch(`/v1/admin/leads-emails?${currentParams(false)}`));
+    if (!dados.emails.length) { showMessage("Nenhum e-mail encontrado para o filtro atual.", "error"); return; }
+    const lista = dados.emails.join(", ");
+    await navigator.clipboard.writeText(lista);
+    const aviso = dados.total >= dados.limite
+      ? `${dados.total} e-mails copiados (limite de ${dados.limite} — refine o filtro para pegar todos).`
+      : `${dados.total} e-mail${dados.total === 1 ? "" : "s"} copiado${dados.total === 1 ? "" : "s"} para a área de transferência.`;
+    showMessage(aviso, "success");
+  } catch (error) {
+    showMessage(error.message || "Não foi possível copiar os e-mails.", "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+});
 document.querySelector(".dialog-close").addEventListener("click", () => dialog.close());
 
 crmPipeline.addEventListener("click", event => {

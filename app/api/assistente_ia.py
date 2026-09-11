@@ -18,6 +18,7 @@ português. Até MAX_RODADAS_TOOL idas e vindas por pergunta, para nunca
 travar em loop se o modelo insistir em chamar ferramentas.
 """
 
+import logging
 from typing import Annotated
 
 import httpx
@@ -33,6 +34,7 @@ from app.ia_sombra import _respeitar_intervalo_minimo_gemini
 from app.models import Lead, StatusLead
 from app.settings import get_settings
 
+logger = logging.getLogger("ze_registra.assistente_ia")
 router = APIRouter(prefix="/v1/admin/assistente", tags=["assistente ia"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
@@ -259,5 +261,6 @@ async def perguntar_endpoint(dados: PerguntaInput, session: SessionDep, usuario:
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("Falha ao consultar o assistente de IA")
         raise HTTPException(status_code=502, detail="Não foi possível consultar o assistente agora") from exc
     return {"resposta": resposta}

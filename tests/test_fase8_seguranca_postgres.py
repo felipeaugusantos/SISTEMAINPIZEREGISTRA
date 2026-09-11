@@ -3,7 +3,7 @@
 Complementa tests/test_saas_rls_postgres.py (mesma tecnica: asyncpg real,
 role de aplicacao efemera, pytest.skip se o banco nao estiver disponivel)
 para as tabelas que nasceram nas Fases 3-5 e ainda nao tinham uma bateria
-de isolamento real: interacoes_versao_sistema (confirmacao de leitura),
+de isolamento real: interacoes_versoes_sistema (confirmacao de leitura),
 problemas_versoes_sistema (reporte de problema) e feature_flags_organizacoes
 (rollout por organizacao). Critério de aceite da Fase 8: "nenhuma
 organizacao consegue consultar ou alterar as configuracoes de outra".
@@ -115,7 +115,7 @@ async def test_rls_real_isola_interacoes_e_problemas_versao_entre_organizacoes()
 
         interacao_a = await admin.fetchval(
             """
-            INSERT INTO interacoes_versao_sistema (versao_sistema_id, organizacao_id, usuario_id, confirmado_em)
+            INSERT INTO interacoes_versoes_sistema (versao_sistema_id, organizacao_id, usuario_id, confirmado_em)
             VALUES ($1, $2, $3, now()) RETURNING id
             """,
             versao_id,
@@ -124,7 +124,7 @@ async def test_rls_real_isola_interacoes_e_problemas_versao_entre_organizacoes()
         )
         interacao_b = await admin.fetchval(
             """
-            INSERT INTO interacoes_versao_sistema (versao_sistema_id, organizacao_id, usuario_id, confirmado_em)
+            INSERT INTO interacoes_versoes_sistema (versao_sistema_id, organizacao_id, usuario_id, confirmado_em)
             VALUES ($1, $2, $3, now()) RETURNING id
             """,
             versao_id,
@@ -153,16 +153,16 @@ async def test_rls_real_isola_interacoes_e_problemas_versao_entre_organizacoes()
                 )
                 # Consulta: só enxerga a própria organização.
                 assert await app_conn.fetchval(
-                    "SELECT count(*) FROM interacoes_versao_sistema WHERE id = $1", interacao_a
+                    "SELECT count(*) FROM interacoes_versoes_sistema WHERE id = $1", interacao_a
                 ) == 1
                 assert await app_conn.fetchval(
-                    "SELECT count(*) FROM interacoes_versao_sistema WHERE id = $1", interacao_b
+                    "SELECT count(*) FROM interacoes_versoes_sistema WHERE id = $1", interacao_b
                 ) == 0
 
                 # Alteração cruzada: UPDATE em linha de outra organização não afeta nada.
                 assert (
                     await app_conn.execute(
-                        "UPDATE interacoes_versao_sistema SET adiado_ate = now() WHERE id = $1", interacao_b
+                        "UPDATE interacoes_versoes_sistema SET adiado_ate = now() WHERE id = $1", interacao_b
                     )
                     == "UPDATE 0"
                 )
@@ -198,12 +198,23 @@ async def test_rls_real_isola_interacoes_e_problemas_versao_entre_organizacoes()
                     "DELETE FROM problemas_versoes_sistema WHERE organizacao_id = $1", org_id
                 )
                 await admin.execute(
-                    "DELETE FROM interacoes_versao_sistema WHERE organizacao_id = $1", org_id
+                    "DELETE FROM interacoes_versoes_sistema WHERE organizacao_id = $1", org_id
                 )
                 await admin.execute("DELETE FROM usuarios_operacoes WHERE organizacao_id = $1", org_id)
                 await admin.execute("DELETE FROM organizacoes WHERE id = $1", org_id)
         if versao_id is not None:
-            await admin.execute("DELETE FROM versoes_sistema WHERE id = $1", versao_id)
+            # Versao "publicada" e imutavel no banco (trigger) -- nao da pra
+            # hard-delete, so arquivar (unica transicao permitida a partir
+            # de "publicada").
+            await admin.execute(
+                """
+                UPDATE versoes_sistema
+                SET status = 'arquivada', arquivado_em = now(), arquivado_por = 'fase8@teste.local',
+                    arquivamento_motivo = 'Limpeza de dado de teste da Fase 8.'
+                WHERE id = $1
+                """,
+                versao_id,
+            )
         await admin.close()
 
 
@@ -220,25 +231,36 @@ async def test_uq_interacao_versao_usuario_impede_confirmacao_duplicada() -> Non
         versao_id = await _criar_versao_publicada(admin, sufixo=sufixo)
         org_id, usuario_id = await _criar_organizacao(admin, sufixo=sufixo, tag="uq")
         await admin.execute(
-            "INSERT INTO interacoes_versao_sistema (versao_sistema_id, organizacao_id, usuario_id) VALUES ($1, $2, $3)",
+            "INSERT INTO interacoes_versoes_sistema (versao_sistema_id, organizacao_id, usuario_id) VALUES ($1, $2, $3)",
             versao_id,
             org_id,
             usuario_id,
         )
         with pytest.raises(asyncpg.UniqueViolationError):
             await admin.execute(
-                "INSERT INTO interacoes_versao_sistema (versao_sistema_id, organizacao_id, usuario_id) VALUES ($1, $2, $3)",
+                "INSERT INTO interacoes_versoes_sistema (versao_sistema_id, organizacao_id, usuario_id) VALUES ($1, $2, $3)",
                 versao_id,
                 org_id,
                 usuario_id,
             )
     finally:
         if org_id is not None:
-            await admin.execute("DELETE FROM interacoes_versao_sistema WHERE organizacao_id = $1", org_id)
+            await admin.execute("DELETE FROM interacoes_versoes_sistema WHERE organizacao_id = $1", org_id)
             await admin.execute("DELETE FROM usuarios_operacoes WHERE organizacao_id = $1", org_id)
             await admin.execute("DELETE FROM organizacoes WHERE id = $1", org_id)
         if versao_id is not None:
-            await admin.execute("DELETE FROM versoes_sistema WHERE id = $1", versao_id)
+            # Versao "publicada" e imutavel no banco (trigger) -- nao da pra
+            # hard-delete, so arquivar (unica transicao permitida a partir
+            # de "publicada").
+            await admin.execute(
+                """
+                UPDATE versoes_sistema
+                SET status = 'arquivada', arquivado_em = now(), arquivado_por = 'fase8@teste.local',
+                    arquivamento_motivo = 'Limpeza de dado de teste da Fase 8.'
+                WHERE id = $1
+                """,
+                versao_id,
+            )
         await admin.close()
 
 
@@ -262,9 +284,11 @@ async def test_trigger_real_bloqueia_update_direto_em_versao_publicada() -> None
             await admin.execute("DELETE FROM versoes_sistema WHERE id = $1", versao_id)
     finally:
         if versao_id is not None:
-            # arquivar_em/arquivado_por/arquivamento_motivo -- única transição
-            # permitida pelo trigger a partir de "publicada" -- usada aqui só
-            # pra conseguir limpar o registro de teste.
+            # O mesmo trigger que bloqueia UPDATE numa versao "publicada"
+            # tambem bloqueia DELETE numa versao "arquivada" -- e por
+            # design (imutabilidade real), entao nao da pra fazer um
+            # hard-delete de limpeza aqui. O registro de teste fica
+            # arquivado (sufixo aleatorio evita colisao entre execucoes).
             await admin.execute(
                 """
                 UPDATE versoes_sistema
@@ -274,7 +298,6 @@ async def test_trigger_real_bloqueia_update_direto_em_versao_publicada() -> None
                 """,
                 versao_id,
             )
-            await admin.execute("DELETE FROM versoes_sistema WHERE id = $1", versao_id)
         await admin.close()
 
 
@@ -324,7 +347,9 @@ async def test_concorrencia_real_ativacao_feature_flag_organizacao() -> None:
 
         # Exatamente uma das duas tentativas venceu -- a outra bateu na
         # constraint, nunca as duas conseguiram inserir uma linha cada.
-        assert sorted(resultados) == [None, "conflito"]
+        # (sorted() quebraria aqui: None e str nao sao comparaveis em Python 3.)
+        assert resultados.count(None) == 1
+        assert resultados.count("conflito") == 1
         total = await admin.fetchval(
             "SELECT count(*) FROM feature_flags_organizacoes WHERE feature_flag_id = $1 AND organizacao_id = $2",
             flag_id,

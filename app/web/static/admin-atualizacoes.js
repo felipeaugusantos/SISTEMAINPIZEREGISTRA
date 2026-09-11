@@ -1,4 +1,5 @@
-const updatesState = { items: [], todos: [], atualizacaoImplantadaId: null };
+const ITENS_POR_PAGINA = 8;
+const updatesState = { items: [], todos: [], atualizacaoImplantadaId: null, pagina: 1 };
 const message = document.querySelector("#updates-message");
 const list = document.querySelector("#updates-list");
 const dialog = document.querySelector("#updates-report-dialog");
@@ -111,19 +112,48 @@ function itensNoPeriodo(todos) {
   });
 }
 
+function renderPaginacao(total) {
+  const nav = document.querySelector("#updates-pagination");
+  if (total <= ITENS_POR_PAGINA) {
+    nav.hidden = true;
+    return;
+  }
+  nav.hidden = false;
+  const inicio = (updatesState.pagina - 1) * ITENS_POR_PAGINA + 1;
+  const fim = Math.min(updatesState.pagina * ITENS_POR_PAGINA, total);
+  document.querySelector("#updates-page-summary").textContent = `${inicio}–${fim} de ${total}`;
+  document.querySelector("#updates-page-prev").disabled = updatesState.pagina <= 1;
+  document.querySelector("#updates-page-next").disabled = fim >= total;
+}
+
 function render() {
   const novidades = itensNoPeriodo(updatesState.todos);
   document.querySelector("#updates-summary").textContent = novidades.length === updatesState.todos.length
     ? `${updatesState.todos.length} atualização(ões) publicada(s)`
     : `${novidades.length} de ${updatesState.todos.length} atualização(ões) (período filtrado)`;
   updatesState.items = novidades;
+  const totalPaginas = Math.max(1, Math.ceil(novidades.length / ITENS_POR_PAGINA));
+  if (updatesState.pagina > totalPaginas) updatesState.pagina = totalPaginas;
+  if (updatesState.pagina < 1) updatesState.pagina = 1;
+  const inicio = (updatesState.pagina - 1) * ITENS_POR_PAGINA;
+  const pagina = novidades.slice(inicio, inicio + ITENS_POR_PAGINA);
   list.replaceChildren();
   if (!updatesState.todos.length) list.append(element("p", "updates-empty", "Nenhuma atualização foi publicada ainda."));
   else if (!novidades.length) list.append(element("p", "updates-empty", "Nenhuma atualização publicada no período selecionado."));
-  novidades.forEach((item) => list.append(renderItem(item, updatesState.atualizacaoImplantadaId)));
+  pagina.forEach((item) => list.append(renderItem(item, updatesState.atualizacaoImplantadaId)));
+  renderPaginacao(novidades.length);
   message.textContent = "";
   message.className = "status-message";
 }
+
+document.querySelector("#updates-page-prev").addEventListener("click", () => {
+  updatesState.pagina -= 1;
+  render();
+});
+document.querySelector("#updates-page-next").addEventListener("click", () => {
+  updatesState.pagina += 1;
+  render();
+});
 
 async function api(url, options = {}) {
   const response = await fetch(url, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
@@ -144,12 +174,14 @@ async function load() {
 
 document.querySelector("#updates-periodo-filtro").addEventListener("submit", (event) => {
   event.preventDefault();
+  updatesState.pagina = 1;
   render();
 });
 document.querySelector("#updates-periodo-limpar").addEventListener("click", () => {
   const form = document.querySelector("#updates-periodo-filtro");
   form.elements.de.value = "";
   form.elements.ate.value = "";
+  updatesState.pagina = 1;
   render();
 });
 
@@ -201,8 +233,9 @@ function openReport(item) {
   dialog.showModal();
 }
 
-document.querySelector(".updates-close").addEventListener("click", () => dialog.close());
-document.querySelector(".updates-cancel").addEventListener("click", () => dialog.close());
+document.querySelectorAll(".updates-close, .updates-cancel").forEach((botao) => {
+  botao.addEventListener("click", () => botao.closest("dialog").close());
+});
 const TAMANHO_MAXIMO_ANEXO = 8 * 1024 * 1024;
 
 function arquivoParaBase64(arquivo) {
@@ -359,3 +392,20 @@ document.querySelector("#updates-problemas-filtro").addEventListener("submit", (
 });
 
 carregarProblemas();
+
+// Botao "Cadastrar atualizacao" (achado do usuario: nao existia jeito nenhum
+// de publicar uma versao pela tela, so por script direto no banco). O
+// formulario em si mora numa pagina separada (admin-atualizacoes-cadastro),
+// restrita a superadmin no backend -- os nomes tecnicos dos campos desse
+// formulario nao podem vazar pra este bundle, que qualquer usuario
+// autenticado baixa (ver test_interface_nao_contem_campos_tecnicos_restritos).
+async function habilitarCriacaoSeSuperadmin() {
+  try {
+    const usuario = await api("/v1/auth/me");
+    document.querySelector("#updates-create-abrir").hidden = !usuario.superadmin;
+  } catch {
+    // Mantem o botao oculto se nao for possivel confirmar o perfil do usuario.
+  }
+}
+
+habilitarCriacaoSeSuperadmin();

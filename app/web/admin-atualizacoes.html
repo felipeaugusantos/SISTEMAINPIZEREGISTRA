@@ -7,7 +7,7 @@
     <title>Central de atualizações — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=61" />
     <script src="/static/admin-shell.js?v=50" defer></script>
-    <script src="/static/admin-atualizacoes.js?v=6" defer></script>
+    <script src="/static/admin-atualizacoes.js?v=7" defer></script>
   </head>
   <body class="admin-body" data-admin-section="updates">
     <main class="admin-main updates-page">
@@ -28,7 +28,10 @@
       <section class="overview-section updates-section" aria-labelledby="updates-title">
         <header>
           <div><p class="eyebrow">Histórico publicado</p><h2 id="updates-title">Novidades disponíveis</h2></div>
-          <span id="updates-summary"></span>
+          <div class="updates-heading-actions">
+            <span id="updates-summary"></span>
+            <a id="updates-create-abrir" class="primary-button" href="/admin/atualizacoes/cadastrar" hidden>Cadastrar atualização</a>
+          </div>
         </header>
         <form id="updates-periodo-filtro" class="admin-filters">
           <label><span>De</span><input type="date" name="de"></label>
@@ -37,6 +40,11 @@
           <button class="secondary-button" type="button" id="updates-periodo-limpar">Limpar</button>
         </form>
         <div id="updates-list" class="updates-list"></div>
+        <nav class="lead-pagination" aria-label="Paginação das atualizações" id="updates-pagination" hidden>
+          <span id="updates-page-summary"></span>
+          <button id="updates-page-prev" class="secondary-button" type="button">Anterior</button>
+          <button id="updates-page-next" class="secondary-button" type="button">Próxima</button>
+        </nav>
       </section>
 
       <section id="updates-pendencias-section" class="overview-section" hidden>

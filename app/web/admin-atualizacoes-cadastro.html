@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Cadastrar atualização — Zé Registra</title>
+    <link rel="stylesheet" href="/static/styles.css?v=61" />
+    <script src="/static/admin-shell.js?v=50" defer></script>
+    <script src="/static/admin-atualizacoes-cadastro.js?v=1" defer></script>
+  </head>
+  <body class="admin-body" data-admin-section="updates">
+    <main class="admin-main updates-page">
+      <section class="admin-heading updates-heading">
+        <div>
+          <p class="eyebrow">Restrito ao departamento de Tech</p>
+          <h1>Cadastrar atualização</h1>
+          <p>Registre uma nova versão publicada na Central de atualizações, com evidências de teste e plano de rollback.</p>
+        </div>
+        <a class="secondary-button" href="/admin/atualizacoes">Voltar à Central de atualizações</a>
+      </section>
+
+      <section class="overview-section">
+        <form id="updates-create-form">
+          <div class="contact-fields">
+            <label><span>Versão</span><input name="versao" placeholder="ex.: 1.0.131" maxlength="60" required></label>
+            <label><span>Tipo</span>
+              <select name="tipo_atualizacao" required>
+                <option value="correcao">Correção</option>
+                <option value="critica">Correção crítica</option>
+                <option value="funcionalidade">Nova funcionalidade</option>
+              </select>
+            </label>
+          </div>
+          <label>Título<input name="titulo" maxlength="180" minlength="5" required></label>
+          <p class="updates-create-modulos-label">Módulos afetados</p>
+          <div id="updates-create-modulos" class="updates-create-modulos"></div>
+          <label>Problema identificado<textarea name="problema_identificado" rows="3" minlength="20" maxlength="10000" required></textarea></label>
+          <label>Solução aplicada<textarea name="solucao_aplicada" rows="3" minlength="20" maxlength="10000" required></textarea></label>
+          <label>Impacto para o usuário<textarea name="impacto_usuario" rows="2" minlength="10" maxlength="3000" required></textarea></label>
+          <label>Instruções<textarea name="instrucoes" rows="2" minlength="20" maxlength="10000" required></textarea></label>
+          <label>Plano de rollback<textarea name="plano_rollback" rows="2" minlength="20" maxlength="10000" required></textarea></label>
+          <label>Riscos conhecidos <small>(um por linha, opcional)</small><textarea name="riscos_conhecidos" rows="2" maxlength="3000"></textarea></label>
+          <div class="contact-fields">
+            <label><span>Commit (SHA completo, 40 caracteres)</span><input name="commit_sha" pattern="[0-9a-fA-F]{40}" maxlength="40" required></label>
+            <label><span>Migration (opcional)</span><input name="migration_revision" maxlength="64"></label>
+          </div>
+          <div class="contact-fields">
+            <label><span>Documentação (URL, opcional)</span><input name="documentacao_url" type="url"></label>
+            <label><span>Implantada em</span><input name="implantada_em" type="datetime-local" required></label>
+          </div>
+          <label class="filter-check"><input name="permite_adiar" type="checkbox"> Permite que o aviso seja adiado pelo usuário</label>
+          <fieldset class="updates-create-evidencias">
+            <legend>Evidências de teste (ao menos uma aprovada é exigida para publicar)</legend>
+            <div id="updates-create-evidencias-lista"></div>
+            <button id="updates-create-evidencia-add" class="secondary-button" type="button">+ Adicionar evidência</button>
+          </fieldset>
+          <div id="updates-create-message" class="status-message" role="status"></div>
+          <div class="updates-dialog-actions">
+            <a class="secondary-button" href="/admin/atualizacoes">Cancelar</a>
+            <button class="secondary-button" type="submit" data-publicar="false">Salvar rascunho</button>
+            <button class="primary-button" type="submit" data-publicar="true">Salvar e publicar</button>
+          </div>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>

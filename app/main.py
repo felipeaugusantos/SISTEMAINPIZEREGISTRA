@@ -259,6 +259,11 @@ async def painel_feature_flags() -> FileResponse:
     return FileResponse(web_dir / "admin-feature-flags.html")
 
 
+@app.get("/admin/atualizacoes/cadastrar", include_in_schema=False, dependencies=[Depends(exigir_superadmin)])
+async def painel_atualizacoes_cadastro() -> FileResponse:
+    return FileResponse(web_dir / "admin-atualizacoes-cadastro.html")
+
+
 @app.get(
     "/admin/configuracao/clicksign",
     include_in_schema=False,

@@ -5003,6 +5003,9 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
 .admin-body .lead-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .admin-body .admin-filters { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
 .admin-body .admin-filters label:first-child { grid-column: span 2; }
+/* #updates-periodo-filtro comeca com o campo "De" (data), nao uma busca
+   larga -- a regra acima deixaria ele com o dobro da largura de "Ate". */
+#updates-periodo-filtro.admin-filters label:first-child { grid-column: auto; }
 @media (max-width: 1180px) {
   .admin-body .lead-metrics, .admin-body .admin-filters { grid-template-columns: repeat(3, 1fr); }
 }
@@ -5453,7 +5456,19 @@ h1,h2,h3,h4,h5 { font-family:var(--font-display); font-weight:var(--fw-semibold)
 .updates-dialog-heading .eyebrow { margin:0; }
 .updates-close { width:38px; height:38px; padding:0; border:1px solid var(--line); border-radius:999px; background:transparent; font-size:1.4rem; }
 .updates-dialog-context { margin:0; color:var(--muted); }
+.updates-heading-actions { display:flex; align-items:center; gap:16px; }
+.updates-heading-actions span { color:var(--muted); font-size:.68rem; }
 .updates-dialog-actions { justify-content:flex-end; }
+#updates-create-dialog { width:min(760px,calc(100vw - 32px)); max-height:calc(100vh - 48px); overflow-y:auto; }
+.updates-dialog .filter-check { display:flex; flex-direction:row; align-items:center; gap:9px; font-weight:400; }
+.updates-dialog .filter-check input { width:18px; min-height:18px; }
+.updates-create-modulos-label { margin:0; font-weight:700; }
+.updates-create-modulos { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; margin-top:-6px; }
+.updates-create-modulos label { display:flex; flex-direction:row; align-items:center; gap:7px; font-weight:400; font-size:.86rem; }
+.updates-create-evidencias { border:1px solid var(--line); border-radius:var(--radius-md); padding:14px; display:grid; gap:10px; }
+.updates-create-evidencias legend { font-weight:700; font-size:.82rem; padding:0 4px; }
+.updates-create-evidencia-row { display:grid; grid-template-columns:2fr 1fr auto; gap:8px; align-items:start; }
+.updates-create-evidencia-row textarea { grid-column:1 / -1; }
 /* Zezinho das Marcas (assistente de IA) -- widget flutuante global, injetado por admin-shell.js
    em toda tela admin (achado do usuário, 11/09/2026). */
 .assistente-widget-launcher {

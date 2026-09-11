@@ -1754,3 +1754,83 @@ def test_listar_emails_leads_sem_permissao_pii_e_recusado() -> None:
     resposta = TestClient(app).get("/v1/admin/leads-emails")
 
     assert resposta.status_code == 403
+
+
+def _lead_para_email(**overrides: object) -> Lead:
+    base: dict = dict(
+        id=9,
+        organizacao_id=1,
+        nome="Fulano de Tal",
+        email="fulano@example.com",
+        telefone="11999998888",
+        marca="ACME",
+        origem="processo",
+        status=StatusLead.NOVO,
+    )
+    base.update(overrides)
+    return Lead(**base)
+
+
+def test_enviar_email_prospeccao_usa_modelo_configurado_e_registra_contato(monkeypatch) -> None:
+    enviados = []
+
+    async def _fake_enviar(destinatario: str, assunto: str, corpo: str, reply_to: str | None = None) -> None:
+        enviados.append({"destinatario": destinatario, "assunto": assunto, "corpo": corpo, "reply_to": reply_to})
+
+    monkeypatch.setattr("app.api.leads.enviar_email_prospeccao_lead", _fake_enviar)
+    lead = _lead_para_email()
+    org = SimpleNamespace(
+        id=1, branding={"email_leads": {"assunto": "Oi {{lead.nome}}", "corpo": "Olá {{lead.nome}}!", "reply_to": ""}}
+    )
+    session = FakeSession([], objetos_get=[lead, org])
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/9/enviar-email-prospeccao", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 201
+    assert enviados[0]["destinatario"] == "fulano@example.com"
+    assert enviados[0]["assunto"] == "Oi Fulano de Tal"
+    assert enviados[0]["corpo"] == "Olá Fulano de Tal!"
+    corpo = resposta.json()
+    assert corpo["canal"] == "email"
+    assert session.adicionados[0].lead_id == 9
+
+
+def test_enviar_email_prospeccao_sem_email_e_rejeitado() -> None:
+    lead = _lead_para_email(email="")
+    session = FakeSession([], objetos_get=[lead])
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/9/enviar-email-prospeccao", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 422
+
+
+def test_enviar_email_prospeccao_propaga_falha_de_envio_como_502(monkeypatch) -> None:
+    async def _fake_enviar(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("SMTP indisponivel")
+
+    monkeypatch.setattr("app.api.leads.enviar_email_prospeccao_lead", _fake_enviar)
+    lead = _lead_para_email()
+    org = SimpleNamespace(id=1, branding={})
+    session = FakeSession([], objetos_get=[lead, org])
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/9/enviar-email-prospeccao", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 502

@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Modelo de e-mail (leads) — Zé Registra</title><link rel="stylesheet" href="/static/styles.css?v=61"><link rel="stylesheet" href="/static/admin-modelo-propostas.css?v=1"><script src="/static/admin-shell.js?v=46" defer></script><script src="/static/admin-modelo-email-leads.js?v=1" defer></script></head>
+<body class="admin-body" data-admin-section="config-propostas"><main class="admin-main finance-main">
+  <section class="finance-hero"><div><p class="eyebrow">CONFIGURAÇÃO</p><h1>Modelo de e-mail (leads)</h1><p>Personalize o e-mail comercial enviado a partir do card do lead, em "Abrir contato".</p></div><a class="secondary-button" href="/admin/pesquisas">Voltar para Leads</a></section>
+  <div id="email-leads-config-message" class="status-message" role="status"></div>
+  <section class="finance-card"><header class="finance-list-heading"><div><p class="eyebrow">CAMPO DISPONÍVEL</p><h2>Personalização</h2><p>Arraste o campo para o assunto ou o corpo, ou clique para inserir no campo selecionado. Os demais dados (WhatsApp, telefone, e-mail, site, nome de quem assina) são fixos: escreva-os diretamente no texto abaixo.</p></div></header><div id="email-leads-field-palette" class="proposal-field-palette"><button type="button" draggable="true" data-token="{{lead.nome}}">Nome do lead</button></div></section>
+  <section class="finance-card"><header class="finance-list-heading"><div><p class="eyebrow">E-MAIL</p><h2>Assunto e corpo</h2></div></header><form id="email-leads-config-form" class="config-form">
+    <label>Assunto<input name="assunto" required maxlength="200"></label>
+    <label>Corpo<textarea name="corpo" required maxlength="5000" rows="16"></textarea></label>
+    <label>Responder para (opcional)<input name="reply_to" type="email" maxlength="254" placeholder="atendimento@suaempresa.com.br"></label>
+    <footer><button class="secondary-button" type="button" id="email-leads-config-reset">Restaurar padrão</button><button class="primary-button" type="submit">Salvar modelo</button></footer>
+  </form></section>
+</main></body></html>

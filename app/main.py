@@ -25,6 +25,7 @@ from app.api.confiabilidade import router as confiabilidade_router
 from app.api.consulta import router as consulta_router
 from app.api.contratacoes import router as contratacoes_router
 from app.api.crm_admin import router as crm_router
+from app.api.email_leads_config import router as email_leads_config_router
 from app.api.escritorio import router as escritorio_router
 from app.api.exclusoes import router as exclusoes_router
 from app.api.fase2 import router as fase2_router
@@ -149,6 +150,7 @@ app.include_router(feature_flags_router)
 app.include_router(analises_router)
 app.include_router(producao_router)
 app.include_router(propostas_config_router)
+app.include_router(email_leads_config_router)
 app.include_router(rpi_admin_router)
 app.include_router(rpi_consulta_router)
 app.include_router(aprendizado_router)
@@ -451,6 +453,15 @@ async def painel_regras_automaticas() -> FileResponse:
 )
 async def painel_modelo_propostas() -> FileResponse:
     return FileResponse(web_dir / "admin-modelo-propostas.html")
+
+
+@app.get(
+    "/admin/configuracao/modelo-email-leads",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("leads.view"))],
+)
+async def painel_modelo_email_leads() -> FileResponse:
+    return FileResponse(web_dir / "admin-modelo-email-leads.html")
 
 
 @app.get(

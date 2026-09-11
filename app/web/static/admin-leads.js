@@ -458,7 +458,7 @@ async function openLead(id, selectedResearchId = null) {
     ["propostas", "Proposta de registro"],
   ];
   dialogContent.innerHTML = `
-    <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div><div><span>Prioridade (IA)</span><strong id="lead-qualificacao-badge">—</strong></div></section>
+    <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>${state.canManage && lead.email ? ` <button type="button" class="secondary-button lead-send-email" data-lead-id="${lead.id}">Enviar e-mail</button>` : ""}</div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div><div><span>Prioridade (IA)</span><strong id="lead-qualificacao-badge">—</strong></div></section>
     <nav class="lead-tabs" role="tablist">${ABAS_LEAD.map(([id, label], i) => `<button type="button" class="lead-tab${i === 0 ? " active" : ""}" role="tab" aria-selected="${i === 0}" data-tab="${id}">${label}</button>`).join("")}</nav>
     <div class="lead-tab-panel" data-panel="atendimento">
       <section class="lead-qualificacao-ia lg-full" id="lead-qualificacao-ia" hidden></section>
@@ -517,6 +517,25 @@ async function openLead(id, selectedResearchId = null) {
     dialogContent.querySelectorAll(".lead-tab").forEach(b => { const ativa = b === botao; b.classList.toggle("active", ativa); b.setAttribute("aria-selected", String(ativa)); });
     dialogContent.querySelectorAll(".lead-tab-panel").forEach(p => { p.hidden = p.dataset.panel !== botao.dataset.tab; });
   }));
+  const sendEmailButton = dialogContent.querySelector(".lead-send-email");
+  if (sendEmailButton) sendEmailButton.addEventListener("click", async () => {
+    if (!confirm(`Enviar o e-mail comercial padrão para ${lead.email}?`)) return;
+    const original = sendEmailButton.textContent;
+    sendEmailButton.disabled = true;
+    sendEmailButton.textContent = "Enviando…";
+    try {
+      await responsePayload(await fetch(`/v1/admin/leads/${lead.id}/enviar-email-prospeccao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }));
+      showMessage("E-mail enviado e registrado no histórico do lead.", "success");
+      await openLead(lead.id, selectedResearchId);
+    } catch (error) {
+      sendEmailButton.disabled = false;
+      sendEmailButton.textContent = original;
+      showMessage(error.message || "Não foi possível enviar o e-mail.", "error");
+    }
+  });
   if (state.canManage) {
     const portalCard = document.createElement("section");
     portalCard.className = "lead-portal-access";

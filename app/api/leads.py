@@ -14,6 +14,7 @@ from sqlalchemy import case, desc, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.email_leads_config import config_email_leads
 from app.api.juridico import FUSO_BRASIL
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
 from app.cadencia_email import processar_descadastro_cadencia, registrar_abertura
@@ -38,7 +39,12 @@ from app.crm import (
     sincronizar_fase_por_status,
 )
 from app.database import get_session
-from app.emailing import enviar_alerta_lead_atribuido, enviar_alerta_novo_lead, enviar_proposta_email
+from app.emailing import (
+    enviar_alerta_lead_atribuido,
+    enviar_alerta_novo_lead,
+    enviar_email_prospeccao_lead,
+    enviar_proposta_email,
+)
 from app.ia_sombra import enfileirar_qualificacao_ia_se_ativa
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
 from app.models import (
@@ -2076,6 +2082,58 @@ async def registrar_contato_lead(
     await session.commit()
     await session.refresh(contato)
     return _contato_response(contato, pesquisa.marca, lead.empresa)
+
+
+@router.post("/v1/admin/leads/{lead_id}/enviar-email-prospeccao", status_code=status.HTTP_201_CREATED)
+async def enviar_email_prospeccao(
+    lead_id: int,
+    request: Request,
+    session: SessionDep,
+    usuario: LeadsManageDep,
+    _limite: AcaoAdminDep,
+) -> dict:
+    """Envia ao lead o e-mail comercial configurado em Configuração > Modelo de
+    e-mail (leads), a partir do botão "Enviar e-mail" no card do lead
+    ("Abrir contato"). Registra o envio como um contato (canal e-mail) no
+    histórico do lead, igual a qualquer outra interação."""
+    lead = await _lead_do_operador(lead_id, session, usuario)
+    if not lead.email:
+        raise HTTPException(status_code=422, detail="Este lead nao tem e-mail cadastrado")
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    config = config_email_leads(org)
+    assunto = config["assunto"].replace("{{lead.nome}}", lead.nome)
+    corpo = config["corpo"].replace("{{lead.nome}}", lead.nome)
+    try:
+        await enviar_email_prospeccao_lead(lead.email, assunto, corpo, reply_to=config.get("reply_to") or usuario.email)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Nao foi possivel enviar o e-mail agora. Tente novamente.") from exc
+    contato = ContatoLead(
+        organizacao_id=usuario.organizacao_id,
+        lead_id=lead_id,
+        empresa_id=lead.empresa_id,
+        operador_id=usuario.id,
+        operador_nome=usuario.nome,
+        canal=CanalContato.EMAIL,
+        resultado="E-mail comercial enviado",
+        observacao=f"Assunto: {assunto}",
+    )
+    session.add(contato)
+    lead.ultimo_contato_em = datetime.now(UTC)
+    registrar_evento_operacional(
+        session,
+        organizacao_id=usuario.organizacao_id,
+        dominio="crm",
+        tipo="crm.email_prospeccao_enviado",
+        entidade_tipo="lead",
+        entidade_id=lead_id,
+        ator=usuario.ator,
+        ator_id=usuario.id,
+        payload={"contato_id": contato.id, "destinatario": lead.email},
+    )
+    _auditar(session, usuario, request, "enviar_email", f"lead:{lead_id}", {"destinatario": lead.email})
+    await session.commit()
+    await session.refresh(contato)
+    return _contato_response(contato, None, lead.empresa)
 
 
 @router.get("/v1/admin/leads-responsaveis")

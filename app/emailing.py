@@ -390,6 +390,37 @@ async def enviar_proposta_email(destinatario: str, nome: str, link: str, pdf_byt
         raise ultimo_erro
 
 
+async def enviar_email_prospeccao_lead(
+    destinatario: str, assunto: str, corpo: str, reply_to: str | None = None
+) -> None:
+    """Envia ao lead um e-mail comercial a partir do modelo configurado em
+    Configuração > Modelo de e-mail (leads). Diferente dos alertas internos
+    acima, é uma ação explícita do operador (botão "Enviar e-mail" no card do
+    lead) -- por isso propaga a exceção em vez de engolir a falha: quem
+    clicou precisa saber se não foi enviado."""
+    settings = get_settings()
+    if not settings.email_enabled:
+        raise RuntimeError("Envio de e-mail não está habilitado nesta instalação")
+    mensagem = EmailMessage()
+    mensagem["Subject"] = assunto
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = destinatario
+    if reply_to:
+        mensagem["Reply-To"] = reply_to
+    mensagem.set_content(corpo)
+    ultimo_erro: Exception | None = None
+    for tentativa in range(1, max(1, settings.smtp_max_attempts) + 1):
+        try:
+            await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+            return
+        except Exception as exc:
+            ultimo_erro = exc
+            if tentativa < settings.smtp_max_attempts:
+                await asyncio.sleep(min(2 ** (tentativa - 1), 4))
+    if ultimo_erro is not None:
+        raise ultimo_erro
+
+
 async def enviar_alerta_prazo_juridico(destinatario: str, titulo: str, mensagem_texto: str) -> None:
     """Avisa por e-mail o responsável por um prazo jurídico vencido, próximo do
     vencimento ou escalonado.

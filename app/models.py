@@ -15,6 +15,8 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
+    Index,
     Integer,
     Numeric,
     String,
@@ -22,6 +24,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -190,6 +193,15 @@ class PoliticaPrivacidade(Base):
     __tablename__ = "politicas_privacidade"
     __table_args__ = (
         UniqueConstraint("organizacao_id", "versao", name="uq_politica_privacidade_org_versao"),
+        # Regra de negócio: só pode existir UMA política "publicada" por
+        # organização por vez (índice único parcial, não expressável como
+        # UniqueConstraint comum).
+        Index(
+            "uq_politica_privacidade_publicada_org",
+            "organizacao_id",
+            unique=True,
+            postgresql_where=text("status = 'publicada'"),
+        ),
         CheckConstraint(
             "status IN ('rascunho', 'publicada', 'revogada')",
             name="ck_politica_privacidade_status",
@@ -647,7 +659,10 @@ class DocumentoAtivoPI(Base):
 
 class Movimentacao(Base):
     __tablename__ = "movimentacoes"
-    __table_args__ = (UniqueConstraint("chave_origem", name="uq_movimentacoes_chave_origem"),)
+    __table_args__ = (
+        UniqueConstraint("chave_origem", name="uq_movimentacoes_chave_origem"),
+        Index("ix_movimentacoes_rpi_consulta", "numero_rpi", "data_rpi", "id"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     processo_id: Mapped[int] = mapped_column(ForeignKey("processos.id", ondelete="CASCADE"), index=True)
@@ -937,6 +952,17 @@ class EmbeddingLead(Base):
     que ensinar, não é indexado."""
 
     __tablename__ = "embeddings_lead"
+    __table_args__ = (
+        # Busca por similaridade (app.ia_sombra.buscar_leads_similares) --
+        # ivfflat/cosine, mesmo indice criado em nh30d4k1w842_rag_embeddings_lead.
+        Index(
+            "ix_embeddings_lead_embedding_cosine",
+            "embedding",
+            postgresql_using="ivfflat",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_with={"lists": 100},
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
@@ -1650,6 +1676,16 @@ class PreCadastroProcesso(Base):
             "status IN ('aguardando','vinculado','cancelado')",
             name="ck_pre_cadastro_processo_status",
         ),
+        # Evita duplicar o mesmo pre-cadastro pendente (índice único parcial:
+        # só enquanto status='aguardando', não bloqueia reaproveitar o
+        # número depois de vinculado/cancelado).
+        Index(
+            "uq_pre_cadastro_processo_pendente",
+            "organizacao_id",
+            "numero_normalizado",
+            unique=True,
+            postgresql_where=text("status = 'aguardando'"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -1915,6 +1951,18 @@ class EventoJuridico(Base):
 
 class Lead(Base):
     __tablename__ = "leads"
+    __table_args__ = (
+        # LGPD: garante que a versão de termo que o lead consentiu existe
+        # de verdade como política publicada daquela organização -- nunca
+        # um número de versão inventado ou de outra organização.
+        ForeignKeyConstraint(
+            ["organizacao_id", "consentimento_versao_termo"],
+            ["politicas_privacidade.organizacao_id", "politicas_privacidade.versao"],
+            name="fk_leads_consentimento_politica",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="RESTRICT"), index=True)
@@ -2047,6 +2095,10 @@ class Prospect(Base):
     """
 
     __tablename__ = "prospects"
+    __table_args__ = (
+        Index("ix_prospects_org_status", "organizacao_id", "status"),
+        Index("ix_prospects_org_uf_cidade", "organizacao_id", "uf", "cidade"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
@@ -2196,6 +2248,10 @@ class CacheEstabelecimentoRFB(Base):
     a superadmin -- ver ImportacaoCnpjRfb) ou manualmente por cron/CLI."""
 
     __tablename__ = "cache_estabelecimentos_rfb"
+    __table_args__ = (
+        Index("ix_cache_estabelecimentos_rfb_cnae_uf", "cnae_principal", "uf"),
+        Index("ix_cache_estabelecimentos_rfb_uf_cidade", "uf", "cidade"),
+    )
 
     cnpj: Mapped[str] = mapped_column(String(14), primary_key=True)
     razao_social: Mapped[str] = mapped_column(String(200))
@@ -2242,6 +2298,9 @@ class ProspectEnriquecimento(Base):
     leitura rápida da ficha)."""
 
     __tablename__ = "prospect_enriquecimentos"
+    __table_args__ = (
+        Index("ix_prospect_enriquecimentos_prospect_provedor_criado", "prospect_id", "provedor", "criado_em"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
@@ -2439,7 +2498,7 @@ class AssinaturaPropostaComercial(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
     proposta_id: Mapped[int] = mapped_column(ForeignKey("propostas_comerciais.id", ondelete="CASCADE"), index=True)
-    versao: Mapped[int] = mapped_column(Integer)
+    versao: Mapped[int] = mapped_column(Integer, index=True)
     hash_documento: Mapped[str] = mapped_column(String(64), index=True)
     cliente_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -3038,9 +3097,9 @@ class ModeloRankingBusca(Base):
     parametros: Mapped[dict] = mapped_column(JSON, default=dict)
     metricas: Mapped[dict] = mapped_column(JSON, default=dict)
     evidencias: Mapped[dict] = mapped_column(JSON, default=dict)
-    dataset_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    dataset_version: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     bloqueado_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
-    publicado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    publicado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     publicado_por: Mapped[str | None] = mapped_column(String(150), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 

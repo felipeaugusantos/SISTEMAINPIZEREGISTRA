@@ -387,6 +387,11 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Teste-Seguro-123!}
       AUDIT_IP_SALT: teste-local
       SECURITY_MASTER_KEY: ${SECURITY_MASTER_KEY:-desenvolvimento-local-chave-mestra}
+      # Fase 1 da reanalise de 12/09/2026: sem isso, test_fase8_seguranca_postgres.py,
+      # test_saas_rls_postgres.py e test_phase7_postgres.py ficam pulados (skip) em
+      # silencio aqui e SO rodam de verdade no CI -- foi exatamente essa lacuna que
+      # deixou o CI vermelho por 2 dias (30+ commits) sem ninguem perceber.
+      TEST_ADMIN_DATABASE_URL: postgresql://inpi:inpi@db-test:5432/inpi
     volumes:
       - ./data:/app/data:ro
     depends_on:

@@ -118,8 +118,9 @@ async def processar_envios_cadencia_pendentes(session: AsyncSession) -> dict:
 async def registrar_abertura(session: AsyncSession, token: str) -> None:
     """Chamado pelo endpoint público do pixel de rastreio (recebe o token bruto
     da URL, sem tenant resolvido ainda -- mesmo padrão de
-    leads.py::_proposta_por_token). Marca só a primeira abertura -- reaberturas
-    não sobrescrevem o timestamp original. Não commita: quem chama decide."""
+    leads_propostas.py::_proposta_por_token). Marca só a primeira abertura --
+    reaberturas não sobrescrevem o timestamp original. Não commita: quem
+    chama decide."""
     from app.tenancy import aplicar_contexto_tenant
 
     envio = (

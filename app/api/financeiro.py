@@ -12,7 +12,7 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.leads import sincronizar_pagamento_proposta_por_id
+from app.api.leads_propostas import sincronizar_pagamento_proposta_por_id
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.crm import normalizar_empresa, registrar_evento_operacional
 from app.database import get_session

@@ -28,7 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.financeiro import _cancelar_comissao_da_parcela, _gerar_comissao_se_aplicavel
-from app.api.leads import sincronizar_pagamento_proposta_por_id
+from app.api.leads_propostas import sincronizar_pagamento_proposta_por_id
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
 from app.models import LancamentoFinanceiro, ParcelaFinanceira, WebhookFinanceiro

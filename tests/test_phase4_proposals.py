@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from app.api.leads import (
+from app.api.leads_propostas import (
     PropostaStatusInput,
     _atualizar_sla_proposta,
     _prazo_sla_24h,
@@ -168,7 +168,7 @@ def test_aceitar_proposta_publica_ja_aceita_continua_idempotente_mesmo_apos_expi
 
 
 def test_aceitar_proposta_publica_dentro_da_validade_prossegue_com_o_aceite() -> None:
-    import app.api.leads as leads_modulo
+    import app.api.leads_propostas as leads_modulo
 
     async def _avancar_fake(*_args: object, **_kwargs: object) -> bool:
         return True
@@ -192,7 +192,7 @@ def test_aceitar_proposta_publica_dentro_da_validade_prossegue_com_o_aceite() ->
 
 
 def test_visualizar_proposta_publica_exibe_valores_condicoes_e_validade() -> None:
-    import app.api.leads as leads_modulo
+    import app.api.leads_propostas as leads_modulo
 
     proposta = _proposta_com_token(marca="ACME", classes="35", validade_em=date(2099, 12, 31))
     session = FakeSession([FakeResult(scalar=proposta)])
@@ -211,7 +211,7 @@ def test_visualizar_proposta_publica_exibe_valores_condicoes_e_validade() -> Non
 
 
 def test_aceitar_proposta_publica_sem_validade_definida_nao_e_bloqueada() -> None:
-    import app.api.leads as leads_modulo
+    import app.api.leads_propostas as leads_modulo
 
     async def _avancar_fake(*_args: object, **_kwargs: object) -> bool:
         return True
@@ -533,7 +533,7 @@ def test_pagamento_confirmado_encaminha_oportunidade_ao_juridico() -> None:
 
 
 def test_aceitar_proposta_publica_gera_contratacao_automatica() -> None:
-    import app.api.leads as leads_modulo
+    import app.api.leads_propostas as leads_modulo
 
     async def _avancar_fake(*_args: object, **_kwargs: object) -> bool:
         return True

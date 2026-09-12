@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.juridico import TIPOS_PRAZO
-from app.api.leads import criar_contratacao_automatica_proposta
+from app.api.leads_propostas import criar_contratacao_automatica_proposta
 from app.auth import exigir_permissao, hash_ip, hash_senha, hash_token, verificar_senha
 from app.clicksign import configuracao as configuracao_clicksign
 from app.database import get_session

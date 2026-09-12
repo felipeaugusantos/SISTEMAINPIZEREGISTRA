@@ -36,8 +36,19 @@ dependencies = [
 dev = [
     "pytest>=8.3,<9",
     "pytest-asyncio>=0.25,<1",
+    "pytest-cov>=6,<7",
     "ruff>=0.9,<1",
 ]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+# So relatorio por enquanto (Fase 2 da reanalise, 12/09/2026) -- sem
+# --cov-fail-under no CI ainda, precisa de uma medicao real primeiro pra
+# saber que limiar faz sentido sem travar o pipeline sem necessidade.
+skip_empty = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

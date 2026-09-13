@@ -1,5 +1,4 @@
 import re
-import unicodedata
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
@@ -29,6 +28,7 @@ from app.models import (
     UsuarioOperacoes,
     processo_titulares,
 )
+from app.normalization import normalizar_busca as _normalizar_busca
 from app.normalization import normalizar_numero_processo
 from app.proxy import cliente_ip
 from app.relatorios import gerar_pdf_processo_monitorado
@@ -81,13 +81,6 @@ ETAPA_KANBAN_LABELS: dict[str, str] = {
     "deferido_concessao": "Deferido / Concessão",
     "encerrado": "Encerrado",
 }
-
-
-def _normalizar_busca(valor: str) -> str:
-    sem_acentos = "".join(
-        caractere for caractere in unicodedata.normalize("NFKD", valor.strip()) if not unicodedata.combining(caractere)
-    )
-    return " ".join(sem_acentos.casefold().split())
 
 
 def _expressao_procurador():

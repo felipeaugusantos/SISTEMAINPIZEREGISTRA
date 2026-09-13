@@ -40,6 +40,7 @@ from app.models import (
     UsuarioOperacoes,
     processo_titulares,
 )
+from app.normalization import normalizar_busca
 from app.proxy import cliente_ip
 from app.storage import StorageError, save_bytes
 
@@ -1102,6 +1103,26 @@ async def agenda_centralizada(
     }
 
 
+def _filtro_busca_painel(busca: str):
+    """Cláusula OR da busca do painel jurídico.
+
+    Achado da análise do módulo (13/09/2026, item 2): a busca comparava o
+    termo direto contra as colunas, sem tirar acento -- "contestacao" não
+    encontrava um prazo titulado "Contestação". immutable_unaccent(...)
+    também bate com o índice trigram já existente em Processo.titulo
+    (ix_processos_titulo_trgm), mesmo cuidado do achado equivalente em
+    Processos monitorados.
+    """
+    termo_numero = f"%{busca.strip()}%"
+    termo = f"%{normalizar_busca(busca)}%"
+    return or_(
+        Processo.numero.ilike(termo_numero),
+        func.immutable_unaccent(Processo.titulo).ilike(termo),
+        func.immutable_unaccent(EmpresaCRM.nome).ilike(termo),
+        func.immutable_unaccent(PrazoJuridico.titulo).ilike(termo),
+    )
+
+
 @router.get("/painel")
 async def painel(
     session: SessionDep,
@@ -1143,15 +1164,7 @@ async def painel(
     if fim:
         filtros.append(PrazoJuridico.vencimento_em <= datetime.combine(fim, time.max, UTC))
     if busca:
-        termo = f"%{busca.strip()}%"
-        filtros.append(
-            or_(
-                Processo.numero.ilike(termo),
-                Processo.titulo.ilike(termo),
-                EmpresaCRM.nome.ilike(termo),
-                PrazoJuridico.titulo.ilike(termo),
-            )
-        )
+        filtros.append(_filtro_busca_painel(busca))
     responsavel = UsuarioOperacoes.__table__.alias("responsavel")
     escalacao = UsuarioOperacoes.__table__.alias("escalacao")
     # Achado JUR-1 da auditoria (04/09/2026): janelas "hoje"/"7 dias" devem

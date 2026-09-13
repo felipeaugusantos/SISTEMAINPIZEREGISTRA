@@ -32,6 +32,7 @@ from app.api.juridico import (
     _dispensa_concessao,
     _documentos_por_lead,
     _emails_usuarios,
+    _filtro_busca_painel,
     _pascoa,
     _pendencias_encaminhamento,
     _reconciliar_prazos_historicos,
@@ -147,6 +148,19 @@ def test_documentos_por_lead_sem_leads_nao_consulta_o_banco() -> None:
 
     assert agrupados == {}
     assert session.executados == []
+
+
+def test_filtro_busca_painel_ignora_acento_e_usa_indice_trigram() -> None:
+    expressao = _filtro_busca_painel("Contestação")
+    sql = str(expressao)
+    valores = [
+        valor
+        for valor in expressao.compile().params.values()
+        if isinstance(valor, str) and valor.startswith("%")
+    ]
+
+    assert "immutable_unaccent" in sql
+    assert "%contestacao%" in valores
 
 
 def test_receber_encaminhamento_atribui_responsavel_e_avanca_para_ganho() -> None:

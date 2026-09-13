@@ -99,6 +99,26 @@ def _expressao_procurador():
     )
 
 
+def _expressao_procurador_manual():
+    """Mesma normalização de _expressao_procurador, mas sobre o campo escopado
+    por organização (ProcessoMonitorado.procurador_manual) -- usada na busca da
+    carteira para que uma correção feita só nesta organização continue
+    encontrável, sem tocar em Processo.procurador (compartilhado)."""
+    return func.regexp_replace(
+        func.trim(func.immutable_unaccent(func.lower(ProcessoMonitorado.procurador_manual))),
+        r"\s+",
+        " ",
+        "g",
+    )
+
+
+def _procurador_exibicao(processo: Processo, monitorado: ProcessoMonitorado) -> str | None:
+    """Procurador exibido para esta organização: a correção própria (se houver)
+    tem prioridade sobre o valor publicado na RPI, compartilhado entre todas as
+    organizações que monitoram o mesmo processo."""
+    return monitorado.procurador_manual or processo.procurador
+
+
 def _expressao_grupo_situacao_inpi():
     codigo = Processo.situacao_normalizada
     return case(
@@ -434,6 +454,7 @@ async def listar_carteira(
                 Processo.numero_normalizado.ilike(f"%{normalizar_numero_processo(busca)}%"),
                 func.immutable_unaccent(Processo.titulo).ilike(termo),
                 _expressao_procurador().ilike(termo),
+                _expressao_procurador_manual().ilike(termo),
                 func.immutable_unaccent(func.lower(EmpresaCRM.nome)).ilike(termo),
             )
         )
@@ -528,7 +549,7 @@ async def listar_carteira(
                     _grupo_situacao_valor(processo.situacao_normalizada)
                 ),
                 "data_deposito": processo.data_deposito,
-                "procurador": processo.procurador,
+                "procurador": _procurador_exibicao(processo, monitorado),
                 "fonte": processo.fonte,
                 "processo_atualizado_em": processo.atualizado_em,
                 "status": monitorado.status,
@@ -591,6 +612,7 @@ async def listar_kanban(
                 Processo.numero_normalizado.ilike(f"%{normalizar_numero_processo(busca)}%"),
                 func.immutable_unaccent(Processo.titulo).ilike(termo),
                 _expressao_procurador().ilike(termo),
+                _expressao_procurador_manual().ilike(termo),
                 func.immutable_unaccent(func.lower(EmpresaCRM.nome)).ilike(termo),
             )
         )
@@ -726,6 +748,7 @@ async def listar_kanban_inpi(
                 Processo.numero_normalizado.ilike(f"%{normalizar_numero_processo(busca)}%"),
                 func.immutable_unaccent(Processo.titulo).ilike(termo),
                 _expressao_procurador().ilike(termo),
+                _expressao_procurador_manual().ilike(termo),
                 func.immutable_unaccent(func.lower(EmpresaCRM.nome)).ilike(termo),
             )
         )
@@ -1431,6 +1454,7 @@ async def atualizar_monitoramento(
         "lead_id": monitorado.lead_id,
         "etapa_kanban": monitorado.etapa_kanban,
         "prioridade": monitorado.prioridade,
+        "procurador_manual": monitorado.procurador_manual,
     }
     if dados.status is not None:
         monitorado.status = dados.status
@@ -1452,11 +1476,14 @@ async def atualizar_monitoramento(
     if dados.observacoes is not None:
         monitorado.observacoes = dados.observacoes.strip() or None
     if dados.procurador is not None:
-        # procurador é dado compartilhado do Processo (não do vínculo). Permitimos
-        # corrigi-lo a partir da carteira porque muitas marcas do BADEPI vêm sem ele.
-        processo = await session.get(Processo, monitorado.processo_id)
-        if processo is not None:
-            processo.procurador = dados.procurador or None
+        # Achado da analise do modulo (13/09/2026): processo.procurador e dado
+        # compartilhado da base RPI (sem organizacao_id) -- gravar a correcao
+        # ali mudava o que outras organizacoes que monitoram o mesmo processo
+        # veem, e a proxima sincronizacao da RPI podia sobrescreve-la (ver
+        # app/rpi/importer.py). A correcao agora fica em procurador_manual,
+        # escopada por organizacao_id, com prioridade de exibicao sobre o
+        # valor publicado (ver _procurador_exibicao).
+        monitorado.procurador_manual = dados.procurador or None
     if dados.etapa_kanban is not None and dados.etapa_kanban != monitorado.etapa_kanban:
         etapa_anterior = monitorado.etapa_kanban
         monitorado.etapa_kanban = dados.etapa_kanban
@@ -1488,6 +1515,7 @@ async def atualizar_monitoramento(
                 "lead_id": monitorado.lead_id,
                 "etapa_kanban": monitorado.etapa_kanban,
                 "prioridade": monitorado.prioridade,
+                "procurador_manual": monitorado.procurador_manual,
             },
         },
     )
@@ -1553,7 +1581,7 @@ async def gerar_relatorio_pdf(
             "data_deposito": processo.data_deposito,
             "situacao": processo.situacao,
             "titulares": list(titulares),
-            "procurador": processo.procurador,
+            "procurador": _procurador_exibicao(processo, monitorado),
             "empresa": empresa_nome,
             "responsavel": responsavel_nome,
             "status": monitorado.status,

@@ -8,8 +8,10 @@ from app.api.carteira import (
     _filtro_procurador,
     _grupo_situacao_valor,
     _normalizar_busca,
+    _procurador_exibicao,
     _titulo_exibicao,
     _validar_grupo_situacao_inpi,
+    atualizar_monitoramento,
     buscar_por_procurador,
     cadastrar_manual,
 )
@@ -279,4 +281,45 @@ def test_etapa_kanban_e_validada_e_historico_tem_tenant() -> None:
     dados = AtualizacaoMonitoramento(etapa_kanban="aguardando_inpi")
     assert dados.etapa_kanban == "aguardando_inpi"
     assert ProcessoMonitorado.etapa_kanban.property.columns[0].default.arg == "triagem"
+
+
+def test_procurador_exibicao_prioriza_correcao_da_organizacao() -> None:
+    processo = Processo(procurador="Publicado na RPI")
+    sem_correcao = ProcessoMonitorado(procurador_manual=None)
+    com_correcao = ProcessoMonitorado(procurador_manual="Corrigido por esta organização")
+
+    assert _procurador_exibicao(processo, sem_correcao) == "Publicado na RPI"
+    assert _procurador_exibicao(processo, com_correcao) == "Corrigido por esta organização"
+
+
+def test_atualizar_monitoramento_nao_grava_no_processo_compartilhado() -> None:
+    # Achado da analise do modulo (13/09/2026): processo.procurador e
+    # compartilhado entre organizacoes (tabela sem organizacao_id); a
+    # correcao feita pela carteira precisa ficar so no vinculo desta
+    # organizacao (procurador_manual), nunca no Processo.
+    monitorado = ProcessoMonitorado(
+        id=1,
+        organizacao_id=1,
+        processo_id=10,
+        status="ativo",
+        vinculado_por="teste",
+        procurador_manual=None,
+    )
+    session = FakeSession([FakeResult(scalar=monitorado)])
+
+    resultado = asyncio.run(
+        atualizar_monitoramento(
+            1,
+            AtualizacaoMonitoramento(procurador="Dr. Corrigido"),
+            _request(),
+            session,
+            usuario_teste(),
+        )
+    )
+
+    assert resultado == {"status": "ok", "id": 1}
+    assert monitorado.procurador_manual == "Dr. Corrigido"
+    evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
+    assert evento.detalhes["depois"]["procurador_manual"] == "Dr. Corrigido"
+    assert session.commits == 1
     assert HistoricoEtapaCarteira.__table__.c.organizacao_id.foreign_keys

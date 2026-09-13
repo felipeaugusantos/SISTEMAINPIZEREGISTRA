@@ -1623,6 +1623,11 @@ class ProcessoMonitorado(Base):
     etapa_atualizada_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     origem: Mapped[str] = mapped_column(String(30), default="manual", index=True)
     procurador_origem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Correcao do procurador visivel so para esta organizacao -- nunca grava em
+    # processos.procurador (compartilhado entre organizacoes, sem organizacao_id).
+    # Tem prioridade de exibicao sobre Processo.procurador; ver _procurador_exibicao
+    # em app/api/carteira.py.
+    procurador_manual: Mapped[str | None] = mapped_column(Text, nullable=True)
     observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
     vinculado_por: Mapped[str] = mapped_column(String(254))
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

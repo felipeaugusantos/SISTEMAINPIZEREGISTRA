@@ -1,6 +1,6 @@
 # Matriz “prometido × implementado”
 
-Revisão técnica em **15/08/2026**. Esta matriz transforma promessas comerciais em critérios verificáveis e deve ser atualizada antes de cada demonstração, proposta ou liberação para cliente.
+Revisão técnica em **15/08/2026**, com uma correção pontual em **12/09/2026** (ver linha "Painel do próprio cliente" — o módulo relevante foi implementado dois dias depois da revisão original e a matriz não tinha sido atualizada desde então). Esta matriz transforma promessas comerciais em critérios verificáveis e deve ser atualizada antes de cada demonstração, proposta ou liberação para cliente.
 
 ## Como interpretar
 
@@ -45,7 +45,7 @@ Dependências de equipe, contrato ou integração externa são descritas como co
 | Segurança administrativa | Implementado | Senhas Argon2, MFA TOTP, CSRF, sessões, trilha de auditoria e rate limit | MFA deve ser obrigatório para perfis privilegiados antes da produção ampla |
 | Login Google e Apple | Parcial | Fluxos OAuth e vinculação de identidade estão implementados | Depende das credenciais, branding e aprovação dos provedores |
 | Recuperação de senha por e-mail | PARCIAL | Tokens seguros e Mailpit no ambiente local | Produção requer provedor SMTP, domínio e políticas SPF/DKIM/DMARC |
-| Painel do próprio cliente | Não implementado | O painel atual é operacional/interno | Criar autenticação e experiência específicas para o titular/contratante |
+| Painel do próprio cliente | Implementado (12/09/2026) | Login e sessão próprios do cliente (`app/api/portal_cliente.py`, separado da autenticação de operadores), tela dedicada (`app/web/portal-cliente.html`); assinatura eletrônica de propostas e documentos, acompanhamento de processos e prazos, mensagens com o escritório, upload/download de arquivos, notificações e timeline de eventos; coberto por `tests/test_portal_cliente.py` e `tests/test_portal_cliente_upload_scan.py` | Recuperação de acesso depende do provedor SMTP em produção (mesma condição já registrada para "Recuperação de senha por e-mail") |
 | Cobrança automática de assinatura | Parcial | Planos, trial, limites e suspensão existem no núcleo SaaS | Falta integração com gateway, webhook idempotente e conciliação |
 | Monitoramento de marketplaces e domínios | Não implementado | O escopo atual é INPI/RPI | Exige novas fontes, termos de uso, conectores e regras próprias |
 | Gestão de patentes e contratos | Não implementado | O escopo atual de consulta é exclusivamente marcas | Não anunciar até existir modelo de dados, ingestão e fluxos específicos |

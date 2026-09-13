@@ -195,3 +195,74 @@ senha?.addEventListener("submit", async event => {
     msg.className = "status-message error";
   }
 });
+
+const mfaSetupPanel = document.querySelector("#mfa-setup-panel");
+if (mfaSetupPanel) {
+  const mfaSetupMsg = document.querySelector("#auth-message");
+  const mfaSetupRecovery = document.querySelector("#mfa-setup-recovery");
+  let destinoAposMfa = "/admin";
+
+  function definirMensagemMfa(texto, tipo) {
+    mfaSetupMsg.hidden = false;
+    mfaSetupMsg.textContent = texto;
+    mfaSetupMsg.className = `status-message ${tipo}`;
+  }
+
+  (async () => {
+    try {
+      const inicio = await enviar("/v1/auth/mfa/iniciar", {});
+      document.querySelector("#mfa-setup-secret").textContent = inicio.segredo;
+      definirMensagemMfa("Cadastre o segredo no app e confirme com o código de 6 dígitos.", "loading");
+    } catch (erro) {
+      definirMensagemMfa(erro.message, "error");
+    }
+  })();
+
+  document.querySelector("#mfa-setup-copy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(document.querySelector("#mfa-setup-secret").textContent);
+      definirMensagemMfa("Segredo copiado.", "success");
+    } catch {
+      definirMensagemMfa("Não foi possível copiar automaticamente. Copie manualmente.", "error");
+    }
+  });
+
+  document.querySelector("#mfa-setup-confirm").addEventListener("click", async () => {
+    const codigo = document.querySelector("#mfa-setup-code").value.trim();
+    if (!/^\d{6}$/.test(codigo)) {
+      definirMensagemMfa("Informe o código de 6 dígitos gerado pelo app.", "error");
+      return;
+    }
+    try {
+      const fim = await enviar("/v1/auth/mfa/confirmar", { codigo });
+      destinoAposMfa = fim.destino || destinoAposMfa;
+      document.querySelector("#mfa-setup-recovery-codes").replaceChildren(...fim.codigos_recuperacao.map(item => {
+        const li = document.createElement("li");
+        li.textContent = item;
+        return li;
+      }));
+      mfaSetupPanel.hidden = true;
+      mfaSetupRecovery.hidden = false;
+      definirMensagemMfa("MFA ativado. Guarde os códigos de recuperação antes de continuar.", "success");
+    } catch (erro) {
+      definirMensagemMfa(erro.message, "error");
+    }
+  });
+
+  document.querySelector("#mfa-setup-download-recovery").addEventListener("click", () => {
+    const codigos = [...document.querySelectorAll("#mfa-setup-recovery-codes li")].map(li => li.textContent);
+    const blob = new Blob([`Códigos de recuperação MFA — Zé Registra\n\n${codigos.join("\n")}\n`], {
+      type: "text/plain",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "codigos-recuperacao-mfa.txt";
+    link.click();
+    URL.revokeObjectURL(url);
+  });
+
+  document.querySelector("#mfa-setup-continuar").addEventListener("click", () => {
+    location.href = destinoAposMfa;
+  });
+}

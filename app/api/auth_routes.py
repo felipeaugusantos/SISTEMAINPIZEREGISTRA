@@ -492,7 +492,11 @@ async def confirmar_mfa(
     registro.mfa_ativo = True
     await _auditar(session, request, usuario.email, "MFA_ATIVADO", True, {})
     await session.commit()
-    return {"status": "ativo", "codigos_recuperacao": codigos}
+    return {
+        "status": "ativo",
+        "codigos_recuperacao": codigos,
+        "destino": destino_inicial(usuario.perfil, usuario.permissoes),
+    }
 
 
 @router.delete("/mfa")

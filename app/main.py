@@ -222,6 +222,11 @@ async def pagina_esqueci_senha() -> FileResponse:
     return FileResponse(web_dir / "esqueci-senha.html")
 
 
+@app.get("/configurar-mfa", include_in_schema=False)
+async def pagina_configurar_mfa() -> FileResponse:
+    return FileResponse(web_dir / "configurar-mfa.html")
+
+
 @app.get("/redefinir-senha", include_in_schema=False)
 async def pagina_redefinir_senha() -> FileResponse:
     return FileResponse(web_dir / "redefinir-senha.html")

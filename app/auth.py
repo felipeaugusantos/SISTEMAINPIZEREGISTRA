@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import aplicar_contexto_autenticacao, get_session
 from app.models import SessaoOperacoes, UsuarioOperacoes
-from app.permissions import CHAVES_PERMISSAO
+from app.permissions import CHAVES_PERMISSAO, PERFIS_MFA_OBRIGATORIO
 from app.proxy import cliente_ip, requisicao_https
 from app.ratelimit import RateLimiter
 from app.settings import get_settings
@@ -65,6 +65,7 @@ class UsuarioAutenticado:
     organizacao_slug: str = "ze-registra"
     departamento: str | None = None
     superadmin: bool = False
+    mfa_ativo: bool = False
     modulos_plano: frozenset[str] = frozenset(
         {
             "consulta",
@@ -171,6 +172,7 @@ async def obter_usuario_atual(
         organizacao_id=usuario.organizacao_id,
         organizacao_slug=usuario.organizacao.slug,
         superadmin=usuario.superadmin,
+        mfa_ativo=usuario.mfa_ativo,
         modulos_plano=normalizar_modulos_plano(
             usuario.organizacao.modulos_liberados
             if usuario.organizacao.modulos_liberados is not None
@@ -193,6 +195,19 @@ async def obter_usuario_atual(
         if request.url.path.startswith("/admin"):
             raise HTTPException(status_code=303, headers={"Location": "/alterar-senha"})
         raise HTTPException(status_code=403, detail="Troca de senha obrigatoria")
+    liberados_mfa = {
+        "/v1/auth/me",
+        "/v1/auth/csrf",
+        "/v1/auth/logout",
+        "/v1/auth/mfa/iniciar",
+        "/v1/auth/mfa/confirmar",
+        "/configurar-mfa",
+    }
+    mfa_obrigatorio = auth.superadmin or auth.perfil in PERFIS_MFA_OBRIGATORIO
+    if mfa_obrigatorio and not auth.mfa_ativo and request.url.path not in liberados_mfa:
+        if request.url.path.startswith("/admin"):
+            raise HTTPException(status_code=303, headers={"Location": "/configurar-mfa"})
+        raise HTTPException(status_code=403, detail="Configuracao de MFA obrigatoria")
     return auth
 
 

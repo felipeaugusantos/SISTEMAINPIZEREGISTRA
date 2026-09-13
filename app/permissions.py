@@ -185,6 +185,12 @@ PERFIS = {
     "operador": frozenset({"dashboard.view"}),
 }
 
+# Fase 4 da reanalise de 12/09/2026: perfis com acesso amplo ou a dados
+# sensiveis (financeiro, producao, usuarios) passam a exigir MFA ativo.
+# Contas com superadmin=True tambem exigem, independente do perfil (ver
+# app/auth.py::obter_usuario_atual).
+PERFIS_MFA_OBRIGATORIO = frozenset({"administrador", "ceo", "tech", "supervisor", "financeiro"})
+
 
 def permissoes_do_perfil(perfil: str) -> frozenset[str]:
     return PERFIS.get(perfil, PERFIS["operador"])

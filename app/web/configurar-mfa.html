@@ -1,0 +1,34 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Configurar MFA — Centro de operações</title><link rel="stylesheet" href="/static/styles.css?v=62"><script src="/static/auth-pages.js?v=2" defer></script></head>
+<body class="auth-body"><main class="auth-card"><a href="/" class="auth-brand"><img src="/static/assets/personagem.png" alt=""><strong>Zé Registra®</strong></a><p class="eyebrow">Segurança</p><h1>Ative a autenticação em dois fatores</h1><p>Seu perfil de acesso exige MFA ativo. Cadastre um app autenticador (Google Authenticator, Authy, 1Password) para continuar.</p>
+
+<div id="mfa-setup-panel" class="mfa-panel">
+  <ol class="mfa-steps">
+    <li>
+      <p>Cadastre este segredo no seu app autenticador:</p>
+      <div class="mfa-secret">
+        <code id="mfa-setup-secret"></code>
+        <button type="button" id="mfa-setup-copy" class="secondary-button">Copiar</button>
+      </div>
+    </li>
+    <li>
+      <p>Informe o código de 6 dígitos gerado pelo app:</p>
+      <div class="mfa-confirm">
+        <input id="mfa-setup-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
+        <button type="button" id="mfa-setup-confirm" class="primary-button">Confirmar</button>
+      </div>
+    </li>
+  </ol>
+</div>
+
+<div id="mfa-setup-recovery" class="mfa-recovery" hidden>
+  <p>
+    <strong>Guarde estes códigos de recuperação em local seguro.</strong>
+    Eles não serão exibidos novamente.
+  </p>
+  <ul id="mfa-setup-recovery-codes" class="recovery-codes"></ul>
+  <button type="button" id="mfa-setup-download-recovery" class="secondary-button">Baixar códigos</button>
+  <button type="button" id="mfa-setup-continuar" class="primary-button">Continuar</button>
+</div>
+
+<div id="auth-message" class="status-message" role="alert" aria-live="polite" hidden></div>
+</main></body></html>

@@ -1,4 +1,4 @@
-.finance-log-main{display:grid;gap:20px;max-width:1600px}
+.finance-log-main{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;max-width:1600px}
 .finance-log-heading{align-items:end;background:linear-gradient(120deg,#fffefa,#eff7f1)}
 .finance-log-heading h1{font-size:clamp(1.85rem,3vw,2.9rem)}
 .finance-log-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
@@ -17,5 +17,5 @@
 .finance-log-table td{padding:14px;border-top:1px solid #e5e9e5;font-size:.78rem;vertical-align:top}.finance-log-table td small{display:block;margin-top:4px;color:var(--muted)}.finance-log-table td strong{font-size:.8rem}.finance-log-detail{max-width:320px;line-height:1.45}
 .finance-log-action{display:inline-flex;padding:5px 9px;border-radius:999px;font-size:.68rem;font-weight:850}.finance-log-action.baixa{color:#086c4e;background:#dff3e9}.finance-log-action.estorno{color:#8b5b08;background:#fff0c9}.finance-log-action.cancelamento{color:#963526;background:#fde4dc}
 .finance-log-empty{padding:35px!important;color:var(--muted);text-align:center}
-@media(max-width:1100px){.finance-log-metrics{grid-template-columns:repeat(2,1fr)}.finance-log-filter{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:1300px){.finance-log-metrics{grid-template-columns:repeat(2,1fr)}.finance-log-filter{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:650px){.finance-log-metrics,.finance-log-filter{grid-template-columns:1fr}.finance-log-heading{align-items:stretch}.finance-log-table-heading{align-items:flex-start;flex-direction:column}}

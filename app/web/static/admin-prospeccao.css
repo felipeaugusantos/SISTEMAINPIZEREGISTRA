@@ -42,7 +42,7 @@
    rótulos "Buscar"/"Status"/"Cidade" ao lado, dando a impressão de formulário
    desalinhado -- start alinha todos os rótulos pelo topo; o botão (sem
    rótulo acima) se realinha à base com align-self abaixo. */
-.prospeccao-form{display:grid;grid-template-columns:minmax(200px,1.3fr) 120px minmax(150px,.9fr) minmax(150px,.9fr) auto;gap:12px;align-items:start}
+.prospeccao-form{display:grid;grid-template-columns:minmax(200px,1.3fr) 120px minmax(150px,.9fr) minmax(150px,.9fr) minmax(160px,.9fr) auto;gap:12px;align-items:start}
 .prospeccao-form>button{align-self:end}
 .prospeccao-form label,.prospeccao-dialog label{display:grid;gap:6px}
 .prospeccao-form label span,.prospeccao-dialog label span{font-size:.76rem;font-weight:700}
@@ -120,7 +120,8 @@
 .prospeccao-loading{padding:20px;text-align:center;color:#65746b}
 
 @media(max-width:1250px){.prospeccao-metrics{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:1050px){.prospeccao-form{grid-template-columns:1fr 1fr}.prospeccao-item{grid-template-columns:1fr}}
+@media(max-width:1300px){.prospeccao-form{grid-template-columns:1fr 1fr}}
+@media(max-width:1050px){.prospeccao-item{grid-template-columns:1fr}}
 @media(max-width:700px){
   .prospeccao-hero{align-items:stretch;flex-direction:column}
   .prospeccao-metrics{grid-template-columns:repeat(2,1fr)}

@@ -265,6 +265,7 @@ async def listar_prospects(
     cidade: Annotated[list[str] | None, Query(max_length=120)] = None,
     cnae_principal: Annotated[str | None, Query(max_length=10)] = None,
     responsavel_id: Annotated[int | None, Query(ge=1)] = None,
+    campanha_id: Annotated[int | None, Query(ge=1)] = None,
     limite: Annotated[int, Query(ge=1, le=200)] = 50,
     deslocamento: Annotated[int, Query(ge=0)] = 0,
 ) -> ProspectListResponse:
@@ -287,6 +288,11 @@ async def listar_prospects(
         filtros.append(Prospect.cnae_principal == cnae_principal)
     if responsavel_id:
         filtros.append(Prospect.responsavel_id == responsavel_id)
+    if campanha_id:
+        # Achado do usuário (13/09/2026): sem esse filtro, a lista sempre
+        # trazia todos os prospects da organização, sem como isolar só os
+        # gerados por uma campanha específica.
+        filtros.append(Prospect.campanha_id == campanha_id)
 
     total = (await session.execute(select(func.count()).select_from(Prospect).where(*filtros))).scalar_one()
     itens = (
@@ -834,6 +840,41 @@ async def excluir_campanha(
     _auditar(session, request, usuario, "excluir_campanha_prospeccao", f"campanha:{campanha.id}", {"nome": campanha.nome})
     await session.delete(campanha)
     await session.commit()
+
+
+@router_campanhas.post("/campanhas/{campanha_id}/cancelar")
+async def cancelar_campanha(
+    campanha_id: int, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
+) -> CampanhaProspeccaoResponse:
+    """Interrompe manualmente uma campanha em coleta.
+
+    Achado do usuário (13/09/2026): o job de coleta (app/worker.py) só
+    tirava a campanha do status "ativa" ao terminar o laço com sucesso --
+    se o worker travasse, morresse ou lançasse uma exceção não tratada no
+    meio da coleta, a campanha ficava "ativa" para sempre, e o botão
+    "Excluir" (bloqueado nesse status de propósito, para não apagar uma
+    campanha embaixo de um job que ainda vai tentar atualizá-la) não tinha
+    como ser destravado. Esta rota dá essa saída manual; o worker também
+    passou a se auto-recuperar de exceções (ver processar() em
+    app/worker.py), mas isso não cobre um processo morto sem chance de
+    rodar o `except`."""
+    campanha = (
+        await session.execute(
+            select(CampanhaProspeccao).where(
+                CampanhaProspeccao.id == campanha_id, CampanhaProspeccao.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if campanha is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Campanha não encontrada")
+    if campanha.status != "ativa":
+        raise HTTPException(422, "Esta campanha não está em coleta no momento.")
+    campanha.status = "pausada"
+    campanha.encerrada_em = datetime.now(UTC)
+    _auditar(session, request, usuario, "cancelar_campanha_prospeccao", f"campanha:{campanha.id}", {"nome": campanha.nome})
+    await session.commit()
+    await session.refresh(campanha)
+    return CampanhaProspeccaoResponse.model_validate(campanha)
 
 
 @router_campanhas.post("/campanhas/{campanha_id}/coletar", status_code=status.HTTP_202_ACCEPTED)

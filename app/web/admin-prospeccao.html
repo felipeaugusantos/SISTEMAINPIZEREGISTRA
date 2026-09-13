@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Radar de Prospecção — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=63">
-  <link rel="stylesheet" href="/static/admin-prospeccao.css?v=6">
+  <link rel="stylesheet" href="/static/admin-prospeccao.css?v=7">
   <script src="/static/admin-shell.js?v=50" defer></script>
-  <script src="/static/admin-prospeccao.js?v=9" defer></script>
+  <script src="/static/admin-prospeccao.js?v=10" defer></script>
 </head>
 <body class="admin-body" data-admin-section="prospeccao">
   <main class="admin-main prospeccao-main">
@@ -59,6 +59,7 @@
         </select></label>
         <label><span>UF <small>(Ctrl/Cmd para marcar mais de uma)</small></span><select name="uf" multiple size="3" class="prospeccao-uf-select"></select></label>
         <label><span>Cidade <small>separe várias por vírgula</small></span><input name="cidade" placeholder="Opcional"></label>
+        <label><span>Campanha</span><select name="campanha_id" id="prospeccao-filtro-campanha"><option value="">Todas</option></select></label>
         <button class="primary-button" type="submit">Filtrar</button>
       </form>
       <div id="prospeccao-list" class="prospeccao-list"></div>

@@ -110,9 +110,16 @@ function renderCampanhaCriterios(criterios) {
   if (criterios.data_abertura_de) partes.push(`a partir de ${formatDate(criterios.data_abertura_de)}`);
   return partes.length ? partes.map(escapeHtml).join(" · ") : "Sem filtro (todas as empresas ativas do cache)";
 }
+function popularFiltroCampanha(itens) {
+  const select = document.querySelector("#prospeccao-filtro-campanha");
+  const atual = select.value;
+  select.innerHTML = `<option value="">Todas</option>` + itens.map(item => `<option value="${item.id}">${escapeHtml(item.nome)}</option>`).join("");
+  if (itens.some(item => String(item.id) === atual)) select.value = atual;
+}
 async function loadCampanhas() {
   const data = await api("/v1/admin/prospeccao/campanhas");
   const tbody = document.querySelector("#campanhas-rows");
+  popularFiltroCampanha(data.itens);
   if (!data.itens.length) {
     tbody.innerHTML = `<tr><td colspan="5" class="prospeccao-empty-cell">Nenhuma campanha criada ainda.</td></tr>`;
     return;
@@ -125,6 +132,7 @@ async function loadCampanhas() {
       <td>${item.prospects_gerados}</td>
       <td>
         <button class="secondary-button" data-coletar type="button" ${item.status === "ativa" ? "disabled" : ""}>${item.status === "ativa" ? "Coletando…" : item.status === "concluida" ? "Coletar novamente" : "Coletar"}</button>
+        ${item.status === "ativa" ? `<button class="secondary-button" data-cancelar-campanha type="button" title="Interrompe uma coleta travada, liberando a campanha para exclusão">Cancelar</button>` : ""}
         <button class="secondary-button" data-excluir-campanha type="button" ${item.status === "ativa" ? "disabled" : ""} title="${item.status === "ativa" ? "Não é possível excluir com coleta em andamento" : "Excluir campanha"}">Excluir</button>
       </td>
     </tr>`).join("");
@@ -469,6 +477,20 @@ document.querySelector("#campanhas-rows").addEventListener("click", async event 
       showMessage("Coleta em andamento — acompanhe pelo status \"Coletando/ativa\" na lista abaixo, que atualiza sozinho.");
       await loadCampanhas();
     } catch (error) { showMessage(error.message, "error"); coletarButton.disabled = false; }
+    return;
+  }
+  const cancelarButton = event.target.closest("[data-cancelar-campanha]");
+  if (cancelarButton) {
+    const row = cancelarButton.closest("[data-id]");
+    const id = row.dataset.id;
+    const nome = row.querySelector("strong")?.textContent || "esta campanha";
+    if (!confirm(`Interromper a coleta de "${nome}"? Use isso quando a campanha ficar travada em "Coletando/ativa" sem progredir.`)) return;
+    cancelarButton.disabled = true;
+    try {
+      await api(`/v1/admin/prospeccao/campanhas/${id}/cancelar`, { method: "POST" });
+      showMessage("Coleta interrompida. A campanha já pode ser excluída ou coletada novamente.");
+      await loadCampanhas();
+    } catch (error) { showMessage(error.message, "error"); cancelarButton.disabled = false; }
     return;
   }
   const excluirButton = event.target.closest("[data-excluir-campanha]");

@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -78,6 +79,21 @@ def test_listar_prospects_retorna_paginado() -> None:
     assert corpo["total"] == 1
     assert len(corpo["itens"]) == 1
     assert corpo["itens"][0]["razao_social"] == "Empresa Teste Ltda"
+
+
+def test_listar_prospects_filtra_por_campanha() -> None:
+    # Achado do usuário (13/09/2026): sem esse filtro a lista sempre trazia
+    # todos os prospects da organização, sem como isolar só os de uma
+    # campanha específica.
+    prospect = _prospect(campanha_id=4)
+    session = _sessao_admin(FakeResult(scalar=1), FakeResult(itens=[prospect]))
+
+    resposta = TestClient(app).get("/v1/admin/prospects?campanha_id=4")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["total"] == 1
+    contagem_sql = str(session.executados[0])
+    assert "campanha_id" in contagem_sql
 
 
 def test_detalhar_prospect_inexistente_retorna_404() -> None:
@@ -575,6 +591,85 @@ def test_excluir_campanha_inexistente_retorna_404() -> None:
     )
 
     assert resposta.status_code == 404
+
+
+# --- Cancelar campanha travada (13/09/2026) -- achado do usuário: o job de
+# coleta só tirava a campanha do status "ativa" ao terminar com sucesso; se
+# travasse, o botão "Excluir" (bloqueado de propósito nesse status) não
+# tinha como ser destravado. ---
+
+
+def test_cancelar_campanha_ativa_libera_para_exclusao() -> None:
+    campanha = _campanha(status="ativa")
+    session = _sessao_admin(FakeResult(scalar=campanha))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/campanhas/4/cancelar", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 200
+    assert campanha.status == "pausada"
+    assert campanha.encerrada_em is not None
+    assert session.commits == 1
+
+
+def test_cancelar_campanha_nao_ativa_retorna_422() -> None:
+    campanha = _campanha(status="pausada")
+    _sessao_admin(FakeResult(scalar=campanha))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/campanhas/4/cancelar", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 422
+
+
+def test_cancelar_campanha_inexistente_retorna_404() -> None:
+    _sessao_admin(FakeResult(scalar=None))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/campanhas/999/cancelar", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 404
+
+
+def test_worker_coleta_campanha_falha_no_meio_nao_trava_em_ativa(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Achado do usuário (13/09/2026): antes desta correção, uma exceção no
+    # meio da coleta (ver app/worker.py) deixava a campanha travada em
+    # "ativa" para sempre -- este teste simula essa exceção e confirma que
+    # o status volta para "pausada" e a mudança é comitada antes de
+    # relançar (senão o rollback ao sair do `async with session_factory()`
+    # descartaria a mudança).
+    import app.api.prospeccao as prospeccao_modulo
+    import app.worker as worker_modulo
+
+    campanha = _campanha(status="ativa")
+    session = FakeSession([FakeResult(scalar=campanha), FakeResult(itens=[])])
+
+    class _ContextoSessaoFalso:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, *_exc: object) -> bool:
+            return False
+
+    async def _fonte_com_falha(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("falha simulada na coleta")
+
+    monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso())
+    monkeypatch.setattr(prospeccao_modulo, "obter_ou_criar_fonte_cnae_publico", _fonte_com_falha)
+
+    with pytest.raises(RuntimeError, match="falha simulada"):
+        asyncio.run(
+            worker_modulo.processar(
+                "prospeccao.coletar_campanha", {"campanha_id": campanha.id, "organizacao_id": campanha.organizacao_id}
+            )
+        )
+
+    assert campanha.status == "pausada"
+    assert campanha.encerrada_em is not None
+    assert session.commits == 1
 
 
 # --- Fase 3 do Radar de Prospecção (03/09/2026) -- enriquecimento ----------

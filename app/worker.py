@@ -513,72 +513,85 @@ async def processar(tipo: str, payload: dict) -> None:
                 )
             ).scalar_one_or_none()
             if campanha is not None:
-                criterios = campanha.criterios_busca or {}
-                filtros_cache = [CacheEstabelecimentoRFB.situacao_cadastral == "ativa"]
-                if criterios.get("cnae_principal"):
-                    filtros_cache.append(CacheEstabelecimentoRFB.cnae_principal == criterios["cnae_principal"])
-                # Achado do usuário: campanha só filtrava 1 UF/cidade por vez --
-                # criterios_busca agora guarda listas (compatível com campanhas
-                # antigas, que gravaram um valor string único em vez de lista).
-                ufs_criterio = criterios.get("uf") or []
-                ufs_criterio = [ufs_criterio] if isinstance(ufs_criterio, str) else ufs_criterio
-                if ufs_criterio:
-                    filtros_cache.append(CacheEstabelecimentoRFB.uf.in_(ufs_criterio))
-                cidades_criterio = criterios.get("cidade") or []
-                cidades_criterio = [cidades_criterio] if isinstance(cidades_criterio, str) else cidades_criterio
-                cidades_normalizadas = [c for c in (normalizar_cidade(item) for item in cidades_criterio) if c]
-                if cidades_normalizadas:
-                    filtros_cache.append(
-                        or_(*[CacheEstabelecimentoRFB.cidade.ilike(f"%{item}%") for item in cidades_normalizadas])
-                    )
-                if criterios.get("porte"):
-                    filtros_cache.append(CacheEstabelecimentoRFB.porte == criterios["porte"])
-                if criterios.get("data_abertura_de"):
-                    # criterios_busca vem de JSON -- datas chegam como string ISO, não date.
-                    filtros_cache.append(
-                        CacheEstabelecimentoRFB.data_abertura >= date.fromisoformat(criterios["data_abertura_de"])
-                    )
-                if criterios.get("data_abertura_ate"):
-                    filtros_cache.append(
-                        CacheEstabelecimentoRFB.data_abertura <= date.fromisoformat(criterios["data_abertura_ate"])
-                    )
+                try:
+                    criterios = campanha.criterios_busca or {}
+                    filtros_cache = [CacheEstabelecimentoRFB.situacao_cadastral == "ativa"]
+                    if criterios.get("cnae_principal"):
+                        filtros_cache.append(CacheEstabelecimentoRFB.cnae_principal == criterios["cnae_principal"])
+                    # Achado do usuário: campanha só filtrava 1 UF/cidade por vez --
+                    # criterios_busca agora guarda listas (compatível com campanhas
+                    # antigas, que gravaram um valor string único em vez de lista).
+                    ufs_criterio = criterios.get("uf") or []
+                    ufs_criterio = [ufs_criterio] if isinstance(ufs_criterio, str) else ufs_criterio
+                    if ufs_criterio:
+                        filtros_cache.append(CacheEstabelecimentoRFB.uf.in_(ufs_criterio))
+                    cidades_criterio = criterios.get("cidade") or []
+                    cidades_criterio = [cidades_criterio] if isinstance(cidades_criterio, str) else cidades_criterio
+                    cidades_normalizadas = [c for c in (normalizar_cidade(item) for item in cidades_criterio) if c]
+                    if cidades_normalizadas:
+                        filtros_cache.append(
+                            or_(*[CacheEstabelecimentoRFB.cidade.ilike(f"%{item}%") for item in cidades_normalizadas])
+                        )
+                    if criterios.get("porte"):
+                        filtros_cache.append(CacheEstabelecimentoRFB.porte == criterios["porte"])
+                    if criterios.get("data_abertura_de"):
+                        # criterios_busca vem de JSON -- datas chegam como string ISO, não date.
+                        filtros_cache.append(
+                            CacheEstabelecimentoRFB.data_abertura >= date.fromisoformat(criterios["data_abertura_de"])
+                        )
+                    if criterios.get("data_abertura_ate"):
+                        filtros_cache.append(
+                            CacheEstabelecimentoRFB.data_abertura <= date.fromisoformat(criterios["data_abertura_ate"])
+                        )
 
-                limite = min(campanha.meta_prospects or 500, 2000)
-                candidatos = (
-                    (await session.execute(select(CacheEstabelecimentoRFB).where(*filtros_cache).limit(limite)))
-                    .scalars()
-                    .all()
-                )
-                fonte = await obter_ou_criar_fonte_cnae_publico(session, organizacao_id)
-                criados = 0
-                for candidato in candidatos:
-                    dados = ProspectCreate(
-                        razao_social=candidato.razao_social,
-                        nome_fantasia=candidato.nome_fantasia,
-                        cnpj=candidato.cnpj,
-                        cnae_principal=candidato.cnae_principal,
-                        cnaes_secundarios=candidato.cnaes_secundarios,
-                        porte=candidato.porte,
-                        uf=candidato.uf,
-                        cidade=candidato.cidade,
-                        telefone=candidato.telefone,
-                        email=candidato.email,
+                    limite = min(campanha.meta_prospects or 500, 2000)
+                    candidatos = (
+                        (await session.execute(select(CacheEstabelecimentoRFB).where(*filtros_cache).limit(limite)))
+                        .scalars()
+                        .all()
                     )
-                    _, resultado_item = await _criar_prospect(
-                        session,
-                        organizacao_id,
-                        dados,
-                        "radar:coleta-automatica",
-                        fonte_id=fonte.id,
-                        campanha_id=campanha.id,
+                    fonte = await obter_ou_criar_fonte_cnae_publico(session, organizacao_id)
+                    criados = 0
+                    for candidato in candidatos:
+                        dados = ProspectCreate(
+                            razao_social=candidato.razao_social,
+                            nome_fantasia=candidato.nome_fantasia,
+                            cnpj=candidato.cnpj,
+                            cnae_principal=candidato.cnae_principal,
+                            cnaes_secundarios=candidato.cnaes_secundarios,
+                            porte=candidato.porte,
+                            uf=candidato.uf,
+                            cidade=candidato.cidade,
+                            telefone=candidato.telefone,
+                            email=candidato.email,
+                        )
+                        _, resultado_item = await _criar_prospect(
+                            session,
+                            organizacao_id,
+                            dados,
+                            "radar:coleta-automatica",
+                            fonte_id=fonte.id,
+                            campanha_id=campanha.id,
+                        )
+                        if resultado_item == "criado":
+                            criados += 1
+                    campanha.status = "concluida"
+                    campanha.encerrada_em = datetime.now(UTC)
+                    logger.info(
+                        "Campanha %s: %d/%d candidatos viraram prospect novo", campanha.id, criados, len(candidatos)
                     )
-                    if resultado_item == "criado":
-                        criados += 1
-                campanha.status = "concluida"
-                campanha.encerrada_em = datetime.now(UTC)
-                logger.info(
-                    "Campanha %s: %d/%d candidatos viraram prospect novo", campanha.id, criados, len(candidatos)
-                )
+                except Exception:
+                    # Achado do usuário (13/09/2026): sem isso, uma exceção no
+                    # meio da coleta (ou o worker sendo reiniciado) deixava a
+                    # campanha travada em "ativa" para sempre -- e o botão
+                    # "Excluir" fica bloqueado de propósito nesse status, sem
+                    # nenhuma forma de destravar (ver também a rota manual
+                    # /campanhas/{id}/cancelar em app/api/prospeccao.py, para
+                    # o caso do processo morrer antes de chegar aqui).
+                    campanha.status = "pausada"
+                    campanha.encerrada_em = datetime.now(UTC)
+                    await session.commit()
+                    raise
         elif tipo == "prospeccao.enriquecer_prospect":
             # Fase 3 do Radar de Prospecção (03/09/2026): fonte escolhida foi
             # só verificar se o site responde, sem provedor pago.

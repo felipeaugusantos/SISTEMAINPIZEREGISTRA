@@ -708,19 +708,33 @@ async def _usuario_valido(session: AsyncSession, organizacao_id: int, usuario_id
 DOCUMENTOS_VALIDOS_ENCAMINHAMENTO = {"validado", "recebido", "aprovado"}
 
 
-async def _pendencias_encaminhamento(session: AsyncSession, proposta: PropostaComercial) -> list[str]:
+async def _documentos_por_lead(
+    session: AsyncSession, organizacao_id: int, lead_ids: set[int]
+) -> dict[int, list[DocumentoLead]]:
+    """Busca os documentos de vários leads de uma vez (achado da análise do
+    módulo, 13/09/2026: listar_encaminhamentos fazia uma consulta por
+    proposta da fila; com a fila cheia, isso vira uma consulta por linha)."""
+    agrupados: dict[int, list[DocumentoLead]] = {}
+    if not lead_ids:
+        return agrupados
     documentos = (
         (
             await session.execute(
                 select(DocumentoLead).where(
-                    DocumentoLead.lead_id == proposta.lead_id,
-                    DocumentoLead.organizacao_id == proposta.organizacao_id,
+                    DocumentoLead.lead_id.in_(lead_ids),
+                    DocumentoLead.organizacao_id == organizacao_id,
                 )
             )
         )
         .scalars()
         .all()
     )
+    for documento in documentos:
+        agrupados.setdefault(documento.lead_id, []).append(documento)
+    return agrupados
+
+
+def _pendencias_encaminhamento(documentos: list[DocumentoLead]) -> list[str]:
     por_tipo = {item.tipo: item for item in documentos}
     obrigatorios = {item.tipo for item in documentos if item.obrigatorio}
     obrigatorios.add("procuracao")
@@ -782,9 +796,12 @@ async def listar_encaminhamentos(session: SessionDep, usuario: ViewDep) -> dict:
             .order_by(PropostaComercial.juridico_recebido_em.asc().nullsfirst(), PropostaComercial.aceito_em)
         )
     ).all()
+    documentos_por_lead = await _documentos_por_lead(
+        session, usuario.organizacao_id, {lead.id for _, lead, _ in linhas}
+    )
     itens = []
     for proposta, lead, lancamento_id in linhas:
-        pendencias = await _pendencias_encaminhamento(session, proposta)
+        pendencias = _pendencias_encaminhamento(documentos_por_lead.get(lead.id, []))
         itens.append(
             {
                 "proposta_id": proposta.id,

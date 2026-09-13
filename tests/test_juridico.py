@@ -30,8 +30,10 @@ from app.api.juridico import (
     _classificar_despacho_terminal,
     _dias_restantes,
     _dispensa_concessao,
+    _documentos_por_lead,
     _emails_usuarios,
     _pascoa,
+    _pendencias_encaminhamento,
     _reconciliar_prazos_historicos,
     _reconciliar_prazos_terminais,
     _serializar_prazo,
@@ -53,6 +55,7 @@ from app.api.juridico import (
 )
 from app.models import (
     DocumentoEntregaJuridico,
+    DocumentoLead,
     EventoDominio,
     EventoJuridico,
     Lead,
@@ -102,6 +105,48 @@ def test_status_encaminhamento_explica_bloqueios_e_recebimento() -> None:
     assert _status_encaminhamento(proposta, []) == "pronto"
     proposta.juridico_recebido_em = datetime.now(UTC)
     assert _status_encaminhamento(proposta, []) == "em_atendimento"
+
+
+def test_pendencias_encaminhamento_exige_procuracao_mesmo_sem_documentos() -> None:
+    assert _pendencias_encaminhamento([]) == ["procuracao"]
+
+
+def test_pendencias_encaminhamento_considera_status_e_validade() -> None:
+    hoje = datetime.now(UTC).date()
+    documentos = [
+        DocumentoLead(lead_id=1, tipo="procuracao", status="validado", obrigatorio=True),
+        DocumentoLead(lead_id=1, tipo="gru", status="pendente", obrigatorio=True),
+        DocumentoLead(lead_id=1, tipo="certificado", status="validado", obrigatorio=True, validade_em=hoje - timedelta(days=1)),
+    ]
+
+    assert _pendencias_encaminhamento(documentos) == ["certificado", "gru"]
+
+
+def test_documentos_por_lead_busca_tudo_em_uma_unica_consulta() -> None:
+    # Achado da analise do modulo (13/09/2026): listar_encaminhamentos fazia
+    # uma consulta de DocumentoLead por proposta da fila -- este teste
+    # garante que a busca em lote fica restrita a uma unica chamada a
+    # session.execute, nao uma por lead_id.
+    documentos = [
+        DocumentoLead(lead_id=1, tipo="procuracao", status="validado", obrigatorio=True),
+        DocumentoLead(lead_id=2, tipo="procuracao", status="pendente", obrigatorio=True),
+    ]
+    session = FakeSession([FakeResult(itens=documentos)])
+
+    agrupados = asyncio.run(_documentos_por_lead(session, 1, {1, 2}))
+
+    assert len(session.executados) == 1
+    assert [doc.tipo for doc in agrupados[1]] == ["procuracao"]
+    assert [doc.tipo for doc in agrupados[2]] == ["procuracao"]
+
+
+def test_documentos_por_lead_sem_leads_nao_consulta_o_banco() -> None:
+    session = FakeSession([FakeResult(itens=[])])
+
+    agrupados = asyncio.run(_documentos_por_lead(session, 1, set()))
+
+    assert agrupados == {}
+    assert session.executados == []
 
 
 def test_receber_encaminhamento_atribui_responsavel_e_avanca_para_ganho() -> None:

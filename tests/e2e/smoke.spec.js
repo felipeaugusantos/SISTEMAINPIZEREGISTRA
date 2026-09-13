@@ -1,4 +1,34 @@
+const crypto = require("crypto");
 const { test, expect } = require("@playwright/test");
+
+function base32Decode(segredo) {
+  const alfabeto = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const caractere of segredo.replace(/=+$/, "").toUpperCase()) {
+    const valor = alfabeto.indexOf(caractere);
+    if (valor === -1) continue;
+    bits += valor.toString(2).padStart(5, "0");
+  }
+  const bytes = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) {
+    bytes.push(parseInt(bits.substring(i, i + 8), 2));
+  }
+  return Buffer.from(bytes);
+}
+
+function codigoTotp(segredo) {
+  const contador = Math.floor(Date.now() / 1000 / 30);
+  const buffer = Buffer.alloc(8);
+  buffer.writeBigUInt64BE(BigInt(contador));
+  const resumo = crypto.createHmac("sha1", base32Decode(segredo)).update(buffer).digest();
+  const deslocamento = resumo[resumo.length - 1] & 0x0f;
+  const numero =
+    ((resumo[deslocamento] & 0x7f) << 24) |
+    ((resumo[deslocamento + 1] & 0xff) << 16) |
+    ((resumo[deslocamento + 2] & 0xff) << 8) |
+    (resumo[deslocamento + 3] & 0xff);
+  return (numero % 1_000_000).toString().padStart(6, "0");
+}
 
 test("a consulta pública apresenta o formulário essencial", async ({ page }) => {
   await page.goto("/");
@@ -41,6 +71,15 @@ test("o administrador entra pelo formulário e acessa a visão geral", async ({ 
   await page.getByLabel("Usuário ou e-mail").fill(process.env.E2E_ADMIN_USERNAME || "admin");
   await page.getByLabel("Senha", { exact: true }).fill(process.env.E2E_ADMIN_PASSWORD);
   await page.getByRole("button", { name: "Entrar", exact: true }).click();
+
+  await expect(page).toHaveURL(/\/admin$|\/configurar-mfa$/);
+  if (page.url().endsWith("/configurar-mfa")) {
+    const segredo = (await page.locator("#mfa-setup-secret").textContent()).trim();
+    await page.locator("#mfa-setup-code").fill(codigoTotp(segredo));
+    await page.getByRole("button", { name: "Confirmar" }).click();
+    await expect(page.locator("#mfa-setup-recovery")).toBeVisible();
+    await page.getByRole("button", { name: "Continuar" }).click();
+  }
 
   await expect(page).toHaveURL(/\/admin$/);
   await expect(page.getByRole("heading", { name: "Visão geral" })).toBeVisible();

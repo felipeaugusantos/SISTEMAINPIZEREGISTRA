@@ -353,9 +353,16 @@ mfaButton.addEventListener("click", async () => {
   try {
     const inicio = await api("/v1/auth/mfa/iniciar", { method: "POST", body: "{}" });
     document.querySelector("#mfa-secret").textContent = inicio.segredo;
+    document.querySelector("#mfa-qrcode").replaceChildren();
+    new QRCode(document.querySelector("#mfa-qrcode"), {
+      text: inicio.uri,
+      width: 160,
+      height: 160,
+      correctLevel: QRCode.CorrectLevel.M,
+    });
     mfaPanel.hidden = false;
     mfaRecovery.hidden = true;
-    definirStatus(mfaStatus, "Cadastre o segredo no app e confirme com o código de 6 dígitos.", "loading");
+    definirStatus(mfaStatus, "Escaneie o código ou cadastre o segredo manualmente e confirme com o código de 6 dígitos.", "loading");
     document.querySelector("#mfa-code").focus();
   } catch (error) {
     definirStatus(mfaStatus, error.message, "error");

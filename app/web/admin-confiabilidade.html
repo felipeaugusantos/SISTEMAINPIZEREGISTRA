@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>Confiabilidade — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=62">
+  <link rel="stylesheet" href="/static/styles.css?v=63">
   <script src="/static/admin-shell.js?v=50" defer></script>
-  <script src="/static/admin-confiabilidade.js?v=8" defer></script>
+  <script src="/static/vendor/qrcode.min.js" defer></script>
+  <script src="/static/admin-confiabilidade.js?v=9" defer></script>
 </head>
 <body class="admin-body" data-admin-section="reliability">
   <main class="admin-main admin-dashboard">
@@ -45,7 +46,8 @@
       <div id="mfa-panel" class="mfa-panel" hidden>
         <ol class="mfa-steps">
           <li>
-            <p>Cadastre este segredo no seu app autenticador:</p>
+            <p>Escaneie o código com seu app autenticador ou cadastre o segredo manualmente:</p>
+            <div id="mfa-qrcode" class="mfa-qrcode"></div>
             <div class="mfa-secret">
               <code id="mfa-secret"></code>
               <button type="button" id="copy-secret" class="secondary-button">Copiar</button>

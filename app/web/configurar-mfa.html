@@ -1,10 +1,11 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Configurar MFA — Centro de operações</title><link rel="stylesheet" href="/static/styles.css?v=62"><script src="/static/auth-pages.js?v=2" defer></script></head>
+<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Configurar MFA — Centro de operações</title><link rel="stylesheet" href="/static/styles.css?v=63"><script src="/static/vendor/qrcode.min.js" defer></script><script src="/static/auth-pages.js?v=4" defer></script></head>
 <body class="auth-body"><main class="auth-card"><a href="/" class="auth-brand"><img src="/static/assets/personagem.png" alt=""><strong>Zé Registra®</strong></a><p class="eyebrow">Segurança</p><h1>Ative a autenticação em dois fatores</h1><p>Seu perfil de acesso exige MFA ativo. Cadastre um app autenticador (Google Authenticator, Authy, 1Password) para continuar.</p>
 
 <div id="mfa-setup-panel" class="mfa-panel">
   <ol class="mfa-steps">
     <li>
-      <p>Cadastre este segredo no seu app autenticador:</p>
+      <p>Escaneie o código com seu app autenticador ou cadastre o segredo manualmente:</p>
+      <div id="mfa-setup-qrcode" class="mfa-qrcode"></div>
       <div class="mfa-secret">
         <code id="mfa-setup-secret"></code>
         <button type="button" id="mfa-setup-copy" class="secondary-button">Copiar</button>

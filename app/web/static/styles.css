@@ -4936,6 +4936,15 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
   gap: 10px;
   flex-wrap: wrap;
 }
+.mfa-qrcode {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: #fff;
+  border-radius: 8px;
+  width: fit-content;
+}
 .mfa-secret code {
   font-family: "Courier New", monospace;
   font-size: 1.05rem;

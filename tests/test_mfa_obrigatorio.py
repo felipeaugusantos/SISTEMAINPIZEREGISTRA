@@ -102,5 +102,9 @@ def test_pagina_configurar_mfa_reaproveita_endpoints_existentes() -> None:
     script = (web / "static" / "auth-pages.js").read_text(encoding="utf-8")
     assert 'id="mfa-setup-panel"' in pagina
     assert 'id="mfa-setup-recovery"' in pagina
+    assert 'id="mfa-setup-qrcode"' in pagina
+    assert "/static/vendor/qrcode.min.js" in pagina
     assert "/v1/auth/mfa/iniciar" in script
     assert "/v1/auth/mfa/confirmar" in script
+    assert "new QRCode(" in script
+    assert "inicio.uri" in script

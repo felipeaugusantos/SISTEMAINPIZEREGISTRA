@@ -212,7 +212,13 @@ if (mfaSetupPanel) {
     try {
       const inicio = await enviar("/v1/auth/mfa/iniciar", {});
       document.querySelector("#mfa-setup-secret").textContent = inicio.segredo;
-      definirMensagemMfa("Cadastre o segredo no app e confirme com o código de 6 dígitos.", "loading");
+      new QRCode(document.querySelector("#mfa-setup-qrcode"), {
+        text: inicio.uri,
+        width: 160,
+        height: 160,
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+      definirMensagemMfa("Escaneie o código ou cadastre o segredo manualmente e confirme com o código de 6 dígitos.", "loading");
     } catch (erro) {
       definirMensagemMfa(erro.message, "error");
     }

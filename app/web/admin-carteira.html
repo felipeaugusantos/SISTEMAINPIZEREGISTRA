@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/static/styles.css?v=63">
   <link rel="stylesheet" href="/static/admin-carteira.css?v=10">
   <script src="/static/admin-shell.js?v=50" defer></script>
-  <script src="/static/admin-carteira.js?v=17" defer></script>
+  <script src="/static/admin-carteira.js?v=18" defer></script>
 </head>
 <body class="admin-body" data-admin-section="portfolio">
   <main class="admin-main portfolio-main">
@@ -50,7 +50,7 @@
     </section>
 
     <section class="portfolio-card">
-      <header class="portfolio-list-header"><div><p class="eyebrow">ACOMPANHAMENTO</p><h2>Minha carteira</h2></div><div class="view-switch" role="group" aria-label="Visualização da carteira"><button id="portfolio-view-list" class="is-active" type="button" aria-pressed="true">Lista</button><button id="portfolio-view-kanban" type="button" aria-pressed="false">Fluxo interno</button><button id="portfolio-view-inpi" type="button" aria-pressed="false">Situação INPI</button></div></header>
+      <header class="portfolio-list-header"><div><p class="eyebrow">ACOMPANHAMENTO</p><h2>Minha carteira</h2></div><button id="update-all" class="secondary-button" type="button">Atualizar situação de todos</button><div class="view-switch" role="group" aria-label="Visualização da carteira"><button id="portfolio-view-list" class="is-active" type="button" aria-pressed="true">Lista</button><button id="portfolio-view-kanban" type="button" aria-pressed="false">Fluxo interno</button><button id="portfolio-view-inpi" type="button" aria-pressed="false">Situação INPI</button></div></header>
       <form id="portfolio-filter" class="portfolio-form filter-form">
         <label class="wide"><span>Buscar</span><input name="busca" placeholder="Número, marca, procurador ou empresa"></label>
         <label><span>Status</span><select name="status"><option value="">Todos</option><option value="ativo">Ativos</option><option value="pausado">Pausados</option><option value="encerrado">Encerrados</option><option value="arquivado">Arquivados</option></select></label>

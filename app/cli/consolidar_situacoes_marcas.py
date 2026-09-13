@@ -7,10 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import session_factory
 
 
-def _comando(individual: bool) -> text:
-    # Um único processo (individual) ou toda a base de marcas. A lógica de
-    # classificação é idêntica; muda apenas o escopo do WHERE.
-    filtro = "AND p.id = :processo_id" if individual else ""
+def _comando(filtro: str) -> text:
+    # Um único processo, um lote de processos (carteira de uma organização) ou
+    # toda a base de marcas. A lógica de classificação é idêntica; muda apenas
+    # o escopo do WHERE.
     return text(
         f"""
     WITH ultimo AS (
@@ -97,13 +97,27 @@ def _comando(individual: bool) -> text:
     )
 
 
-async def consolidar_situacao(session: AsyncSession, processo_id: int | None = None) -> int:
-    """Reconsolida a situação de um processo (se informado) ou de toda a base.
+async def consolidar_situacao(
+    session: AsyncSession,
+    processo_id: int | None = None,
+    processo_ids: list[int] | set[int] | None = None,
+) -> int:
+    """Reconsolida a situação de um processo, de um lote de processos (achado
+    do usuário: sem forma de re-sincronizar a carteira toda de uma vez -- ver
+    /v1/admin/carteira/atualizar-lote) ou de toda a base, se nenhum dos dois
+    for informado.
 
     Não faz commit — a cargo do chamador. Retorna quantas linhas mudaram.
     """
-    comando = _comando(processo_id is not None)
-    parametros = {"processo_id": processo_id} if processo_id is not None else {}
+    if processo_id is not None:
+        comando = _comando("AND p.id = :processo_id")
+        parametros: dict = {"processo_id": processo_id}
+    elif processo_ids:
+        comando = _comando("AND p.id = ANY(:processo_ids)")
+        parametros = {"processo_ids": list(processo_ids)}
+    else:
+        comando = _comando("")
+        parametros = {}
     resultado = await session.execute(comando, parametros)
     return resultado.rowcount or 0
 

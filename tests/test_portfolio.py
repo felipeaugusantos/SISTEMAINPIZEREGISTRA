@@ -1,8 +1,11 @@
 import asyncio
 
+import pytest
+from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.api.carteira import (
+    AtualizacaoLote,
     AtualizacaoMonitoramento,
     CadastroManual,
     _filtro_procurador,
@@ -12,6 +15,7 @@ from app.api.carteira import (
     _titulo_exibicao,
     _validar_grupo_situacao_inpi,
     atualizar_monitoramento,
+    atualizar_status_lote,
     buscar_por_procurador,
     cadastrar_manual,
 )
@@ -236,6 +240,8 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
     assert "pageSize: 20" in javascript
     assert "/v1/admin/carteira/kanban" in javascript
     assert "/v1/admin/carteira/kanban-inpi" in javascript
+    assert "Atualizar situação de todos" in html
+    assert "/v1/admin/carteira/atualizar-lote" in javascript
     assert "function readableError" in javascript
     assert "params.delete(key)" in javascript
     assert "Classificação automática pela RPI" in javascript
@@ -281,6 +287,7 @@ def test_etapa_kanban_e_validada_e_historico_tem_tenant() -> None:
     dados = AtualizacaoMonitoramento(etapa_kanban="aguardando_inpi")
     assert dados.etapa_kanban == "aguardando_inpi"
     assert ProcessoMonitorado.etapa_kanban.property.columns[0].default.arg == "triagem"
+    assert HistoricoEtapaCarteira.__table__.c.organizacao_id.foreign_keys
 
 
 def test_procurador_exibicao_prioriza_correcao_da_organizacao() -> None:
@@ -322,4 +329,38 @@ def test_atualizar_monitoramento_nao_grava_no_processo_compartilhado() -> None:
     evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
     assert evento.detalhes["depois"]["procurador_manual"] == "Dr. Corrigido"
     assert session.commits == 1
-    assert HistoricoEtapaCarteira.__table__.c.organizacao_id.foreign_keys
+
+
+def test_atualizar_lote_reconsolida_carteira_ativa_por_padrao() -> None:
+    m1 = ProcessoMonitorado(id=1, organizacao_id=1, processo_id=10, status="ativo", vinculado_por="teste")
+    m2 = ProcessoMonitorado(id=2, organizacao_id=1, processo_id=11, status="ativo", vinculado_por="teste")
+    session = FakeSession([FakeResult(itens=[m1, m2]), FakeResult(rowcount=1)])
+
+    resultado = asyncio.run(atualizar_status_lote(AtualizacaoLote(), _request(), session, usuario_teste()))
+
+    assert resultado == {"status": "ok", "verificados": 2, "alterados": 1}
+    assert session.commits == 1
+    evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
+    assert evento.acao == "atualizar_lote_carteira"[:20]
+    assert evento.detalhes == {"verificados": 2, "alterados": 1}
+
+
+def test_atualizar_lote_aceita_ids_especificos() -> None:
+    m1 = ProcessoMonitorado(id=5, organizacao_id=1, processo_id=50, status="pausado", vinculado_por="teste")
+    session = FakeSession([FakeResult(itens=[m1]), FakeResult(rowcount=0)])
+
+    resultado = asyncio.run(
+        atualizar_status_lote(AtualizacaoLote(monitorado_ids=[5]), _request(), session, usuario_teste())
+    )
+
+    assert resultado == {"status": "ok", "verificados": 1, "alterados": 0}
+
+
+def test_atualizar_lote_sem_processos_devolve_404() -> None:
+    session = FakeSession([FakeResult(itens=[])])
+
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(atualizar_status_lote(AtualizacaoLote(), _request(), session, usuario_teste()))
+
+    assert erro.value.status_code == 404
+    assert session.commits == 0

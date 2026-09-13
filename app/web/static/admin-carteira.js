@@ -238,6 +238,16 @@ document.querySelector("#pre-cadastros-rows").addEventListener("click", async ev
   catch (error) { showMessage(error.message, "error"); }
 });
 document.querySelector("#portfolio-filter").addEventListener("submit", event => { event.preventDefault(); state.offset = 0; loadPortfolio().catch(error => showMessage(error.message, "error")); });
+document.querySelector("#update-all").addEventListener("click", async event => {
+  if (!confirm("Reconsolidar a situação no INPI de toda a carteira ativa a partir dos despachos já sincronizados? Isso pode levar alguns instantes para carteiras grandes.")) return;
+  const button = event.currentTarget; button.disabled = true; button.textContent = "Atualizando…";
+  try {
+    const result = await api("/v1/admin/carteira/atualizar-lote", { method: "POST", body: JSON.stringify({}) });
+    showMessage(`${result.verificados} processo(s) verificado(s); ${result.alterados} com situação atualizada.`);
+    await loadPortfolio();
+  } catch (error) { showMessage(error.message, "error"); }
+  finally { button.disabled = false; button.textContent = "Atualizar situação de todos"; }
+});
 document.querySelector("#portfolio-metrics").addEventListener("click", event => {
   const card = event.target.closest("[data-metric-filter]"); if (!card) return;
   applyMetricFilter(card.dataset.metricFilter, card.dataset.metricValue);

@@ -242,6 +242,13 @@ class GeracaoRelatorioProcessoMonitorado(BaseModel):
     observacoes_relatorio: str | None = Field(default=None, max_length=4000)
 
 
+class AtualizacaoLote(BaseModel):
+    # monitorado_ids ausente/vazio = toda a carteira ativa desta organização
+    # (achado da análise do módulo, 13/09/2026: só existia atualização
+    # processo por processo, inviável para uma carteira grande).
+    monitorado_ids: list[int] | None = Field(default=None, max_length=5000)
+
+
 async def _empresa(
     session: AsyncSession,
     usuario: UsuarioAutenticado,
@@ -1610,6 +1617,45 @@ async def gerar_relatorio_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="acompanhamento-{nome_arquivo}.pdf"'},
     )
+
+
+@router.post("/atualizar-lote")
+async def atualizar_status_lote(
+    dados: AtualizacaoLote,
+    request: Request,
+    session: SessionDep,
+    usuario: ManageDep,
+) -> dict:
+    """Reconsolida a situação de vários processos de uma vez (achado da análise
+    do módulo, 13/09/2026): sem `monitorado_ids`, atualiza toda a carteira
+    ativa desta organização. Só reconsolida a situação a partir dos despachos
+    já sincronizados -- não cadastra empresa automaticamente a partir do
+    titular (isso continua exclusivo da atualização individual, para não
+    criar centenas de empresas de uma vez sem o operador perceber)."""
+    filtros = [ProcessoMonitorado.organizacao_id == usuario.organizacao_id]
+    if dados.monitorado_ids:
+        filtros.append(ProcessoMonitorado.id.in_(dados.monitorado_ids))
+    else:
+        filtros.append(ProcessoMonitorado.status == "ativo")
+    monitorados = (await session.execute(select(ProcessoMonitorado).where(*filtros))).scalars().all()
+    if not monitorados:
+        raise HTTPException(404, "Nenhum processo monitorado encontrado para atualizar")
+
+    processo_ids = {monitorado.processo_id for monitorado in monitorados}
+    alterados = await consolidar_situacao(session, processo_ids=processo_ids)
+    agora = datetime.now(UTC)
+    for monitorado in monitorados:
+        monitorado.atualizado_em = agora
+    _auditar(
+        session,
+        request,
+        usuario,
+        "atualizar_lote_carteira",
+        "carteira:lote",
+        {"verificados": len(monitorados), "alterados": alterados},
+    )
+    await session.commit()
+    return {"status": "ok", "verificados": len(monitorados), "alterados": alterados}
 
 
 @router.post("/{monitorado_id}/atualizar")

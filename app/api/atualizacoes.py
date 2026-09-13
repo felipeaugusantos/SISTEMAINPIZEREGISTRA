@@ -289,7 +289,7 @@ async def gerar_relatorio_pdf(
             organizacao_id=usuario.organizacao_id,
             actor_id=usuario.id,
             ator=usuario.email,
-            acao="EXPORTAR_RELATORIO_ATUALIZACOES",
+            acao="EXPORTAR_RELATORIO",
             recurso="central_atualizacoes",
             sucesso=True,
             status_http=200,

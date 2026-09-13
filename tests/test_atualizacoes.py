@@ -180,7 +180,7 @@ async def test_relatorio_pdf_gera_documento_e_audita() -> None:
     assert resposta.body.startswith(b"%PDF")
     assert "central-de-atualizacoes.pdf" in resposta.headers["content-disposition"]
     evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
-    assert evento.acao == "EXPORTAR_RELATORIO_ATUALIZACOES"
+    assert evento.acao == "EXPORTAR_RELATORIO"
     assert evento.organizacao_id == 7
     assert session.commits == 1
 

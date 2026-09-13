@@ -2,7 +2,7 @@ import base64
 import hashlib
 import re
 from collections import Counter
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -16,6 +16,7 @@ from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
 from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import InteracaoVersaoSistema, Organizacao, ProblemaVersaoSistema, UsuarioOperacoes, VersaoSistema
+from app.relatorios import gerar_pdf_atualizacoes
 from app.settings import get_settings
 from app.storage import StorageError, read_bytes, save_bytes
 
@@ -241,6 +242,66 @@ async def listar_atualizacoes(session: SessionDep, usuario: UsuarioDep) -> dict:
         "atualizacao_implantada_id": atual_id,
         "novidades": [atualizacao_publica(item, interacao) for item, interacao in linhas],
     }
+
+
+@router.get("/relatorio-pdf")
+async def gerar_relatorio_pdf(
+    session: SessionDep,
+    usuario: UsuarioDep,
+    de: Annotated[date | None, Query()] = None,
+    ate: Annotated[date | None, Query()] = None,
+) -> Response:
+    # Achado do usuário (12/09/2026): a Central de Atualizações só podia ser
+    # lida na tela, sem uma forma simples de exportar/guardar o histórico.
+    consulta = (
+        select(VersaoSistema)
+        .where(VersaoSistema.status == "publicada")
+        .order_by(VersaoSistema.implantada_em.desc(), VersaoSistema.id.desc())
+        .limit(100)
+    )
+    if de is not None:
+        consulta = consulta.where(VersaoSistema.implantada_em >= datetime.combine(de, time.min, tzinfo=UTC))
+    if ate is not None:
+        consulta = consulta.where(VersaoSistema.implantada_em <= datetime.combine(ate, time.max, tzinfo=UTC))
+    itens = (await session.execute(consulta)).scalars().all()
+    organizacao = await session.get(Organizacao, usuario.organizacao_id)
+    pdf = gerar_pdf_atualizacoes(
+        {
+            "organizacao": organizacao.nome if organizacao else None,
+            "gerado_em": datetime.now(UTC),
+            "gerado_por": usuario.ator,
+            "de": de,
+            "ate": ate,
+            "itens": [
+                {
+                    "versao": item.versao,
+                    "titulo": item.titulo,
+                    "classificacao": item.tipo_atualizacao,
+                    "impacto_usuario": item.impacto_usuario,
+                    "implantada_em": item.implantada_em,
+                }
+                for item in itens
+            ],
+        }
+    )
+    session.add(
+        criar_evento_auditoria(
+            organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
+            ator=usuario.email,
+            acao="EXPORTAR_RELATORIO_ATUALIZACOES",
+            recurso="central_atualizacoes",
+            sucesso=True,
+            status_http=200,
+            detalhes={"de": de.isoformat() if de else None, "ate": ate.isoformat() if ate else None, "total": len(itens)},
+        )
+    )
+    await session.commit()
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="central-de-atualizacoes.pdf"'},
+    )
 
 
 @router.post("/{versao_id}/confirmar-leitura", response_model=InteracaoResponse)

@@ -17,11 +17,12 @@ from app.api.atualizacoes import (
     atualizar_status_problema,
     baixar_anexo_problema,
     confirmar_leitura,
+    gerar_relatorio_pdf,
     listar_atualizacoes,
     listar_problemas,
     reportar_problema,
 )
-from app.models import EventoAuditoria, InteracaoVersaoSistema, ProblemaVersaoSistema, VersaoSistema
+from app.models import EventoAuditoria, InteracaoVersaoSistema, Organizacao, ProblemaVersaoSistema, VersaoSistema
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
@@ -165,6 +166,33 @@ def test_migration_isola_interacoes_e_relato_por_organizacao() -> None:
     assert "app.organizacao_id" in texto
     assert "FORCE ROW LEVEL SECURITY" in texto
     assert 'op.drop_table("problemas_versoes_sistema")' in texto
+
+
+@pytest.mark.asyncio
+async def test_relatorio_pdf_gera_documento_e_audita() -> None:
+    item = _versao()
+    organizacao = Organizacao(id=7, nome="Cliente Teste", slug="cliente-teste", plano_id=1)
+    session = FakeSession(resultados=[FakeResult(itens=[item])], objetos_get=[organizacao])
+
+    resposta = await gerar_relatorio_pdf(session, _usuario(), de=None, ate=None)
+
+    assert resposta.media_type == "application/pdf"
+    assert resposta.body.startswith(b"%PDF")
+    assert "central-de-atualizacoes.pdf" in resposta.headers["content-disposition"]
+    evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
+    assert evento.acao == "EXPORTAR_RELATORIO_ATUALIZACOES"
+    assert evento.organizacao_id == 7
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_relatorio_pdf_sem_atualizacoes_nao_falha() -> None:
+    organizacao = Organizacao(id=7, nome="Cliente Teste", slug="cliente-teste", plano_id=1)
+    session = FakeSession(resultados=[FakeResult(itens=[])], objetos_get=[organizacao])
+
+    resposta = await gerar_relatorio_pdf(session, _usuario(), de=None, ate=None)
+
+    assert resposta.body.startswith(b"%PDF")
 
 
 def test_interface_nao_contem_campos_tecnicos_restritos() -> None:

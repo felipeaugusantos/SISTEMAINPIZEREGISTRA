@@ -212,6 +212,40 @@ document.querySelector("#updates-periodo-limpar").addEventListener("click", () =
   render();
 });
 
+document.querySelector("#updates-report-pdf").addEventListener("click", async (event) => {
+  const botao = event.currentTarget;
+  const form = document.querySelector("#updates-periodo-filtro");
+  const params = new URLSearchParams();
+  if (form.elements.de.value) params.set("de", form.elements.de.value);
+  if (form.elements.ate.value) params.set("ate", form.elements.ate.value);
+  botao.disabled = true;
+  botao.textContent = "Gerando…";
+  try {
+    const response = await fetch(`/v1/admin/atualizacoes/relatorio-pdf?${params}`);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || "Não foi possível gerar o relatório.");
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") || "";
+    const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "central-de-atualizacoes.pdf";
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    showStatus("Relatório gerado.");
+  } catch (error) {
+    showStatus(error.message, "error");
+  } finally {
+    botao.disabled = false;
+    botao.textContent = "Gerar relatório (PDF)";
+  }
+});
+
 function showStatus(text, kind = "success") {
   message.textContent = text;
   message.className = `status-message ${kind}`;

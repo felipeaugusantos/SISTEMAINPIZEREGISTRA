@@ -1172,6 +1172,157 @@ _DISCLAIMER_PROCESSO_MONITORADO = (
 )
 
 
+_DISCLAIMER_ATUALIZACOES = (
+    "Relatório gerado a partir das atualizações publicadas na Central de Atualizações da "
+    "plataforma. Cada versão exibe apenas o impacto para o usuário, sem detalhes técnicos "
+    "internos de implementação."
+)
+
+
+def gerar_pdf_atualizacoes(dados: dict) -> bytes:
+    """Relatório simples (uma tabela) do histórico de versões publicadas, para
+    o cliente baixar e guardar -- achado do usuário (12/09/2026): a Central de
+    Atualizações só podia ser lida na tela, sem forma de exportar um resumo.
+
+    `dados` esperado:
+    {
+        "organizacao": str, "gerado_em": datetime, "gerado_por": str,
+        "de": date | None, "ate": date | None,
+        "itens": [{"versao": str, "titulo": str, "classificacao": str,
+                    "impacto_usuario": str, "implantada_em": datetime}, ...],
+    }
+    """
+    estilos = _estilos()
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=16 * mm,
+        rightMargin=16 * mm,
+        topMargin=16 * mm,
+        bottomMargin=16 * mm,
+        title="Central de atualizações",
+        author="Zé Registra",
+    )
+
+    personagem = ReportImage(str(_CAMINHO_PERSONAGEM), width=15 * mm, height=27 * mm)
+    cabecalho_marca = Table(
+        [
+            [
+                personagem,
+                [
+                    Paragraph("Zé Registra®", estilos["marca"]),
+                    Paragraph("Pesquisa e inteligência para marcas", estilos["sub"]),
+                ],
+            ]
+        ],
+        colWidths=[20 * mm, 158 * mm],
+    )
+    cabecalho_marca.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ("LINEBELOW", (0, 0), (-1, -1), 1, _COR_CABECALHO),
+            ]
+        )
+    )
+    destaque = Table(
+        [[Paragraph("RELATÓRIO · CENTRAL DE ATUALIZAÇÕES", estilos["rotulo"])]],
+        colWidths=[178 * mm],
+    )
+    destaque.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), _COR_MENTA),
+                ("BOX", (0, 0), (-1, -1), 0.5, _COR_LINHA),
+                ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+
+    if dados.get("de") or dados.get("ate"):
+        periodo = f"Período: {_formatar_data(dados.get('de')) if dados.get('de') else 'início'} a {_formatar_data(dados.get('ate')) if dados.get('ate') else 'hoje'}"
+    else:
+        periodo = "Período: todas as atualizações publicadas"
+
+    story: list = [
+        cabecalho_marca,
+        Spacer(1, 12),
+        destaque,
+        Spacer(1, 15),
+        Paragraph("Histórico de atualizações", estilos["titulo"]),
+        Paragraph(_texto(dados.get("organizacao"), "Organização não informada"), estilos["marca"]),
+        Paragraph(periodo, estilos["sub"]),
+        Paragraph(
+            f"Emitido em {_formatar_data(dados['gerado_em'])} por {_texto(dados.get('gerado_por'))}",
+            estilos["sub"],
+        ),
+        Spacer(1, 14),
+    ]
+
+    itens = dados.get("itens") or []
+    if itens:
+        linhas: list[list] = [
+            [
+                Paragraph("Versão", estilos["cabecalho"]),
+                Paragraph("Data", estilos["cabecalho"]),
+                Paragraph("Tipo", estilos["cabecalho"]),
+                Paragraph("O que mudou", estilos["cabecalho"]),
+            ]
+        ]
+        for item in itens:
+            titulo_e_impacto = [Paragraph(_texto(item["titulo"]), estilos["celula"])]
+            if item.get("impacto_usuario"):
+                titulo_e_impacto.append(Paragraph(_texto(item["impacto_usuario"]), estilos["celula_menor"]))
+            linhas.append(
+                [
+                    Paragraph(_texto(item["versao"]), estilos["celula"]),
+                    Paragraph(_formatar_data(item["implantada_em"]), estilos["celula"]),
+                    Paragraph(_rotulo_tipo_atualizacao(item["classificacao"]), estilos["celula"]),
+                    titulo_e_impacto,
+                ]
+            )
+        tabela = Table(linhas, colWidths=[20 * mm, 26 * mm, 28 * mm, 104 * mm], repeatRows=1)
+        estilo_tabela = [
+            ("BACKGROUND", (0, 0), (-1, 0), _COR_CABECALHO),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("GRID", (0, 0), (-1, -1), 0.5, _COR_LINHA),
+        ]
+        for indice in range(1, len(linhas)):
+            if indice % 2 == 0:
+                estilo_tabela.append(("BACKGROUND", (0, indice), (-1, indice), _COR_ALTERNADA))
+        tabela.setStyle(TableStyle(estilo_tabela))
+        story.append(tabela)
+    else:
+        story.append(Paragraph("Nenhuma atualização publicada nesse período.", estilos["celula"]))
+
+    story.append(Spacer(1, 18))
+    story.append(Paragraph(_DISCLAIMER_ATUALIZACOES, estilos["rodape"]))
+
+    doc.build(story, onFirstPage=_decorar_pagina, onLaterPages=_decorar_pagina)
+    return buffer.getvalue()
+
+
+_ROTULOS_TIPO_ATUALIZACAO = {
+    "critica": "Correção crítica",
+    "correcao": "Correção",
+    "melhoria": "Melhoria",
+    "funcionalidade": "Nova funcionalidade",
+}
+
+
+def _rotulo_tipo_atualizacao(valor: str) -> str:
+    return _ROTULOS_TIPO_ATUALIZACAO.get(valor, valor)
+
+
 def gerar_pdf_processo_monitorado(dados: dict) -> bytes:
     """Relatório de acompanhamento de um processo monitorado, para envio ao
     cliente -- achado do usuário (08/09/2026): faltava uma forma de mostrar

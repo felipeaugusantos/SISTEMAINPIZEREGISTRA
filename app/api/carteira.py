@@ -432,7 +432,7 @@ async def listar_carteira(
         filtros.append(
             or_(
                 Processo.numero_normalizado.ilike(f"%{normalizar_numero_processo(busca)}%"),
-                func.immutable_unaccent(func.lower(Processo.titulo)).ilike(termo),
+                func.immutable_unaccent(Processo.titulo).ilike(termo),
                 _expressao_procurador().ilike(termo),
                 func.immutable_unaccent(func.lower(EmpresaCRM.nome)).ilike(termo),
             )
@@ -589,7 +589,7 @@ async def listar_kanban(
         filtros.append(
             or_(
                 Processo.numero_normalizado.ilike(f"%{normalizar_numero_processo(busca)}%"),
-                func.immutable_unaccent(func.lower(Processo.titulo)).ilike(termo),
+                func.immutable_unaccent(Processo.titulo).ilike(termo),
                 _expressao_procurador().ilike(termo),
                 func.immutable_unaccent(func.lower(EmpresaCRM.nome)).ilike(termo),
             )
@@ -724,7 +724,7 @@ async def listar_kanban_inpi(
         filtros.append(
             or_(
                 Processo.numero_normalizado.ilike(f"%{normalizar_numero_processo(busca)}%"),
-                func.immutable_unaccent(func.lower(Processo.titulo)).ilike(termo),
+                func.immutable_unaccent(Processo.titulo).ilike(termo),
                 _expressao_procurador().ilike(termo),
                 func.immutable_unaccent(func.lower(EmpresaCRM.nome)).ilike(termo),
             )

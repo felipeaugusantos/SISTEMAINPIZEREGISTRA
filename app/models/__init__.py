@@ -9,11 +9,9 @@ extrações, uma por vez.
 """
 
 from app.models._core import *  # noqa: F403
-from app.models.vigilancia import (
-    ColidenciaVigilancia,
-    HistoricoAlertaVigilancia,
-    PreferenciaVigilancia,
-    VigilanciaExecucao,
-)
+from app.models.vigilancia import ColidenciaVigilancia as ColidenciaVigilancia
+from app.models.vigilancia import HistoricoAlertaVigilancia as HistoricoAlertaVigilancia
+from app.models.vigilancia import PreferenciaVigilancia as PreferenciaVigilancia
+from app.models.vigilancia import VigilanciaExecucao as VigilanciaExecucao
 
 __all__ = [name for name in dir() if not name.startswith("_")]

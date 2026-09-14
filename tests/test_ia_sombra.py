@@ -915,6 +915,10 @@ def _resposta_429() -> httpx.Response:
     return httpx.Response(429, json={"error": {"message": "quota"}}, request=_REQUISICAO_FAKE)
 
 
+def _resposta_503() -> httpx.Response:
+    return httpx.Response(503, json={"error": {"message": "model overloaded"}}, request=_REQUISICAO_FAKE)
+
+
 def test_modelos_gemini_em_ordem_inclui_fallback_quando_diferente() -> None:
     settings = get_settings()
     assert settings.gemini_modelo != settings.gemini_modelo_fallback
@@ -938,6 +942,29 @@ def test_chamar_gemini_cai_para_fallback_quando_principal_devolve_429() -> None:
     settings.gemini_api_key = "chave-teste"
     settings.gemini_intervalo_minimo_segundos = 0.0
     cliente = _ClienteHttpFake([_resposta_429(), _resposta_texto("ok pelo fallback")])
+    try:
+        resultado = asyncio.run(chamar_gemini("prompt", http_client=cliente))
+    finally:
+        settings.gemini_api_key = original_key
+        settings.gemini_intervalo_minimo_segundos = original_intervalo
+
+    assert resultado == "ok pelo fallback"
+    assert len(cliente.urls_chamadas) == 2
+    assert settings.gemini_modelo in cliente.urls_chamadas[0]
+    assert settings.gemini_modelo_fallback in cliente.urls_chamadas[1]
+
+
+def test_chamar_gemini_cai_para_fallback_quando_principal_devolve_503() -> None:
+    """Achado ao vivo em produção (14/09/2026): o Gemini devolveu 503
+    ("modelo sobrecarregado" do lado do Google) repetidas vezes para o
+    modelo principal, e o fallback só era tentado para 429 -- agora 503
+    também cai para o modelo fallback, igual a 429."""
+    settings = get_settings()
+    original_key = settings.gemini_api_key
+    original_intervalo = settings.gemini_intervalo_minimo_segundos
+    settings.gemini_api_key = "chave-teste"
+    settings.gemini_intervalo_minimo_segundos = 0.0
+    cliente = _ClienteHttpFake([_resposta_503(), _resposta_texto("ok pelo fallback")])
     try:
         resultado = asyncio.run(chamar_gemini("prompt", http_client=cliente))
     finally:

@@ -347,6 +347,87 @@ def test_chamar_gemini_bruto_cai_para_fallback_quando_principal_devolve_429() ->
         settings.gemini_api_key = original_key
         settings.gemini_intervalo_minimo_segundos = original_intervalo
 
+    assert len(urls_chamadas) == 2
+    assert settings.gemini_modelo in urls_chamadas[0]
+    assert settings.gemini_modelo_fallback in urls_chamadas[1]
+    assert dados["candidates"][0]["content"]["parts"][0]["text"] == "ok pelo fallback"
+
+
+def test_chamar_gemini_bruto_cai_para_fallback_quando_principal_devolve_503() -> None:
+    """Achado ao vivo em produção (14/09/2026): o Gemini devolveu 503
+    ("modelo sobrecarregado" do lado do Google, não 429 de cota) repetidas
+    vezes para o modelo principal, e o fallback só era tentado para 429 --
+    o usuário via sempre a mensagem genérica de erro. Agora 503 também cai
+    para o modelo fallback, igual a 429."""
+    settings = get_settings()
+    original_key = settings.gemini_api_key
+    original_intervalo = settings.gemini_intervalo_minimo_segundos
+    settings.gemini_api_key = "chave-teste"
+    settings.gemini_intervalo_minimo_segundos = 0.0
+
+    requisicao_fake = httpx.Request("POST", "https://generativelanguage.googleapis.com/fake")
+    urls_chamadas = []
+
+    class _ClienteFake:
+        def __init__(self) -> None:
+            self._respostas = [
+                httpx.Response(503, json={"error": "overloaded"}, request=requisicao_fake),
+                httpx.Response(
+                    200,
+                    json={"candidates": [{"content": {"role": "model", "parts": [{"text": "ok pelo fallback"}]}}]},
+                    request=requisicao_fake,
+                ),
+            ]
+
+        async def post(self, url, *, json, headers):
+            urls_chamadas.append(url)
+            return self._respostas.pop(0)
+
+    try:
+        dados = asyncio.run(modulo._chamar_gemini_bruto([{"role": "user", "parts": [{"text": "oi"}]}], http_client=_ClienteFake()))
+    finally:
+        settings.gemini_api_key = original_key
+        settings.gemini_intervalo_minimo_segundos = original_intervalo
+
+    assert len(urls_chamadas) == 2
+    assert settings.gemini_modelo in urls_chamadas[0]
+    assert settings.gemini_modelo_fallback in urls_chamadas[1]
+    assert dados["candidates"][0]["content"]["parts"][0]["text"] == "ok pelo fallback"
+
+
+def test_perguntar_endpoint_traduz_503_do_gemini_em_mensagem_clara(monkeypatch) -> None:
+    """Achado ao vivo em produção (14/09/2026): quando os dois modelos (o
+    principal e o fallback) devolvem 503 em sequência, o endpoint agora
+    reconhece o caso e explica que é uma instabilidade do provedor, em vez
+    da mensagem genérica "não foi possível consultar"."""
+
+    async def _fake_chamar(contents, *, http_client):
+        resposta = httpx.Response(503, request=httpx.Request("POST", "https://example.com"))
+        raise httpx.HTTPStatusError("503", request=resposta.request, response=resposta)
+
+    monkeypatch.setattr(modulo, "_chamar_gemini_bruto", _fake_chamar)
+    settings = get_settings()
+    original_enabled = settings.assistente_crm_enabled
+    original_key = settings.gemini_api_key
+    settings.assistente_crm_enabled = True
+    settings.gemini_api_key = "chave-de-teste"
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = sessao_override()
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/assistente/perguntar",
+            json={"pergunta": "oi", "historico": []},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        settings.assistente_crm_enabled = original_enabled
+        settings.gemini_api_key = original_key
+
+    assert resposta.status_code == 503
+    assert "sobrecarregado" in resposta.json()["detail"].lower()
+
     assert dados["candidates"][0]["content"]["parts"][0]["text"] == "ok pelo fallback"
     assert len(urls_chamadas) == 2
     assert settings.gemini_modelo in urls_chamadas[0]

@@ -191,9 +191,11 @@ async def chamar_gemini(prompt: str, *, http_client: httpx.AsyncClient | None = 
     Ollama, ver settings.ia_sombra_embedding_modelo.
 
     Fallback automático (achado do usuário, 11/09/2026): se o modelo
-    principal devolver 429 (cota por minuto estourada), tenta na mesma
+    principal devolver 429 (cota por minuto estourada) ou 503 (modelo
+    sobrecarregado do lado do Google -- achado do usuário, 14/09/2026, visto
+    ao vivo em produção repetidas vezes no "flash" cheio), tenta na mesma
     chamada o modelo fallback mais leve, em vez de falhar direto -- só para
-    429, qualquer outro erro propaga imediatamente."""
+    esses dois casos transitórios, qualquer outro erro propaga imediatamente."""
     settings = get_settings()
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY nao configurada")
@@ -207,7 +209,7 @@ async def chamar_gemini(prompt: str, *, http_client: httpx.AsyncClient | None = 
             await _respeitar_intervalo_minimo_gemini(settings.gemini_intervalo_minimo_segundos)
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent"
             resposta = await cliente.post(url, json=corpo, headers={"x-goog-api-key": settings.gemini_api_key})
-            if resposta.status_code == 429 and indice < len(modelos) - 1:
+            if resposta.status_code in (429, 503) and indice < len(modelos) - 1:
                 continue
             break
         resposta.raise_for_status()

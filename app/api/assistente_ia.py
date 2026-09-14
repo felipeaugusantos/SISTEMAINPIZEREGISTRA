@@ -194,10 +194,13 @@ FERRAMENTAS = {
 
 async def _chamar_gemini_bruto(contents: list[dict], *, http_client: httpx.AsyncClient) -> dict:
     """Fallback automático (achado do usuário, 11/09/2026): se o modelo
-    principal devolver 429 (cota por minuto estourada), tenta na mesma
+    principal devolver 429 (cota por minuto estourada) ou 503 (modelo
+    sobrecarregado do lado do Google -- achado do usuário, 14/09/2026, visto
+    ao vivo em produção repetidas vezes no "flash" cheio), tenta na mesma
     chamada o modelo fallback mais leve (settings.gemini_modelo_fallback)
-    antes de desistir -- só para 429, qualquer outro erro propaga direto.
-    Mesma lógica de app.ia_sombra.chamar_gemini, reaproveitada aqui."""
+    antes de desistir -- só para esses dois casos transitórios, qualquer
+    outro erro propaga direto. Mesma lógica de app.ia_sombra.chamar_gemini,
+    reaproveitada aqui."""
     settings = get_settings()
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY nao configurada")
@@ -212,7 +215,7 @@ async def _chamar_gemini_bruto(contents: list[dict], *, http_client: httpx.Async
         await _respeitar_intervalo_minimo_gemini(settings.gemini_intervalo_minimo_segundos)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent"
         resposta = await http_client.post(url, json=corpo, headers={"x-goog-api-key": settings.gemini_api_key})
-        if resposta.status_code == 429 and indice < len(modelos) - 1:
+        if resposta.status_code in (429, 503) and indice < len(modelos) - 1:
             continue
         break
     resposta.raise_for_status()
@@ -298,6 +301,15 @@ async def perguntar_endpoint(
             raise HTTPException(
                 status_code=429,
                 detail="O Zezinho das Marcas atingiu o limite de uso da IA no momento. Aguarde um minuto e tente de novo.",
+            ) from exc
+        if exc.response.status_code == 503:
+            # Achado do usuário, 14/09/2026: mesmo com o fallback de modelo
+            # (ver _chamar_gemini_bruto), o Gemini às vezes devolve 503 nos
+            # dois modelos em sequência -- sobrecarga momentânea do lado do
+            # Google, não um problema de configuração daqui.
+            raise HTTPException(
+                status_code=503,
+                detail="O Zezinho das Marcas está temporariamente sobrecarregado (instabilidade do provedor de IA). Tente novamente em instantes.",
             ) from exc
         raise HTTPException(status_code=502, detail="Não foi possível consultar o assistente agora") from exc
     except Exception as exc:

@@ -42,14 +42,20 @@ async def registrar_alerta_plataforma(
     severidade: str,
     mensagem: str,
     detalhes: dict | None = None,
+    organizacao_id: int | None = None,
 ) -> None:
-    """Cria um AlertaSistema de plataforma (organizacao_id=None) e dispara o
-    e-mail de reforço -- só se não houver um já aberto com o mesmo código.
+    """Cria um AlertaSistema (organizacao_id=None por padrão -- alerta de
+    plataforma) e dispara o e-mail de reforço -- só se não houver um já
+    aberto com o mesmo código. Passar organizacao_id permite o mesmo padrão
+    de dedup para um alerta de uma organização específica (ex: Fase 3 --
+    lembrete de aviso crítico pendente por organização, app/avisos_versao.py).
     Não faz commit (quem chama já está numa transação de manutenção)."""
     existente = (
         await session.execute(
             select(AlertaSistema.id).where(
-                AlertaSistema.organizacao_id.is_(None),
+                AlertaSistema.organizacao_id == organizacao_id
+                if organizacao_id is not None
+                else AlertaSistema.organizacao_id.is_(None),
                 AlertaSistema.codigo == codigo,
                 AlertaSistema.resolvido_em.is_(None),
             )
@@ -59,7 +65,7 @@ async def registrar_alerta_plataforma(
         return
     session.add(
         AlertaSistema(
-            organizacao_id=None,
+            organizacao_id=organizacao_id,
             severidade=severidade,
             codigo=codigo,
             mensagem=mensagem,
@@ -69,14 +75,16 @@ async def registrar_alerta_plataforma(
     await enviar_alerta_plataforma(codigo, severidade, mensagem)
 
 
-async def resolver_alerta_plataforma(session: AsyncSession, *, codigo: str) -> None:
-    """Marca como resolvido qualquer alerta de plataforma aberto com esse
-    código -- chamado quando a checagem seguinte encontra a situação normal
-    de novo (ex: fila de falhas voltou a zero)."""
+async def resolver_alerta_plataforma(session: AsyncSession, *, codigo: str, organizacao_id: int | None = None) -> None:
+    """Marca como resolvido qualquer alerta aberto com esse código -- chamado
+    quando a checagem seguinte encontra a situação normal de novo (ex: fila
+    de falhas voltou a zero, ou todo mundo confirmou um aviso crítico)."""
     abertos = (
         await session.execute(
             select(AlertaSistema).where(
-                AlertaSistema.organizacao_id.is_(None),
+                AlertaSistema.organizacao_id == organizacao_id
+                if organizacao_id is not None
+                else AlertaSistema.organizacao_id.is_(None),
                 AlertaSistema.codigo == codigo,
                 AlertaSistema.resolvido_em.is_(None),
             )

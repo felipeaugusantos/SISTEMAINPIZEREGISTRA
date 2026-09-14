@@ -1127,6 +1127,36 @@ class ProducaoAdminResponse(BaseModel):
     auditoria: list[EventoAuditoriaResponse]
 
 
+class AvisoVersaoCreate(BaseModel):
+    versao: str = Field(min_length=1, max_length=30)
+    titulo: str = Field(min_length=1, max_length=200)
+    mensagem: str = Field(min_length=1)
+    severidade: str = Field(default="info", pattern="^(info|aviso|critico)$")
+    critico: bool = False
+
+
+class AvisoVersaoResponse(BaseModel):
+    id: int
+    versao: str
+    titulo: str
+    mensagem: str
+    severidade: str
+    critico: bool
+    ativo: bool
+    publicado_em: datetime
+    total_usuarios: int
+    total_confirmados: int
+    pendentes: int
+    confirmado_por_mim: bool
+
+
+class AvisoVersaoConfirmacaoResponse(BaseModel):
+    usuario_id: int
+    nome: str
+    email: str
+    confirmado_em: datetime | None = None
+
+
 class AprendizadoModeloResponse(BaseModel):
     id: int
     versao: str

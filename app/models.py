@@ -505,6 +505,46 @@ class AlertaSistema(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AvisoVersao(Base):
+    """Aviso de nova versão/atualização exibido no painel (Fase 3 --
+    notificações e confirmação de leitura). organizacao_id nulo = aviso de
+    plataforma, visível a todas as organizações, mesmo padrão de
+    AlertaSistema acima."""
+
+    __tablename__ = "avisos_versao"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organizacoes.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    versao: Mapped[str] = mapped_column(String(30))
+    titulo: Mapped[str] = mapped_column(String(200))
+    mensagem: Mapped[str] = mapped_column(Text)
+    severidade: Mapped[str] = mapped_column(String(20), index=True)
+    critico: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", index=True)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", index=True)
+    criado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
+    )
+    publicado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class AvisoVersaoConfirmacao(Base):
+    """Confirmação individual de leitura de um AvisoVersao -- evidência de
+    quem confirmou, quando, a partir de qual organização (RLS) e IP
+    (hasheado), mesmo padrão de AssinaturaPropostaComercial."""
+
+    __tablename__ = "avisos_versao_confirmacoes"
+    __table_args__ = (UniqueConstraint("aviso_id", "usuario_id", name="uq_aviso_versao_confirmacao"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    aviso_id: Mapped[int] = mapped_column(ForeignKey("avisos_versao.id", ondelete="CASCADE"), index=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios_operacoes.id", ondelete="CASCADE"), index=True)
+    ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    confirmado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class SolicitacaoPrivacidade(Base):
     __tablename__ = "solicitacoes_privacidade"
 

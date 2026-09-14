@@ -1,6 +1,7 @@
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError

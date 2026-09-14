@@ -78,7 +78,7 @@ jobs:
       - name: Check migration drift
         run: uv run alembic check
       - run: uv run pytest -q --cov=app --cov-report=term-missing --cov-report=xml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage.xml
@@ -103,7 +103,7 @@ jobs:
           E2E_ADMIN_USERNAME: admin
           E2E_ADMIN_PASSWORD: Teste-Seguro-123!
         run: npm run test:e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report

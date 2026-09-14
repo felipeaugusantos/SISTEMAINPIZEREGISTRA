@@ -672,6 +672,71 @@ def test_worker_coleta_campanha_falha_no_meio_nao_trava_em_ativa(monkeypatch: py
     assert session.commits == 1
 
 
+def test_worker_coleta_campanha_fluxo_completo_cria_prospects_e_conclui(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fase 3 da missão de maturidade técnica (14/09/2026): o corpo principal
+    de coletar_campanha (filtros de UF/cidade em lista, criação de prospect
+    por candidato, status final "concluida") nunca tinha teste -- só o
+    caminho de recuperação de erro (acima) estava coberto."""
+    import app.api.prospeccao as prospeccao_modulo
+    import app.worker as worker_modulo
+    from app.models import CacheEstabelecimentoRFB
+
+    campanha = _campanha(
+        status="ativa",
+        criterios_busca={"cnae_principal": "4711302", "uf": ["SP", "RJ"], "cidade": ["São Paulo"]},
+    )
+    candidato = CacheEstabelecimentoRFB(
+        cnpj="12345678000199",
+        razao_social="Padaria Exemplo Ltda",
+        nome_fantasia="Padaria Exemplo",
+        cnae_principal="4711302",
+        cnaes_secundarios=[],
+        porte="ME",
+        situacao_cadastral="ativa",
+        uf="SP",
+        cidade="São Paulo",
+        telefone=None,
+        email=None,
+    )
+    session = FakeSession([FakeResult(scalar=campanha), FakeResult(itens=[candidato])])
+
+    class _ContextoSessaoFalso:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, *_exc: object) -> bool:
+            return False
+
+    class _FonteFake:
+        id = 9
+
+    async def _fonte_fake(*_args: object, **_kwargs: object) -> _FonteFake:
+        return _FonteFake()
+
+    prospects_criados: list[str] = []
+
+    async def _criar_prospect_fake(_session, _organizacao_id, dados, _por, *, fonte_id, campanha_id):
+        prospects_criados.append(dados.razao_social)
+        assert fonte_id == 9
+        assert campanha_id == campanha.id
+        return None, "criado"
+
+    monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso())
+    monkeypatch.setattr(prospeccao_modulo, "obter_ou_criar_fonte_cnae_publico", _fonte_fake)
+    monkeypatch.setattr(prospeccao_modulo, "_criar_prospect", _criar_prospect_fake)
+
+    asyncio.run(
+        worker_modulo.processar(
+            "prospeccao.coletar_campanha", {"campanha_id": campanha.id, "organizacao_id": campanha.organizacao_id}
+        )
+    )
+
+    assert prospects_criados == ["Padaria Exemplo Ltda"]
+    assert campanha.status == "concluida"
+    assert campanha.encerrada_em is not None
+    assert session.commits == 1
+
+
 # --- Fase 3 do Radar de Prospecção (03/09/2026) -- enriquecimento ----------
 
 

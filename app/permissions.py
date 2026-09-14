@@ -111,6 +111,12 @@ PERMISSOES = (
         "Alterar rollout e controles de producao.",
     ),
     PermissaoDef("audit.view", "Auditoria", "Visualizar auditoria", "Consultar eventos administrativos."),
+    PermissaoDef(
+        "avisos.view",
+        "Avisos de versão",
+        "Visualizar avisos",
+        "Consultar avisos de versão publicados e quem confirmou a leitura.",
+    ),
     PermissaoDef("users.view", "Usuarios", "Visualizar usuarios", "Consultar usuarios e acessos."),
     PermissaoDef("users.manage", "Usuarios", "Gerenciar usuarios", "Criar, alterar e bloquear usuarios."),
     PermissaoDef("users.reset_password", "Usuarios", "Redefinir senha", "Emitir senha temporaria."),
@@ -180,6 +186,7 @@ PERFIS = {
             "production.view",
             "audit.view",
             "users.view",
+            "avisos.view",
         }
     ),
     "operador": frozenset({"dashboard.view"}),

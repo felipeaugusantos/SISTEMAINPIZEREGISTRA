@@ -78,3 +78,91 @@ function showProductionError(error) {
 }
 
 loadProduction().catch(showProductionError);
+
+// Fase 3 -- avisos de versão e confirmação de leitura.
+const avisoForm = document.querySelector("#aviso-form");
+const avisoFormMessage = document.querySelector("#aviso-form-message");
+const avisosList = document.querySelector("#avisos-list");
+const avisosResumo = document.querySelector("#avisos-resumo");
+const confirmacoesDialog = document.querySelector("#aviso-confirmacoes-dialog");
+
+const severidadeLabels = { info: "Informativo", aviso: "Aviso", critico: "Crítico" };
+
+function renderAvisos(avisos) {
+  const pendenciasTotais = avisos.reduce((total, aviso) => total + aviso.pendentes, 0);
+  avisosResumo.textContent = avisos.length
+    ? `${avisos.length} aviso${avisos.length === 1 ? "" : "s"} ativo${avisos.length === 1 ? "" : "s"} · ${pendenciasTotais} confirmação${pendenciasTotais === 1 ? "" : "ões"} pendente${pendenciasTotais === 1 ? "" : "s"}`
+    : "Nenhum aviso ativo";
+  avisosList.innerHTML = avisos.length
+    ? avisos.map((aviso) => `<tr>
+        <td><strong>${escapeHtml(aviso.titulo)}</strong></td>
+        <td>${escapeHtml(aviso.versao)}</td>
+        <td><span class="aviso-severidade-badge ${aviso.severidade}">${severidadeLabels[aviso.severidade] || aviso.severidade}</span></td>
+        <td><time>${escapeHtml(dateTimeLabel(aviso.publicado_em))}</time></td>
+        <td>${aviso.total_confirmados}/${aviso.total_usuarios} (${aviso.pendentes} pendente${aviso.pendentes === 1 ? "" : "s"})</td>
+        <td><button type="button" class="secondary-button" data-aviso-id="${aviso.id}" data-aviso-titulo="${escapeHtml(aviso.titulo)}">Ver confirmações</button></td>
+      </tr>`).join("")
+    : `<tr><td colspan="6">Nenhum aviso publicado ainda.</td></tr>`;
+}
+
+async function loadAvisos() {
+  const response = await fetch("/v1/admin/producao/avisos");
+  if (!response.ok) return;
+  renderAvisos(await response.json());
+}
+
+avisosList?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-aviso-id]");
+  if (!button) return;
+  const response = await fetch(`/v1/admin/producao/avisos/${button.dataset.avisoId}/confirmacoes`);
+  if (!response.ok) return;
+  const confirmacoes = await response.json();
+  document.querySelector("#aviso-confirmacoes-titulo").textContent = button.dataset.avisoTitulo;
+  document.querySelector("#aviso-confirmacoes-list").innerHTML = confirmacoes
+    .map((item) => `<li class="${item.confirmado_em ? "" : "pendente"}">
+        <span>${escapeHtml(item.nome)} <small>${escapeHtml(item.email)}</small></span>
+        <span>${item.confirmado_em ? `<span class="confirmado">Confirmado em ${escapeHtml(dateTimeLabel(item.confirmado_em))}</span>` : "Pendente"}</span>
+      </li>`)
+    .join("") || "<li>Nenhum usuário encontrado.</li>";
+  confirmacoesDialog.showModal();
+});
+
+document.querySelector("#aviso-confirmacoes-fechar")?.addEventListener("click", () => confirmacoesDialog.close());
+
+avisoForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  avisoFormMessage.textContent = "";
+  avisoFormMessage.className = "status-message";
+  try {
+    const response = await fetch("/v1/admin/producao/avisos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        versao: document.querySelector("#aviso-versao").value,
+        titulo: document.querySelector("#aviso-titulo").value,
+        mensagem: document.querySelector("#aviso-mensagem").value,
+        severidade: document.querySelector("#aviso-severidade").value,
+        critico: document.querySelector("#aviso-critico").checked,
+      }),
+    });
+    if (!response.ok) {
+      const erro = await response.json().catch(() => ({}));
+      throw new Error(erro.detail || "Não foi possível publicar o aviso.");
+    }
+    avisoForm.reset();
+    avisoFormMessage.textContent = "Aviso publicado.";
+    avisoFormMessage.classList.add("success");
+    await loadAvisos();
+  } catch (error) {
+    avisoFormMessage.textContent = error.message;
+    avisoFormMessage.classList.add("error");
+  }
+});
+
+fetch("/v1/auth/me").then(async (response) => {
+  if (!response.ok) return;
+  const user = await response.json();
+  if (user.superadmin) avisoForm.hidden = false;
+});
+
+loadAvisos().catch(() => {});

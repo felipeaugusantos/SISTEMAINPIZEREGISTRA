@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Literal
@@ -5,6 +6,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -35,6 +37,7 @@ from app.models import (
 )
 from app.proxy import cliente_ip
 
+logger = logging.getLogger("ze_registra.crm_admin")
 router = APIRouter(prefix="/v1/admin/crm", tags=["crm"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 CRMViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("crm.view"))]
@@ -530,7 +533,22 @@ async def atualizar_lembrete(
         item.id,
         dados.model_dump(exclude_unset=True, mode="json"),
     )
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # Achado ao vivo em produção (14/09/2026): duas automações de
+        # lembrete (reengajamento por inatividade) acabaram com o mesmo
+        # idempotency_key -- um bug de dados histórico, não deste endpoint
+        # --, mas qualquer UPDATE que force o Postgres a reavaliar o índice
+        # dessa linha (ex.: mudar lembrar_em, que também é indexado) esbarra
+        # na duplicidade e derrubava a tela com 500 sem explicação. Agora
+        # devolve um erro claro em vez do 500 genérico.
+        await session.rollback()
+        logger.warning("Conflito de integridade ao atualizar lembrete %s: %s", lembrete_id, exc)
+        raise HTTPException(
+            status_code=409,
+            detail="Não foi possível salvar: este lembrete tem um conflito de dados. Avise o suporte.",
+        ) from exc
     await session.refresh(item)
     return _serializar_lembrete(item)
 

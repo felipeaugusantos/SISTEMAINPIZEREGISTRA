@@ -1,13 +1,15 @@
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, Iterator
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
 from app.models import CanalContato, ContatoLead, Lead, LembreteCRM, StatusLead
-from tests.conftest import FakeResult, auth_override, sessao_override, usuario_teste
+from tests.conftest import FakeResult, FakeSession, auth_override, sessao_override, usuario_teste
 
 
 def _registros() -> tuple[ContatoLead, Lead]:
@@ -170,3 +172,54 @@ def test_criar_lembrete_vincula_cliente_e_audita() -> None:
     assert resposta.status_code == 201
     assert resposta.json()["tipo"] == "atualizar_cadastro"
     assert resposta.json()["cliente"] == "Cliente CRM"
+
+
+def test_atualizar_lembrete_traduz_conflito_de_integridade_em_mensagem_clara() -> None:
+    """Achado ao vivo em produção (14/09/2026): duas automações de
+    reengajamento acabaram com o mesmo idempotency_key (bug de dados
+    histórico), e um UPDATE em qualquer uma delas (ex.: "Adiar 1 dia", que
+    muda lembrar_em, uma coluna indexada) esbarrava no índice único e
+    derrubava a tela com 500 sem explicação. Agora o endpoint reconhece o
+    IntegrityError e devolve 409 com uma mensagem clara."""
+    _, lead = _registros()
+    lembrete = LembreteCRM(
+        id=2557,
+        organizacao_id=1,
+        lead_id=lead.id,
+        tipo="retorno",
+        prioridade="alta",
+        titulo="Oportunidade parada — retomar contato",
+        lembrar_em=datetime(2026, 9, 9, tzinfo=UTC),
+        status="pendente",
+        criado_por="Automação (reengajamento por inatividade)",
+        idempotency_key="reengajamento:63:2026-W37",
+    )
+    lembrete.lead = lead
+    lembrete.responsavel = None
+
+    class _SessaoComConflito(FakeSession):
+        async def commit(self) -> None:
+            self.commits += 1
+            raise IntegrityError(
+                "UPDATE lembretes_crm ...",
+                {},
+                Exception('duplicate key value violates unique constraint "uq_lembrete_crm_idempotencia"'),
+            )
+
+    async def _override() -> Iterator[Any]:
+        yield _SessaoComConflito([FakeResult(scalar=lembrete)])
+
+    app.dependency_overrides[get_session] = _override
+    usuario = usuario_teste("operador", {"crm.view", "crm.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).patch(
+            "/v1/admin/crm/lembretes/2557",
+            json={"lembrar_em": "2026-09-15T17:50:14.346Z", "status": "pendente"},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 409
+    assert "conflito" in resposta.json()["detail"].lower()

@@ -686,7 +686,7 @@ def test_worker_coleta_campanha_fluxo_completo_cria_prospects_e_conclui(monkeypa
         criterios_busca={"cnae_principal": "4711302", "uf": ["SP", "RJ"], "cidade": ["São Paulo"]},
     )
     candidato = CacheEstabelecimentoRFB(
-        cnpj="12345678000199",
+        cnpj="11222333000181",
         razao_social="Padaria Exemplo Ltda",
         nome_fantasia="Padaria Exemplo",
         cnae_principal="4711302",

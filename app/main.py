@@ -38,6 +38,7 @@ from app.api.financeiro import router as financeiro_router
 from app.api.horas import router as horas_router
 from app.api.juridico import router as juridico_router
 from app.api.leads import router as leads_router
+from app.api.leads_guias import router as leads_guias_router
 from app.api.leads_propostas import router as leads_propostas_router
 from app.api.nfse import router as nfse_router
 from app.api.observabilidade import router as observabilidade_router
@@ -134,6 +135,7 @@ app.add_middleware(
 app.middleware("http")(observar_requisicao)
 app.include_router(processos_router)
 app.include_router(leads_router)
+app.include_router(leads_guias_router)
 app.include_router(leads_propostas_router)
 app.include_router(prospeccao_router)
 app.include_router(prospeccao_campanhas_router)

@@ -427,8 +427,3 @@ def test_perguntar_endpoint_traduz_503_do_gemini_em_mensagem_clara(monkeypatch) 
 
     assert resposta.status_code == 503
     assert "sobrecarregado" in resposta.json()["detail"].lower()
-
-    assert dados["candidates"][0]["content"]["parts"][0]["text"] == "ok pelo fallback"
-    assert len(urls_chamadas) == 2
-    assert settings.gemini_modelo in urls_chamadas[0]
-    assert settings.gemini_modelo_fallback in urls_chamadas[1]

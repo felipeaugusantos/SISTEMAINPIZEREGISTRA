@@ -1,5 +1,11 @@
 # Changelog
 
+> **Este arquivo está desatualizado desde 26/08/2026.** As atualizações do
+> sistema passaram a ser registradas na **Central de Atualizações**
+> (`/admin/atualizacoes`), com evidências de teste, impacto e plano de
+> rollback por versão. Este histórico abaixo é mantido só como referência
+> do período anterior a essa migração.
+
 ## P2 concluído — 2026-08-26
 
 - Uploads do portal e documentos de ativos usam a camada de storage configurável, com suporte a S3/MinIO e fallback local.

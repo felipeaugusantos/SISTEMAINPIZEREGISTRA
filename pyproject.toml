@@ -1,6 +1,10 @@
 [project]
 name = "inpi-api"
-version = "0.1.0"
+# Metadado estático do pacote -- a versão real de cada deploy é rastreada
+# via docker/deploy.sh (.deploy-version no VPS + env var APP_VERSION),
+# exposta em settings.app_version e na Central de Atualizações. Este campo
+# não é lido por nenhuma ferramenta operacional do projeto.
+version = "0.0.0"
 description = "API de pesquisa indicativa de marcas publicadas pelo INPI Brasil"
 requires-python = ">=3.11,<3.14"
 dependencies = [

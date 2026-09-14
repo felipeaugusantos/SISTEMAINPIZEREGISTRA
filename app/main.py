@@ -94,7 +94,7 @@ async def exigir_chave_health(x_health_key: str | None = Header(default=None)) -
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
+    version=settings.app_version,
     description="API de pesquisa indicativa de marcas publicadas pelo INPI Brasil.",
     docs_url=None if settings.app_env.lower() == "production" else "/docs",
     redoc_url=None if settings.app_env.lower() == "production" else "/redoc",

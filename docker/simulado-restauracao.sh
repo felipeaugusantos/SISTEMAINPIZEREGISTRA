@@ -51,18 +51,34 @@ TEMP="/tmp/${NOME_ARQUIVO}"
 
 docker cp "$DUMP" "${CONTAINER_TESTE}:${TEMP}"
 FALHOU_RESTORE=0
-docker exec -i "$CONTAINER_TESTE" pg_restore -U inpi -d inpi --clean --if-exists "$TEMP" || FALHOU_RESTORE=1
+SAIDA_RESTORE="/tmp/simulado-restauracao-saida-$$.log"
+docker exec -i "$CONTAINER_TESTE" pg_restore -U inpi -d inpi --clean --if-exists "$TEMP" >"$SAIDA_RESTORE" 2>&1 || FALHOU_RESTORE=1
+cat "$SAIDA_RESTORE"
 docker exec "$CONTAINER_TESTE" rm -f "$TEMP"
-
-if [ "$FALHOU_RESTORE" -eq 1 ]; then
-    echo "AVISO: pg_restore reportou erros (podem ser so 'does not exist' de objetos novos). Conferindo tabelas mesmo assim."
-fi
 
 # Tabelas centrais e o tamanho minimo aceitavel: se a producao tem N linhas,
 # a restauracao so falha o simulado se vier com menos de 90% disso -- deixa
 # folga para o backup ter sido tirado um pouco antes da comparacao.
 TABELAS="organizacoes usuarios_operacoes leads processos_monitorados sessoes_operacoes"
 FALHOU=0
+
+if [ "$FALHOU_RESTORE" -eq 1 ]; then
+    # Achado (14/09/2026): um "could not create unique index" por dado
+    # duplicado (violacao de integridade real em producao) ficava com o
+    # mesmo tratamento de ruido benigno tipo "does not exist" de objeto
+    # novo -- o simulado de 13/09 pegou exatamente esse caso (duplicidade
+    # de idempotency_key em lembretes_crm) e so registrou como aviso,
+    # sem falhar; o problema so virou visivel um dia depois, como bug
+    # relatado pelo usuario (500 ao editar o lembrete). Erros de
+    # constraint/indice unico agora derrubam o simulado de verdade.
+    if grep -qiE "could not create unique index|duplicate key value|violates[a-z ]* constraint" "$SAIDA_RESTORE"; then
+        echo "FALHA CRITICA: pg_restore encontrou violacao de integridade (indice/constraint unico nao pode ser criado) -- normalmente indica dado duplicado real em producao, nao so ruido de restauracao. Ver saida do pg_restore acima."
+        FALHOU=1
+    else
+        echo "AVISO: pg_restore reportou erros (podem ser so 'does not exist' de objetos novos). Conferindo tabelas mesmo assim."
+    fi
+fi
+rm -f "$SAIDA_RESTORE"
 for tabela in $TABELAS; do
     n_teste="$(docker exec "$CONTAINER_TESTE" psql -U inpi -d inpi -tAc "SELECT count(*) FROM ${tabela};" 2>/dev/null || echo "-1")"
     n_prod="$(docker exec "$CONTAINER_PROD" psql -U inpi -d inpi -tAc "SELECT count(*) FROM ${tabela};" 2>/dev/null || echo "-1")"

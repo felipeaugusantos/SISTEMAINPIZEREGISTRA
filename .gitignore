@@ -11,6 +11,7 @@ coverage.xml
 htmlcov/
 cloudflared*.log
 backups/
+backups-producao/
 data/raw/*
 !data/raw/.gitkeep
 apresentacao/

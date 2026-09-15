@@ -5,8 +5,8 @@ antes: nenhum outro módulo do projeto precisa mudar seus imports
 
 Extraído até agora: vigilância, portal do cliente, carteira/processos
 monitorados, enums compartilhados, prospecção, observabilidade/sistema,
-jurídico, portfólio de PI/RPI e marca/busca/ML. O grosso das classes
-permanece em _core.py até as próximas extrações, uma por vez.
+jurídico, portfólio de PI/RPI, marca/busca/ML e financeiro. O grosso das
+classes permanece em _core.py até as próximas extrações, uma por vez.
 
 `processo_titulares` (Table de associação, não classe) é importado
 diretamente por vários módulos de app/api/ -- reexportado explicitamente
@@ -35,6 +35,25 @@ from app.models.carteira import PreCadastroProcesso as PreCadastroProcesso
 from app.models.carteira import ProcessoMonitorado as ProcessoMonitorado
 from app.models.enums import StatusProspect as StatusProspect
 from app.models.enums import TipoAtivoPI as TipoAtivoPI
+from app.models.financeiro import ApontamentoHoras as ApontamentoHoras
+from app.models.financeiro import CategoriaFinanceira as CategoriaFinanceira
+from app.models.financeiro import CentroCustoFinanceiro as CentroCustoFinanceiro
+from app.models.financeiro import ComissaoFinanceira as ComissaoFinanceira
+from app.models.financeiro import ContratacaoServico as ContratacaoServico
+from app.models.financeiro import DepartamentoFinanceiro as DepartamentoFinanceiro
+from app.models.financeiro import ExtratoBancario as ExtratoBancario
+from app.models.financeiro import FormaPagamentoFinanceira as FormaPagamentoFinanceira
+from app.models.financeiro import HistoricoFinanceiro as HistoricoFinanceiro
+from app.models.financeiro import LancamentoFinanceiro as LancamentoFinanceiro
+from app.models.financeiro import NotaFiscalServico as NotaFiscalServico
+from app.models.financeiro import ParcelaFinanceira as ParcelaFinanceira
+from app.models.financeiro import PlanoContas as PlanoContas
+from app.models.financeiro import ReciboFinanceiro as ReciboFinanceiro
+from app.models.financeiro import RenovacaoFinanceira as RenovacaoFinanceira
+from app.models.financeiro import RetribuicaoInpi as RetribuicaoInpi
+from app.models.financeiro import ServicoFinanceiro as ServicoFinanceiro
+from app.models.financeiro import TransacaoBancaria as TransacaoBancaria
+from app.models.financeiro import WebhookFinanceiro as WebhookFinanceiro
 from app.models.juridico import ContratoJuridico as ContratoJuridico
 from app.models.juridico import CustoJuridico as CustoJuridico
 from app.models.juridico import DocumentoEntregaJuridico as DocumentoEntregaJuridico

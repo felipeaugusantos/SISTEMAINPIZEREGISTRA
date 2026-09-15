@@ -4,8 +4,9 @@ antes: nenhum outro módulo do projeto precisa mudar seus imports
 (`from app.models import X` continua funcionando).
 
 Extraído até agora: vigilância, portal do cliente, carteira/processos
-monitorados, enums compartilhados e prospecção. O grosso das classes
-permanece em _core.py até as próximas extrações, uma por vez.
+monitorados, enums compartilhados, prospecção e observabilidade/sistema.
+O grosso das classes permanece em _core.py até as próximas extrações, uma
+por vez.
 
 Nota sobre relationship() entre módulos: SQLAlchemy resolve nomes de classe
 em `Mapped["NomeDaClasse"]` (string) via seu registry compartilhado (o mesmo
@@ -29,6 +30,16 @@ from app.models.carteira import PreCadastroProcesso as PreCadastroProcesso
 from app.models.carteira import ProcessoMonitorado as ProcessoMonitorado
 from app.models.enums import StatusProspect as StatusProspect
 from app.models.enums import TipoAtivoPI as TipoAtivoPI
+from app.models.observabilidade import ControleProducao as ControleProducao
+from app.models.observabilidade import EventoAuditoria as EventoAuditoria
+from app.models.observabilidade import EventoOperacional as EventoOperacional
+from app.models.observabilidade import FeatureFlag as FeatureFlag
+from app.models.observabilidade import FeatureFlagEvento as FeatureFlagEvento
+from app.models.observabilidade import FeatureFlagOrganizacao as FeatureFlagOrganizacao
+from app.models.observabilidade import InteracaoVersaoSistema as InteracaoVersaoSistema
+from app.models.observabilidade import ProblemaVersaoSistema as ProblemaVersaoSistema
+from app.models.observabilidade import ProcessoHeartbeat as ProcessoHeartbeat
+from app.models.observabilidade import VersaoSistema as VersaoSistema
 from app.models.portal_cliente import ArquivoClientePortal as ArquivoClientePortal
 from app.models.portal_cliente import ClientePortal as ClientePortal
 from app.models.portal_cliente import MensagemClientePortal as MensagemClientePortal

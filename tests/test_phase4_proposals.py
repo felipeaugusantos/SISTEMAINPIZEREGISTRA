@@ -15,10 +15,12 @@ from app.api.leads_propostas import (
     atualizar_pagamento_proposta,
     atualizar_status_proposta,
     calcular_pagamento_status_proposta,
+    confirmar_codigo_proposta,
     criar_contratacao_automatica_proposta,
     criar_nova_versao_proposta,
     sincronizar_pagamento_proposta,
 )
+from app.auth import hash_token
 from app.models import (
     AssinaturaPropostaComercial,
     ContratacaoServico,
@@ -168,7 +170,55 @@ def test_aceitar_proposta_publica_ja_aceita_continua_idempotente_mesmo_apos_expi
     assert proposta.public_aceito_em == ja_aceita_em
 
 
-def test_aceitar_proposta_publica_dentro_da_validade_prossegue_com_o_aceite() -> None:
+def _lead_com_email(**kwargs: object) -> Lead:
+    base: dict = {
+        "id": 1,
+        "organizacao_id": 1,
+        "nome": "Cliente",
+        "email": "cliente@example.com",
+        "telefone": "",
+        "marca": "NORTE",
+        "status": StatusLead.PROPOSTA_ENVIADA,
+    }
+    base.update(kwargs)
+    return Lead(**base)
+
+
+def test_aceitar_proposta_publica_dentro_da_validade_envia_codigo_por_email() -> None:
+    """Achado da orientação jurídica (15/09/2026): o clique em "Aceitar"
+    não finaliza mais o aceite direto -- gera e envia um código de 6
+    dígitos como segundo fator, e só isso."""
+    import app.api.leads_propostas as leads_modulo
+
+    codigos_enviados: list[tuple] = []
+
+    async def _enviar_fake(destinatario: str, nome: str, codigo: str, numero: str) -> None:
+        codigos_enviados.append((destinatario, nome, codigo, numero))
+
+    original = leads_modulo.enviar_codigo_confirmacao_proposta
+    leads_modulo.enviar_codigo_confirmacao_proposta = _enviar_fake
+    try:
+        proposta = _proposta_com_token(validade_em=date(2099, 12, 31))
+        lead = _lead_com_email()
+        session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=lead)])
+        resposta = asyncio.run(
+            leads_modulo.aceitar_proposta_publica("token-qualquer", _request_post("/propostas/x/aceitar"), session)
+        )
+    finally:
+        leads_modulo.enviar_codigo_confirmacao_proposta = original
+
+    assert resposta.status_code == 200
+    assert proposta.status == "enviada"
+    assert proposta.public_aceito_em is None
+    assert proposta.codigo_confirmacao_hash is not None
+    assert proposta.codigo_confirmacao_expira_em is not None
+    assert len(codigos_enviados) == 1
+    assert codigos_enviados[0][0] == "cliente@example.com"
+    assinaturas = [obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial)]
+    assert assinaturas == []
+
+
+def test_confirmar_codigo_proposta_com_codigo_certo_finaliza_o_aceite() -> None:
     import app.api.leads_propostas as leads_modulo
 
     async def _avancar_fake(*_args: object, **_kwargs: object) -> bool:
@@ -177,10 +227,17 @@ def test_aceitar_proposta_publica_dentro_da_validade_prossegue_com_o_aceite() ->
     original = leads_modulo.avancar_fase_lead
     leads_modulo.avancar_fase_lead = _avancar_fake
     try:
-        proposta = _proposta_com_token(validade_em=date(2099, 12, 31))
+        proposta = _proposta_com_token(
+            validade_em=date(2099, 12, 31),
+            codigo_confirmacao_hash=hash_token("123456"),
+            codigo_confirmacao_expira_em=datetime.now(UTC) + timedelta(minutes=10),
+            codigo_confirmacao_tentativas=0,
+        )
         session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=None)])
         resposta = asyncio.run(
-            leads_modulo.aceitar_proposta_publica("token-qualquer", _request_post("/propostas/x/aceitar"), session)
+            leads_modulo.confirmar_codigo_proposta(
+                "token-qualquer", _request_post("/propostas/x/confirmar"), session, "123456"
+            )
         )
     finally:
         leads_modulo.avancar_fase_lead = original
@@ -188,8 +245,67 @@ def test_aceitar_proposta_publica_dentro_da_validade_prossegue_com_o_aceite() ->
     assert resposta.status_code == 200
     assert proposta.status == "aceita"
     assert proposta.public_aceito_em is not None
+    assert proposta.codigo_confirmacao_hash is None
     assinaturas = [obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial)]
     assert len(assinaturas) == 1
+    assert assinaturas[0].segundo_fator_canal == "email"
+    assert assinaturas[0].segundo_fator_confirmado_em is not None
+
+
+def test_confirmar_codigo_proposta_com_codigo_errado_incrementa_tentativas() -> None:
+    proposta = _proposta_com_token(
+        validade_em=date(2099, 12, 31),
+        codigo_confirmacao_hash=hash_token("123456"),
+        codigo_confirmacao_expira_em=datetime.now(UTC) + timedelta(minutes=10),
+        codigo_confirmacao_tentativas=0,
+    )
+    session = FakeSession([FakeResult(scalar=proposta)])
+
+    resposta = asyncio.run(
+        confirmar_codigo_proposta("token-qualquer", _request_post("/propostas/x/confirmar"), session, "000000")
+    )
+
+    assert resposta.status_code == 200
+    assert "incorreto" in resposta.body.decode("utf-8").lower()
+    assert proposta.status != "aceita"
+    assert proposta.codigo_confirmacao_tentativas == 1
+    assert session.commits == 1
+
+
+def test_confirmar_codigo_proposta_expirado_e_rejeitado() -> None:
+    proposta = _proposta_com_token(
+        validade_em=date(2099, 12, 31),
+        codigo_confirmacao_hash=hash_token("123456"),
+        codigo_confirmacao_expira_em=datetime.now(UTC) - timedelta(minutes=1),
+        codigo_confirmacao_tentativas=0,
+    )
+    session = FakeSession([FakeResult(scalar=proposta)])
+
+    resposta = asyncio.run(
+        confirmar_codigo_proposta("token-qualquer", _request_post("/propostas/x/confirmar"), session, "123456")
+    )
+
+    assert resposta.status_code == 200
+    assert "expirado" in resposta.body.decode("utf-8").lower()
+    assert proposta.status != "aceita"
+
+
+def test_confirmar_codigo_proposta_bloqueia_apos_maximo_de_tentativas() -> None:
+    proposta = _proposta_com_token(
+        validade_em=date(2099, 12, 31),
+        codigo_confirmacao_hash=hash_token("123456"),
+        codigo_confirmacao_expira_em=datetime.now(UTC) + timedelta(minutes=10),
+        codigo_confirmacao_tentativas=5,
+    )
+    session = FakeSession([FakeResult(scalar=proposta)])
+
+    resposta = asyncio.run(
+        confirmar_codigo_proposta("token-qualquer", _request_post("/propostas/x/confirmar"), session, "123456")
+    )
+
+    assert resposta.status_code == 200
+    assert "tentativas" in resposta.body.decode("utf-8").lower()
+    assert proposta.status != "aceita"
 
 
 def test_visualizar_proposta_publica_exibe_valores_condicoes_e_validade() -> None:
@@ -214,22 +330,23 @@ def test_visualizar_proposta_publica_exibe_valores_condicoes_e_validade() -> Non
 def test_aceitar_proposta_publica_sem_validade_definida_nao_e_bloqueada() -> None:
     import app.api.leads_propostas as leads_modulo
 
-    async def _avancar_fake(*_args: object, **_kwargs: object) -> bool:
-        return True
+    async def _enviar_fake(*_args: object, **_kwargs: object) -> None:
+        return None
 
-    original = leads_modulo.avancar_fase_lead
-    leads_modulo.avancar_fase_lead = _avancar_fake
+    original = leads_modulo.enviar_codigo_confirmacao_proposta
+    leads_modulo.enviar_codigo_confirmacao_proposta = _enviar_fake
     try:
         proposta = _proposta_com_token(validade_em=None)
-        session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=None)])
+        lead = _lead_com_email()
+        session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=lead)])
         resposta = asyncio.run(
             leads_modulo.aceitar_proposta_publica("token-qualquer", _request_post("/propostas/x/aceitar"), session)
         )
     finally:
-        leads_modulo.avancar_fase_lead = original
+        leads_modulo.enviar_codigo_confirmacao_proposta = original
 
     assert resposta.status_code == 200
-    assert proposta.status == "aceita"
+    assert proposta.codigo_confirmacao_hash is not None
 
 
 def _request_patch(path: str) -> Request:
@@ -581,7 +698,7 @@ def test_pagamento_confirmado_encaminha_oportunidade_ao_juridico() -> None:
     )
 
 
-def test_aceitar_proposta_publica_gera_contratacao_automatica() -> None:
+def test_confirmar_codigo_proposta_gera_contratacao_automatica() -> None:
     import app.api.leads_propostas as leads_modulo
 
     async def _avancar_fake(*_args: object, **_kwargs: object) -> bool:
@@ -590,7 +707,12 @@ def test_aceitar_proposta_publica_gera_contratacao_automatica() -> None:
     original = leads_modulo.avancar_fase_lead
     leads_modulo.avancar_fase_lead = _avancar_fake
     try:
-        proposta = _proposta_com_token(validade_em=None)
+        proposta = _proposta_com_token(
+            validade_em=None,
+            codigo_confirmacao_hash=hash_token("123456"),
+            codigo_confirmacao_expira_em=datetime.now(UTC) + timedelta(minutes=10),
+            codigo_confirmacao_tentativas=0,
+        )
         session = FakeSession(
             [
                 FakeResult(scalar=proposta),
@@ -599,7 +721,9 @@ def test_aceitar_proposta_publica_gera_contratacao_automatica() -> None:
             ]
         )
         asyncio.run(
-            leads_modulo.aceitar_proposta_publica("token-qualquer", _request_post("/propostas/x/aceitar"), session)
+            leads_modulo.confirmar_codigo_proposta(
+                "token-qualquer", _request_post("/propostas/x/confirmar"), session, "123456"
+            )
         )
     finally:
         leads_modulo.avancar_fase_lead = original

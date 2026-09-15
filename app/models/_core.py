@@ -1099,6 +1099,15 @@ class PropostaComercial(Base):
     public_token_expira_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     public_aceito_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     public_aceito_ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Dupla validação do aceite (orientação jurídica, 15/09/2026): o clique
+    # no link público sozinho só prova posse do link, não que foi o cliente
+    # de fato -- um código de confirmação por e-mail (canal já cadastrado,
+    # nunca digitado nessa hora) é o segundo fator. Campos transitórios,
+    # limpos depois que o aceite é confirmado.
+    codigo_confirmacao_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    codigo_confirmacao_expira_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    codigo_confirmacao_tentativas: Mapped[int] = mapped_column(Integer, default=0)
+    codigo_confirmacao_enviado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     pagamento_status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
     pagamento_confirmado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     pagamento_confirmado_por_id: Mapped[int | None] = mapped_column(
@@ -1144,6 +1153,11 @@ class AssinaturaPropostaComercial(Base):
     ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     assinado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     provedor: Mapped[str] = mapped_column(String(30), default="interno")
+    # Evidência do segundo fator (dupla validação, orientação jurídica de
+    # 15/09/2026) -- None quando o aceite veio de um provedor que já traz
+    # sua própria validação (ex.: Clicksign).
+    segundo_fator_canal: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    segundo_fator_confirmado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class VersaoDocumentoLead(Base):

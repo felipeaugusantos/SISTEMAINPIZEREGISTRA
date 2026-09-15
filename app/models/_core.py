@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from pgvector.sqlalchemy import Vector
@@ -30,6 +31,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 from app.request_context import request_id_atual
+
+if TYPE_CHECKING:
+    # Classes ja extraidas para outros modulos de app/models/, referenciadas
+    # aqui so como forward reference em Mapped["..."] (resolvida em tempo de
+    # execucao pelo registry do SQLAlchemy, nao por este import -- que existe
+    # so para o ruff/checadores de tipo conseguirem resolver o nome).
+    from app.models.carteira import ProcessoMonitorado
 
 
 class TipoProcesso(StrEnum):

@@ -3,12 +3,23 @@ segura, missão de maturidade técnica). Reexporta tudo com os mesmos nomes de
 antes: nenhum outro módulo do projeto precisa mudar seus imports
 (`from app.models import X` continua funcionando).
 
-Extraído até agora: vigilância e portal do cliente (domínios isolados, sem
-relationship() cruzado com o restante). O grosso das classes permanece em
-_core.py até as próximas extrações, uma por vez.
+Extraído até agora: vigilância, portal do cliente e carteira/processos
+monitorados. O grosso das classes permanece em _core.py até as próximas
+extrações, uma por vez.
+
+Nota sobre relationship() entre módulos: SQLAlchemy resolve nomes de classe
+em `Mapped["NomeDaClasse"]` (string) via seu registry compartilhado (o mesmo
+`Base`), então funciona entre módulos sem import direto -- usado nas
+referências de carteira.py de volta para _core.py (ex: PrazoJuridico). Já
+uma referência sem aspas (ex: `Mapped[Processo]`) exige import real da
+classe no módulo onde a relationship() é declarada -- é o que carteira.py
+faz para `Processo` e `EmpresaCRM`, que continuam em _core.py.
 """
 
 from app.models._core import *  # noqa: F403
+from app.models.carteira import HistoricoEtapaCarteira as HistoricoEtapaCarteira
+from app.models.carteira import PreCadastroProcesso as PreCadastroProcesso
+from app.models.carteira import ProcessoMonitorado as ProcessoMonitorado
 from app.models.portal_cliente import ArquivoClientePortal as ArquivoClientePortal
 from app.models.portal_cliente import ClientePortal as ClientePortal
 from app.models.portal_cliente import MensagemClientePortal as MensagemClientePortal

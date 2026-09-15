@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.api.observabilidade import (
     _erros_por_versao,
     _latencia_por_endpoint,
+    _recursos_host,
     desligar_flag_imediatamente,
     painel_tecnico,
     religar_flag,
@@ -232,6 +233,20 @@ def test_latencia_por_endpoint_sem_dados_devolve_lista_vazia() -> None:
     assert resultado == []
 
 
+def test_recursos_host_devolve_disco_sempre_e_nao_quebra_fora_do_linux() -> None:
+    resultado = _recursos_host()
+
+    assert resultado["disco"]["total_bytes"] > 0
+    assert resultado["disco"]["usado_bytes"] >= 0
+    assert 0 <= resultado["disco"]["percentual_uso"] <= 100
+    assert resultado["cpu"]["nucleos"] >= 1
+    # cpu.carga_* e memoria.* só existem em Linux (leitura de /proc) -- em
+    # qualquer outro SO (ex.: rodando os testes localmente no Windows) o
+    # painel deve mostrar "—" em vez de quebrar.
+    assert set(resultado["cpu"]) == {"carga_1min", "carga_5min", "carga_15min", "nucleos"}
+    assert set(resultado["memoria"]) == {"total_bytes", "disponivel_bytes", "percentual_uso"}
+
+
 def test_desligar_flag_imediatamente_corta_para_todas_as_organizacoes() -> None:
     flag = FeatureFlag(id=1, codigo="nova-busca", nome="Nova busca", ativo=True)
     session = FakeSession([FakeResult(scalar=flag)])
@@ -321,3 +336,4 @@ def test_painel_tecnico_com_dados_vazios_nao_quebra() -> None:
     assert resposta["erros_por_versao"] == []
     assert resposta["latencia_por_endpoint"] == []
     assert resposta["ultimo_deploy"] is None
+    assert resposta["recursos_host"]["disco"]["total_bytes"] > 0

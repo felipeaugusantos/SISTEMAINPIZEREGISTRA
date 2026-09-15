@@ -6,7 +6,7 @@
   <title>Observabilidade — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=63">
   <script src="/static/admin-shell.js?v=50" defer></script>
-  <script src="/static/admin-observabilidade.js?v=4" defer></script>
+  <script src="/static/admin-observabilidade.js?v=5" defer></script>
 </head>
 <body class="admin-body" data-admin-section="observability">
   <main class="admin-main admin-dashboard">
@@ -51,6 +51,11 @@
           <tbody id="painel-tecnico-latencia-rows"></tbody>
         </table>
       </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Infraestrutura</p><h2>Recursos do host</h2><p>CPU, memória e disco da máquina onde a API roda.</p></div></header>
+      <div id="painel-tecnico-recursos" class="observability-detail-grid"></div>
     </section>
 
     <section class="overview-section">

@@ -6,7 +6,7 @@
   <title>Observabilidade — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=63">
   <script src="/static/admin-shell.js?v=50" defer></script>
-  <script src="/static/admin-observabilidade.js?v=3" defer></script>
+  <script src="/static/admin-observabilidade.js?v=4" defer></script>
 </head>
 <body class="admin-body" data-admin-section="observability">
   <main class="admin-main admin-dashboard">
@@ -39,6 +39,16 @@
         <table>
           <thead><tr><th>Versão</th><th>Título</th><th>Implantada em</th><th>Requisições</th><th>Erros</th><th>Taxa de erro</th></tr></thead>
           <tbody id="painel-tecnico-versoes-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Diagnóstico</p><h2>Latência por endpoint (24h)</h2><p>p95 mais alto primeiro — um endpoint lento isolado pode passar despercebido na média geral. Só endpoints com pelo menos 5 requisições na janela.</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Componente</th><th>Operação</th><th>Requisições</th><th>Média (ms)</th><th>p95 (ms)</th><th>Máximo (ms)</th><th>Erros</th></tr></thead>
+          <tbody id="painel-tecnico-latencia-rows"></tbody>
         </table>
       </div>
     </section>

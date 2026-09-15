@@ -5,7 +5,13 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app.api.observabilidade import _erros_por_versao, desligar_flag_imediatamente, painel_tecnico, religar_flag
+from app.api.observabilidade import (
+    _erros_por_versao,
+    _latencia_por_endpoint,
+    desligar_flag_imediatamente,
+    painel_tecnico,
+    religar_flag,
+)
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
@@ -196,6 +202,36 @@ def test_erros_por_versao_sem_requisicoes_nao_divide_por_zero() -> None:
     assert resultado[0]["taxa_erro"] is None
 
 
+def test_latencia_por_endpoint_devolve_campos_formatados() -> None:
+    session = FakeSession(
+        [
+            FakeResult(
+                itens=[
+                    ("api", "GET /v1/admin/relatorios/pesado", 20, 850.333, 4200.0, 5100, 1),
+                ]
+            ),
+        ]
+    )
+
+    resultado = asyncio.run(_latencia_por_endpoint(session))
+
+    assert resultado[0]["componente"] == "api"
+    assert resultado[0]["operacao"] == "GET /v1/admin/relatorios/pesado"
+    assert resultado[0]["requisicoes"] == 20
+    assert resultado[0]["duracao_media_ms"] == 850.3
+    assert resultado[0]["duracao_p95_ms"] == 4200.0
+    assert resultado[0]["duracao_max_ms"] == 5100
+    assert resultado[0]["erros"] == 1
+
+
+def test_latencia_por_endpoint_sem_dados_devolve_lista_vazia() -> None:
+    session = FakeSession([FakeResult(itens=[])])
+
+    resultado = asyncio.run(_latencia_por_endpoint(session))
+
+    assert resultado == []
+
+
 def test_desligar_flag_imediatamente_corta_para_todas_as_organizacoes() -> None:
     flag = FeatureFlag(id=1, codigo="nova-busca", nome="Nova busca", ativo=True)
     session = FakeSession([FakeResult(scalar=flag)])
@@ -271,6 +307,7 @@ def test_painel_tecnico_com_dados_vazios_nao_quebra() -> None:
             FakeResult(scalar=None),  # ultimo deploy
             FakeResult(scalar=None),  # migration atual
             FakeResult(itens=[]),  # versoes publicadas (erros_por_versao)
+            FakeResult(itens=[]),  # latencia_por_endpoint
         ],
         objetos_get=[None],  # RpiSyncEstado
     )
@@ -282,4 +319,5 @@ def test_painel_tecnico_com_dados_vazios_nao_quebra() -> None:
     assert resposta["feature_flags_ativas"] == []
     assert resposta["organizacoes_afetadas"] == []
     assert resposta["erros_por_versao"] == []
+    assert resposta["latencia_por_endpoint"] == []
     assert resposta["ultimo_deploy"] is None

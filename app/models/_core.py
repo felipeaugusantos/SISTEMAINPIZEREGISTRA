@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     # execucao pelo registry do SQLAlchemy, nao por este import -- que existe
     # so para o ruff/checadores de tipo conseguirem resolver o nome).
     from app.models.carteira import ProcessoMonitorado
+    from app.models.marca_busca import PesquisaMarca
 
 
 # Ordem oficial do funil — usada para avançar (nunca retroceder) automaticamente.

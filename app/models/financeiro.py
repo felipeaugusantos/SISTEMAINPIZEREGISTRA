@@ -10,12 +10,14 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -153,6 +155,20 @@ class NotaFiscalServico(Base):
     operador para um lançamento específico."""
 
     __tablename__ = "notas_fiscais_servico"
+    __table_args__ = (
+        # Achado critico da auditoria financeira (15/09/2026): sem isto, duplo
+        # clique/retry apos timeout emitia duas NFS-e reais para o mesmo
+        # lancamento. Indice unico parcial -- so bloqueia quando ja existe uma
+        # nota "emitida"; reemissao apos "erro"/"cancelada" continua permitida
+        # (nao expressavel como UniqueConstraint comum, mesmo padrao de
+        # PoliticaPrivacidade.uq_politica_privacidade_publicada_org).
+        Index(
+            "ux_notas_fiscais_servico_lancamento_emitida",
+            "lancamento_id",
+            unique=True,
+            postgresql_where=text("status = 'emitida'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)

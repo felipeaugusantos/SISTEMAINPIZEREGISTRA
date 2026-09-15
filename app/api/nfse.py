@@ -10,6 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
@@ -76,12 +77,20 @@ async def listar_nfse(session: SessionDep, usuario: ViewDep) -> dict:
 
 @router.post("/emitir", status_code=201)
 async def emitir_nfse(dados: EmitirNfseInput, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
+    # Achado critico da auditoria financeira (15/09/2026): sem lock nem checagem
+    # pre-existente, duplo clique ou retry apos timeout emitia duas NFS-e reais
+    # para o mesmo lancamento. with_for_update() serializa tentativas concorrentes
+    # -- a segunda so continua apos a primeira commitar, e entao enxerga a nota
+    # "emitida" abaixo e recebe 409 sem chamar o adaptador de novo. Mesmo padrao
+    # de lock ja usado em _parcela()/editar_lancamento()/cancelar() (financeiro.py).
     lancamento = (
         await session.execute(
-            select(LancamentoFinanceiro).where(
+            select(LancamentoFinanceiro)
+            .where(
                 LancamentoFinanceiro.id == dados.lancamento_id,
                 LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if lancamento is None:
@@ -90,6 +99,17 @@ async def emitir_nfse(dados: EmitirNfseInput, request: Request, session: Session
         raise HTTPException(422, "Só lançamentos de receita (tipo=receber) podem gerar NFS-e")
     if lancamento.status == "cancelado":
         raise HTTPException(422, "Lançamento cancelado não pode gerar NFS-e")
+
+    nota_existente = (
+        await session.execute(
+            select(NotaFiscalServico.id).where(
+                NotaFiscalServico.lancamento_id == lancamento.id,
+                NotaFiscalServico.status == "emitida",
+            )
+        )
+    ).scalar_one_or_none()
+    if nota_existente is not None:
+        raise HTTPException(409, "Já existe uma NFS-e emitida para este lançamento.")
 
     empresa = await session.get(EmpresaCRM, lancamento.empresa_id) if lancamento.empresa_id else None
     if empresa is None or not empresa.documento:
@@ -137,7 +157,15 @@ async def emitir_nfse(dados: EmitirNfseInput, request: Request, session: Session
         emitida_por=usuario.ator,
     )
     session.add(nota)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        # Rede de seguranca do indice unico parcial (migration 562c64375107) --
+        # so deveria disparar se, por algum motivo, o lock acima nao serializou
+        # (ex.: backend sem suporte a FOR UPDATE em teste). Nunca some sem
+        # explicacao: devolve 409 em vez de deixar o erro de banco vazar.
+        await session.rollback()
+        raise HTTPException(409, "Já existe uma NFS-e emitida para este lançamento.") from None
     _auditar(session, request, usuario, "emitir_nfse", f"nfse:{nota.id}", {"numero": nota.numero})
     await session.commit()
     return {"id": nota.id, "numero": nota.numero, "codigo_verificacao": nota.codigo_verificacao}

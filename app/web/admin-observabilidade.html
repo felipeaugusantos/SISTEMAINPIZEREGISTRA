@@ -6,7 +6,7 @@
   <title>Observabilidade — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=63">
   <script src="/static/admin-shell.js?v=50" defer></script>
-  <script src="/static/admin-observabilidade.js?v=5" defer></script>
+  <script src="/static/admin-observabilidade.js?v=6" defer></script>
 </head>
 <body class="admin-body" data-admin-section="observability">
   <main class="admin-main admin-dashboard">
@@ -49,6 +49,16 @@
         <table>
           <thead><tr><th>Componente</th><th>Operação</th><th>Requisições</th><th>Média (ms)</th><th>p95 (ms)</th><th>Máximo (ms)</th><th>Erros</th></tr></thead>
           <tbody id="painel-tecnico-latencia-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Diagnóstico</p><h2>E-mails rejeitados (24h)</h2><p>Rejeição explícita do servidor SMTP (código 5xx) -- não inclui falha transitória de conexão.</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Operação</th><th>Quantidade</th><th>Última ocorrência</th></tr></thead>
+          <tbody id="painel-tecnico-emails-rejeitados-rows"></tbody>
         </table>
       </div>
     </section>

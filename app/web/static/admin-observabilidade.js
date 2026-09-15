@@ -103,6 +103,15 @@ async function carregarPainelTecnico() {
         </tr>`).join("")
       : `<tr><td colspan="7">Sem endpoints com amostras suficientes nas últimas 24 horas.</td></tr>`;
 
+    const emailsRows = document.querySelector("#painel-tecnico-emails-rejeitados-rows");
+    emailsRows.innerHTML = dados.emails_rejeitados.length
+      ? dados.emails_rejeitados.map((item) => `<tr class="is-erro">
+          <td>${escapeHtmlSeguro(item.operacao)}</td>
+          <td>${item.quantidade}</td>
+          <td>${dataHoraCurta(item.ultima_em)}</td>
+        </tr>`).join("")
+      : `<tr><td colspan="3">Nenhum e-mail rejeitado nas últimas 24 horas.</td></tr>`;
+
     const recursos = dados.recursos_host;
     document.querySelector("#painel-tecnico-recursos").innerHTML = [
       metric(recursos.cpu.carga_1min ?? "—", "Carga média (1 min)", `${recursos.cpu.nucleos ?? "—"} núcleos · 5 min: ${recursos.cpu.carga_5min ?? "—"} · 15 min: ${recursos.cpu.carga_15min ?? "—"}`),

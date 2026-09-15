@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.observabilidade import (
+    _emails_rejeitados_24h,
     _erros_por_versao,
     _latencia_por_endpoint,
     _recursos_host,
@@ -247,6 +248,25 @@ def test_recursos_host_devolve_disco_sempre_e_nao_quebra_fora_do_linux() -> None
     assert set(resultado["memoria"]) == {"total_bytes", "disponivel_bytes", "percentual_uso"}
 
 
+def test_emails_rejeitados_24h_agrupa_por_operacao() -> None:
+    ultima_em = datetime.now(UTC) - timedelta(hours=1)
+    session = FakeSession([FakeResult(itens=[("recuperacao_senha", 3, ultima_em)])])
+
+    resultado = asyncio.run(_emails_rejeitados_24h(session))
+
+    assert resultado[0]["operacao"] == "recuperacao_senha"
+    assert resultado[0]["quantidade"] == 3
+    assert resultado[0]["ultima_em"] == ultima_em
+
+
+def test_emails_rejeitados_24h_sem_dados_devolve_lista_vazia() -> None:
+    session = FakeSession([FakeResult(itens=[])])
+
+    resultado = asyncio.run(_emails_rejeitados_24h(session))
+
+    assert resultado == []
+
+
 def test_desligar_flag_imediatamente_corta_para_todas_as_organizacoes() -> None:
     flag = FeatureFlag(id=1, codigo="nova-busca", nome="Nova busca", ativo=True)
     session = FakeSession([FakeResult(scalar=flag)])
@@ -323,6 +343,7 @@ def test_painel_tecnico_com_dados_vazios_nao_quebra() -> None:
             FakeResult(scalar=None),  # migration atual
             FakeResult(itens=[]),  # versoes publicadas (erros_por_versao)
             FakeResult(itens=[]),  # latencia_por_endpoint
+            FakeResult(itens=[]),  # emails_rejeitados
         ],
         objetos_get=[None],  # RpiSyncEstado
     )
@@ -337,3 +358,4 @@ def test_painel_tecnico_com_dados_vazios_nao_quebra() -> None:
     assert resposta["latencia_por_endpoint"] == []
     assert resposta["ultimo_deploy"] is None
     assert resposta["recursos_host"]["disco"]["total_bytes"] > 0
+    assert resposta["emails_rejeitados"] == []

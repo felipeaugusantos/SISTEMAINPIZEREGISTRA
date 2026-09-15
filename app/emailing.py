@@ -3,14 +3,54 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import os
 import smtplib
 import ssl
 from email.message import EmailMessage
 from urllib.parse import quote
 
+from app.database import session_factory
+from app.models import EventoOperacional
 from app.settings import Settings, get_settings
 
 logger = logging.getLogger("ze_registra.emailing")
+
+# Achado do indicador "e-mails rejeitados", pendente em
+# docs/slo-e-criterios-incidente.md (Fase 6). Sem webhook de provedor, a
+# única confirmação de rejeição disponível é o próprio SMTP recusando a
+# mensagem na hora do envio (SMTPResponseException e subclasses -- código
+# 5xx -- ou SMTPRecipientsRefused, todos os destinatários recusados). Erro
+# de timeout/conexão (SMTPServerDisconnected, TimeoutError, OSError) é
+# falha transitória, não rejeição, e não é contado aqui.
+_ERROS_REJEICAO_SMTP = (smtplib.SMTPResponseException, smtplib.SMTPRecipientsRefused)
+
+
+async def _registrar_email_rejeitado(operacao: str, exc: Exception) -> None:
+    """Reaproveita EventoOperacional (componente="email"), a mesma tabela que
+    já alimenta o painel técnico, em vez de criar uma tabela nova. Abre
+    sessão própria porque emailing.py é chamado tanto de dentro de uma
+    requisição HTTP quanto do worker em segundo plano, sem sessão
+    compartilhada disponível (mesmo padrão de app.observability._registrar)."""
+    if not isinstance(exc, _ERROS_REJEICAO_SMTP):
+        return
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    try:
+        async with session_factory() as session:
+            session.add(
+                EventoOperacional(
+                    componente="email",
+                    operacao=operacao,
+                    sucesso=False,
+                    duracao_ms=0,
+                    status_http=0,
+                    codigo_erro=type(exc).__name__,
+                    detalhes={"mensagem": str(exc)[:300]},
+                )
+            )
+            await session.commit()
+    except Exception:
+        logger.exception("Falha ao registrar e-mail rejeitado (operacao=%s)", operacao)
 
 
 def _link_recuperacao(settings: Settings, token: str) -> str:
@@ -103,6 +143,7 @@ async def enviar_recuperacao_senha(destinatario: str, nome: str, token: str) -> 
             if tentativa < settings.smtp_max_attempts:
                 await asyncio.sleep(min(2 ** (tentativa - 1), 4))
     if ultimo_erro is not None:
+        await _registrar_email_rejeitado("recuperacao_senha", ultimo_erro)
         raise ultimo_erro
 
 
@@ -165,6 +206,7 @@ async def enviar_confirmacao_exclusao(destinatario: str, token: str) -> None:
             if tentativa < settings.smtp_max_attempts:
                 await asyncio.sleep(min(2 ** (tentativa - 1), 4))
     if ultimo_erro is not None:
+        await _registrar_email_rejeitado("confirmacao_exclusao", ultimo_erro)
         raise ultimo_erro
 
 
@@ -230,6 +272,7 @@ async def enviar_passo_cadencia(
             if tentativa < settings.smtp_max_attempts:
                 await asyncio.sleep(min(2 ** (tentativa - 1), 4))
     if ultimo_erro is not None:
+        await _registrar_email_rejeitado("passo_cadencia", ultimo_erro)
         raise ultimo_erro
 
 
@@ -246,7 +289,11 @@ async def enviar_recuperacao_portal(destinatario: str, nome: str, token: str) ->
     mensagem.set_content(
         f"Olá, {nome or 'cliente'}.\n\nAcesse o portal para redefinir seu acesso:\n{link}\n\nO link expira em 30 minutos e pode ser usado uma única vez."
     )
-    await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+    try:
+        await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+    except Exception as exc:
+        await _registrar_email_rejeitado("recuperacao_portal", exc)
+        raise
 
 
 async def enviar_alerta_novo_lead(nome: str, email: str, telefone: str, marca: str, origem: str) -> None:
@@ -273,9 +320,10 @@ async def enviar_alerta_novo_lead(nome: str, email: str, telefone: str, marca: s
     )
     try:
         await asyncio.to_thread(_enviar_smtp, mensagem, settings)
-    except Exception:
+    except Exception as exc:
         # Falha de e-mail não deve impedir a criação do lead nem derrubar a
         # requisição do cliente -- o painel continua sendo a fonte de verdade.
+        await _registrar_email_rejeitado("alerta_novo_lead", exc)
         logger.exception("Falha ao enviar alerta de novo lead por e-mail")
 
 
@@ -301,7 +349,8 @@ async def enviar_alerta_lead_atribuido(
     )
     try:
         await asyncio.to_thread(_enviar_smtp, mensagem, settings)
-    except Exception:
+    except Exception as exc:
+        await _registrar_email_rejeitado("alerta_lead_atribuido", exc)
         logger.exception("Falha ao enviar alerta de lead atribuído por e-mail")
 
 
@@ -329,7 +378,8 @@ async def enviar_alerta_atividades_atrasadas(
     )
     try:
         await asyncio.to_thread(_enviar_smtp, mensagem, settings)
-    except Exception:
+    except Exception as exc:
+        await _registrar_email_rejeitado("alerta_atividades_atrasadas", exc)
         logger.exception("Falha ao enviar alerta de atividades atrasadas por e-mail")
 
 
@@ -355,9 +405,10 @@ async def enviar_alerta_nova_pesquisa(marca: str, nome_lead: str, empresa: str |
     )
     try:
         await asyncio.to_thread(_enviar_smtp, mensagem, settings)
-    except Exception:
+    except Exception as exc:
         # Falha de e-mail não deve impedir a criação da pesquisa nem derrubar a
         # requisição do cliente; a central de notificações do painel já cobre o alerta.
+        await _registrar_email_rejeitado("alerta_nova_pesquisa", exc)
         logger.exception("Falha ao enviar alerta de nova pesquisa por e-mail")
 
 
@@ -387,6 +438,7 @@ async def enviar_proposta_email(destinatario: str, nome: str, link: str, pdf_byt
             if tentativa < settings.smtp_max_attempts:
                 await asyncio.sleep(min(2 ** (tentativa - 1), 4))
     if ultimo_erro is not None:
+        await _registrar_email_rejeitado("proposta", ultimo_erro)
         raise ultimo_erro
 
 
@@ -418,6 +470,7 @@ async def enviar_email_prospeccao_lead(
             if tentativa < settings.smtp_max_attempts:
                 await asyncio.sleep(min(2 ** (tentativa - 1), 4))
     if ultimo_erro is not None:
+        await _registrar_email_rejeitado("prospeccao_lead", ultimo_erro)
         raise ultimo_erro
 
 
@@ -445,7 +498,8 @@ async def enviar_alerta_prazo_juridico(destinatario: str, titulo: str, mensagem_
     )
     try:
         await asyncio.to_thread(_enviar_smtp, mensagem, settings)
-    except Exception:
+    except Exception as exc:
+        await _registrar_email_rejeitado("alerta_prazo_juridico", exc)
         logger.exception("Falha ao enviar alerta de prazo jurídico por e-mail")
 
 
@@ -469,5 +523,6 @@ async def enviar_alerta_plataforma(codigo: str, severidade: str, mensagem_texto:
     mensagem.set_content(mensagem_texto)
     try:
         await asyncio.to_thread(_enviar_smtp, mensagem, settings)
-    except Exception:
+    except Exception as exc:
+        await _registrar_email_rejeitado("alerta_plataforma", exc)
         logger.exception("Falha ao enviar alerta de plataforma por e-mail (codigo=%s)", codigo)

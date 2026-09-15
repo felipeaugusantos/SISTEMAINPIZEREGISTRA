@@ -488,6 +488,35 @@ def _recursos_host() -> dict:
     return {"cpu": cpu, "memoria": memoria, "disco": disco}
 
 
+async def _emails_rejeitados_24h(session: AsyncSession) -> list[dict]:
+    """Último indicador de infraestrutura pendente em
+    `docs/slo-e-criterios-incidente.md` (Fase 6): conta os EventoOperacional
+    (componente="email", sucesso=False) que `app.emailing._registrar_email_rejeitado`
+    grava quando o SMTP recusa a mensagem de vez (código 5xx) -- não inclui
+    falha transitória de conexão/timeout, que não é uma rejeição."""
+    desde = datetime.now(UTC) - timedelta(hours=24)
+    linhas = (
+        await session.execute(
+            select(
+                EventoOperacional.operacao,
+                func.count(),
+                func.max(EventoOperacional.criado_em),
+            )
+            .where(
+                EventoOperacional.componente == "email",
+                EventoOperacional.sucesso.is_(False),
+                EventoOperacional.criado_em >= desde,
+            )
+            .group_by(EventoOperacional.operacao)
+            .order_by(func.count().desc())
+        )
+    ).all()
+    return [
+        {"operacao": operacao, "quantidade": int(quantidade), "ultima_em": ultima_em}
+        for operacao, quantidade, ultima_em in linhas
+    ]
+
+
 @router.get("/observabilidade/painel-tecnico")
 async def painel_tecnico(session: SessionDep, usuario: TechDep) -> dict:
     _exigir_acesso_tech(usuario)
@@ -554,6 +583,7 @@ async def painel_tecnico(session: SessionDep, usuario: TechDep) -> dict:
         "erros_por_versao": await _erros_por_versao(session),
         "latencia_por_endpoint": await _latencia_por_endpoint(session),
         "recursos_host": _recursos_host(),
+        "emails_rejeitados": await _emails_rejeitados_24h(session),
         "feature_flags_ativas": [
             {
                 "codigo": flag.codigo,

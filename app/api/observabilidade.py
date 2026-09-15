@@ -335,6 +335,8 @@ async def listar_eventos_operacionais(
 
 LIMIAR_HEARTBEAT_WORKER_SEGUNDOS = 90
 QUANTIDADE_VERSOES_PAINEL = 5
+QUANTIDADE_ENDPOINTS_LATENCIA_PAINEL = 10
+MINIMO_REQUISICOES_LATENCIA_ENDPOINT = 5
 
 
 async def _saude_worker(session: AsyncSession) -> dict:
@@ -395,6 +397,46 @@ async def _erros_por_versao(session: AsyncSession) -> list[dict]:
         )
         fim_janela = inicio_janela
     return resultado
+
+
+async def _latencia_por_endpoint(session: AsyncSession) -> list[dict]:
+    """Achado da Fase 6 da missão de maturidade técnica (`docs/slo-e-criterios-incidente.md`,
+    seção "O que ainda não tem SLO formal"): o p95 já existia (app/api/producao.py),
+    mas só agregado -- um endpoint lento isolado passa despercebido enquanto a
+    média/p95 geral continua saudável. Agrupa por componente+operação nas
+    últimas 24h, ordenado pelo p95 mais alto primeiro; exclui endpoints com
+    poucas amostras (p95 de 2-3 chamadas não é representativo)."""
+    desde = datetime.now(UTC) - timedelta(hours=24)
+    linhas = (
+        await session.execute(
+            select(
+                EventoOperacional.componente,
+                EventoOperacional.operacao,
+                func.count(),
+                func.avg(EventoOperacional.duracao_ms),
+                func.percentile_cont(0.95).within_group(EventoOperacional.duracao_ms),
+                func.max(EventoOperacional.duracao_ms),
+                func.sum(case((EventoOperacional.sucesso.is_(False), 1), else_=0)),
+            )
+            .where(EventoOperacional.criado_em >= desde)
+            .group_by(EventoOperacional.componente, EventoOperacional.operacao)
+            .having(func.count() >= MINIMO_REQUISICOES_LATENCIA_ENDPOINT)
+            .order_by(func.percentile_cont(0.95).within_group(EventoOperacional.duracao_ms).desc())
+            .limit(QUANTIDADE_ENDPOINTS_LATENCIA_PAINEL)
+        )
+    ).all()
+    return [
+        {
+            "componente": componente,
+            "operacao": operacao,
+            "requisicoes": int(requisicoes),
+            "duracao_media_ms": round(float(duracao_media or 0), 1),
+            "duracao_p95_ms": round(float(p95 or 0), 1),
+            "duracao_max_ms": int(duracao_max or 0),
+            "erros": int(erros or 0),
+        }
+        for componente, operacao, requisicoes, duracao_media, p95, duracao_max, erros in linhas
+    ]
 
 
 @router.get("/observabilidade/painel-tecnico")
@@ -461,6 +503,7 @@ async def painel_tecnico(session: SessionDep, usuario: TechDep) -> dict:
         },
         "migration_atual": await _migration_atual(session),
         "erros_por_versao": await _erros_por_versao(session),
+        "latencia_por_endpoint": await _latencia_por_endpoint(session),
         "feature_flags_ativas": [
             {
                 "codigo": flag.codigo,

@@ -90,6 +90,19 @@ async function carregarPainelTecnico() {
         </tr>`).join("")
       : `<tr><td colspan="6">Nenhuma versão publicada ainda.</td></tr>`;
 
+    const latenciaRows = document.querySelector("#painel-tecnico-latencia-rows");
+    latenciaRows.innerHTML = dados.latencia_por_endpoint.length
+      ? dados.latencia_por_endpoint.map((item) => `<tr class="${item.duracao_p95_ms > 2000 ? "is-erro" : ""}">
+          <td>${escapeHtmlSeguro(item.componente)}</td>
+          <td>${escapeHtmlSeguro(item.operacao)}</td>
+          <td>${item.requisicoes}</td>
+          <td>${item.duracao_media_ms}</td>
+          <td>${item.duracao_p95_ms}</td>
+          <td>${item.duracao_max_ms}</td>
+          <td>${item.erros}</td>
+        </tr>`).join("")
+      : `<tr><td colspan="7">Sem endpoints com amostras suficientes nas últimas 24 horas.</td></tr>`;
+
     const orgRows = document.querySelector("#painel-tecnico-organizacoes-rows");
     orgRows.innerHTML = dados.organizacoes_afetadas.length
       ? dados.organizacoes_afetadas.map((item) => `<tr>

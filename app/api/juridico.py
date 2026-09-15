@@ -2021,7 +2021,20 @@ async def _reconciliar_prazos_terminais(
     organizacao_id: int,
     ator: str,
 ) -> tuple[int, dict[int, Movimentacao]]:
-    """Encerra tarefas automáticas invalidadas por um despacho posterior da RPI."""
+    """Sinaliza prazos automáticos possivelmente invalidados por um despacho
+    posterior da RPI, para revisão humana.
+
+    Achado crítico da auditoria jurídica (15/09/2026): esta função fechava o
+    prazo diretamente (status=status_final, confirmado=True) só com base numa
+    classificação por regex sobre o texto da RPI -- violava a regra da missão
+    de nunca alterar uma decisão jurídica sem revisão humana (confirmado=True
+    significa "revisado por humano" em todo o resto do módulo, mas nunca
+    passava por confirmado_por_id/confirmacao_origem). Um despacho com
+    redação ambígua que casasse por acaso com a regex fechava um prazo ativo
+    sozinho, sem ninguém revisar. Agora só sinaliza a sugestão (mesmo padrão
+    já usado -- e correto -- na criação de prazos pelo motor, ver
+    executar_motor_organizacao): o prazo fica "aguardando_confirmacao" até um
+    humano confirmar via PATCH /prazos/{id} com confirmar=True."""
     pendencias = (
         await session.execute(
             select(PrazoJuridico, Movimentacao)
@@ -2035,7 +2048,6 @@ async def _reconciliar_prazos_terminais(
     ).all()
     processo_ids = {origem.processo_id for _prazo, origem in pendencias}
     terminais = await _terminais_dos_processos(session, processo_ids)
-    agora = datetime.now(UTC)
     reconciliados: list[PrazoJuridico] = []
     motor_usuario = SimpleNamespace(organizacao_id=organizacao_id, ator=ator)
     for prazo, origem in pendencias:
@@ -2046,43 +2058,23 @@ async def _reconciliar_prazos_terminais(
         if classificacao is None:
             continue
         status_final, motivo = classificacao
-        prazo.status = status_final
-        prazo.confirmado = True
-        prazo.concluido_em = agora
-        prazo.concluido_por = ator
+        prazo.status = "aguardando_confirmacao"
+        prazo.confirmado = False
         reconciliados.append(prazo)
         _evento(
             session,
             motor_usuario,
             prazo.processo_monitorado_id,
             "prazo_reconciliado",
-            f"{motivo} (RPI {terminal.numero_rpi})",
+            f"Sugestão do motor: {motivo} (RPI {terminal.numero_rpi}) -- aguarda confirmação humana",
             prazo.id,
             {
                 "movimentacao_origem_id": origem.id,
                 "movimentacao_terminal_id": terminal.id,
                 "rpi_terminal": terminal.numero_rpi,
-                "status_final": status_final,
+                "status_sugerido": status_final,
             },
         )
-    if reconciliados:
-        notificacoes = (
-            (
-                await session.execute(
-                    select(NotificacaoJuridica).where(
-                        NotificacaoJuridica.organizacao_id == organizacao_id,
-                        NotificacaoJuridica.prazo_id.in_([prazo.id for prazo in reconciliados]),
-                        NotificacaoJuridica.status != "arquivada",
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for notificacao in notificacoes:
-            notificacao.status = "arquivada"
-            notificacao.lida_em = agora
-            notificacao.lida_por = ator
     return len(reconciliados), terminais
 
 

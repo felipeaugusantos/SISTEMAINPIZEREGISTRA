@@ -21,10 +21,11 @@ from app.database import Base
 from app.models._core import EmpresaCRM, Processo
 
 if TYPE_CHECKING:
-    # Ainda em _core.py, referenciadas aqui so como forward reference em
-    # Mapped["..."] (resolvida em tempo de execucao pelo registry do
-    # SQLAlchemy -- este import existe so para o ruff/checadores de tipo).
-    from app.models._core import Lead, PrazoJuridico, UsuarioOperacoes
+    # Referenciadas aqui so como forward reference em Mapped["..."]
+    # (resolvida em tempo de execucao pelo registry do SQLAlchemy -- este
+    # import existe so para o ruff/checadores de tipo).
+    from app.models._core import Lead, UsuarioOperacoes
+    from app.models.juridico import PrazoJuridico
 
 
 class ProcessoMonitorado(Base):

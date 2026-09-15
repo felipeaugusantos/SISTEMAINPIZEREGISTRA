@@ -49,10 +49,13 @@ source = ["app"]
 branch = true
 
 [tool.coverage.report]
-# So relatorio por enquanto (Fase 2 da reanalise, 12/09/2026) -- sem
-# --cov-fail-under no CI ainda, precisa de uma medicao real primeiro pra
-# saber que limiar faz sentido sem travar o pipeline sem necessidade.
 skip_empty = true
+# Medicao real em 14/09/2026 (CI run 34886187498): 67% combinado (linhas +
+# branches), 1330 testes. Piso inicial deliberadamente abaixo do medido
+# (Fase 3 da missao de maturidade tecnica: "limite global inicial seguro",
+# nao arbitrario) para nao travar o pipeline por ruido -- so impede regressao
+# grande. Deve subir gradualmente conforme a cobertura cresce.
+fail_under = 65
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

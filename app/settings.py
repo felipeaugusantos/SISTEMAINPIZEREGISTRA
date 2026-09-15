@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     # FASE6-11) cobre um atraso ocasional sem gerar alerta a cada execução.
     backups_dir: str = "/app/backups"
     alerta_backup_max_horas: float = 26.0
+    # Fase 3 (notificações e confirmação de leitura): tempo de tolerância
+    # antes de lembrar (via app.avisos_versao) as organizações com usuários
+    # que ainda não confirmaram um AvisoVersao crítico.
+    aviso_critico_lembrete_horas: float = 24.0
     # Achado FASE6-13 da auditoria (04/09/2026): varredura de malware nos
     # uploads do portal do cliente (app/api/portal_cliente.py). Desligado
     # por padrão -- só liga quando o serviço clamav estiver disponível

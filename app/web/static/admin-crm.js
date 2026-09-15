@@ -116,7 +116,7 @@ function renderCustomerAlerts(items) {
 function renderReminders(data) {
   crmState.canManage = data.acoes.gerenciar; renderReminderMetrics(data.metricas); renderCustomerAlerts(data.cadastros_para_atualizar);
   document.querySelector("#new-reminder").hidden = !crmState.canManage;
-  document.querySelector("#crm-reminders").innerHTML = data.itens.length ? data.itens.map(item => `<article class="crm-reminder ${item.vencido ? "overdue" : ""} priority-${esc(item.prioridade)}"><div><span class="crm-reminder-type">${esc(item.tipo_nome)}</span><h3>${esc(item.titulo)}</h3><p>${esc(item.cliente)}${item.empresa ? ` · ${esc(item.empresa)}` : ""}</p>${item.descricao ? `<small>${esc(item.descricao)}</small>` : ""}</div><div class="crm-reminder-due"><span>${item.vencido ? "Vencido" : "Alerta"}</span><strong>${dateTime.format(new Date(item.lembrar_em))}</strong><small>${esc(item.responsavel || "Não atribuído")} · prioridade ${esc(item.prioridade)}</small></div>${crmState.canManage && item.status === "pendente" ? `<div class="crm-reminder-actions"><button class="primary-button complete-reminder" data-id="${item.id}" type="button">Concluir</button><button class="secondary-button postpone-reminder" data-id="${item.id}" type="button">Adiar 1 dia</button><button class="text-button cancel-reminder-item" data-id="${item.id}" type="button">Cancelar</button></div>` : `<span class="crm-reminder-state">${esc(item.status)}</span>`}</article>`).join("") : `<div class="crm-empty"><strong>Nenhum lembrete neste filtro.</strong><p>Crie alertas para que retornos e tarefas não dependam da memória da equipe.</p></div>`;
+  document.querySelector("#crm-reminders").innerHTML = data.itens.length ? data.itens.map(item => `<article class="crm-reminder ${item.vencido ? "overdue" : ""} priority-${esc(item.prioridade)}"><div><span class="crm-reminder-type">${esc(item.tipo_nome)}</span><h3>${esc(item.titulo)}</h3><p>${esc(item.cliente)}${item.empresa ? ` · ${esc(item.empresa)}` : ""}</p>${item.descricao ? `<small>${esc(item.descricao)}</small>` : ""}${item.motivo_adiamento ? `<small class="crm-reminder-motivo">Adiado: ${esc(item.motivo_adiamento)}</small>` : ""}</div><div class="crm-reminder-due"><span>${item.vencido ? "Vencido" : "Alerta"}</span><strong>${dateTime.format(new Date(item.lembrar_em))}</strong><small>${esc(item.responsavel || "Não atribuído")} · prioridade ${esc(item.prioridade)}</small></div>${crmState.canManage && item.status === "pendente" ? `<div class="crm-reminder-actions"><button class="primary-button complete-reminder" data-id="${item.id}" type="button">Concluir</button><button class="secondary-button postpone-reminder" data-id="${item.id}" type="button">Adiar 1 dia</button><button class="text-button cancel-reminder-item" data-id="${item.id}" type="button">Cancelar</button></div>` : `<span class="crm-reminder-state">${esc(item.status)}</span>`}</article>`).join("") : `<div class="crm-empty"><strong>Nenhum lembrete neste filtro.</strong><p>Crie alertas para que retornos e tarefas não dependam da memória da equipe.</p></div>`;
 }
 async function loadReminders() { renderReminders(await api(`/v1/admin/crm/lembretes?${reminderParams()}`)); }
 
@@ -164,7 +164,11 @@ document.querySelector("#crm-customer-alerts").addEventListener("click", event =
 document.querySelector("#crm-reminders").addEventListener("click", event => {
   const complete = event.target.closest(".complete-reminder"), postpone = event.target.closest(".postpone-reminder"), cancel = event.target.closest(".cancel-reminder-item");
   if (complete) updateReminder(complete.dataset.id, { status: "concluido" }).catch(error => show(error.message));
-  if (postpone) updateReminder(postpone.dataset.id, { lembrar_em: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), status: "pendente" }).catch(error => show(error.message));
+  if (postpone) {
+    const motivo = prompt("Motivo do adiamento:");
+    if (!motivo || !motivo.trim()) return;
+    updateReminder(postpone.dataset.id, { lembrar_em: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), status: "pendente", motivo_adiamento: motivo.trim() }).catch(error => show(error.message));
+  }
   if (cancel) updateReminder(cancel.dataset.id, { status: "cancelado" }).catch(error => show(error.message));
 });
 reminderForm.addEventListener("submit", async event => {

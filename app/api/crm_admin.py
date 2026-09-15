@@ -287,6 +287,9 @@ class LembreteUpdate(BaseModel):
     responsavel_id: int | None = Field(default=None, ge=1)
     prioridade: Literal["baixa", "media", "alta"] | None = None
     lembrar_em: datetime | None = None
+    # Exigido pelo endpoint quando lembrar_em é enviado (ver atualizar_lembrete)
+    # -- hoje só o botão "Adiar 1 dia" reagenda um lembrete já existente.
+    motivo_adiamento: str | None = Field(default=None, max_length=300)
 
 
 def _auditar_lembrete(
@@ -358,6 +361,7 @@ def _serializar_lembrete(item: LembreteCRM) -> dict:
         "titulo": item.titulo,
         "descricao": item.descricao,
         "lembrar_em": item.lembrar_em,
+        "motivo_adiamento": item.motivo_adiamento,
         "status": item.status,
         "vencido": item.status == "pendente" and item.lembrar_em < datetime.now(UTC),
         "criado_por": item.criado_por,
@@ -516,7 +520,14 @@ async def atualizar_lembrete(
     if dados.prioridade is not None:
         item.prioridade = dados.prioridade
     if dados.lembrar_em is not None:
+        # Achado do usuário (15/09/2026): reagendar sem motivo escondia por
+        # que o lembrete foi adiado -- hoje só o botão "Adiar 1 dia" chega
+        # aqui, então exigir o motivo não quebra nenhum outro fluxo.
+        motivo = (dados.motivo_adiamento or "").strip()
+        if not motivo:
+            raise HTTPException(status_code=422, detail="Informe o motivo do adiamento")
         item.lembrar_em = dados.lembrar_em
+        item.motivo_adiamento = motivo
     if dados.status is not None:
         item.status = dados.status
         if dados.status == "concluido":

@@ -1,7 +1,13 @@
+import asyncio
+import smtplib
 from email.message import EmailMessage
 
-from app.emailing import _enviar_smtp, _link_recuperacao, _mensagem_recuperacao
+import pytest
+
+from app.emailing import _enviar_smtp, _link_recuperacao, _mensagem_recuperacao, _registrar_email_rejeitado
+from app.models import EventoOperacional
 from app.settings import Settings
+from tests.conftest import FakeSession
 
 
 def configuracao_email() -> Settings:
@@ -71,3 +77,55 @@ def test_envio_smtp_sem_tls_nem_autenticacao(monkeypatch) -> None:
         ("enviar", "enzo@example.test"),
         ("fechar",),
     ]
+
+
+# --- Indicador "e-mails rejeitados" (Fase 6, docs/slo-e-criterios-incidente.md):
+# _registrar_email_rejeitado só grava quando o SMTP recusa a mensagem de vez
+# (5xx) -- erro transitório de conexão/timeout não é uma rejeição. ---
+
+
+class _SessionFactoryFalsa:
+    """Espelha o `async with session_factory() as session` usado por
+    _registrar_email_rejeitado -- FakeSession não é um gerenciador de
+    contexto assíncrono por padrão (é injetada via dependência HTTP nos
+    outros testes), então este teste monta um mínimo."""
+
+    def __init__(self, session: FakeSession) -> None:
+        self.session = session
+
+    def __call__(self) -> "_SessionFactoryFalsa":
+        return self
+
+    async def __aenter__(self) -> FakeSession:
+        return self.session
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+
+def test_registrar_email_rejeitado_grava_em_rejeicao_smtp_explicita(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeSession()
+    monkeypatch.setattr("app.emailing.session_factory", _SessionFactoryFalsa(session))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    erro = smtplib.SMTPRecipientsRefused({"destino@example.test": (550, b"Mailbox unavailable")})
+
+    asyncio.run(_registrar_email_rejeitado("recuperacao_senha", erro))
+
+    assert session.commits == 1
+    evento = session.adicionados[0]
+    assert isinstance(evento, EventoOperacional)
+    assert evento.componente == "email"
+    assert evento.operacao == "recuperacao_senha"
+    assert evento.sucesso is False
+    assert evento.codigo_erro == "SMTPRecipientsRefused"
+
+
+def test_registrar_email_rejeitado_ignora_erro_transitorio(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeSession()
+    monkeypatch.setattr("app.emailing.session_factory", _SessionFactoryFalsa(session))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+    asyncio.run(_registrar_email_rejeitado("recuperacao_senha", TimeoutError("conexao expirou")))
+
+    assert session.commits == 0
+    assert session.adicionados == []

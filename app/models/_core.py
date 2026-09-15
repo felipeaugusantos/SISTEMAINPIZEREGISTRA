@@ -1247,6 +1247,11 @@ class LembreteCRM(Base):
     descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
     lembrar_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    # Achado do usuário (15/09/2026): "Adiar 1 dia" empurrava lembrar_em sem
+    # registrar por quê -- guarda só o motivo do último adiamento (o
+    # histórico completo de quem/quando já fica em EventoAuditoria via
+    # _auditar_lembrete, não precisa duplicar aqui).
+    motivo_adiamento: Mapped[str | None] = mapped_column(Text, nullable=True)
     criado_por_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
     )

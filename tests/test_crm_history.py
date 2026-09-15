@@ -217,10 +217,84 @@ def test_atualizar_lembrete_traduz_conflito_de_integridade_em_mensagem_clara() -
     try:
         resposta = TestClient(app).patch(
             "/v1/admin/crm/lembretes/2557",
-            json={"lembrar_em": "2026-09-15T17:50:14.346Z", "status": "pendente"},
+            json={
+                "lembrar_em": "2026-09-15T17:50:14.346Z",
+                "status": "pendente",
+                "motivo_adiamento": "Cliente pediu para retomar amanhã",
+            },
             headers={"X-CSRF-Token": "csrf-teste"},
         )
     finally:
         app.dependency_overrides.clear()
     assert resposta.status_code == 409
     assert "conflito" in resposta.json()["detail"].lower()
+
+
+def test_adiar_lembrete_sem_motivo_retorna_422() -> None:
+    """Achado do usuário (15/09/2026): "Adiar 1 dia" empurrava lembrar_em
+    sem nunca registrar por quê -- o endpoint agora exige o motivo sempre
+    que lembrar_em é enviado."""
+    _, lead = _registros()
+    lembrete = LembreteCRM(
+        id=2557,
+        organizacao_id=1,
+        lead_id=lead.id,
+        tipo="retorno",
+        prioridade="alta",
+        titulo="Oportunidade parada — retomar contato",
+        lembrar_em=datetime(2026, 9, 9, tzinfo=UTC),
+        status="pendente",
+        criado_por="Automação (reengajamento por inatividade)",
+    )
+    lembrete.lead = lead
+    lembrete.responsavel = None
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lembrete))
+    usuario = usuario_teste("operador", {"crm.view", "crm.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).patch(
+            "/v1/admin/crm/lembretes/2557",
+            json={"lembrar_em": "2026-09-16T15:50:14.346Z", "status": "pendente"},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 422
+    assert "motivo" in resposta.json()["detail"].lower()
+
+
+def test_adiar_lembrete_com_motivo_persiste_e_devolve_no_serializador() -> None:
+    _, lead = _registros()
+    lembrete = LembreteCRM(
+        id=2557,
+        organizacao_id=1,
+        lead_id=lead.id,
+        tipo="retorno",
+        prioridade="alta",
+        titulo="Oportunidade parada — retomar contato",
+        lembrar_em=datetime(2026, 9, 9, tzinfo=UTC),
+        status="pendente",
+        criado_por="Automação (reengajamento por inatividade)",
+    )
+    lembrete.lead = lead
+    lembrete.responsavel = None
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lembrete))
+    usuario = usuario_teste("operador", {"crm.view", "crm.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).patch(
+            "/v1/admin/crm/lembretes/2557",
+            json={
+                "lembrar_em": "2026-09-16T15:50:14.346Z",
+                "status": "pendente",
+                "motivo_adiamento": "Cliente pediu para retomar amanhã",
+            },
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 200
+    assert resposta.json()["motivo_adiamento"] == "Cliente pediu para retomar amanhã"
+    assert lembrete.motivo_adiamento == "Cliente pediu para retomar amanhã"

@@ -2,6 +2,7 @@ import asyncio
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 from app.api.leads_propostas import (
@@ -472,6 +473,35 @@ def test_criar_contratacao_automatica_proposta_sem_valor_nao_cria_nada() -> None
     proposta = _proposta(id=1, honorarios=0, taxa_gru=0)
     session = FakeSession([])
     asyncio.run(criar_contratacao_automatica_proposta(session, proposta, "link_publico"))
+    assert session.adicionados == []
+
+
+def test_criar_contratacao_automatica_proposta_absorve_conflito_concorrente() -> None:
+    """Achado alto da auditoria financeira (15/09/2026): o SELECT de
+    "existente" e o INSERT não são atômicos -- duas aceitações quase
+    simultâneas da mesma proposta passam as duas pelo "existente is None".
+    A segunda deve absorver o IntegrityError (proteção de última linha é a
+    UniqueConstraint em contratacoes_servicos.proposta_id) em vez de deixar
+    a exceção derrubar a requisição com 500."""
+    proposta = _proposta(id=1, honorarios=1500, taxa_gru=355)
+    session = FakeSession([FakeResult(scalar=None)])
+
+    chamadas_flush = {"n": 0}
+    flush_original = session.flush
+
+    async def _flush_com_conflito_na_segunda_chamada() -> None:
+        chamadas_flush["n"] += 1
+        if chamadas_flush["n"] == 1:
+            await flush_original()
+            return
+        raise IntegrityError("insert", {}, Exception("duplicate key value violates unique constraint"))
+
+    session.flush = _flush_com_conflito_na_segunda_chamada
+
+    asyncio.run(criar_contratacao_automatica_proposta(session, proposta, "link_publico"))
+
+    # Nada persistido: a savepoint (begin_nested) descarta o lançamento, a
+    # parcela e a contratação junto com o evento operacional.
     assert session.adicionados == []
 
 

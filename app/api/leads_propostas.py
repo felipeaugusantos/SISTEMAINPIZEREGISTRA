@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.leads import _auditar, _documentacao_protocolavel, _lead_da_org, _pendencias_documentos, _prazo_sla_24h
@@ -536,40 +537,57 @@ async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta:
             status="aberto",
             criado_por=f"aceite:{origem}",
         )
-        session.add(lancamento)
-        await session.flush()
-        session.add(
-            ParcelaFinanceira(
-                organizacao_id=proposta.organizacao_id,
-                lancamento_id=lancamento.id,
-                numero=1,
-                vencimento=date.today(),
-                valor=total,
-            )
-        )
-        session.add(
-            ContratacaoServico(
-                organizacao_id=proposta.organizacao_id,
-                lead_id=proposta.lead_id,
-                proposta_id=proposta.id,
-                lancamento_id=lancamento.id,
-            )
-        )
-        registrar_evento_operacional(
-            session,
-            organizacao_id=proposta.organizacao_id,
-            dominio="financeiro",
-            tipo="financeiro.proposta_recebida",
-            entidade_tipo="lead",
-            entidade_id=proposta.lead_id,
-            ator=f"Aceite via {origem}",
-            payload={
-                "proposta_id": proposta.id,
-                "lancamento_id": lancamento.id,
-                "valor": str(total),
-                "descricao": "Proposta aceita enviada automaticamente ao contas a receber",
-            },
-        )
+        # Achado alto da auditoria financeira (15/09/2026): o SELECT acima
+        # (linha "existente = ...") e o INSERT abaixo nao sao atomicos --
+        # duas aceitacoes quase simultaneas da mesma proposta (ex.: duplo
+        # clique no link publico) passavam as duas pelo "existente is None"
+        # e a segunda estourava IntegrityError sem tratamento (a proteção de
+        # última linha é a UniqueConstraint em contratacoes_servicos.proposta_id).
+        # begin_nested() (SAVEPOINT) permite capturar só esse conflito sem
+        # descartar o resto da transação em andamento (ex.: proposta.status
+        # já alterado pelo chamador) -- ROLLBACK simples descartaria tudo.
+        try:
+            async with session.begin_nested():
+                session.add(lancamento)
+                await session.flush()
+                session.add(
+                    ParcelaFinanceira(
+                        organizacao_id=proposta.organizacao_id,
+                        lancamento_id=lancamento.id,
+                        numero=1,
+                        vencimento=date.today(),
+                        valor=total,
+                    )
+                )
+                session.add(
+                    ContratacaoServico(
+                        organizacao_id=proposta.organizacao_id,
+                        lead_id=proposta.lead_id,
+                        proposta_id=proposta.id,
+                        lancamento_id=lancamento.id,
+                    )
+                )
+                registrar_evento_operacional(
+                    session,
+                    organizacao_id=proposta.organizacao_id,
+                    dominio="financeiro",
+                    tipo="financeiro.proposta_recebida",
+                    entidade_tipo="lead",
+                    entidade_id=proposta.lead_id,
+                    ator=f"Aceite via {origem}",
+                    payload={
+                        "proposta_id": proposta.id,
+                        "lancamento_id": lancamento.id,
+                        "valor": str(total),
+                        "descricao": "Proposta aceita enviada automaticamente ao contas a receber",
+                    },
+                )
+                await session.flush()
+        except IntegrityError:
+            # Outra requisicao concorrente ja criou a contratacao para esta
+            # proposta -- idempotente por design (mesmo comportamento do
+            # caminho "existente is not None" acima), nao é erro do operador.
+            pass
 
     # A contratação é a passagem objetiva do comercial para o financeiro.
     # Centralizar as fases aqui cobre aceite administrativo, link público,

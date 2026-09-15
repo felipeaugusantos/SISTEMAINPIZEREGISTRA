@@ -127,6 +127,30 @@ class FakeSession:
             return self._objetos_get.pop(0)
         return None
 
+    def begin_nested(self) -> "_FakeSavepoint":
+        # Espelha `async with session.begin_nested()` (SAVEPOINT) o bastante
+        # para testar código que trata IntegrityError num bloco aninhado sem
+        # descartar o resto da transação: se uma exceção sai do bloco,
+        # descarta os session.add() feitos dentro dele (como um ROLLBACK TO
+        # SAVEPOINT real descartaria os INSERTs pendentes), e deixa a
+        # exceção propagar para quem chamou.
+        return _FakeSavepoint(self)
+
+
+class _FakeSavepoint:
+    def __init__(self, session: "FakeSession") -> None:
+        self._session = session
+        self._quantidade_antes = 0
+
+    async def __aenter__(self) -> "_FakeSavepoint":
+        self._quantidade_antes = len(self._session.adicionados)
+        return self
+
+    async def __aexit__(self, exc_type: Any, *_rest: Any) -> bool:
+        if exc_type is not None:
+            del self._session.adicionados[self._quantidade_antes :]
+        return False
+
 
 def sessao_override(*resultados: FakeResult) -> Any:
     async def _override() -> Iterator[FakeSession]:

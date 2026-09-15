@@ -442,6 +442,38 @@ async def enviar_proposta_email(destinatario: str, nome: str, link: str, pdf_byt
         raise ultimo_erro
 
 
+async def enviar_codigo_confirmacao_proposta(destinatario: str, nome: str, codigo: str, numero: str) -> None:
+    """Segundo fator do aceite de proposta (dupla validação, orientação
+    jurídica de 15/09/2026) -- propaga a exceção em vez de engolir a falha:
+    se o código não sair, o cliente precisa ver isso na tela em vez de
+    ficar esperando um e-mail que nunca chega."""
+    settings = get_settings()
+    if not settings.email_enabled:
+        raise RuntimeError("Envio de e-mail não está habilitado nesta instalação")
+    mensagem = EmailMessage()
+    mensagem["Subject"] = f"Código de confirmação — Proposta {numero}"
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = destinatario
+    mensagem.set_content(
+        f"Olá, {nome or 'cliente'}.\n\n"
+        f"Use o código abaixo para confirmar o aceite da proposta {numero}:\n\n"
+        f"{codigo}\n\n"
+        "O código vale por 15 minutos. Se você não solicitou este aceite, ignore esta mensagem."
+    )
+    ultimo_erro: Exception | None = None
+    for tentativa in range(1, max(1, settings.smtp_max_attempts) + 1):
+        try:
+            await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+            return
+        except Exception as exc:
+            ultimo_erro = exc
+            if tentativa < settings.smtp_max_attempts:
+                await asyncio.sleep(min(2 ** (tentativa - 1), 4))
+    if ultimo_erro is not None:
+        await _registrar_email_rejeitado("codigo_confirmacao_proposta", ultimo_erro)
+        raise ultimo_erro
+
+
 async def enviar_email_prospeccao_lead(
     destinatario: str, assunto: str, corpo: str, reply_to: str | None = None
 ) -> None:

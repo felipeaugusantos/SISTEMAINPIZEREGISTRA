@@ -16,7 +16,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
@@ -24,12 +24,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.leads import _auditar, _documentacao_protocolavel, _lead_da_org, _pendencias_documentos, _prazo_sla_24h
-from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
+from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip, hash_token
 from app.clicksign import configuracao as configuracao_clicksign
 from app.clicksign import criar_envelope
 from app.crm import aplicar_regras_automacao, avancar_fase_lead, registrar_evento_operacional
 from app.database import get_session
-from app.emailing import enviar_proposta_email
+from app.emailing import enviar_codigo_confirmacao_proposta, enviar_proposta_email
 from app.models import (
     AssinaturaPropostaComercial,
     ContratacaoServico,
@@ -49,6 +49,7 @@ from app.models import (
 )
 from app.normalization import normalizar_numero_processo
 from app.proxy import cliente_ip
+from app.ratelimit import RateLimiter
 from app.relatorios import gerar_pdf_proposta
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
@@ -57,6 +58,40 @@ router = APIRouter(tags=["leads"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 LeadsViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
 LeadsManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.manage"))]
+
+# Dupla validação do aceite de proposta (orientação jurídica, 15/09/2026):
+# o clique no link público sozinho só prova posse do link -- um código de
+# confirmação por e-mail (canal já cadastrado, nunca digitado nessa hora)
+# é o segundo fator. Limitadores dedicados (mesma classe já usada em
+# login/reset de senha, app/ratelimit.py) evitam força bruta no código e
+# reenvio em excesso, escopados por proposta (não por IP -- o cliente pode
+# estar em rede compartilhada/móvel).
+CODIGO_CONFIRMACAO_MINUTOS = 15
+CODIGO_CONFIRMACAO_TENTATIVAS_MAXIMAS = 5
+_LIMITADOR_REENVIO_CODIGO_PROPOSTA = RateLimiter(limite=1, janela_segundos=60, escopo="proposta-codigo-reenvio")
+
+
+def _gerar_codigo_confirmacao() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _pagina_codigo(token: str, *, aviso: str | None = None) -> HTMLResponse:
+    aviso_html = f"<p class='aviso'>{html.escape(aviso)}</p>" if aviso else ""
+    return HTMLResponse(
+        f"""<!doctype html><html lang='pt-BR'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <title>Confirme o aceite</title><style>body{{font:16px Arial;color:#17231c;background:#f5f7f5;margin:0;padding:24px}}main{{max-width:480px;margin:auto;background:white;padding:36px;border-radius:18px;border:1px solid #d8ddd6}}h1{{font-family:Georgia,serif;font-size:26px}}.muted{{color:#5b665f}}.aviso{{color:#a33128;font-weight:700}}.button{{display:inline-block;background:#086044;color:#fff;padding:13px 20px;border-radius:9px;text-decoration:none;border:0;font-weight:700;cursor:pointer;width:100%}}input{{width:100%;box-sizing:border-box;padding:13px;font-size:20px;letter-spacing:4px;text-align:center;border:1px solid #d8ddd6;border-radius:9px;margin-bottom:14px}}</style>
+        <main><h1>Confirme o aceite</h1><p class='muted'>Enviamos um código de 6 dígitos para o seu e-mail cadastrado. Ele vale por {CODIGO_CONFIRMACAO_MINUTOS} minutos.</p>
+        {aviso_html}
+        <form method='post' action='/propostas/{token}/confirmar'><input name='codigo' inputmode='numeric' maxlength='6' placeholder='000000' autofocus required><button class='button' type='submit'>Confirmar aceite</button></form>
+        <form method='post' action='/propostas/{token}/aceitar'><button class='button' type='submit' style='background:transparent;color:#086044;border:1px solid #086044'>Reenviar código</button></form>
+        </main></html>"""
+    )
+
+
+def _pagina_aceite_confirmado() -> HTMLResponse:
+    return HTMLResponse(
+        "<h1>Proposta aceita</h1><p>Recebemos seu aceite. Nossa equipe dará continuidade ao atendimento.</p>"
+    )
 
 
 class PropostaInput(BaseModel):
@@ -1035,6 +1070,9 @@ async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLRe
 
 @router.post("/propostas/{token}/aceitar", response_class=HTMLResponse, include_in_schema=False)
 async def aceitar_proposta_publica(token: str, request: Request, session: SessionDep) -> HTMLResponse:
+    """Primeiro passo do aceite com dupla validação: gera e envia o código
+    de confirmação por e-mail. Chamado de novo (botão "Reenviar código")
+    gera um código novo, sujeito ao cooldown do limitador de reenvio."""
     proposta = await _proposta_por_token(session, token)
     if proposta is None:
         return HTMLResponse("<h1>Link expirado</h1>", status_code=404)
@@ -1052,70 +1090,131 @@ async def aceitar_proposta_publica(token: str, request: Request, session: Sessio
             "Solicite uma nova versão ao atendimento.</p>",
             status_code=409,
         )
-    if proposta.public_aceito_em is None:
-        proposta.public_aceito_em = datetime.now(UTC)
-        proposta.aceito_em = proposta.public_aceito_em
-        proposta.public_aceito_ip_hash = hash_ip(cliente_ip(request))
-        proposta.status = "aceita"
-        proposta.sla_status = "aguardando_pagamento"
-        await criar_contratacao_automatica_proposta(session, proposta, "link_publico")
-        assinatura_hash = hashlib.sha256(
-            "|".join(
-                str(valor or "")
-                for valor in (
-                    proposta.numero,
-                    proposta.versao,
-                    proposta.marca,
-                    proposta.classes,
-                    proposta.escopo,
-                    proposta.honorarios,
-                    proposta.taxa_gru,
-                    proposta.condicoes_pagamento,
-                )
-            ).encode("utf-8")
-        ).hexdigest()
-        session.add(
-            AssinaturaPropostaComercial(
-                organizacao_id=proposta.organizacao_id,
-                proposta_id=proposta.id,
-                versao=proposta.versao,
-                hash_documento=assinatura_hash,
-                ip_hash=proposta.public_aceito_ip_hash,
-                provedor="link_publico",
-            )
+    if proposta.public_aceito_em is not None:
+        return _pagina_aceite_confirmado()
+    lead = (
+        await session.execute(
+            select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == proposta.organizacao_id)
         )
-        session.add(
-            EventoAuditoria(
-                organizacao_id=proposta.organizacao_id,
-                ator="cliente_link",
-                acao="aceitar_proposta",
-                recurso=f"proposta:{proposta.id}",
-                resource_type="proposta",
-                resource_id=str(proposta.id),
-                sucesso=True,
-                status_http=200,
-                ip_hash=proposta.public_aceito_ip_hash,
-                detalhes={"origem": "link_publico", "proposta": proposta.numero},
-            )
+    ).scalar_one_or_none()
+    if lead is None or not lead.email:
+        return HTMLResponse(
+            "<h1>Não foi possível continuar</h1><p>Cadastro sem e-mail para confirmação. "
+            "Solicite ajuda ao atendimento.</p>",
+            status_code=422,
         )
-        registrar_evento_operacional(
-            session,
-            organizacao_id=proposta.organizacao_id,
-            dominio="crm",
-            tipo="crm.proposta_aceita",
-            entidade_tipo="lead",
-            entidade_id=proposta.lead_id,
-            ator="cliente_link",
-            payload={"proposta_id": proposta.id, "aceito_em": proposta.aceito_em.isoformat()},
+    try:
+        _LIMITADOR_REENVIO_CODIGO_PROPOSTA.aplicar(f"proposta:{proposta.id}")
+    except HTTPException:
+        return _pagina_codigo(token, aviso="Aguarde um instante antes de pedir um novo código.")
+    codigo = _gerar_codigo_confirmacao()
+    proposta.codigo_confirmacao_hash = hash_token(codigo)
+    proposta.codigo_confirmacao_expira_em = datetime.now(UTC) + timedelta(minutes=CODIGO_CONFIRMACAO_MINUTOS)
+    proposta.codigo_confirmacao_tentativas = 0
+    proposta.codigo_confirmacao_enviado_em = datetime.now(UTC)
+    await session.commit()
+    try:
+        await enviar_codigo_confirmacao_proposta(lead.email, lead.nome, codigo, proposta.numero)
+    except Exception:
+        return HTMLResponse(
+            "<h1>Não foi possível enviar o código</h1><p>Tente novamente em instantes ou "
+            "solicite ajuda ao atendimento.</p>",
+            status_code=502,
         )
-        lead = (
-            await session.execute(
-                select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == proposta.organizacao_id)
-            )
-        ).scalar_one_or_none()
-        if lead is not None:
-            await avancar_fase_lead(session, lead, "proposta_aceita", "Cliente via link")
+    return _pagina_codigo(token)
+
+
+@router.post("/propostas/{token}/confirmar", response_class=HTMLResponse, include_in_schema=False)
+async def confirmar_codigo_proposta(
+    token: str, request: Request, session: SessionDep, codigo: Annotated[str, Form()]
+) -> HTMLResponse:
+    """Segundo passo do aceite: valida o código de 6 dígitos e, se bater,
+    finaliza o aceite (mesma lógica que antes vivia direto em
+    aceitar_proposta_publica -- só que agora com o segundo fator confirmado)."""
+    proposta = await _proposta_por_token(session, token)
+    if proposta is None:
+        return HTMLResponse("<h1>Link expirado</h1>", status_code=404)
+    if proposta.public_aceito_em is not None:
+        return _pagina_aceite_confirmado()
+    if not proposta.codigo_confirmacao_hash or not proposta.codigo_confirmacao_expira_em:
+        return _pagina_codigo(token, aviso="Peça um novo código para continuar.")
+    if proposta.codigo_confirmacao_expira_em < datetime.now(UTC):
+        return _pagina_codigo(token, aviso="Código expirado. Peça um novo código.")
+    if proposta.codigo_confirmacao_tentativas >= CODIGO_CONFIRMACAO_TENTATIVAS_MAXIMAS:
+        return _pagina_codigo(token, aviso="Muitas tentativas com este código. Peça um novo código.")
+    codigo_normalizado = (codigo or "").strip()
+    if not codigo_normalizado or hash_token(codigo_normalizado) != proposta.codigo_confirmacao_hash:
+        proposta.codigo_confirmacao_tentativas += 1
         await session.commit()
-    return HTMLResponse(
-        "<h1>Proposta aceita</h1><p>Recebemos seu aceite. Nossa equipe dará continuidade ao atendimento.</p>"
+        return _pagina_codigo(token, aviso="Código incorreto. Confira seu e-mail e tente de novo.")
+
+    agora = datetime.now(UTC)
+    proposta.public_aceito_em = agora
+    proposta.aceito_em = agora
+    proposta.public_aceito_ip_hash = hash_ip(cliente_ip(request))
+    proposta.status = "aceita"
+    proposta.sla_status = "aguardando_pagamento"
+    proposta.codigo_confirmacao_hash = None
+    proposta.codigo_confirmacao_expira_em = None
+    proposta.codigo_confirmacao_tentativas = 0
+    await criar_contratacao_automatica_proposta(session, proposta, "link_publico")
+    assinatura_hash = hashlib.sha256(
+        "|".join(
+            str(valor or "")
+            for valor in (
+                proposta.numero,
+                proposta.versao,
+                proposta.marca,
+                proposta.classes,
+                proposta.escopo,
+                proposta.honorarios,
+                proposta.taxa_gru,
+                proposta.condicoes_pagamento,
+            )
+        ).encode("utf-8")
+    ).hexdigest()
+    session.add(
+        AssinaturaPropostaComercial(
+            organizacao_id=proposta.organizacao_id,
+            proposta_id=proposta.id,
+            versao=proposta.versao,
+            hash_documento=assinatura_hash,
+            ip_hash=proposta.public_aceito_ip_hash,
+            provedor="link_publico",
+            segundo_fator_canal="email",
+            segundo_fator_confirmado_em=agora,
+        )
     )
+    session.add(
+        EventoAuditoria(
+            organizacao_id=proposta.organizacao_id,
+            ator="cliente_link",
+            acao="aceitar_proposta",
+            recurso=f"proposta:{proposta.id}",
+            resource_type="proposta",
+            resource_id=str(proposta.id),
+            sucesso=True,
+            status_http=200,
+            ip_hash=proposta.public_aceito_ip_hash,
+            detalhes={"origem": "link_publico", "proposta": proposta.numero, "segundo_fator": "email"},
+        )
+    )
+    registrar_evento_operacional(
+        session,
+        organizacao_id=proposta.organizacao_id,
+        dominio="crm",
+        tipo="crm.proposta_aceita",
+        entidade_tipo="lead",
+        entidade_id=proposta.lead_id,
+        ator="cliente_link",
+        payload={"proposta_id": proposta.id, "aceito_em": proposta.aceito_em.isoformat()},
+    )
+    lead = (
+        await session.execute(
+            select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == proposta.organizacao_id)
+        )
+    ).scalar_one_or_none()
+    if lead is not None:
+        await avancar_fase_lead(session, lead, "proposta_aceita", "Cliente via link")
+    await session.commit()
+    return _pagina_aceite_confirmado()

@@ -515,6 +515,26 @@ async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta:
     """
     total = (proposta.honorarios or 0) + (proposta.taxa_gru or 0)
     if total <= 0:
+        # Achado médio da auditoria financeira (15/09/2026): sem isto, uma
+        # proposta aceita com honorarios+taxa_gru <= 0 nao deixava nenhum
+        # rastro -- nao dava pra diferenciar depois um servico
+        # legitimamente gratuito de um erro de preenchimento de valor. Não
+        # bloqueia o aceite (pode ser legítimo); só torna o caso auditável.
+        registrar_evento_operacional(
+            session,
+            organizacao_id=proposta.organizacao_id,
+            dominio="financeiro",
+            tipo="financeiro.proposta_sem_valor",
+            entidade_tipo="lead",
+            entidade_id=proposta.lead_id,
+            ator=f"Aceite via {origem}",
+            payload={
+                "proposta_id": proposta.id,
+                "honorarios": str(proposta.honorarios or 0),
+                "taxa_gru": str(proposta.taxa_gru or 0),
+                "descricao": "Proposta aceita sem valor (honorarios+taxa_gru <= 0) -- nenhum lançamento financeiro foi gerado",
+            },
+        )
         return
     existente = (
         await session.execute(

@@ -469,11 +469,30 @@ def test_criar_contratacao_automatica_proposta_e_idempotente() -> None:
     assert session.adicionados == []
 
 
-def test_criar_contratacao_automatica_proposta_sem_valor_nao_cria_nada() -> None:
+def test_criar_contratacao_automatica_proposta_sem_valor_nao_cria_lancamento() -> None:
     proposta = _proposta(id=1, honorarios=0, taxa_gru=0)
     session = FakeSession([])
     asyncio.run(criar_contratacao_automatica_proposta(session, proposta, "link_publico"))
-    assert session.adicionados == []
+    assert [obj for obj in session.adicionados if isinstance(obj, LancamentoFinanceiro)] == []
+    assert [obj for obj in session.adicionados if isinstance(obj, ParcelaFinanceira)] == []
+    assert [obj for obj in session.adicionados if isinstance(obj, ContratacaoServico)] == []
+
+
+def test_criar_contratacao_automatica_proposta_sem_valor_deixa_rastro_de_auditoria() -> None:
+    """Achado médio da auditoria financeira (15/09/2026): antes disso, uma
+    proposta aceita com valor zerado não deixava nenhum rastro -- não dava
+    pra diferenciar depois um serviço legítimo gratuito de um erro de
+    preenchimento."""
+    proposta = _proposta(id=1, honorarios=0, taxa_gru=0)
+    session = FakeSession([])
+    asyncio.run(criar_contratacao_automatica_proposta(session, proposta, "link_publico"))
+    eventos = [
+        obj
+        for obj in session.adicionados
+        if isinstance(obj, EventoDominio) and obj.tipo == "financeiro.proposta_sem_valor"
+    ]
+    assert len(eventos) == 1
+    assert eventos[0].payload["proposta_id"] == 1
 
 
 def test_criar_contratacao_automatica_proposta_absorve_conflito_concorrente() -> None:

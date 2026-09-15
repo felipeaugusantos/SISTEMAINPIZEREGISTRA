@@ -14,17 +14,19 @@ referências de carteira.py de volta para _core.py (ex: PrazoJuridico). Já
 uma referência sem aspas (ex: `Mapped[Processo]`) exige import real da
 classe no módulo onde a relationship() é declarada -- é o que carteira.py
 faz para `Processo` e `EmpresaCRM`, que continuam em _core.py.
+
+Nota sobre os enums: CanalContato, FaseLead, StatusLead, StatusProspect e
+TipoProcesso já chegam via `_core import *` abaixo -- _core.py os reimporta
+de enums.py para uso interno em `Mapped[...]` (que, ao contrário de
+relationship(), não aceita forward reference em string). Só TipoAtivoPI
+precisa de reexport explícito aqui: nenhuma classe de _core.py o usa
+diretamente.
 """
 
 from app.models._core import *  # noqa: F403
 from app.models.carteira import HistoricoEtapaCarteira as HistoricoEtapaCarteira
 from app.models.carteira import PreCadastroProcesso as PreCadastroProcesso
 from app.models.carteira import ProcessoMonitorado as ProcessoMonitorado
-# CanalContato, FaseLead, StatusLead, StatusProspect e TipoProcesso ja chegam
-# via `_core import *` acima -- _core.py os importa de volta de enums.py para
-# uso interno (Mapped[StatusLead] etc.), então reexportá-los aqui de novo
-# geraria uma redefinição sem uso real (ruff F811). Só TipoAtivoPI precisa de
-# import explícito: nenhuma classe de _core.py usa esse enum diretamente.
 from app.models.enums import TipoAtivoPI as TipoAtivoPI
 from app.models.portal_cliente import ArquivoClientePortal as ArquivoClientePortal
 from app.models.portal_cliente import ClientePortal as ClientePortal

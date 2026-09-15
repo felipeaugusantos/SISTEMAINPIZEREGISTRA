@@ -1,3 +1,5 @@
+import os
+import shutil
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -439,6 +441,53 @@ async def _latencia_por_endpoint(session: AsyncSession) -> list[dict]:
     ]
 
 
+def _recursos_host() -> dict:
+    """Indicador de infraestrutura pendente de `docs/slo-e-criterios-incidente.md`
+    (CPU/memória/disco do host). Lê /proc diretamente em vez de adicionar uma
+    dependência nova (psutil) só para isto -- mesmo princípio de leitura
+    direta de arquivo já usado em `app/alertas_plataforma.py::_backup_mais_recente`.
+    /proc/loadavg e /proc/meminfo só existem em Linux (todo ambiente real do
+    projeto -- container Docker); fora disso (ex.: rodando local no Windows)
+    os campos de cpu/memória voltam None em vez de quebrar o painel.
+    """
+    cpu: dict = {"carga_1min": None, "carga_5min": None, "carga_15min": None, "nucleos": os.cpu_count()}
+    try:
+        carga_1, carga_5, carga_15 = os.getloadavg()
+        cpu["carga_1min"] = round(carga_1, 2)
+        cpu["carga_5min"] = round(carga_5, 2)
+        cpu["carga_15min"] = round(carga_15, 2)
+    except OSError:
+        pass
+
+    memoria: dict = {"total_bytes": None, "disponivel_bytes": None, "percentual_uso": None}
+    try:
+        valores = {}
+        with open("/proc/meminfo", encoding="ascii") as arquivo:
+            for linha in arquivo:
+                chave, _, resto = linha.partition(":")
+                if chave in ("MemTotal", "MemAvailable"):
+                    valores[chave] = int(resto.strip().split()[0]) * 1024
+        if valores.get("MemTotal"):
+            total = valores["MemTotal"]
+            disponivel = valores.get("MemAvailable", 0)
+            memoria = {
+                "total_bytes": total,
+                "disponivel_bytes": disponivel,
+                "percentual_uso": round((1 - disponivel / total) * 100, 1),
+            }
+    except OSError:
+        pass
+
+    uso_disco = shutil.disk_usage("/")
+    disco = {
+        "total_bytes": uso_disco.total,
+        "usado_bytes": uso_disco.used,
+        "percentual_uso": round(uso_disco.used / uso_disco.total * 100, 1) if uso_disco.total else None,
+    }
+
+    return {"cpu": cpu, "memoria": memoria, "disco": disco}
+
+
 @router.get("/observabilidade/painel-tecnico")
 async def painel_tecnico(session: SessionDep, usuario: TechDep) -> dict:
     _exigir_acesso_tech(usuario)
@@ -504,6 +553,7 @@ async def painel_tecnico(session: SessionDep, usuario: TechDep) -> dict:
         "migration_atual": await _migration_atual(session),
         "erros_por_versao": await _erros_por_versao(session),
         "latencia_por_endpoint": await _latencia_por_endpoint(session),
+        "recursos_host": _recursos_host(),
         "feature_flags_ativas": [
             {
                 "codigo": flag.codigo,

@@ -103,6 +103,13 @@ async function carregarPainelTecnico() {
         </tr>`).join("")
       : `<tr><td colspan="7">Sem endpoints com amostras suficientes nas últimas 24 horas.</td></tr>`;
 
+    const recursos = dados.recursos_host;
+    document.querySelector("#painel-tecnico-recursos").innerHTML = [
+      metric(recursos.cpu.carga_1min ?? "—", "Carga média (1 min)", `${recursos.cpu.nucleos ?? "—"} núcleos · 5 min: ${recursos.cpu.carga_5min ?? "—"} · 15 min: ${recursos.cpu.carga_15min ?? "—"}`),
+      metric(recursos.memoria.percentual_uso != null ? `${recursos.memoria.percentual_uso}%` : "—", "Memória em uso", `${bytes(recursos.memoria.disponivel_bytes)} disponíveis de ${bytes(recursos.memoria.total_bytes)}`),
+      metric(recursos.disco.percentual_uso != null ? `${recursos.disco.percentual_uso}%` : "—", "Disco em uso", `${bytes(recursos.disco.usado_bytes)} usados de ${bytes(recursos.disco.total_bytes)}`),
+    ].join("");
+
     const orgRows = document.querySelector("#painel-tecnico-organizacoes-rows");
     orgRows.innerHTML = dados.organizacoes_afetadas.length
       ? dados.organizacoes_afetadas.map((item) => `<tr>

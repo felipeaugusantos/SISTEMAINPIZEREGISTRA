@@ -31,6 +31,7 @@ if [ -z "$DUMP" ] || [ ! -f "$DUMP" ]; then
 fi
 
 echo "==> $(date -Iseconds) simulado de restauracao usando: $DUMP"
+INICIO_EPOCH="$(date +%s)"
 
 echo "==> subindo db-test"
 docker compose --profile test up -d db-test
@@ -94,8 +95,15 @@ done
 echo "==> derrubando db-test (container efemero; --clean na proxima execucao substitui o conteudo)"
 docker compose --profile test rm -sf db-test >/dev/null 2>&1 || true
 
+DURACAO_SEGUNDOS="$(( $(date +%s) - INICIO_EPOCH ))"
+# RTO (docs/rpo-rto.md): esta duracao (subir db-test + pg_restore + conferencia
+# de contagens) e o unico trecho de uma recuperacao real medido de forma
+# automatica e recorrente hoje -- os passos manuais restantes (validar
+# alembic, subir a aplicacao, checklist de saude) estao documentados mas
+# ainda sem cronometro. Cada execucao semanal deste simulado vai empilhando
+# uma amostra real em logs/simulado-restauracao.log.
 if [ "$FALHOU" -eq 1 ]; then
-    echo "==> $(date -Iseconds) SIMULADO FALHOU -- ver detalhes acima."
+    echo "==> $(date -Iseconds) SIMULADO FALHOU apos ${DURACAO_SEGUNDOS}s -- ver detalhes acima."
     exit 1
 fi
-echo "==> $(date -Iseconds) simulado de restauracao OK."
+echo "==> $(date -Iseconds) simulado de restauracao OK (duracao: ${DURACAO_SEGUNDOS}s)."

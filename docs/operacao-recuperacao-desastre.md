@@ -2,6 +2,8 @@
 
 Este procedimento usa somente a infraestrutura existente. Execute primeiro em ambiente descartável e registre operador, horário, origem do backup e resultado das validações.
 
+RPO e RTO declarados (com a evidência que os sustenta): `docs/rpo-rto.md`.
+
 ## 1. Preparar o ambiente
 
 1. Confirme espaço para o dump, a restauração e a reconstrução dos índices.

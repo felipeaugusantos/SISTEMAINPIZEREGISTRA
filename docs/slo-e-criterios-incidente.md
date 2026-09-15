@@ -58,6 +58,11 @@ adicionais, específicas de infraestrutura:
   a checagem volta ao normal) -- só documentar se aconteceu por
   curiosidade/tendência, não abrir chamado.
 
+## RPO e RTO
+
+Objetivos declarados de recuperação (com a evidência real que os sustenta,
+não valores escolhidos a priori): `docs/rpo-rto.md`.
+
 ## Registro de incidente
 
 Mesma disciplina de `docs/operacao-rc1.md`: horário, request ID, tenant,

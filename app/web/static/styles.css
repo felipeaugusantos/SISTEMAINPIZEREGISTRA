@@ -1952,6 +1952,18 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
   min-width: 0;
 }
 
+/* Achado de bug (15/09/2026): a regra acima também zera min-width em <th>/<td>,
+   que no algoritmo de table-layout:auto do navegador conta como largura mínima
+   da coluna -- combinado com "overflow-wrap: anywhere" (mais abaixo), qualquer
+   tabela larga (ex.: Eventos recentes em Observabilidade) fica ilegível,
+   espremendo texto letra por letra em vez de rolar horizontalmente. Restaura
+   a largura mínima natural só dentro de tabelas -- min-width:620px do <table>
+   (mais abaixo) continua garantindo a rolagem para o restante da largura. */
+.admin-dashboard th,
+.admin-dashboard td {
+  min-width: auto;
+}
+
 .admin-overview-hero {
   display: flex;
   align-items: end;

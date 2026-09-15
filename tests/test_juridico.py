@@ -425,7 +425,6 @@ def test_reconcilia_prazo_antigo_quando_rpi_posterior_arquiva_pedido() -> None:
         [
             FakeResult(itens=[(prazo, origem)]),
             FakeResult(itens=[terminal]),
-            FakeResult(itens=[]),
         ]
     )
 
@@ -433,13 +432,18 @@ def test_reconcilia_prazo_antigo_quando_rpi_posterior_arquiva_pedido() -> None:
 
     assert total == 1
     assert terminais[77] is terminal
-    assert prazo.status == "cancelado"
-    assert prazo.confirmado is True
-    assert prazo.concluido_em is not None
-    assert prazo.concluido_por == "motor-juridico"
+    # Achado crítico da auditoria jurídica (15/09/2026): o motor não pode mais
+    # fechar o prazo sozinho (violaria a regra de nunca decidir sem revisão
+    # humana) -- só sinaliza a sugestão, deixando o prazo "aguardando_confirmacao"
+    # até um humano confirmar explicitamente via PATCH /prazos/{id}.
+    assert prazo.status == "aguardando_confirmacao"
+    assert prazo.confirmado is False
+    assert prazo.concluido_em is None
+    assert prazo.concluido_por is None
     evento = next(item for item in session.adicionados if isinstance(item, EventoJuridico))
     assert evento.tipo == "prazo_reconciliado"
     assert evento.detalhes["rpi_terminal"] == 2602
+    assert evento.detalhes["status_sugerido"] == "cancelado"
 
 
 def test_reconcilia_importacao_historica_e_duplicidade_da_mesma_rpi() -> None:

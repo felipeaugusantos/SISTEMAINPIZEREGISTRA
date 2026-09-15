@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 from app.api.nfse import EmitirNfseInput, cancelar_nfse, emitir_nfse
@@ -78,7 +79,9 @@ async def test_emitir_nfse_lancamento_cancelado_retorna_422() -> None:
 async def test_emitir_nfse_sem_documento_do_cliente_retorna_422() -> None:
     lancamento = _lancamento()
     empresa_sem_documento = _empresa(documento=None)
-    session = FakeSession([FakeResult(scalar=lancamento)], objetos_get=[empresa_sem_documento])
+    session = FakeSession(
+        [FakeResult(scalar=lancamento), FakeResult(scalar=None)], objetos_get=[empresa_sem_documento]
+    )
     try:
         await emitir_nfse(EmitirNfseInput(lancamento_id=1), _request(), session, usuario_teste("administrador", {"finance.manage"}))
         raise AssertionError("deveria ter levantado HTTPException")
@@ -89,7 +92,7 @@ async def test_emitir_nfse_sem_documento_do_cliente_retorna_422() -> None:
 async def test_emitir_nfse_com_sucesso() -> None:
     lancamento = _lancamento()
     empresa = _empresa()
-    session = FakeSession([FakeResult(scalar=lancamento)], objetos_get=[empresa])
+    session = FakeSession([FakeResult(scalar=lancamento), FakeResult(scalar=None)], objetos_get=[empresa])
 
     resultado = await emitir_nfse(
         EmitirNfseInput(lancamento_id=1), _request(), session, usuario_teste("administrador", {"finance.manage"})
@@ -100,6 +103,50 @@ async def test_emitir_nfse_com_sucesso() -> None:
     assert len(notas_criadas) == 1
     assert notas_criadas[0].status == "emitida"
     assert session.commits == 1
+
+
+# --- Achado critico da auditoria financeira (15/09/2026): duplo clique ou
+# retry apos timeout emitia duas NFS-e reais para o mesmo lancamento --
+# nenhuma checagem pre-existente nem lock. ---
+
+
+async def test_emitir_nfse_ja_emitida_para_lancamento_retorna_409() -> None:
+    lancamento = _lancamento()
+    session = FakeSession([FakeResult(scalar=lancamento), FakeResult(scalar=1)])
+
+    try:
+        await emitir_nfse(
+            EmitirNfseInput(lancamento_id=1), _request(), session, usuario_teste("administrador", {"finance.manage"})
+        )
+        raise AssertionError("deveria ter levantado HTTPException")
+    except HTTPException as exc:
+        assert exc.status_code == 409
+    # Nunca chega a chamar o adaptador nem a persistir uma segunda nota.
+    assert session.adicionados == []
+
+
+async def test_emitir_nfse_violacao_do_indice_unico_no_flush_retorna_409() -> None:
+    """Rede de seguranca do indice unico parcial (migration 562c64375107):
+    mesmo se o pre-check e o lock falhassem por algum motivo, o flush() do
+    INSERT ainda deveria bater na constraint do banco e devolver 409 em vez
+    de vazar o IntegrityError."""
+    lancamento = _lancamento()
+    empresa = _empresa()
+    session = FakeSession([FakeResult(scalar=lancamento), FakeResult(scalar=None)], objetos_get=[empresa])
+
+    async def _flush_com_violacao_de_unicidade() -> None:
+        raise IntegrityError("insert", {}, Exception("duplicate key value violates unique constraint"))
+
+    session.flush = _flush_com_violacao_de_unicidade
+
+    try:
+        await emitir_nfse(
+            EmitirNfseInput(lancamento_id=1), _request(), session, usuario_teste("administrador", {"finance.manage"})
+        )
+        raise AssertionError("deveria ter levantado HTTPException")
+    except HTTPException as exc:
+        assert exc.status_code == 409
+    assert session.commits == 0
 
 
 async def test_cancelar_nfse_inexistente_retorna_404() -> None:

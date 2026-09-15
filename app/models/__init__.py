@@ -57,6 +57,11 @@ from app.models.observabilidade import ProblemaVersaoSistema as ProblemaVersaoSi
 from app.models.observabilidade import ProcessoHeartbeat as ProcessoHeartbeat
 from app.models.observabilidade import VersaoSistema as VersaoSistema
 from app.models.portal_cliente import ArquivoClientePortal as ArquivoClientePortal
+from app.models.portal_cliente import ClientePortal as ClientePortal
+from app.models.portal_cliente import MensagemClientePortal as MensagemClientePortal
+from app.models.portal_cliente import NotificacaoClientePortal as NotificacaoClientePortal
+from app.models.portal_cliente import RecuperacaoClientePortal as RecuperacaoClientePortal
+from app.models.portal_cliente import SessaoClientePortal as SessaoClientePortal
 from app.models.portfolio_pi import AtivoPartePI as AtivoPartePI
 from app.models.portfolio_pi import AtivoPI as AtivoPI
 from app.models.portfolio_pi import AtivoProcessoPI as AtivoProcessoPI
@@ -70,11 +75,6 @@ from app.models.portfolio_pi import RpiSyncEstado as RpiSyncEstado
 from app.models.portfolio_pi import RpiSyncExecucao as RpiSyncExecucao
 from app.models.portfolio_pi import Titular as Titular
 from app.models.portfolio_pi import processo_titulares as processo_titulares
-from app.models.portal_cliente import ClientePortal as ClientePortal
-from app.models.portal_cliente import MensagemClientePortal as MensagemClientePortal
-from app.models.portal_cliente import NotificacaoClientePortal as NotificacaoClientePortal
-from app.models.portal_cliente import RecuperacaoClientePortal as RecuperacaoClientePortal
-from app.models.portal_cliente import SessaoClientePortal as SessaoClientePortal
 from app.models.prospeccao import CacheEstabelecimentoRFB as CacheEstabelecimentoRFB
 from app.models.prospeccao import CampanhaProspeccao as CampanhaProspeccao
 from app.models.prospeccao import HistoricoStatusProspect as HistoricoStatusProspect

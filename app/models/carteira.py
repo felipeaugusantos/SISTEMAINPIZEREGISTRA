@@ -18,7 +18,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-from app.models._core import EmpresaCRM, Processo
+from app.models._core import EmpresaCRM
+from app.models.portfolio_pi import Processo
 
 if TYPE_CHECKING:
     # Referenciadas aqui so como forward reference em Mapped["..."]

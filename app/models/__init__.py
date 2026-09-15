@@ -4,9 +4,14 @@ antes: nenhum outro módulo do projeto precisa mudar seus imports
 (`from app.models import X` continua funcionando).
 
 Extraído até agora: vigilância, portal do cliente, carteira/processos
-monitorados, enums compartilhados, prospecção, observabilidade/sistema e
-jurídico. O grosso das classes permanece em _core.py até as próximas
-extrações, uma por vez.
+monitorados, enums compartilhados, prospecção, observabilidade/sistema,
+jurídico e portfólio de PI/RPI. O grosso das classes permanece em
+_core.py até as próximas extrações, uma por vez.
+
+`processo_titulares` (Table de associação, não classe) é importado
+diretamente por vários módulos de app/api/ -- reexportado explicitamente
+abaixo pelo mesmo motivo dos enums: não é usado dentro de nenhuma classe
+de _core.py, então não chega via `_core import *`.
 
 Nota sobre relationship() entre módulos: SQLAlchemy resolve nomes de classe
 em `Mapped["NomeDaClasse"]` (string) via seu registry compartilhado (o mesmo
@@ -57,6 +62,19 @@ from app.models.portal_cliente import MensagemClientePortal as MensagemClientePo
 from app.models.portal_cliente import NotificacaoClientePortal as NotificacaoClientePortal
 from app.models.portal_cliente import RecuperacaoClientePortal as RecuperacaoClientePortal
 from app.models.portal_cliente import SessaoClientePortal as SessaoClientePortal
+from app.models.portfolio_pi import AtivoPartePI as AtivoPartePI
+from app.models.portfolio_pi import AtivoPI as AtivoPI
+from app.models.portfolio_pi import AtivoProcessoPI as AtivoProcessoPI
+from app.models.portfolio_pi import ClassificacaoMarca as ClassificacaoMarca
+from app.models.portfolio_pi import DocumentoAtivoPI as DocumentoAtivoPI
+from app.models.portfolio_pi import Movimentacao as Movimentacao
+from app.models.portfolio_pi import Processo as Processo
+from app.models.portfolio_pi import RpiImportacao as RpiImportacao
+from app.models.portfolio_pi import RpiImportacaoHistorico as RpiImportacaoHistorico
+from app.models.portfolio_pi import RpiSyncEstado as RpiSyncEstado
+from app.models.portfolio_pi import RpiSyncExecucao as RpiSyncExecucao
+from app.models.portfolio_pi import Titular as Titular
+from app.models.portfolio_pi import processo_titulares as processo_titulares
 from app.models.prospeccao import CacheEstabelecimentoRFB as CacheEstabelecimentoRFB
 from app.models.prospeccao import CampanhaProspeccao as CampanhaProspeccao
 from app.models.prospeccao import HistoricoStatusProspect as HistoricoStatusProspect

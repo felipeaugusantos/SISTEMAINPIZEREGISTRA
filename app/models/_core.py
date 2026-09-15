@@ -1,6 +1,5 @@
 from datetime import date, datetime
 from decimal import Decimal
-from enum import StrEnum
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -30,6 +29,13 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.enums import (
+    CanalContato,
+    FaseLead,
+    StatusLead,
+    StatusProspect,
+    TipoProcesso,
+)
 from app.request_context import request_id_atual
 
 if TYPE_CHECKING:
@@ -38,63 +44,6 @@ if TYPE_CHECKING:
     # execucao pelo registry do SQLAlchemy, nao por este import -- que existe
     # so para o ruff/checadores de tipo conseguirem resolver o nome).
     from app.models.carteira import ProcessoMonitorado
-
-
-class TipoProcesso(StrEnum):
-    MARCA = "marca"
-    PATENTE = "patente"
-
-
-class StatusLead(StrEnum):
-    NOVO = "novo"
-    EM_CONTATO = "em_contato"
-    QUALIFICADO = "qualificado"
-    PROPOSTA_ENVIADA = "proposta_enviada"
-    SEM_RETORNO = "sem_retorno"
-    CONVERTIDO = "convertido"
-    DESCARTADO = "descartado"
-
-
-class StatusProspect(StrEnum):
-    """Situação de um Prospect (Fase 1 do Radar de Prospecção, 03/09/2026).
-
-    Vocabulário deliberadamente restrito ao que a Fase 1 sabe produzir --
-    enriquecimento/triagem/score (Fases 2-5) trazem estados intermediários
-    novos por migração própria, quando o código que os produz existir."""
-
-    NOVO = "novo"
-    APROVADO = "aprovado"
-    REJEITADO = "rejeitado"
-    DUPLICADO = "duplicado"
-    CONVERTIDO_LEAD = "convertido_lead"
-
-
-class FaseLead(StrEnum):
-    """Etapa do lead no funil de atendimento (do 1º contato ao processo no INPI).
-
-    Expandida na auditoria de CRM/financeiro (04/09/2026, achado CRM-11) de 7
-    para 10 fases: "qualificado" passa a ser uma fase própria (antes só
-    existia como StatusLead, sem posição no funil), "pagamento_realizado"
-    virou duas fases (aguardando_pagamento / pagamento_confirmado -- a
-    anterior não distinguia cobrança emitida de pagamento efetivamente
-    recebido), e "ganho" passa a ser uma fase do funil, não só o campo
-    ``Lead.resultado``. Decisão de produto tomada (não implementada): NÃO
-    existe uma fase "contrato_assinado" separada de "proposta_aceita" --
-    neste sistema, assinar a proposta (AssinaturaPropostaComercial) É o
-    próprio ato de aceitá-la, mesmo evento e mesmo timestamp; uma fase
-    própria para isso ficaria sempre vazia (o lead nunca fica "parado" nela).
-    """
-
-    CONTATO_INICIAL = "contato_inicial"
-    QUALIFICADO = "qualificado"
-    RELATORIO_ENVIADO = "relatorio_enviado"
-    PROPOSTA_ENVIADA = "proposta_enviada"
-    PROPOSTA_ACEITA = "proposta_aceita"
-    AGUARDANDO_PAGAMENTO = "aguardando_pagamento"
-    PAGAMENTO_CONFIRMADO = "pagamento_confirmado"
-    GANHO = "ganho"
-    PROTOCOLO_INPI = "protocolo_inpi"
-    PROCESSO_INPI = "processo_inpi"
 
 
 # Ordem oficial do funil — usada para avançar (nunca retroceder) automaticamente.
@@ -625,17 +574,6 @@ class Titular(Base):
     pais: Mapped[str | None] = mapped_column(String(2))
 
     processos: Mapped[list[Processo]] = relationship(secondary=processo_titulares, back_populates="titulares")
-
-
-class TipoAtivoPI(StrEnum):
-    MARCA = "marca"
-    PATENTE = "patente"
-    MODELO_UTILIDADE = "modelo_utilidade"
-    DESENHO_INDUSTRIAL = "desenho_industrial"
-    CONTRATO = "contrato"
-    CESSAO = "cessao"
-    LICENCA = "licenca"
-    FRANQUIA = "franquia"
 
 
 class AtivoPI(Base):
@@ -2446,14 +2384,6 @@ class AssinaturaDocumentoLead(Base):
     ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     assinado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     provedor: Mapped[str] = mapped_column(String(30), default="interno")
-
-
-class CanalContato(StrEnum):
-    TELEFONE = "telefone"
-    EMAIL = "email"
-    WHATSAPP = "whatsapp"
-    REUNIAO = "reuniao"
-    OUTRO = "outro"
 
 
 class ContatoLead(Base):

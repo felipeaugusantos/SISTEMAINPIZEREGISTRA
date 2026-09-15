@@ -5,8 +5,8 @@ antes: nenhum outro módulo do projeto precisa mudar seus imports
 
 Extraído até agora: vigilância, portal do cliente, carteira/processos
 monitorados, enums compartilhados, prospecção, observabilidade/sistema,
-jurídico e portfólio de PI/RPI. O grosso das classes permanece em
-_core.py até as próximas extrações, uma por vez.
+jurídico, portfólio de PI/RPI e marca/busca/ML. O grosso das classes
+permanece em _core.py até as próximas extrações, uma por vez.
 
 `processo_titulares` (Table de associação, não classe) é importado
 diretamente por vários módulos de app/api/ -- reexportado explicitamente
@@ -46,6 +46,24 @@ from app.models.juridico import NotificacaoJuridica as NotificacaoJuridica
 from app.models.juridico import PoliticaJuridica as PoliticaJuridica
 from app.models.juridico import PrazoJuridico as PrazoJuridico
 from app.models.juridico import RegraJuridicaVersionada as RegraJuridicaVersionada
+from app.models.marca_busca import AfinidadeClasse as AfinidadeClasse
+from app.models.marca_busca import AfinidadeViena as AfinidadeViena
+from app.models.marca_busca import AvaliacaoRiscoMarca as AvaliacaoRiscoMarca
+from app.models.marca_busca import ControleAprendizadoMarca as ControleAprendizadoMarca
+from app.models.marca_busca import EvidenciaDecisaoMarca as EvidenciaDecisaoMarca
+from app.models.marca_busca import ExecucaoAgenteRegistrabilidade as ExecucaoAgenteRegistrabilidade
+from app.models.marca_busca import ExecucaoAprendizadoMarca as ExecucaoAprendizadoMarca
+from app.models.marca_busca import ExplicacaoRiscoIA as ExplicacaoRiscoIA
+from app.models.marca_busca import MarcaAltoRenome as MarcaAltoRenome
+from app.models.marca_busca import ModeloRankingBusca as ModeloRankingBusca
+from app.models.marca_busca import ModeloRegistrabilidade as ModeloRegistrabilidade
+from app.models.marca_busca import ParTreinamentoMarca as ParTreinamentoMarca
+from app.models.marca_busca import PesquisaMarca as PesquisaMarca
+from app.models.marca_busca import PrevisaoRegistrabilidade as PrevisaoRegistrabilidade
+from app.models.marca_busca import ProjetoBuscaMarca as ProjetoBuscaMarca
+from app.models.marca_busca import RotuloHistoricoMarca as RotuloHistoricoMarca
+from app.models.marca_busca import SolicitacaoExclusaoPesquisa as SolicitacaoExclusaoPesquisa
+from app.models.marca_busca import VersaoRelatorioMarca as VersaoRelatorioMarca
 from app.models.observabilidade import ControleProducao as ControleProducao
 from app.models.observabilidade import EventoAuditoria as EventoAuditoria
 from app.models.observabilidade import EventoOperacional as EventoOperacional

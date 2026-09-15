@@ -4,9 +4,9 @@ antes: nenhum outro módulo do projeto precisa mudar seus imports
 (`from app.models import X` continua funcionando).
 
 Extraído até agora: vigilância, portal do cliente, carteira/processos
-monitorados, enums compartilhados, prospecção e observabilidade/sistema.
-O grosso das classes permanece em _core.py até as próximas extrações, uma
-por vez.
+monitorados, enums compartilhados, prospecção, observabilidade/sistema e
+jurídico. O grosso das classes permanece em _core.py até as próximas
+extrações, uma por vez.
 
 Nota sobre relationship() entre módulos: SQLAlchemy resolve nomes de classe
 em `Mapped["NomeDaClasse"]` (string) via seu registry compartilhado (o mesmo
@@ -30,6 +30,17 @@ from app.models.carteira import PreCadastroProcesso as PreCadastroProcesso
 from app.models.carteira import ProcessoMonitorado as ProcessoMonitorado
 from app.models.enums import StatusProspect as StatusProspect
 from app.models.enums import TipoAtivoPI as TipoAtivoPI
+from app.models.juridico import ContratoJuridico as ContratoJuridico
+from app.models.juridico import CustoJuridico as CustoJuridico
+from app.models.juridico import DocumentoEntregaJuridico as DocumentoEntregaJuridico
+from app.models.juridico import EventoJuridico as EventoJuridico
+from app.models.juridico import FornecedorJuridico as FornecedorJuridico
+from app.models.juridico import ItemChecklistPrazo as ItemChecklistPrazo
+from app.models.juridico import MovimentacaoAvaliadaJuridico as MovimentacaoAvaliadaJuridico
+from app.models.juridico import NotificacaoJuridica as NotificacaoJuridica
+from app.models.juridico import PoliticaJuridica as PoliticaJuridica
+from app.models.juridico import PrazoJuridico as PrazoJuridico
+from app.models.juridico import RegraJuridicaVersionada as RegraJuridicaVersionada
 from app.models.observabilidade import ControleProducao as ControleProducao
 from app.models.observabilidade import EventoAuditoria as EventoAuditoria
 from app.models.observabilidade import EventoOperacional as EventoOperacional

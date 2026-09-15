@@ -3,9 +3,9 @@ segura, missão de maturidade técnica). Reexporta tudo com os mesmos nomes de
 antes: nenhum outro módulo do projeto precisa mudar seus imports
 (`from app.models import X` continua funcionando).
 
-Extraído até agora: vigilância, portal do cliente e carteira/processos
-monitorados. O grosso das classes permanece em _core.py até as próximas
-extrações, uma por vez.
+Extraído até agora: vigilância, portal do cliente, carteira/processos
+monitorados e os enums compartilhados. O grosso das classes permanece em
+_core.py até as próximas extrações, uma por vez.
 
 Nota sobre relationship() entre módulos: SQLAlchemy resolve nomes de classe
 em `Mapped["NomeDaClasse"]` (string) via seu registry compartilhado (o mesmo
@@ -20,6 +20,12 @@ from app.models._core import *  # noqa: F403
 from app.models.carteira import HistoricoEtapaCarteira as HistoricoEtapaCarteira
 from app.models.carteira import PreCadastroProcesso as PreCadastroProcesso
 from app.models.carteira import ProcessoMonitorado as ProcessoMonitorado
+# CanalContato, FaseLead, StatusLead, StatusProspect e TipoProcesso ja chegam
+# via `_core import *` acima -- _core.py os importa de volta de enums.py para
+# uso interno (Mapped[StatusLead] etc.), então reexportá-los aqui de novo
+# geraria uma redefinição sem uso real (ruff F811). Só TipoAtivoPI precisa de
+# import explícito: nenhuma classe de _core.py usa esse enum diretamente.
+from app.models.enums import TipoAtivoPI as TipoAtivoPI
 from app.models.portal_cliente import ArquivoClientePortal as ArquivoClientePortal
 from app.models.portal_cliente import ClientePortal as ClientePortal
 from app.models.portal_cliente import MensagemClientePortal as MensagemClientePortal

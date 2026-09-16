@@ -28,8 +28,21 @@ const state = {
   offset: 0, total: 0, owners: [], archiveId: null, loading: false,
   canManage: false, canArchive: false, canExport: false, canDeleteResearch: false, canPii: false,
   openLeadId: null, deleteResearchId: null, deleteRequestId: null, deleteMode: null, moveResearchId: null,
-  viewMode: "researches", items: [], priority: "",
+  viewMode: "researches", items: [], priority: "", semResponsavel: 0,
 };
+
+// Achado do usuário (16/09/2026, item 3): o endpoint de distribuição em
+// lote (POST /v1/admin/leads/distribuir) já existia e era usado na tela
+// de CRM/Kanban, mas não tinha nenhuma ação equivalente na tela de
+// Leads -- quem via o card "Sem responsável" acumular tinha que trocar
+// de tela pra resolver. Mesmo botão/rótulo já usado em admin-crm.js.
+function atualizarBotaoDistribuir() {
+  const botao = document.querySelector("#distribute-leads");
+  if (!botao) return;
+  botao.hidden = !state.canManage || state.semResponsavel === 0;
+  botao.textContent = `Distribuir sem responsável (${state.semResponsavel})`;
+}
+
 const statusLabels = {
   novo: "Novo", em_contato: "Em contato", qualificado: "Qualificado",
   proposta_enviada: "Proposta enviada", sem_retorno: "Sem retorno",
@@ -306,6 +319,8 @@ async function loadCrmSummary() {
     document.querySelector("#crm-no-action").textContent = data.sem_proxima_acao || 0;
     document.querySelector("#crm-distribuicao-desligada").hidden =
       data.distribuicao_automatica_ativa || !data.sem_responsavel;
+    state.semResponsavel = data.sem_responsavel || 0;
+    atualizarBotaoDistribuir();
   } catch (_) {
     // O carregamento principal continua disponivel se o resumo falhar.
   }
@@ -348,6 +363,7 @@ async function loadLeads() {
     state.canExport = Boolean(data.acoes?.exportar);
     state.canDeleteResearch = Boolean(data.acoes?.excluir_pesquisa);
     state.canPii = Boolean(data.acoes?.ver_pii);
+    atualizarBotaoDistribuir();
     if (state.viewMode === "archived") {
       document.querySelector('[data-view="archived"]').textContent = `Clientes arquivados (${data.total})`;
     }
@@ -1371,6 +1387,20 @@ pageSize.addEventListener("change", () => { state.offset = 0; loadLeads(); });
 document.querySelector("#lead-prev").addEventListener("click", () => { state.offset = Math.max(0, state.offset - Number(pageSize.value)); loadLeads(); });
 document.querySelector("#lead-next").addEventListener("click", () => { state.offset += Number(pageSize.value); loadLeads(); });
 document.querySelector("#export-leads").addEventListener("click", () => { location.href = `/v1/admin/leads.csv?${currentParams(false)}`; });
+document.querySelector("#distribute-leads").addEventListener("click", async event => {
+  const botao = event.currentTarget;
+  botao.disabled = true;
+  try {
+    const resultado = await responsePayload(await fetch("/v1/admin/leads/distribuir", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }));
+    const resumo = Object.entries(resultado.por_responsavel || {}).map(([nome, quantidade]) => `${nome}: ${quantidade}`).join(" · ");
+    showMessage(resultado.distribuidos ? `${resultado.distribuidos} lead(s) distribuído(s) — ${resumo}` : "Nenhum lead sem responsável para distribuir.", "success");
+    await Promise.all([loadLeads(), loadCrmSummary()]);
+  } catch (error) {
+    showMessage(error.message, "error");
+  } finally {
+    botao.disabled = false;
+  }
+});
 document.querySelector("#copy-emails").addEventListener("click", async event => {
   const button = event.currentTarget;
   const original = button.textContent;

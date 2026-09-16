@@ -245,6 +245,22 @@ def test_registrar_atendimento_nao_quebra_para_lead_sem_pesquisa() -> None:
     assert 'Use "Salvar atendimento" acima' in script
 
 
+def test_tela_de_leads_permite_distribuir_sem_responsavel_em_lote() -> None:
+    # Achado de produto/UX (item 3, 16/09/2026): o endpoint de distribuição
+    # em lote (POST /v1/admin/leads/distribuir) já existia e já era usado
+    # na tela de CRM/Kanban (admin-crm.js), mas não tinha nenhuma ação
+    # equivalente na tela de Leads -- quem via o card "Sem responsável"
+    # acumular tinha que trocar de tela pra resolver.
+    page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    assert 'id="distribute-leads"' in page
+    assert 'fetch("/v1/admin/leads/distribuir"' in script
+    assert "atualizarBotaoDistribuir" in script
+    # Só aparece para quem gerencia leads e só quando há algo pra distribuir.
+    assert "botao.hidden = !state.canManage || state.semResponsavel === 0;" in script
+
+
 def test_dossie_envia_e_exibe_parecer_unico() -> None:
     page = (web_dir / "admin-analise.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-analise.js").read_text(encoding="utf-8")

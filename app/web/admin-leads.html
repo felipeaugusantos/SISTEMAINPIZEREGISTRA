@@ -67,6 +67,10 @@
           <button type="button" class="crm-priority" data-priority="sem_responsavel"><span>Sem responsável</span><strong id="crm-unassigned">0</strong><small>Aguardam distribuição</small></button>
           <button type="button" class="crm-priority" data-priority="sem_proxima_acao"><span>Sem próxima ação</span><strong id="crm-no-action">0</strong><small>Precisam de planejamento</small></button>
         </div>
+        <p id="crm-distribuicao-desligada" class="status-message" role="status" hidden>
+          Distribuição automática de leads está desligada — os leads sem responsável acima ficam parados até alguém assumir manualmente.
+          <a href="/admin/configuracao/regras-automaticas">Ativar rodízio automático</a>
+        </p>
       </section>
 
       <form id="lead-filters" class="admin-filters">

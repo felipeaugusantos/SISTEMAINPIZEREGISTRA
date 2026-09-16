@@ -304,6 +304,8 @@ async function loadCrmSummary() {
     document.querySelector("#crm-overdue").textContent = data.atrasadas || 0;
     document.querySelector("#crm-unassigned").textContent = data.sem_responsavel || 0;
     document.querySelector("#crm-no-action").textContent = data.sem_proxima_acao || 0;
+    document.querySelector("#crm-distribuicao-desligada").hidden =
+      data.distribuicao_automatica_ativa || !data.sem_responsavel;
   } catch (_) {
     // O carregamento principal continua disponivel se o resumo falhar.
   }

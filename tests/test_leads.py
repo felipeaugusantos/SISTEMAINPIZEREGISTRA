@@ -421,6 +421,7 @@ def test_admin_lista_com_credenciais() -> None:
 def test_resumo_crm_apresenta_prioridades_comerciais() -> None:
     app.dependency_overrides[get_session] = sessao_override(
         FakeResult(itens=[(2, 1, 3)]),
+        FakeResult(scalar=None),
     )
     app.dependency_overrides[obter_usuario_atual] = auth_override()
 
@@ -430,6 +431,9 @@ def test_resumo_crm_apresenta_prioridades_comerciais() -> None:
     assert resposta.json()["sem_responsavel"] == 2
     assert resposta.json()["atrasadas"] == 1
     assert resposta.json()["sem_proxima_acao"] == 3
+    # Achado do usuário (16/09/2026, item 2): sem política cadastrada, o
+    # padrão é distribuição desligada -- o frontend usa isto para avisar.
+    assert resposta.json()["distribuicao_automatica_ativa"] is False
 
 
 def test_lead_publico_nasce_com_proxima_acao_padrao() -> None:

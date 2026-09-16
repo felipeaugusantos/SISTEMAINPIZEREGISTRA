@@ -109,14 +109,21 @@ async def obter_politica_crm(session: AsyncSession, organizacao_id: int) -> Poli
 
 
 async def distribuir_lead_automaticamente(session: AsyncSession, lead: Lead, politica: PoliticaCRM) -> None:
-    """Round-robin simples entre operadores de perfil "comercial" ativos da
-    organização -- achado item 12 da auditoria completa do CRM (06/09/2026).
-    Só roda quando o lead ainda não tem responsável e nenhum operador
-    logado assumiu na criação (ver aplicar_politica_oportunidade). O cursor
-    (ultimo_responsavel_distribuido_id) fica na própria política para o
-    próximo ciclo continuar de onde parou, mesmo entre reinícios do
-    processo -- sem isso, reiniciar o worker/api sempre recomeçaria do
-    primeiro operador da lista.
+    """Round-robin ponderado pela carga atual entre operadores de perfil
+    "comercial" ativos da organização -- achado item 12 da auditoria
+    completa do CRM (06/09/2026), refinado a pedido do usuário (16/09/2026):
+    o round-robin puro por ID ignorava quantos leads em aberto cada
+    operador já tinha, então um operador sobrecarregado (ou de férias,
+    acumulando carteira) continuava recebendo leads na mesma proporção que
+    os outros. Agora escolhe entre os operadores com MENOS leads em aberto
+    (status fora de convertido/descartado); empate entre operadores
+    igualmente ociosos é resolvido pelo cursor de round-robin de sempre,
+    pra manter distribuição justa nesse caso. Só roda quando o lead ainda
+    não tem responsável e nenhum operador logado assumiu na criação (ver
+    aplicar_politica_oportunidade). O cursor (ultimo_responsavel_distribuido_id)
+    fica na própria política para o próximo ciclo continuar de onde parou,
+    mesmo entre reinícios do processo -- sem isso, reiniciar o worker/api
+    sempre recomeçaria do primeiro operador da lista.
 
     Nome público (sem "_") porque também é chamada em lote pelo endpoint
     POST /v1/admin/leads/distribuir (app/api/leads.py), reaproveitando o
@@ -138,8 +145,24 @@ async def distribuir_lead_automaticamente(session: AsyncSession, lead: Lead, pol
     )
     if not operadores:
         return
+    cargas: dict[int, int] = dict.fromkeys(operadores, 0)
+    linhas_carga = (
+        await session.execute(
+            select(Lead.responsavel_id, func.count())
+            .where(
+                Lead.organizacao_id == lead.organizacao_id,
+                Lead.responsavel_id.in_(operadores),
+                Lead.status.not_in((StatusLead.CONVERTIDO, StatusLead.DESCARTADO)),
+            )
+            .group_by(Lead.responsavel_id)
+        )
+    ).all()
+    for responsavel_id, quantidade in linhas_carga:
+        cargas[responsavel_id] = quantidade
+    menor_carga = min(cargas.values())
+    candidatos = [id_ for id_ in operadores if cargas[id_] == menor_carga]
     cursor = politica.ultimo_responsavel_distribuido_id
-    proximo = next((id_ for id_ in operadores if cursor is None or id_ > cursor), operadores[0])
+    proximo = next((id_ for id_ in candidatos if cursor is None or id_ > cursor), candidatos[0])
     lead.responsavel_id = proximo
     politica.ultimo_responsavel_distribuido_id = proximo
     if politica.id is None:

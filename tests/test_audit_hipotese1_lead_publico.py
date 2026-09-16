@@ -120,6 +120,7 @@ def test_lead_publico_com_distribuicao_automatica_ativa_recebe_responsavel() -> 
         FakeResult(scalar=None),
         FakeResult(scalar=politica),
         FakeResult(itens=[9]),
+        FakeResult(itens=[]),  # achado do usuário (16/09/2026): carga atual por responsavel
     )
 
     resposta = TestClient(app).post("/v1/leads", json=_payload(email="hipotese1.distribuicao@example.com"))

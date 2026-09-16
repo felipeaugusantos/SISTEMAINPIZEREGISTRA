@@ -601,15 +601,22 @@ def test_distribuir_leads_round_robin_entre_atendentes_elegiveis() -> None:
 
     # distribuir_leads reaproveita distribuir_lead_automaticamente (app/crm.py):
     # 1) _atendentes_elegiveis, 2) obter_politica_crm (None -> politica default),
-    # 3) leads sem responsavel, 4-6) uma consulta de ids comerciais por lead
-    # (distribuir_lead_automaticamente busca de novo a cada chamada).
+    # 3) leads sem responsavel, 4-9) por lead: consulta de ids comerciais +
+    # consulta de carga atual por responsavel (achado do usuário, 16/09/2026:
+    # round-robin agora pesa pela carga, não só pelo cursor -- simulando aqui
+    # a carga real que cada atribuição anterior deixaria: lead0 encontra os
+    # dois zerados; lead1 já vê ana com 1 aberto (de lead0); lead2 vê os dois
+    # empatados em 1, decidido pelo cursor de sempre).
     app.dependency_overrides[get_session] = sessao_override(
         FakeResult(itens=[ana, beto]),
         FakeResult(scalar=None),
         FakeResult(itens=leads),
         FakeResult(itens=[1, 2]),
+        FakeResult(itens=[]),
         FakeResult(itens=[1, 2]),
+        FakeResult(itens=[(1, 1)]),
         FakeResult(itens=[1, 2]),
+        FakeResult(itens=[(1, 1), (2, 1)]),
     )
     usuario = usuario_teste()
     object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))

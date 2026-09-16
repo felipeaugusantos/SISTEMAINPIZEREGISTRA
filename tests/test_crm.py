@@ -5,8 +5,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.api.leads import ContatoInput
-from app.crm import calcular_score_lead, normalizar_empresa, verificar_conflito_interesse
-from app.models import Lead, PoliticaCRM
+from app.crm import calcular_score_lead, distribuir_lead_automaticamente, normalizar_empresa, verificar_conflito_interesse
+from app.models import Lead, PoliticaCRM, StatusLead
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
@@ -174,3 +174,81 @@ def test_editar_politica_crm_persiste_ia_sombra_ativa() -> None:
     politica_criada = next(item for item in session.adicionados if isinstance(item, PoliticaCRM))
     assert politica_criada.ia_sombra_ativa is True
     assert resultado["ia_sombra_ativa"] is True
+
+
+# --- Round-robin ponderado por carga (achado do usuário, 16/09/2026): antes
+# distribuía por ordem sequencial de cursor, ignorando quanto cada operador
+# já tinha em aberto -- quem estava sobrecarregado continuava recebendo na
+# mesma proporção. ---
+
+
+def _lead_novo(**kwargs: object) -> Lead:
+    base: dict = {
+        "id": 100,
+        "organizacao_id": 1,
+        "nome": "Novo lead",
+        "email": "novo@example.com",
+        "telefone": "11900000000",
+        "marca": "ACME",
+        "origem": "site",
+        "status": StatusLead.NOVO,
+        "responsavel_id": None,
+    }
+    base.update(kwargs)
+    return Lead(**base)
+
+
+def test_distribuir_lead_automaticamente_prioriza_operador_com_menos_carga() -> None:
+    """O cursor por si só mandaria pro operador 2 (próximo id > cursor), mas
+    ele está sobrecarregado (5 leads em aberto) -- o operador 3, com menos
+    carga, é escolhido mesmo fora da ordem do cursor."""
+    lead = _lead_novo()
+    politica = PoliticaCRM(id=1, organizacao_id=1, ultimo_responsavel_distribuido_id=1)
+    session = FakeSession(
+        [
+            FakeResult(itens=[1, 2, 3]),  # operadores comerciais ativos
+            FakeResult(itens=[(1, 3), (2, 5), (3, 1)]),  # carga atual por responsavel_id
+        ]
+    )
+
+    asyncio.run(distribuir_lead_automaticamente(session, lead, politica))
+
+    assert lead.responsavel_id == 3
+    assert politica.ultimo_responsavel_distribuido_id == 3
+
+
+def test_distribuir_lead_automaticamente_empate_de_carga_usa_cursor() -> None:
+    """Quando dois ou mais operadores empatam na menor carga, o desempate
+    continua sendo o cursor de round-robin de sempre -- preserva
+    distribuição justa entre operadores igualmente ociosos."""
+    lead = _lead_novo()
+    politica = PoliticaCRM(id=1, organizacao_id=1, ultimo_responsavel_distribuido_id=1)
+    session = FakeSession(
+        [
+            FakeResult(itens=[1, 2, 3]),
+            FakeResult(itens=[(1, 4), (2, 0), (3, 0)]),  # 2 e 3 empatados em 0
+        ]
+    )
+
+    asyncio.run(distribuir_lead_automaticamente(session, lead, politica))
+
+    # cursor=1 -> primeiro candidato com id > 1 entre os empatados [2, 3] é o 2.
+    assert lead.responsavel_id == 2
+
+
+def test_distribuir_lead_automaticamente_operador_sem_lead_algum_nao_aparece_na_consulta() -> None:
+    """A consulta de carga só devolve responsavel_id de quem já tem lead em
+    aberto (GROUP BY) -- um operador novo, sem nenhum lead ainda, precisa
+    contar como carga zero, não pode quebrar por ausência na consulta."""
+    lead = _lead_novo()
+    politica = PoliticaCRM(id=1, organizacao_id=1, ultimo_responsavel_distribuido_id=None)
+    session = FakeSession(
+        [
+            FakeResult(itens=[1, 2]),
+            FakeResult(itens=[(1, 2)]),  # operador 2 nunca apareceu na consulta (carga real = 0)
+        ]
+    )
+
+    asyncio.run(distribuir_lead_automaticamente(session, lead, politica))
+
+    assert lead.responsavel_id == 2

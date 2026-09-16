@@ -957,10 +957,17 @@ async def resumo_crm_leads(session: SessionDep, usuario: LeadsViewDep) -> dict:
             )
         )
     ).one()
+    # Achado do usuário (16/09/2026, item 2): distribuição automática é
+    # opt-in silencioso -- sem isto, uma organização nova nunca via que a
+    # opção existia nem que estava desligada, mesmo acumulando leads "sem
+    # responsável" no card ao lado. Devolve o estado para o frontend decidir
+    # quando mostrar o aviso (só importa se ainda restam leads sem dono).
+    politica = await obter_politica_crm(session, usuario.organizacao_id)
     return {
         "sem_responsavel": int(linha[0] or 0),
         "atrasadas": int(linha[1] or 0),
         "sem_proxima_acao": int(linha[2] or 0),
+        "distribuicao_automatica_ativa": politica.distribuicao_automatica_ativa,
         "atualizado_em": agora,
     }
 

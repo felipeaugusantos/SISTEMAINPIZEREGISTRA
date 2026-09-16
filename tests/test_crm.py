@@ -5,7 +5,12 @@ import pytest
 from pydantic import ValidationError
 
 from app.api.leads import ContatoInput
-from app.crm import calcular_score_lead, distribuir_lead_automaticamente, normalizar_empresa, verificar_conflito_interesse
+from app.crm import (
+    calcular_score_lead,
+    distribuir_lead_automaticamente,
+    normalizar_empresa,
+    verificar_conflito_interesse,
+)
 from app.models import Lead, PoliticaCRM, StatusLead
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 

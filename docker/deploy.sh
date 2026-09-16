@@ -33,7 +33,7 @@ set -eu
 # final se algum dos tres servicos que compartilham codigo (api/worker/
 # rpi-sync) acabar rodando um commit diferente dos outros (achado F0-3).
 
-MANTER_VERSOES="${MANTER_VERSOES:-10}"
+MANTER_VERSOES="${MANTER_VERSOES:-5}"
 SERVICOS="${*:-api worker migrate rpi-sync}"
 ARQUIVO_VERSAO=".deploy-version"
 COMPOSE="docker compose -f compose.yaml -f compose.production.yaml"

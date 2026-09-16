@@ -225,6 +225,26 @@ def test_painel_do_lead_usa_abas() -> None:
     assert ".lead-tab-panel" in styles
 
 
+def test_registrar_atendimento_nao_quebra_para_lead_sem_pesquisa() -> None:
+    # Achado da auditoria de Leads/CRM (10/09/2026, Hipótese 8): o diálogo
+    # dedicado "Registrar atendimento" exigia um <select required> só com
+    # as pesquisas do lead -- para um lead sem nenhuma, ficava vazio e o
+    # navegador bloqueava o envio silenciosamente, sem explicar nada.
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    # abrirRegistroAtendimento cai para o diálogo completo (que já funciona
+    # sem pesquisa, via "Salvar atendimento") em vez de montar o formulário
+    # com o select vazio.
+    assert "if (!(lead.pesquisas || []).length) {" in script
+    assert script.index("abrirRegistroAtendimento") < script.index("if (!(lead.pesquisas || []).length) {")
+    assert "await openLead(lead.id);" in script
+
+    # A seção "Contatos realizados" do diálogo completo explica o caminho
+    # alternativo em vez de desaparecer sem nenhum aviso.
+    assert 'Este lead ainda não tem pesquisa de marca vinculada' in script
+    assert 'Use "Salvar atendimento" acima' in script
+
+
 def test_dossie_envia_e_exibe_parecer_unico() -> None:
     page = (web_dir / "admin-analise.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-analise.js").read_text(encoding="utf-8")

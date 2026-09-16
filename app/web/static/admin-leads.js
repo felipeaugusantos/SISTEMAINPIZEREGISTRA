@@ -426,8 +426,20 @@ async function abrirRegistroAtendimento(leadId, pesquisaId) {
   const lead = await response.json().catch(() => ({}));
   proximaAcao = lead.proxima_acao_em ? new Date(lead.proxima_acao_em).toISOString().slice(0, 16) : "";
   if (!response.ok) { alert(lead.detail || "Não foi possível carregar o atendimento."); return; }
-  const options = (lead.pesquisas || []).map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(pesquisaId) ? "selected" : ""}>${escapeHtml(item.marca)} · ${formatDate(item.criado_em, false)}</option>`).join("");
   document.querySelector("#lead-dialog-title").textContent = `Registrar atendimento · ${lead.nome}`;
+  // Achado da auditoria de Leads/CRM (10/09/2026, Hipótese 8): este
+  // formulário exige uma pesquisa vinculada (POST /leads/{id}/contatos
+  // exige pesquisa_id) -- se o lead não tem nenhuma, o <select required>
+  // ficava vazio e o navegador bloqueava o envio silenciosamente, sem
+  // explicar nada. Em vez de montar o formulário quebrado, cai para o
+  // diálogo completo de atendimento (openLead), cujo botão "Salvar
+  // atendimento" já funciona para qualquer lead, com ou sem pesquisa.
+  if (!(lead.pesquisas || []).length) {
+    if (dialog.open) dialog.close();
+    await openLead(lead.id);
+    return;
+  }
+  const options = lead.pesquisas.map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(pesquisaId) ? "selected" : ""}>${escapeHtml(item.marca)} · ${formatDate(item.criado_em, false)}</option>`).join("");
   dialogContent.innerHTML = `<section class="lead-contact-log lead-attendance-standalone"><header><div><p class="eyebrow">Atendimento comercial</p><h3>Novo registro</h3></div></header><form id="lead-contact-form" data-lead-id="${lead.id}" class="lead-contact-form"><label><span>Pesquisa relacionada</span><select name="pesquisa_id" id="lead-contact-filter" required>${options}</select></label><label><span>Canal</span><select name="canal"><option value="telefone">Telefone</option><option value="whatsapp">WhatsApp</option><option value="email">E-mail</option><option value="reuniao">Reunião</option><option value="outro">Outro</option></select></label><label><span>Resultado</span><input name="resultado" maxlength="150" placeholder="Ex.: proposta enviada" /></label><label class="lead-contact-observation-field"><span>Observação</span><textarea name="observacao" maxlength="2000" rows="5" placeholder="Registre o que foi conversado e a próxima orientação."></textarea></label><div><button class="primary-button" type="submit">Salvar atendimento</button><span id="contact-save-message" role="status"></span></div></form></section>`;
   const attendanceSection = dialogContent.querySelector(".lead-attendance-standalone");
   const attendanceForm = attendanceSection?.querySelector("#lead-contact-form");
@@ -491,7 +503,7 @@ async function openLead(id, selectedResearchId = null) {
           <label><span>Resultado</span><input name="resultado" maxlength="150" placeholder="Ex.: proposta enviada" /></label>
           <label class="lead-contact-observation-field"><span>Observações do contato</span><textarea name="observacao" maxlength="2000" rows="3" placeholder="Registre o que foi conversado e a próxima orientação."></textarea></label>
           <div><button class="primary-button" type="submit">Registrar contato</button><span id="contact-save-message" role="status"></span></div>
-        </form>` : ""}
+        </form>` : state.canManage ? `<p class="lead-contact-empty">Este lead ainda não tem pesquisa de marca vinculada, então não dá pra escolher a qual pesquisa o contato se refere. Use "Salvar atendimento" acima para registrar o atendimento mesmo assim.</p>` : ""}
         <ol id="lead-contact-history" class="lead-contact-history"><li class="lead-contact-empty">Carregando contatos...</li></ol>
       </section>
       <section class="lead-horas" id="lead-horas" data-lead-id="${lead.id}"><p class="lead-funil-loading">Carregando horas…</p></section>

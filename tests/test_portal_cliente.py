@@ -14,6 +14,7 @@ from app.api.portal_cliente import (
     listar_processos_portal,
     login_cliente,
     logout_cliente,
+    montar_jornada_registro,
     progresso_processo,
     webhook_clicksign,
 )
@@ -21,6 +22,7 @@ from app.models import (
     ArquivoClientePortal,
     AssinaturaPropostaComercial,
     ClientePortal,
+    HistoricoFaseLead,
     Lead,
     PrazoJuridico,
     Processo,
@@ -435,6 +437,65 @@ def test_progresso_processo_desfechos_negativos_nao_aparecem_como_sucesso() -> N
 
     extinta = progresso_processo("extinta")
     assert extinta["resultado"] == "negativo"
+
+
+def test_jornada_portal_exibe_funil_inteiro_antes_do_protocolo_sem_chamar_etapas_de_puladas() -> None:
+    criado_em = datetime(2026, 9, 10, 12, tzinfo=UTC)
+    ganho_em = datetime(2026, 9, 17, 16, 36, tzinfo=UTC)
+    lead = Lead(id=358, organizacao_id=1, fase="ganho", criado_em=criado_em)
+    historico = [HistoricoFaseLead(fase="ganho", entrou_em=ganho_em)]
+
+    jornada = montar_jornada_registro(lead, historico, [], [])
+
+    assert [item["fase"] for item in jornada] == [
+        "contato_inicial",
+        "qualificado",
+        "relatorio_enviado",
+        "proposta_enviada",
+        "proposta_aceita",
+        "aguardando_pagamento",
+        "pagamento_confirmado",
+        "ganho",
+        "protocolo_inpi",
+        "processo_inpi",
+    ]
+    assert jornada[0]["ocorrido_em"] == criado_em
+    assert jornada[1]["situacao"] == "concluida_sem_data"
+    assert jornada[7] == {
+        "fase": "ganho",
+        "label": "Contratação concluída",
+        "situacao": "atual",
+        "ocorrido_em": ganho_em,
+    }
+    assert jornada[8]["situacao"] == "pendente"
+    assert jornada[9]["situacao"] == "pendente"
+
+
+def test_jornada_portal_usa_eventos_objetivos_da_proposta_e_do_processo() -> None:
+    criado_em = datetime(2026, 9, 1, 12, tzinfo=UTC)
+    enviado_em = datetime(2026, 9, 3, 12, tzinfo=UTC)
+    aceito_em = datetime(2026, 9, 4, 12, tzinfo=UTC)
+    pago_em = datetime(2026, 9, 5, 12, tzinfo=UTC)
+    vinculado_em = datetime(2026, 9, 8, 12, tzinfo=UTC)
+    lead = Lead(id=9, organizacao_id=1, fase="processo_inpi", criado_em=criado_em)
+    proposta = PropostaComercial(
+        enviado_em=enviado_em,
+        aceito_em=aceito_em,
+        pagamento_confirmado_em=pago_em,
+    )
+    monitorado = ProcessoMonitorado(criado_em=vinculado_em)
+    processo = Processo(numero="BR512345678")
+
+    jornada = montar_jornada_registro(lead, [], [proposta], [(monitorado, processo)])
+    por_fase = {item["fase"]: item for item in jornada}
+
+    assert por_fase["proposta_enviada"]["ocorrido_em"] == enviado_em
+    assert por_fase["proposta_aceita"]["ocorrido_em"] == aceito_em
+    assert por_fase["aguardando_pagamento"]["ocorrido_em"] == aceito_em
+    assert por_fase["pagamento_confirmado"]["ocorrido_em"] == pago_em
+    assert por_fase["protocolo_inpi"]["ocorrido_em"] == vinculado_em
+    assert por_fase["processo_inpi"]["situacao"] == "atual"
+    assert por_fase["processo_inpi"]["ocorrido_em"] == vinculado_em
 
 
 def test_listar_processos_portal_inclui_progresso() -> None:

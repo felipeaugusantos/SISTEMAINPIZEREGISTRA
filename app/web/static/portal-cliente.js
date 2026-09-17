@@ -20,21 +20,29 @@ function processoTimeline(item) {
     ${item.alerta ? `<p class="portal-processo-alerta">⚠ ${esc(item.alerta)}</p>` : ""}
   </div>`;
 }
-function processoTimelinePendente(marca) {
-  return processoTimeline({
-    numero: marca || "Pedido de registro",
-    etapa: "Preparação do pedido",
-    percentual: 0,
-    alerta: "O acompanhamento oficial aparecerá após o protocolo e a vinculação do processo do INPI.",
-    resultado: "ativo",
-  });
+function formatarDataJornada(valor) {
+  if (!valor) return "";
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(new Date(valor));
+}
+function jornadaRegistro(itens = []) {
+  return `<ol class="portal-journey">${itens.map((item) => {
+    const detalhe = item.ocorrido_em
+      ? formatarDataJornada(item.ocorrido_em)
+      : item.situacao === "concluida_sem_data"
+        ? "Concluída · data não registrada"
+        : item.situacao === "atual" ? "Etapa atual" : "Aguardando";
+    return `<li class="is-${esc(item.situacao)}"><i aria-hidden="true"></i><span><strong>${esc(item.label)}</strong><small>${esc(detalhe)}</small></span></li>`;
+  }).join("")}</ol>`;
 }
 function showApp(data) {
   $("#login").hidden = true;
   $("#app").hidden = false;
   $("#hello").textContent = `Olá, ${data.cliente.nome}`;
   const rows = (items, fields) => items?.length ? `<div class="portal-table">${items.map((item) => `<div class="portal-row">${fields.map((field) => `<span><strong>${esc(field[0])}</strong> ${esc(item[field[1]])}</span>`).join("")}</div>`).join("")}</div>` : "<p>Nenhum registro.</p>";
-  $("#summary").innerHTML = `<p><strong>Marca:</strong> ${esc(data.lead.marca)} · <strong>Fase:</strong> ${esc(data.lead.fase)}</p><h3>Linha do tempo do registro</h3>${data.processos?.length ? data.processos.map(processoTimeline).join("") : processoTimelinePendente(data.lead.marca)}<h3>Propostas</h3>${data.propostas?.map((item) => { const podeAssinar = ["enviada", "visualizada", "aceita"].includes(item.status); const acao = item.status === "aceita" ? "<span>Assinada</span>" : podeAssinar ? `<button class="secondary-button" data-assinar-proposta="${item.id}" type="button">Assinar proposta</button>` : "<span class=\"portal-pending-status\">Aguardando envio</span>"; return `<div class="portal-row"><span><strong>${esc(item.numero)}</strong> · ${esc(item.status)}</span>${acao}</div>`; }).join("") || "<p>Nenhuma proposta.</p>"}<h3>Documentos e GRUs</h3>${data.documentos?.map((item) => `<div class="portal-row"><span><strong>${esc(item.tipo)}</strong> · ${esc(item.status)} · v${esc(item.versao)}</span>${item.status !== "assinado" && !item.assinado_em ? `<button class="secondary-button" data-assinar-documento="${item.id}" type="button">Assinar</button>` : "<span>Assinado</span>"}</div>`).join("") || "<p>Nenhum documento.</p>"}${rows(data.guias, [["GRU", "numero_gru"], ["Status", "status"], ["Vencimento", "vencimento"]])}<h3>Pagamentos</h3>${rows(data.pagamentos, [["Descrição", "descricao"], ["Status", "status"], ["Valor", "valor_total"]])}`;
+  const acompanhamentoInpi = data.processos?.length
+    ? data.processos.map(processoTimeline).join("")
+    : '<p class="portal-inpi-pending">O acompanhamento oficial do INPI aparecerá aqui quando o processo for protocolado e vinculado. A jornada acima continua disponível desde o primeiro contato.</p>';
+  $("#summary").innerHTML = `<p><strong>Marca:</strong> ${esc(data.lead.marca)} · <strong>Fase:</strong> ${esc(data.lead.fase)}</p><h3>Jornada do atendimento ao registro</h3>${jornadaRegistro(data.jornada)}<h3>Acompanhamento oficial no INPI</h3>${acompanhamentoInpi}<h3>Propostas</h3>${data.propostas?.map((item) => { const podeAssinar = ["enviada", "visualizada", "aceita"].includes(item.status); const acao = item.status === "aceita" ? "<span>Assinada</span>" : podeAssinar ? `<button class="secondary-button" data-assinar-proposta="${item.id}" type="button">Assinar proposta</button>` : "<span class=\"portal-pending-status\">Aguardando envio</span>"; return `<div class="portal-row"><span><strong>${esc(item.numero)}</strong> · ${esc(item.status)}</span>${acao}</div>`; }).join("") || "<p>Nenhuma proposta.</p>"}<h3>Documentos e GRUs</h3>${data.documentos?.map((item) => `<div class="portal-row"><span><strong>${esc(item.tipo)}</strong> · ${esc(item.status)} · v${esc(item.versao)}</span>${item.status !== "assinado" && !item.assinado_em ? `<button class="secondary-button" data-assinar-documento="${item.id}" type="button">Assinar</button>` : "<span>Assinado</span>"}</div>`).join("") || "<p>Nenhum documento.</p>"}${rows(data.guias, [["GRU", "numero_gru"], ["Status", "status"], ["Vencimento", "vencimento"]])}<h3>Pagamentos</h3>${rows(data.pagamentos, [["Descrição", "descricao"], ["Status", "status"], ["Valor", "valor_total"]])}`;
 }
 function formatarTamanho(bytes) {
   if (!bytes) return "0 KB";

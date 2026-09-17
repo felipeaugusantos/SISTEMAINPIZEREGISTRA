@@ -235,11 +235,15 @@ def test_portal_cliente_mostra_linha_do_tempo_com_progresso() -> None:
     styles = (web_dir / "static" / "portal-cliente.css").read_text(encoding="utf-8")
 
     assert "function processoTimeline" in script
-    assert "function processoTimelinePendente" in script
-    assert "Linha do tempo do registro" in script
-    assert "após o protocolo e a vinculação" in script
+    assert "function jornadaRegistro" in script
+    assert "Jornada do atendimento ao registro" in script
+    assert "Acompanhamento oficial no INPI" in script
+    assert "A jornada acima continua disponível desde o primeiro contato" in script
+    assert "processoTimelinePendente" not in script
     assert "w-pct-${Number(item.percentual)" in script
-    assert "data.processos?.length ? data.processos.map(processoTimeline)" in script
+    assert "data.processos.map(processoTimeline)" in script
+    assert ".portal-journey" in styles
+    assert ".is-concluida_sem_data" in styles
     assert ".portal-progress-fill" in styles
     assert ".portal-processo-alerta" in styles
     assert ".portal-processo.is-negativo" in styles

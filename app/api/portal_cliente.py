@@ -37,7 +37,9 @@ from app.models import (
     ClientePortal,
     DocumentoLead,
     EventoAuditoria,
+    FaseLead,
     GuiaInpi,
+    HistoricoFaseLead,
     LancamentoFinanceiro,
     Lead,
     MensagemClientePortal,
@@ -122,6 +124,81 @@ def progresso_processo(situacao_normalizada: str | None) -> dict:
         "alerta": info["alerta"],
         "resultado": info.get("resultado", "ativo"),
     }
+
+
+_JORNADA_REGISTRO: tuple[tuple[FaseLead, str], ...] = (
+    (FaseLead.CONTATO_INICIAL, "Contato inicial"),
+    (FaseLead.QUALIFICADO, "Qualificado"),
+    (FaseLead.RELATORIO_ENVIADO, "Relatório enviado"),
+    (FaseLead.PROPOSTA_ENVIADA, "Proposta enviada"),
+    (FaseLead.PROPOSTA_ACEITA, "Proposta aceita"),
+    (FaseLead.AGUARDANDO_PAGAMENTO, "Aguardando pagamento"),
+    (FaseLead.PAGAMENTO_CONFIRMADO, "Pagamento confirmado"),
+    (FaseLead.GANHO, "Contratação concluída"),
+    (FaseLead.PROTOCOLO_INPI, "Protocolo no INPI"),
+    (FaseLead.PROCESSO_INPI, "Processo no INPI"),
+)
+
+
+def montar_jornada_registro(
+    lead: Lead,
+    historico: list[HistoricoFaseLead],
+    propostas: list[PropostaComercial],
+    processos: list[tuple[ProcessoMonitorado, Processo]],
+) -> list[dict]:
+    """Monta a jornada comercial e operacional sem fabricar datas.
+
+    Uma mudança manual de fase pode não ter gravado os degraus anteriores.
+    Nesse caso eles são apresentados como concluídos sem data registrada,
+    nunca como "pulados". Eventos objetivos da proposta e do vínculo com o
+    processo complementam o histórico do funil.
+    """
+
+    evidencias: dict[str, datetime] = {FaseLead.CONTATO_INICIAL.value: lead.criado_em}
+    for evento in historico:
+        atual = evidencias.get(evento.fase)
+        if atual is None or evento.entrou_em < atual:
+            evidencias[evento.fase] = evento.entrou_em
+
+    campos_proposta = (
+        (FaseLead.PROPOSTA_ENVIADA.value, "enviado_em"),
+        (FaseLead.PROPOSTA_ACEITA.value, "aceito_em"),
+        (FaseLead.AGUARDANDO_PAGAMENTO.value, "aceito_em"),
+        (FaseLead.PAGAMENTO_CONFIRMADO.value, "pagamento_confirmado_em"),
+        (FaseLead.PROTOCOLO_INPI.value, "protocolo_em"),
+    )
+    for fase, campo in campos_proposta:
+        datas = [getattr(proposta, campo) for proposta in propostas if getattr(proposta, campo)]
+        if datas:
+            evidencias[fase] = min([evidencias[fase], *datas]) if fase in evidencias else min(datas)
+
+    if processos:
+        data_vinculo = min(monitorado.criado_em for monitorado, _processo in processos)
+        evidencias.setdefault(FaseLead.PROTOCOLO_INPI.value, data_vinculo)
+        evidencias.setdefault(FaseLead.PROCESSO_INPI.value, data_vinculo)
+
+    ordem = [fase.value for fase, _label in _JORNADA_REGISTRO]
+    indice_atual = ordem.index(lead.fase) if lead.fase in ordem else 0
+    jornada: list[dict] = []
+    for indice, (fase, label) in enumerate(_JORNADA_REGISTRO):
+        ocorrido_em = evidencias.get(fase.value)
+        if fase.value == lead.fase:
+            situacao = "atual"
+        elif ocorrido_em is not None:
+            situacao = "concluida"
+        elif indice < indice_atual:
+            situacao = "concluida_sem_data"
+        else:
+            situacao = "pendente"
+        jornada.append(
+            {
+                "fase": fase.value,
+                "label": label,
+                "situacao": situacao,
+                "ocorrido_em": ocorrido_em,
+            }
+        )
+    return jornada
 
 
 @router.post("/v1/webhooks/clicksign")
@@ -842,6 +919,20 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
         .scalars()
         .all()
     )
+    historico_fases = (
+        (
+            await session.execute(
+                select(HistoricoFaseLead)
+                .where(
+                    HistoricoFaseLead.lead_id == lead.id,
+                    HistoricoFaseLead.organizacao_id == cliente.organizacao_id,
+                )
+                .order_by(HistoricoFaseLead.entrou_em)
+            )
+        )
+        .scalars()
+        .all()
+    )
     documentos = (
         (
             await session.execute(
@@ -894,6 +985,7 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
         .scalars()
         .all()
     )
+    processos_monitorados = await _processos_monitorados_do_lead(session, lead.id, cliente.organizacao_id)
     processos = [
         {
             "numero": processo.numero,
@@ -901,13 +993,14 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
             "situacao": processo.situacao,
             **progresso_processo(processo.situacao_normalizada),
         }
-        for _monitorado, processo in await _processos_monitorados_do_lead(session, lead.id, cliente.organizacao_id)
+        for _monitorado, processo in processos_monitorados
     ]
     _auditar_cliente(session, cliente, request, "consultar_resumo", "portal:resumo")
     await session.commit()
     return {
         "cliente": _cliente_dict(cliente),
         "lead": {"id": lead.id, "marca": lead.marca, "fase": lead.fase},
+        "jornada": montar_jornada_registro(lead, historico_fases, propostas, processos_monitorados),
         "processos": processos,
         "propostas": [
             {

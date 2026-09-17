@@ -2,16 +2,21 @@ import asyncio
 import json
 from datetime import UTC, date, datetime
 
-from fastapi import HTTPException
+import pytest
+from fastapi import HTTPException, Response
 from starlette.requests import Request
 
 from app.api.portal_cliente import (
+    ClienteLogin,
     assinar_proposta_portal,
+    listar_arquivos_portal_admin,
     listar_prazos_portal,
     listar_processos_portal,
+    login_cliente,
     webhook_clicksign,
 )
 from app.models import (
+    ArquivoClientePortal,
     AssinaturaPropostaComercial,
     ClientePortal,
     Lead,
@@ -20,7 +25,7 @@ from app.models import (
     ProcessoMonitorado,
     PropostaComercial,
 )
-from tests.conftest import FakeResult, FakeSession
+from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
 def _request() -> Request:
@@ -271,3 +276,76 @@ def test_webhook_clicksign_proposta_nao_encontrada_e_ignorado() -> None:
         )
     )
     assert resultado == {"ok": True, "ignorado": True}
+
+
+# --- Achado da validação do Portal do Cliente (17/09/2026): login sem limite
+# de tentativas -- diferente do login administrativo, permitia força bruta de
+# senha contra contas de ClientePortal. ---
+
+
+def test_login_cliente_portal_bloqueia_apos_muitas_tentativas() -> None:
+    dados = ClienteLogin(email="cliente@empresa.test", senha="senha-errada")
+    request = _request()
+    for _ in range(10):
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(login_cliente(dados, request, Response(), FakeSession([])))
+        assert exc_info.value.status_code == 401
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(login_cliente(dados, request, Response(), FakeSession([])))
+    assert exc_info.value.status_code == 429
+
+
+# --- Achado da validação do Portal do Cliente (17/09/2026): documentos
+# enviados pelo cliente (ArquivoClientePortal) não tinham nenhuma tela
+# administrativa equivalente -- a equipe não conseguia ver nem baixar o que
+# o cliente enviava pelo portal. ---
+
+
+def test_listar_arquivos_portal_admin_nega_para_quem_nao_e_responsavel() -> None:
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=99)
+    usuario = usuario_teste(perfil="comercial")
+    session = FakeSession([FakeResult(scalar=lead)])
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(listar_arquivos_portal_admin(9, session, usuario))
+    assert exc_info.value.status_code == 403
+
+
+def test_listar_arquivos_portal_admin_lista_para_o_responsavel() -> None:
+    usuario = usuario_teste(perfil="comercial")
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=usuario.id)
+    arquivo = ArquivoClientePortal(
+        id=5,
+        organizacao_id=1,
+        lead_id=9,
+        cliente_id=1,
+        nome="procuracao.pdf",
+        caminho="data/portal/1/1/abc-procuracao.pdf",
+        content_type="application/pdf",
+        tamanho=1024,
+        arquivo_hash="hash123",
+    )
+    session = FakeSession([FakeResult(scalar=lead), FakeResult(itens=[arquivo])])
+
+    resultado = asyncio.run(listar_arquivos_portal_admin(9, session, usuario))
+
+    assert resultado["arquivos"] == [
+        {
+            "id": 5,
+            "nome": "procuracao.pdf",
+            "content_type": "application/pdf",
+            "tamanho": 1024,
+            "hash": "hash123",
+            "criado_em": None,
+        }
+    ]
+
+
+def test_listar_arquivos_portal_admin_lead_inexistente_retorna_404() -> None:
+    usuario = usuario_teste()
+    session = FakeSession([FakeResult(scalar=None)])
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(listar_arquivos_portal_admin(999, session, usuario))
+    assert exc_info.value.status_code == 404

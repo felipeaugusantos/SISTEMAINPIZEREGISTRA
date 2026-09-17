@@ -51,7 +51,8 @@ from app.models import (
     SessaoClientePortal,
     VersaoDocumentoLead,
 )
-from app.proxy import requisicao_https
+from app.proxy import cliente_ip, requisicao_https
+from app.ratelimit import RateLimiter
 from app.settings import get_settings
 from app.storage import StorageError, read_bytes, save_bytes
 from app.tenancy import aplicar_contexto_tenant
@@ -62,6 +63,11 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ClientManageDep = Annotated[object, Depends(exigir_permissao("leads.manage"))]
 ClientViewDep = Annotated[object, Depends(exigir_permissao("leads.view"))]
 SESSION_COOKIE = "zr_client_session"
+# Achado da validação do Portal do Cliente (17/09/2026): login_cliente não
+# tinha nenhum limite de tentativas nem bloqueio automático -- diferente do
+# login administrativo (auth_routes.limitar_login), permitia força bruta de
+# senha sem restrição contra contas de ClientePortal. Mesmo limite usado lá.
+_limitar_login_portal = RateLimiter(limite=10, janela_segundos=60, escopo="portal-login")
 
 
 @router.post("/v1/webhooks/clicksign")
@@ -288,6 +294,7 @@ async def _processos_monitorados_do_lead(
 
 @router.post("/v1/portal/login")
 async def login_cliente(dados: ClienteLogin, request: Request, response: Response, session: SessionDep) -> dict:
+    _limitar_login_portal.aplicar(cliente_ip(request))
     cliente = (
         await session.execute(select(ClientePortal).where(ClientePortal.email == str(dados.email).lower()))
     ).scalar_one_or_none()
@@ -660,6 +667,99 @@ async def marcar_mensagens_portal_lidas(lead_id: int, session: SessionDep, usuar
         item.lida_em = agora
     await session.commit()
     return {"atualizadas": len(itens)}
+
+
+# Achado da validação do Portal do Cliente (17/09/2026): documentos enviados
+# pelo cliente (ArquivoClientePortal, POST /v1/portal/arquivos) não tinham
+# NENHUM equivalente administrativo -- diferente das mensagens do portal
+# (par listar_mensagens_portal_admin/GET .../portal-mensagens acima), a
+# equipe não tinha como ver nem baixar o que o cliente enviou. Mesmo padrão
+# de permissão (responsável pelo lead, administrador ou superadmin).
+@router.get("/v1/admin/leads/{lead_id}/portal-arquivos")
+async def listar_arquivos_portal_admin(lead_id: int, session: SessionDep, usuario: ClientViewDep) -> dict:
+    lead = (
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    if lead.responsavel_id != usuario.id and usuario.perfil != "administrador" and not usuario.superadmin:
+        raise HTTPException(
+            status_code=403,
+            detail="Somente o responsável pelo atendimento pode consultar estes arquivos",
+        )
+    itens = (
+        (
+            await session.execute(
+                select(ArquivoClientePortal)
+                .where(
+                    ArquivoClientePortal.lead_id == lead_id,
+                    ArquivoClientePortal.organizacao_id == usuario.organizacao_id,
+                )
+                .order_by(ArquivoClientePortal.criado_em.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "arquivos": [
+            {
+                "id": item.id,
+                "nome": item.nome,
+                "content_type": item.content_type,
+                "tamanho": item.tamanho,
+                "hash": item.arquivo_hash,
+                "criado_em": item.criado_em,
+            }
+            for item in itens
+        ]
+    }
+
+
+@router.get("/v1/admin/leads/{lead_id}/portal-arquivos/{arquivo_id}/download")
+async def baixar_arquivo_portal_admin(
+    lead_id: int, arquivo_id: int, request: Request, session: SessionDep, usuario: ClientViewDep
+) -> FileResponse:
+    lead = (
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    if lead.responsavel_id != usuario.id and usuario.perfil != "administrador" and not usuario.superadmin:
+        raise HTTPException(
+            status_code=403,
+            detail="Somente o responsável pelo atendimento pode baixar este arquivo",
+        )
+    item = (
+        await session.execute(
+            select(ArquivoClientePortal).where(
+                ArquivoClientePortal.id == arquivo_id,
+                ArquivoClientePortal.lead_id == lead_id,
+                ArquivoClientePortal.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    if item.caminho.startswith("s3://"):
+        try:
+            conteudo = read_bytes(item.caminho)
+        except (StorageError, OSError) as exc:
+            raise HTTPException(status_code=404, detail="Arquivo não encontrado") from exc
+        _auditar_operador(session, usuario, request, "baixar_arquivo_portal", f"arquivo:{item.id}")
+        await session.commit()
+        return StreamingResponse(
+            iter([conteudo]),
+            media_type=item.content_type or "application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{item.nome}"'},
+        )
+    caminho = Path(item.caminho).resolve()
+    base = (Path("data") / "portal" / str(usuario.organizacao_id) / str(item.cliente_id)).resolve()
+    if not caminho.is_file() or base not in caminho.parents:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    _auditar_operador(session, usuario, request, "baixar_arquivo_portal", f"arquivo:{item.id}")
+    await session.commit()
+    return FileResponse(caminho, media_type=item.content_type or "application/octet-stream", filename=item.nome)
 
 
 @router.get("/v1/portal/resumo")

@@ -436,6 +436,33 @@ async function renderPortalMessages(lead) {
   await carregar();
 }
 
+// Achado da validação do Portal do Cliente (17/09/2026): documentos enviados
+// pelo cliente (ArquivoClientePortal) não tinham nenhuma tela administrativa
+// -- diferente das mensagens do portal (renderPortalMessages acima), a
+// equipe não conseguia ver nem baixar o que o cliente enviava.
+async function renderPortalArquivos(lead) {
+  if (!state.canManage) return;
+  const card = document.createElement("section");
+  card.className = "lead-portal-arquivos lead-contact-log";
+  card.innerHTML = `<header><div><p class="eyebrow">PORTAL DO CLIENTE</p><h3>Documentos enviados pelo cliente</h3></div><span data-portal-arquivo-count>0 arquivos</span></header><ol class="lead-contact-history" data-portal-arquivo-list><li class="lead-contact-empty">Carregando arquivos…</li></ol>`;
+  const mensagensCard = dialogContent.querySelector(".lead-portal-messages");
+  if (mensagensCard) mensagensCard.after(card); else dialogContent.prepend(card);
+  const list = card.querySelector("[data-portal-arquivo-list]");
+  const count = card.querySelector("[data-portal-arquivo-count]");
+  try {
+    const response = await fetch(`/v1/admin/leads/${lead.id}/portal-arquivos`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || "Não foi possível carregar os arquivos.");
+    const arquivos = data.arquivos || [];
+    count.textContent = `${arquivos.length} arquivo${arquivos.length === 1 ? "" : "s"}`;
+    list.innerHTML = arquivos.length
+      ? arquivos.map(item => `<li class="lead-contact-entry"><div><strong>${escapeHtml(item.nome)}</strong><time>${formatDate(item.criado_em)}</time></div><p><a class="secondary-button" href="/v1/admin/leads/${lead.id}/portal-arquivos/${item.id}/download" target="_blank" rel="noopener">Baixar</a></p></li>`).join("")
+      : "<li class=\"lead-contact-empty\">Nenhum arquivo enviado pelo cliente.</li>";
+  } catch (error) {
+    list.innerHTML = `<li class="lead-contact-empty error">${escapeHtml(error.message)}</li>`;
+  }
+}
+
 async function abrirRegistroAtendimento(leadId, pesquisaId) {
   let proximaAcao = "";
   const response = await fetch(`/v1/admin/leads/${leadId}`);
@@ -597,6 +624,7 @@ async function openLead(id, selectedResearchId = null) {
       });
     }).catch(error => { const mensagem = error.status === 403 ? "Sem permissão ou este lead não está sob sua responsabilidade." : error.status === 401 ? "Sua sessão expirou. Atualize a página e entre novamente." : (error.message || "Não foi possível verificar o acesso."); portalCard.innerHTML = `<strong>Portal do cliente</strong><p>${mensagem}</p>`; });
     renderPortalMessages(lead);
+    renderPortalArquivos(lead);
   }
   // Item 30 da auditoria completa do CRM (06/09/2026): score calculado sob
   // demanda (endpoint dedicado, não vem no payload do lead) -- busca à

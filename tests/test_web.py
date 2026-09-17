@@ -225,6 +225,37 @@ def test_painel_do_lead_usa_abas() -> None:
     assert ".lead-tab-panel" in styles
 
 
+def test_portal_cliente_confirma_envio_de_documento_e_lista_arquivos() -> None:
+    # Achado da validação do Portal do Cliente (17/09/2026): o formulário de
+    # envio de documento não tinha tratamento de erro (upload falho passava
+    # em silêncio) nem mostrava confirmação/lista dos arquivos já enviados
+    # -- o endpoint GET /v1/portal/arquivos existia no backend, mas nunca
+    # era consultado pelo frontend.
+    page = (web_dir / "portal-cliente.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "portal-cliente.js").read_text(encoding="utf-8")
+
+    assert 'id="sent-files"' in page
+    assert 'id="file-status"' in page
+    assert 'id="message-status"' in page
+    assert 'api("/v1/portal/arquivos")' in script
+    assert "async function carregarArquivosEnviados" in script
+    # O handler de envio agora trata erro (try/catch) em vez de deixar a
+    # falha passar em silêncio.
+    assert script.count('status.className = "status-message error"') >= 2
+
+
+def test_admin_visualiza_arquivos_enviados_pelo_cliente_no_portal() -> None:
+    # Achado da validação do Portal do Cliente (17/09/2026): documentos
+    # enviados pelo cliente (ArquivoClientePortal) não tinham NENHUMA tela
+    # administrativa equivalente -- a equipe não conseguia ver nem baixar o
+    # que o cliente enviava pelo portal.
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    assert "async function renderPortalArquivos" in script
+    assert 'fetch(`/v1/admin/leads/${lead.id}/portal-arquivos`)' in script
+    assert "renderPortalArquivos(lead);" in script
+
+
 def test_registrar_atendimento_nao_quebra_para_lead_sem_pesquisa() -> None:
     # Achado da auditoria de Leads/CRM (10/09/2026, Hipótese 8): o diálogo
     # dedicado "Registrar atendimento" exigia um <select required> só com

@@ -13,6 +13,7 @@ from app.api.portal_cliente import (
     listar_prazos_portal,
     listar_processos_portal,
     login_cliente,
+    logout_cliente,
     progresso_processo,
     webhook_clicksign,
 )
@@ -134,6 +135,43 @@ def test_listar_processos_portal_mostra_varios_processos_do_mesmo_lead() -> None
     resultado = asyncio.run(listar_processos_portal(_request(), _cliente(), session))
 
     assert [item["numero"] for item in resultado["processos"]] == ["BR512345678", "BR987654321"]
+
+
+def test_logout_aplica_tenant_antes_de_revogar_sessao(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api import portal_cliente as modulo_portal
+    from app.models import SessaoClientePortal
+
+    sessao = SessaoClientePortal(id=4, cliente_id=1, token_hash="hash", expira_em=datetime(2099, 1, 1, tzinfo=UTC))
+    cliente = _cliente()
+    session = FakeSession([FakeResult(scalar=sessao)], objetos_get=[cliente])
+    ordem: list[str] = []
+
+    async def aplicar_tenant_sem_autoflush(_session, organizacao_id: int) -> None:
+        assert organizacao_id == cliente.organizacao_id
+        assert sessao.revogada_em is None
+        ordem.append("tenant")
+
+    monkeypatch.setattr(modulo_portal, "aplicar_contexto_tenant", aplicar_tenant_sem_autoflush)
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/portal/logout",
+            "headers": [(b"cookie", b"zr_client_session=token")],
+            "client": ("127.0.0.1", 12345),
+            "scheme": "https",
+            "server": ("testserver", 443),
+        }
+    )
+    response = Response()
+
+    resultado = asyncio.run(logout_cliente(request, response, session))
+
+    assert resultado == {"ok": True}
+    assert ordem == ["tenant"]
+    assert sessao.revogada_em is not None
+    assert session.commits == 1
+    assert "zr_client_session=" in response.headers["set-cookie"]
 
 
 # --- Fase 1 do plano proposta-financeiro (03/09/2026): blindar o aceite ---

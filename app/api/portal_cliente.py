@@ -459,12 +459,17 @@ async def logout_cliente(request: Request, response: Response, session: SessionD
             )
         ).scalar_one_or_none()
         if sessao:
-            sessao.revogada_em = datetime.now(UTC)
             cliente = await session.get(ClientePortal, sessao.cliente_id)
             if cliente is not None:
+                # Aplicar o tenant executa um SELECT set_config. Se a sessão
+                # for alterada antes, o autoflush tenta fazer o UPDATE ainda
+                # no contexto de bootstrap (somente leitura) e o RLS devolve
+                # zero linhas, causando StaleDataError. Resolva e aplique o
+                # tenant primeiro; só então revogue a sessão.
                 await aplicar_contexto_tenant(session, cliente.organizacao_id)
+                sessao.revogada_em = datetime.now(UTC)
                 _auditar_cliente(session, cliente, request, "logout_cliente", "portal:logout")
-            await session.commit()
+                await session.commit()
     response.delete_cookie(SESSION_COOKIE, path="/")
     return {"ok": True}
 

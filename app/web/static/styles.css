@@ -1033,15 +1033,23 @@ footer p {
 .lfs { display: flex; flex: 0 0 88px; flex-direction: column; align-items: center; text-align: center; position: relative; padding-top: 22px; }
 .lfs::before { content: ""; position: absolute; top: 10px; left: -50%; width: 100%; height: 3px; background: #cbd4cd; }
 .lfs:first-child::before { display: none; }
-.lfs.done::before, .lfs.current::before { background: #1c8a57; }
+.lfs.done::before, .lfs.current::before, .lfs.skipped::before { background: #1c8a57; }
 .lfs-dot { position: absolute; top: 0; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: #fff; border: 3px solid #cbd4cd; font-size: .62rem; font-weight: 900; color: #fff; }
 .lfs.done .lfs-dot { background: #1c8a57; border-color: #1c8a57; }
 .lfs.current .lfs-dot { border-color: #9a6500; box-shadow: 0 0 0 4px #fff2cf; }
 .lfs.current .lfs-dot::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #9a6500; }
+/* Achado do usuário (17/09/2026): etapa que o lead pulou (sem
+   HistoricoFaseLead) mas está antes da fase atual -- visualmente distinta
+   de "concluída" (verde cheio), pra não passar a falsa impressão de que
+   aquela etapa realmente aconteceu (ex.: "Pagamento confirmado" sem
+   nenhuma contratação financeira por trás). */
+.lfs.skipped .lfs-dot { background: #fff; border-color: #c98a1f; color: #c98a1f; }
+.lfs.skipped .lfs-label { color: #9a6a1a; }
 .lfs-label { font-size: .68rem; font-weight: 700; line-height: 1.2; margin-top: 2px; }
 .lfs.pending .lfs-label { color: var(--muted); font-weight: 600; }
 .lfs-date { font-size: .62rem; color: var(--muted); margin-top: 2px; }
 .lfs.current .lfs-date { color: #9a6500; font-weight: 700; }
+.lfs.skipped .lfs-date { color: #9a6a1a; font-style: italic; }
 .lead-funil-move { display: flex; align-items: end; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
 .lead-funil-move label { display: grid; gap: 5px; font-size: .75rem; font-weight: 700; }
 .lead-funil-move select { min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: #fff; font: inherit; }

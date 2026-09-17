@@ -385,6 +385,7 @@ def test_portal_cliente_usa_a_mesma_logo_do_painel_interno() -> None:
     # telas públicas). Conecta o portal ao mesmo mecanismo (tenant-branding.js).
     page = (web_dir / "portal-cliente.html").read_text(encoding="utf-8")
     branding_js = (web_dir / "static" / "tenant-branding.js").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "portal-cliente.js").read_text(encoding="utf-8")
     styles = (web_dir / "static" / "portal-cliente.css").read_text(encoding="utf-8")
 
     assert "tenant-branding.js?v=" in page
@@ -395,6 +396,10 @@ def test_portal_cliente_usa_a_mesma_logo_do_painel_interno() -> None:
     # A logo grande deste painel não deve herdar o tratamento de avatar
     # circular pequeno (borda/fundo/object-fit) usado no restante do site.
     assert ".portal-brand-panel img.brand-avatar" in styles
+    assert "background:rgba(255,255,252,.96)" in styles
+    assert "filter:none" in styles
+    assert "portal-brand-fallback" in branding_js
+    assert "ativarFallbackLogoPortal" in script
 
 
 def test_portal_cliente_confirma_envio_de_documento_e_lista_arquivos() -> None:

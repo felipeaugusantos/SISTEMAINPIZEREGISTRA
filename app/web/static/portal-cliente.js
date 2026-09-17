@@ -13,6 +13,21 @@ async function api(path, options = {}) {
   return response.status === 204 ? null : response.json();
 }
 const esc = (value) => String(value ?? "—").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
+function ativarFallbackLogoPortal(img) {
+  img.hidden = true;
+  let fallback = img.parentElement?.querySelector(".portal-brand-fallback");
+  if (!fallback) {
+    fallback = document.createElement("span");
+    fallback.className = "portal-brand-fallback brand-wordmark";
+    fallback.textContent = "Zé Registra";
+    img.insertAdjacentElement("afterend", fallback);
+  }
+  fallback.hidden = false;
+}
+document.querySelectorAll(".portal-brand-panel img").forEach((img) => {
+  img.addEventListener("error", () => ativarFallbackLogoPortal(img), { once: true });
+  if (img.complete && !img.naturalWidth) ativarFallbackLogoPortal(img);
+});
 function formatarDataJornada(valor) {
   if (!valor) return "";
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(new Date(valor));

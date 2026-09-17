@@ -22,7 +22,11 @@
       document.querySelectorAll(".brand-avatar").forEach(img => {
         img.referrerPolicy = "no-referrer";
         img.src = tenant.logo_url;
-        img.addEventListener("error", () => { img.hidden = true; }, { once: true });
+        img.addEventListener("error", () => {
+          img.hidden = true;
+          const fallback = img.closest(".portal-brand-logo")?.querySelector(".portal-brand-fallback");
+          if (fallback) fallback.hidden = false;
+        }, { once: true });
       });
     }
     document.querySelectorAll("[data-privacy-version]").forEach(el => {

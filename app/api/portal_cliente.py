@@ -69,6 +69,60 @@ SESSION_COOKIE = "zr_client_session"
 # senha sem restrição contra contas de ClientePortal. Mesmo limite usado lá.
 _limitar_login_portal = RateLimiter(limite=10, janela_segundos=60, escopo="portal-login")
 
+# Item 1 do pedido de melhorias do cliente final do usuário (17/09/2026):
+# linha do tempo do processo de registro com % de progresso, pra bater o
+# olho e entender em qual etapa está. Baseado em Processo.situacao_normalizada
+# (já classificado pelo job app/cli/consolidar_situacoes_marcas.py a partir
+# das movimentações reais do INPI). A jornada real do INPI não é linear --
+# exigência, oposição, recurso e sobrestamento são desvios condicionais, não
+# etapas fixas -- por isso entram como "alerta" na etapa em que normalmente
+# ocorrem, sem criar um degrau de progresso à parte nem retroceder o cliente.
+# "resultado" só é "negativo" nos desfechos que encerram o processo sem
+# registro (ou o extinguem depois de concedido); todo o resto é "ativo".
+_ETAPAS_PROCESSO: dict[str | None, dict] = {
+    None: {"percentual": 20, "etapa": "Depositado", "alerta": None},
+    "nao_classificada": {"percentual": 20, "etapa": "Depositado", "alerta": None},
+    "publicada": {"percentual": 40, "etapa": "Publicado para oposição", "alerta": None},
+    "oposicao": {"percentual": 40, "etapa": "Publicado para oposição", "alerta": "Marca sob oposição de terceiros"},
+    "em_exame": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": None},
+    "exigencia": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": "Exigência aberta — aguardando resposta"},
+    "suspensa": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": "Processo sobrestado (suspenso)"},
+    "recurso": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": "Em recurso da decisão"},
+    "recurso_decidido": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": "Recurso decidido"},
+    "peticao_decidida": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": "Petição decidida"},
+    "deferida": {"percentual": 80, "etapa": "Deferido", "alerta": None},
+    "deferida_parcial": {
+        "percentual": 80,
+        "etapa": "Deferido parcialmente",
+        "alerta": "Deferimento parcial — nem todas as classes foram concedidas",
+    },
+    "registrada": {"percentual": 100, "etapa": "Registro concedido", "alerta": None},
+    "indeferida": {"percentual": 60, "etapa": "Pedido indeferido", "alerta": None, "resultado": "negativo"},
+    "arquivada": {"percentual": 20, "etapa": "Processo arquivado", "alerta": None, "resultado": "negativo"},
+    "inexistente": {
+        "percentual": 20,
+        "etapa": "Pedido considerado inexistente",
+        "alerta": None,
+        "resultado": "negativo",
+    },
+    "extinta": {"percentual": 100, "etapa": "Registro extinto", "alerta": None, "resultado": "negativo"},
+    "cancelada": {"percentual": 100, "etapa": "Registro cancelado", "alerta": None, "resultado": "negativo"},
+}
+
+
+def progresso_processo(situacao_normalizada: str | None) -> dict:
+    """Mapeia Processo.situacao_normalizada num progresso amigável pro
+    cliente: percentual (múltiplo de 20, pra bater com o padrão de classes
+    CSS w-pct-N), etapa (rótulo), alerta (aviso opcional, sem afetar o
+    percentual) e resultado ("ativo" ou "negativo")."""
+    info = _ETAPAS_PROCESSO.get(situacao_normalizada) or _ETAPAS_PROCESSO["nao_classificada"]
+    return {
+        "percentual": info["percentual"],
+        "etapa": info["etapa"],
+        "alerta": info["alerta"],
+        "resultado": info.get("resultado", "ativo"),
+    }
+
 
 @router.post("/v1/webhooks/clicksign")
 async def webhook_clicksign(
@@ -836,7 +890,12 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
         .all()
     )
     processos = [
-        {"numero": processo.numero, "titulo": processo.titulo, "situacao": processo.situacao}
+        {
+            "numero": processo.numero,
+            "titulo": processo.titulo,
+            "situacao": processo.situacao,
+            **progresso_processo(processo.situacao_normalizada),
+        }
         for _monitorado, processo in await _processos_monitorados_do_lead(session, lead.id, cliente.organizacao_id)
     ]
     _auditar_cliente(session, cliente, request, "consultar_resumo", "portal:resumo")
@@ -1062,6 +1121,7 @@ async def listar_processos_portal(request: Request, cliente: ClientDep, session:
             "situacao": processo.situacao,
             "situacao_normalizada": processo.situacao_normalizada,
             "fonte": processo.fonte,
+            **progresso_processo(processo.situacao_normalizada),
         }
         for _monitorado, processo in await _processos_monitorados_do_lead(session, lead.id, cliente.organizacao_id)
     ]

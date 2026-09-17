@@ -13,6 +13,7 @@ from app.api.portal_cliente import (
     listar_prazos_portal,
     listar_processos_portal,
     login_cliente,
+    progresso_processo,
     webhook_clicksign,
 )
 from app.models import (
@@ -349,3 +350,62 @@ def test_listar_arquivos_portal_admin_lead_inexistente_retorna_404() -> None:
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(listar_arquivos_portal_admin(999, session, usuario))
     assert exc_info.value.status_code == 404
+
+
+# --- Item 1 do pedido de melhorias do cliente final (17/09/2026): linha do
+# tempo do processo de registro com % de progresso. ---
+
+
+def test_progresso_processo_situacao_desconhecida_fica_em_depositado() -> None:
+    # Processo recem importado, sem nenhuma movimentacao classificada ainda
+    # -- so sabemos com certeza que foi depositado.
+    assert progresso_processo(None) == {"percentual": 20, "etapa": "Depositado", "alerta": None, "resultado": "ativo"}
+    assert progresso_processo("nao_classificada")["percentual"] == 20
+    assert progresso_processo("situacao-inexistente-no-mapa")["percentual"] == 20
+
+
+def test_progresso_processo_avanca_pelas_etapas_oficiais() -> None:
+    assert progresso_processo("publicada")["percentual"] == 40
+    assert progresso_processo("em_exame")["percentual"] == 60
+    assert progresso_processo("deferida")["percentual"] == 80
+    assert progresso_processo("registrada") == {
+        "percentual": 100,
+        "etapa": "Registro concedido",
+        "alerta": None,
+        "resultado": "ativo",
+    }
+
+
+def test_progresso_processo_desvios_nao_avancam_nem_retrocedem_mas_geram_alerta() -> None:
+    # Achado: exigencia/oposicao/recurso/sobrestamento sao desvios
+    # condicionais da jornada real do INPI, nao etapas fixas -- ficam na
+    # etapa onde normalmente ocorrem, com um alerta, sem virar um degrau
+    # de progresso a parte.
+    exigencia = progresso_processo("exigencia")
+    assert exigencia["percentual"] == 60
+    assert exigencia["alerta"] is not None
+
+    oposicao = progresso_processo("oposicao")
+    assert oposicao["percentual"] == 40
+    assert oposicao["alerta"] is not None
+
+
+def test_progresso_processo_desfechos_negativos_nao_aparecem_como_sucesso() -> None:
+    indeferida = progresso_processo("indeferida")
+    assert indeferida["resultado"] == "negativo"
+    assert indeferida["percentual"] < 100
+
+    extinta = progresso_processo("extinta")
+    assert extinta["resultado"] == "negativo"
+
+
+def test_listar_processos_portal_inclui_progresso() -> None:
+    lead = Lead(id=9, organizacao_id=1)
+    processo = Processo(id=5, numero="BR512345678", titulo="Marca A", situacao_normalizada="deferida")
+    monitorado = ProcessoMonitorado(id=7, organizacao_id=1, processo_id=5, lead_id=9, vinculado_por="teste")
+    session = FakeSession([FakeResult(scalar=lead), FakeResult(itens=[(monitorado, processo)])])
+
+    resultado = asyncio.run(listar_processos_portal(_request(), _cliente(), session))
+
+    assert resultado["processos"][0]["percentual"] == 80
+    assert resultado["processos"][0]["etapa"] == "Deferido"

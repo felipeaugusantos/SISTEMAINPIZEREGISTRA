@@ -1827,6 +1827,51 @@ def test_enviar_email_prospeccao_sem_email_e_rejeitado() -> None:
     assert resposta.status_code == 422
 
 
+def test_avancar_para_pagamento_confirmado_sem_contratacao_e_bloqueado() -> None:
+    # Achado do usuário (17/09/2026): um lead ("Tactical Cloud") chegou à
+    # fase "ganho" sem nunca ter tido uma proposta aceita nem nenhum
+    # ContratacaoServico/LancamentoFinanceiro -- o financeiro nunca foi
+    # gerado, e o próprio funil (frontend) mostrava "Pagamento confirmado"
+    # como concluído só pela posição, escondendo o problema. Mesma trava já
+    # usada para protocolo_inpi/processo_inpi (documentos obrigatórios),
+    # agora para pagamento_confirmado/ganho (contratação financeira).
+    lead = _lead_existente(fase="proposta_aceita")
+    session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=None)])
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/7/fase",
+        json={"fase": "ganho"},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 422
+    assert "contratação financeira" in resposta.json()["detail"]
+    assert lead.fase == "proposta_aceita"
+
+
+def test_avancar_para_pagamento_confirmado_com_contratacao_e_permitido() -> None:
+    lead = _lead_existente(fase="proposta_aceita")
+    session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=99), FakeResult(itens=[])])
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/7/fase",
+        json={"fase": "ganho"},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.json()["fase"] == "ganho"
+    assert lead.fase == "ganho"
+
+
 def test_enviar_email_prospeccao_propaga_falha_de_envio_como_502(monkeypatch) -> None:
     async def _fake_enviar(*args: object, **kwargs: object) -> None:
         raise RuntimeError("SMTP indisponivel")

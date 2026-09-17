@@ -53,6 +53,7 @@ from app.models import (
     ChecklistFaseLead,
     Contato,
     ContatoLead,
+    ContratacaoServico,
     DocumentoLead,
     EmpresaCRM,
     EnvioCadenciaEmail,
@@ -2456,6 +2457,31 @@ async def definir_fase_lead(
             raise HTTPException(
                 status_code=422,
                 detail=f"Etapa bloqueada. Documentos obrigatórios pendentes: {', '.join(pendencias)}.",
+            )
+    # Achado do usuário (17/09/2026): mover um lead manualmente para
+    # "Pagamento confirmado" (ou fases seguintes) não exigia nenhuma
+    # contratação financeira vinculada -- um lead podia chegar a "Ganho"
+    # sem nunca ter passado por uma proposta aceita, sem gerar nenhum
+    # ContratacaoServico/LancamentoFinanceiro, com o financeiro achando que
+    # tudo estava certo (o próprio funil marcava a etapa como concluída só
+    # pela posição, ver renderFunil em admin-leads.js). Mesmo padrão de
+    # trava já usado acima para protocolo_inpi/processo_inpi (documentos).
+    if ORDEM_FASE_LEAD.index(dados.fase.value) >= ORDEM_FASE_LEAD.index(FaseLead.PAGAMENTO_CONFIRMADO.value):
+        tem_contratacao = (
+            await session.execute(
+                select(ContratacaoServico.id)
+                .where(ContratacaoServico.organizacao_id == usuario.organizacao_id, ContratacaoServico.lead_id == lead.id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if tem_contratacao is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Etapa bloqueada. Este lead não tem nenhuma contratação financeira vinculada -- "
+                    "gere uma proposta aceita ou registre a contratação em Financeiro antes de avançar "
+                    "para esta fase."
+                ),
             )
     mudou = await avancar_fase_lead(
         session,

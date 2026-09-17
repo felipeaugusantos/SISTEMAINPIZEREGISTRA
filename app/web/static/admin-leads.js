@@ -1204,10 +1204,20 @@ async function renderFunil(leadId) {
   const atualIdx = ordem.indexOf(data.fase);
   const datas = {};
   (data.historico || []).forEach(h => { datas[h.fase] = h.entrou_em; });
+  // Achado do usuário (17/09/2026): antes, toda etapa anterior à fase atual
+  // aparecia com ✓ "concluída" só pela posição na sequência, mesmo quando o
+  // lead nunca passou por ela de verdade (ex.: um lead movido manualmente
+  // direto para "Ganho" mostrava "Pagamento confirmado" como concluído sem
+  // nunca ter existido cobrança nenhuma). Alcançada de verdade = tem
+  // HistoricoFaseLead (ou é a 1ª etapa, que é o ponto de partida padrão e
+  // nunca gera esse histórico). O resto vira "pulada", visualmente distinto
+  // de "concluída".
   const steps = ordem.map((f, i) => {
-    const cls = i < atualIdx ? "done" : i === atualIdx ? "current" : "pending";
-    const quando = datas[f] ? formatDate(datas[f], false) : (i === atualIdx ? "atual" : "");
-    return `<li class="lfs ${cls}"><span class="lfs-dot">${i < atualIdx ? "✓" : ""}</span><span class="lfs-label">${escapeHtml(FASE_LABELS[f] || f)}</span><span class="lfs-date">${escapeHtml(quando)}</span></li>`;
+    const alcancada = i === 0 || Boolean(datas[f]);
+    const cls = i === atualIdx ? "current" : i < atualIdx ? (alcancada ? "done" : "skipped") : "pending";
+    const marcador = cls === "done" ? "✓" : cls === "skipped" ? "—" : "";
+    const quando = datas[f] ? formatDate(datas[f], false) : cls === "current" ? "atual" : cls === "skipped" ? "pulada" : "";
+    return `<li class="lfs ${cls}"><span class="lfs-dot">${marcador}</span><span class="lfs-label">${escapeHtml(FASE_LABELS[f] || f)}</span><span class="lfs-date">${escapeHtml(quando)}</span></li>`;
   }).join("");
   const controle = state.canManage
     ? `<div class="lead-funil-move"><label><span>Mover para</span><select id="lead-fase-select">${ordem.map(f => `<option value="${f}" ${f === data.fase ? "selected" : ""}>${escapeHtml(FASE_LABELS[f] || f)}</option>`).join("")}</select></label><button class="secondary-button" id="lead-fase-save" type="button">Salvar fase</button></div>`

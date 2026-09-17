@@ -256,6 +256,21 @@ def test_admin_visualiza_arquivos_enviados_pelo_cliente_no_portal() -> None:
     assert "renderPortalArquivos(lead);" in script
 
 
+def test_funil_do_lead_nao_marca_etapa_pulada_como_concluida() -> None:
+    # Achado do usuário (17/09/2026): o funil marcava toda etapa anterior à
+    # fase atual como "concluída" (✓) só pela posição na sequência -- um
+    # lead movido manualmente direto para "Ganho" mostrava "Pagamento
+    # confirmado" como concluído mesmo sem nunca ter existido nenhuma
+    # contratação financeira por trás (caso real: lead "Tactical Cloud").
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "styles.css").read_text(encoding="utf-8")
+
+    assert "const alcancada = i === 0 || Boolean(datas[f]);" in script
+    assert '(alcancada ? "done" : "skipped")' in script
+    assert ".lfs.skipped .lfs-dot" in styles
+    assert ".lfs.skipped .lfs-label" in styles
+
+
 def test_registrar_atendimento_nao_quebra_para_lead_sem_pesquisa() -> None:
     # Achado da auditoria de Leads/CRM (10/09/2026, Hipótese 8): o diálogo
     # dedicado "Registrar atendimento" exigia um <select required> só com

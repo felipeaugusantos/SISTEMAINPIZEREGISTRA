@@ -63,5 +63,10 @@
 .portal-action-form input[type=file] { width:100%; box-sizing:border-box; padding:11px; border:1px dashed #b9cbbd; border-radius:10px; background:#f8faf7; }
 .portal-action-form button { justify-self:start; }
 .portal-help-text { margin:0 0 20px; color:var(--muted); line-height:1.5; }
+/* Achado da validação do Portal do Cliente (17/09/2026): o cliente enviava
+   um documento e não via confirmação nem os arquivos já enviados -- o
+   endpoint de listagem existia no backend, mas nunca era consultado aqui. */
+.portal-sent-files { display:grid; gap:8px; margin-bottom:16px; }
+.portal-sent-files-title { margin:0; font-size:.82rem; font-weight:700; color:var(--muted); }
 @media (max-width:760px) { .portal-app-header { align-items:flex-start; flex-direction:column; } .portal-app-header h2 { font-size:2rem; } .portal-summary-card, .portal-content-card { padding:20px 16px; } .portal-communication-grid { grid-template-columns:1fr; } .portal-section-heading { flex-direction:column; } .portal-live-status { align-self:flex-start; } }
 @media (max-width:760px) { .portal-main { width:100%; padding:0; } .portal-login-shell { min-height:100vh; grid-template-columns:1fr; border:0; border-radius:0; } .portal-brand-panel { min-height:330px; padding:36px 28px; } .portal-brand-panel img { width:180px; margin-bottom:28px; } .portal-brand-panel h1 { font-size:2.55rem; } .portal-benefits { grid-template-columns:1fr 1fr; gap:8px; margin-top:25px; font-size:.8rem; } .portal-login-card { width:100%; padding:34px 28px 46px; } }

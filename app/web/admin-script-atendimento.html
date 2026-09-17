@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Script de atendimento — Zé Registra</title><link rel="stylesheet" href="/static/styles.css?v=64"><link rel="stylesheet" href="/static/admin-modelo-propostas.css?v=1"><link rel="stylesheet" href="/static/admin-script-atendimento.css?v=1"><script src="/static/admin-shell.js?v=50" defer></script><script src="/static/admin-script-atendimento.js?v=1" defer></script></head>
+<body class="admin-body" data-admin-section="config-script-atendimento"><main class="admin-main finance-main">
+  <section class="finance-hero"><div><p class="eyebrow">CONFIGURAÇÃO</p><h1>Script de atendimento</h1><p>Modelos de roteiro para consulta durante a ligação ou conversa com o lead. Não são enviados automaticamente — são só um guia para o atendente.</p></div><a class="secondary-button" href="/admin/pesquisas">Voltar para Leads</a></section>
+  <div id="script-config-message" class="status-message" role="status"></div>
+  <section class="finance-card">
+    <header class="finance-list-heading"><div><p class="eyebrow">ROTEIROS</p><h2>Scripts cadastrados</h2></div><button id="new-script" class="primary-button" type="button">+ Novo script</button></header>
+    <div id="script-list" class="script-atendimento-list"><p class="script-atendimento-empty">Carregando…</p></div>
+  </section>
+
+  <dialog id="script-dialog" class="script-dialog">
+    <form id="script-form" method="dialog">
+      <header><h2 id="script-dialog-title">Novo script</h2></header>
+      <input type="hidden" name="id" />
+      <label>Título<input name="titulo" required maxlength="120" placeholder="Ex.: Primeiro atendimento" /></label>
+      <section class="finance-list-heading"><div><p class="eyebrow">CAMPO DISPONÍVEL</p><p>Arraste o campo para o texto, ou clique para inserir no ponto do cursor.</p></div></section>
+      <div id="script-field-palette" class="proposal-field-palette"><button type="button" draggable="true" data-token="{{lead.nome}}">Nome do lead</button></div>
+      <label>Texto do script<textarea name="corpo" id="script-corpo" required maxlength="5000" rows="14"></textarea></label>
+      <footer>
+        <button type="button" id="cancel-script" class="secondary-button">Cancelar</button>
+        <button type="submit" class="primary-button">Salvar script</button>
+      </footer>
+    </form>
+  </dialog>
+</main></body></html>

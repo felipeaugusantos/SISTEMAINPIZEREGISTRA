@@ -261,6 +261,25 @@ def test_tela_de_leads_permite_distribuir_sem_responsavel_em_lote() -> None:
     assert "botao.hidden = !state.canManage || state.semResponsavel === 0;" in script
 
 
+def test_tela_de_script_atendimento_existe_com_crud_completo() -> None:
+    # Item 1 da lista de melhorias de produto (15/09/2026): modelo de 1º
+    # atendimento + opção de adicionar mais modelos manualmente. Reaproveita
+    # o padrão de Modelo de e-mail (leads)/Modelo de propostas (texto em
+    # Organizacao.branding), mas como lista com CRUD (criar/editar/excluir).
+    page = (web_dir / "admin-script-atendimento.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-script-atendimento.js").read_text(encoding="utf-8")
+    shell = (web_dir / "static" / "admin-shell.js").read_text(encoding="utf-8")
+
+    assert "admin-script-atendimento.js?v=" in page
+    assert 'id="new-script"' in page
+    assert 'data-token="{{lead.nome}}"' in page
+    assert 'api("/v1/admin/configuracao/scripts-atendimento")' in script
+    assert 'method: id ? "PUT" : "POST"' in script
+    assert "/v1/admin/configuracao/scripts-atendimento/${del.dataset.id}" in script
+    assert 'method: "DELETE"' in script
+    assert "/admin/configuracao/script-atendimento" in shell
+
+
 def test_dossie_envia_e_exibe_parecer_unico() -> None:
     page = (web_dir / "admin-analise.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-analise.js").read_text(encoding="utf-8")

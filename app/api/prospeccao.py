@@ -7,6 +7,7 @@ própria migração -- esta fase não antecipa colunas que nenhum código ainda
 preenche.
 """
 
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -275,7 +276,17 @@ async def listar_prospects(
     filtros = [Prospect.organizacao_id == usuario.organizacao_id]
     if busca:
         termo = f"%{busca.strip()}%"
-        filtros.append(or_(Prospect.razao_social.ilike(termo), Prospect.nome_fantasia.ilike(termo), Prospect.cnpj.ilike(termo)))
+        condicoes_busca = [Prospect.razao_social.ilike(termo), Prospect.nome_fantasia.ilike(termo), Prospect.cnpj.ilike(termo)]
+        # Achado da validação do Radar de Prospecção (17/09/2026): Prospect.cnpj
+        # é sempre gravado só com dígitos (ProspectCreate._validar_cnpj em
+        # app/schemas.py, único ponto de entrada nos três fluxos de criação --
+        # manual, importação e coleta de campanha). Buscar com CNPJ formatado
+        # ("12.345.678/0001-90") nunca batia com o ilike acima, que comparava o
+        # texto digitado literalmente. Compara também a versão só com dígitos.
+        digitos_busca = re.sub(r"\D", "", busca)
+        if digitos_busca and digitos_busca != busca.strip():
+            condicoes_busca.append(Prospect.cnpj.ilike(f"%{digitos_busca}%"))
+        filtros.append(or_(*condicoes_busca))
     if status_prospect:
         filtros.append(Prospect.status == status_prospect)
     ufs = [item.strip().upper() for item in uf if item.strip()] if uf else []

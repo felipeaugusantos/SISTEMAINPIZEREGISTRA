@@ -96,6 +96,38 @@ def test_listar_prospects_filtra_por_campanha() -> None:
     assert "campanha_id" in contagem_sql
 
 
+def test_listar_prospects_busca_por_cnpj_formatado_compara_versao_so_digitos() -> None:
+    # Achado da validação do Radar de Prospecção (17/09/2026): Prospect.cnpj
+    # é sempre gravado só com dígitos (ProspectCreate._validar_cnpj), mas o
+    # filtro "Buscar" comparava o texto digitado literalmente -- CNPJ com
+    # pontuação (formato comum ao copiar de outro lugar) nunca batia.
+    prospect = _prospect(cnpj="11222333000181")
+    session = _sessao_admin(FakeResult(scalar=1), FakeResult(itens=[prospect]))
+
+    resposta = TestClient(app).get("/v1/admin/prospects?busca=11.222.333%2F0001-81")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["total"] == 1
+    sql = str(session.executados[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "%11.222.333/0001-81%" in sql
+    assert "%11222333000181%" in sql
+
+
+def test_listar_prospects_busca_sem_digitos_nao_duplica_condicao() -> None:
+    # Buscar por texto puro (razão social) não deve gerar a condição extra
+    # de CNPJ -- só entra quando a busca tem dígitos que a versão crua
+    # (com pontuação) já não cobre.
+    prospect = _prospect()
+    session = _sessao_admin(FakeResult(scalar=1), FakeResult(itens=[prospect]))
+
+    resposta = TestClient(app).get("/v1/admin/prospects?busca=Empresa+Teste")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["total"] == 1
+    sql = str(session.executados[0].compile(compile_kwargs={"literal_binds": True}))
+    assert sql.lower().count("cnpj") == 1
+
+
 def test_detalhar_prospect_inexistente_retorna_404() -> None:
     _sessao_admin(FakeResult(scalar=None))
 

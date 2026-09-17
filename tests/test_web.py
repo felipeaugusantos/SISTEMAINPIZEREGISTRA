@@ -402,6 +402,17 @@ def test_portal_cliente_usa_a_mesma_logo_do_painel_interno() -> None:
     assert "ativarFallbackLogoPortal" in script
 
 
+def test_portal_cliente_recuperacao_exibe_campo_de_email() -> None:
+    page = (web_dir / "portal-cliente.html").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "portal-cliente.css").read_text(encoding="utf-8")
+
+    formulario = page.split('<form id="recovery-form">', 1)[1].split("</form>", 1)[0]
+    assert '.portal-recovery form label.sr-only { position:static!important' in styles
+    assert "E-mail para recuperação" in formulario
+    assert 'name="email" type="email"' in formulario
+    assert ".portal-recovery form { display:grid" in styles
+
+
 def test_portal_cliente_confirma_envio_de_documento_e_lista_arquivos() -> None:
     # Achado da validação do Portal do Cliente (17/09/2026): o formulário de
     # envio de documento não tinha tratamento de erro (upload falho passava

@@ -45,9 +45,11 @@
 .portal-recovery { margin-top:28px; padding-top:24px; border-top:1px solid #e0e7e1; }
 .portal-recovery h3 { margin:0 0 5px; font-size:1rem; }
 .portal-recovery > p { margin:0 0 14px; color:var(--muted); font-size:.84rem; }
-.portal-recovery form { display:flex; flex-wrap:wrap; align-items:center; gap:9px; }
-.portal-recovery form label { flex:1 1 170px; }
-.portal-recovery form button { white-space:nowrap; }
+.portal-recovery form { display:grid; gap:10px; }
+.portal-recovery form label { width:100%; }
+.portal-recovery form label.sr-only { position:static!important; width:auto!important; height:auto!important; padding:0!important; margin:0!important; overflow:visible!important; clip:auto!important; white-space:normal!important; border:0!important; }
+.portal-recovery form button { justify-self:start; white-space:nowrap; }
+.portal-recovery form .status-message { margin:0; }
 .portal-security { margin:28px 0 0; color:var(--muted); font-size:.75rem; line-height:1.45; text-align:center; }
 .sr-only { position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:-1px!important; overflow:hidden!important; clip:rect(0,0,0,0)!important; white-space:nowrap!important; border:0!important; }
 .portal-app { display:grid; gap:18px; }

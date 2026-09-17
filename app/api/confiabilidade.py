@@ -74,8 +74,19 @@ async def branding_css(request: Request, session: SessionDep) -> Response:
     from app.tenancy import resolver_organizacao_publica
 
     org = await resolver_organizacao_publica(request, session)
-    cor = (org.branding or {}).get("cor_primaria")
-    css = f":root{{--forest:{cor}}}" if cor and _COR_HEX_VALIDA.fullmatch(cor) else ""
+    branding = org.branding or {}
+    cor = branding.get("cor_primaria")
+    partes = []
+    if cor and _COR_HEX_VALIDA.fullmatch(cor):
+        partes.append(f":root{{--forest:{cor}}}")
+    if branding.get("logo_url"):
+        # Achado do usuário (17/09/2026, item 3 do portal do cliente): a logo
+        # padrão do painel do cliente usa filter:brightness(0) invert(1) pra
+        # virar um silhueta branca (pensado só pro logo padrão da Zé
+        # Registra). Uma logo própria da organização deve aparecer com as
+        # cores reais, não como silhueta.
+        partes.append(".portal-brand-panel img.brand-avatar{filter:none}")
+    css = "".join(partes)
     # CSS servido como recurso 'self' (nao inline) para respeitar o CSP
     # style-src estrito, que bloqueia style="" e element.style.* sem 'unsafe-inline'.
     return Response(content=css, media_type="text/css", headers={"Cache-Control": "no-store"})

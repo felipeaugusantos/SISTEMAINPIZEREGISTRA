@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
-from app.api.confiabilidade import branding_publico
+from app.api.confiabilidade import branding_css, branding_publico
 from app.api.pesquisas import limitar_relatorios
 from app.database import get_session
 from app.main import app
@@ -79,6 +79,39 @@ async def test_branding_publico_expoe_somente_allowlist_e_isola_organizacoes() -
     assert primeiro["cor_primaria"] != segundo["cor_primaria"]
     assert "branding" not in primeiro
     assert "chave_integracao" not in primeiro
+
+
+@pytest.mark.asyncio
+async def test_branding_css_remove_filtro_de_silhueta_quando_ha_logo_propria() -> None:
+    # Achado do usuário (17/09/2026, item 3 do portal do cliente): a logo
+    # padrão do painel do cliente vira uma silhueta branca via
+    # filter:brightness(0) invert(1) -- só faz sentido pro logo padrão da Zé
+    # Registra. Uma organização com logo própria (branding.logo_url) precisa
+    # ver as cores reais da própria logo.
+    dominio = SimpleNamespace(organizacao_id=41)
+    session = FakeSession(
+        resultados=[
+            FakeResult(scalar=dominio),
+            FakeResult(scalar=_tenant(41, "Tenant 41", "#112233")),
+        ]
+    )
+
+    resposta = await branding_css(_request("tenant-41.test"), session)
+
+    assert "filter:none" in resposta.body.decode("utf-8")
+    assert ":root{--forest:#112233}" in resposta.body.decode("utf-8")
+
+
+@pytest.mark.asyncio
+async def test_branding_css_sem_logo_nem_cor_fica_vazio() -> None:
+    tenant = _tenant(41, "Tenant 41", "#112233")
+    tenant.branding = {**tenant.branding, "cor_primaria": None, "logo_url": None}
+    dominio = SimpleNamespace(organizacao_id=41)
+    session = FakeSession(resultados=[FakeResult(scalar=dominio), FakeResult(scalar=tenant)])
+
+    resposta = await branding_css(_request("tenant-41.test"), session)
+
+    assert resposta.body == b""
 
 
 def test_token_temporario_e_vinculado_ao_relatorio_e_organizacao() -> None:

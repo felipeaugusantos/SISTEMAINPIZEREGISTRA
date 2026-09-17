@@ -225,6 +225,25 @@ def test_painel_do_lead_usa_abas() -> None:
     assert ".lead-tab-panel" in styles
 
 
+def test_portal_cliente_usa_a_mesma_logo_do_painel_interno() -> None:
+    # Achado do usuário (17/09/2026, item 3): a logo do portal do cliente
+    # era um arquivo fixo, sem relação com a logo cadastrada no painel
+    # interno (mecanismo de branding por organização já usado em outras
+    # telas públicas). Conecta o portal ao mesmo mecanismo (tenant-branding.js).
+    page = (web_dir / "portal-cliente.html").read_text(encoding="utf-8")
+    branding_js = (web_dir / "static" / "tenant-branding.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "portal-cliente.css").read_text(encoding="utf-8")
+
+    assert "tenant-branding.js?v=" in page
+    assert 'class="brand-avatar"' in page
+    # Sem cor customizada, a folha de estilo do tenant ainda deve carregar
+    # quando há uma logo própria (senão o filtro de silhueta nunca é removido).
+    assert "|| tenant.logo_url" in branding_js
+    # A logo grande deste painel não deve herdar o tratamento de avatar
+    # circular pequeno (borda/fundo/object-fit) usado no restante do site.
+    assert ".portal-brand-panel img.brand-avatar" in styles
+
+
 def test_portal_cliente_confirma_envio_de_documento_e_lista_arquivos() -> None:
     # Achado da validação do Portal do Cliente (17/09/2026): o formulário de
     # envio de documento não tinha tratamento de erro (upload falho passava

@@ -225,6 +225,23 @@ def test_painel_do_lead_usa_abas() -> None:
     assert ".lead-tab-panel" in styles
 
 
+def test_portal_cliente_mostra_linha_do_tempo_com_progresso() -> None:
+    # Item 1 do pedido de melhorias do cliente final (17/09/2026): linha do
+    # tempo do processo de registro com % de progresso, pra bater o olho e
+    # entender em qual etapa está. Largura da barra via classe w-pct-N
+    # (styles.css), não via style="" -- CSP style-src estrito bloqueia
+    # estilo inline.
+    script = (web_dir / "static" / "portal-cliente.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "portal-cliente.css").read_text(encoding="utf-8")
+
+    assert "function processoTimeline" in script
+    assert "w-pct-${Number(item.percentual)" in script
+    assert "data.processos?.length ? data.processos.map(processoTimeline)" in script
+    assert ".portal-progress-fill" in styles
+    assert ".portal-processo-alerta" in styles
+    assert ".portal-processo.is-negativo" in styles
+
+
 def test_portal_cliente_usa_a_mesma_logo_do_painel_interno() -> None:
     # Achado do usuário (17/09/2026, item 3): a logo do portal do cliente
     # era um arquivo fixo, sem relação com a logo cadastrada no painel

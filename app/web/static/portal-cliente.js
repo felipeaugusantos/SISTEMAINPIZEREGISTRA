@@ -5,12 +5,27 @@ async function api(path, options = {}) {
   return response.status === 204 ? null : response.json();
 }
 const esc = (value) => String(value ?? "—").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
+// Item 1 do pedido de melhorias do cliente final (17/09/2026): linha do
+// tempo do processo de registro com % de progresso, pra bater o olho e
+// entender em qual etapa está. O percentual já vem calculado do backend
+// (app/api/portal_cliente.py::progresso_processo), sempre múltiplo de 20
+// pra bater com as classes CSS w-pct-N já existentes (largura via classe,
+// não via style="" -- CSP style-src estrito bloqueia estilo inline).
+function processoTimeline(item) {
+  const negativo = item.resultado === "negativo";
+  return `<div class="portal-processo${negativo ? " is-negativo" : ""}">
+    <div class="portal-processo-header"><strong>${esc(item.numero)}</strong><span>${esc(item.etapa)}</span></div>
+    <div class="portal-progress"><i class="portal-progress-fill w-pct-${Number(item.percentual) || 0}"></i></div>
+    <div class="portal-progress-percent">${esc(item.percentual)}%</div>
+    ${item.alerta ? `<p class="portal-processo-alerta">⚠ ${esc(item.alerta)}</p>` : ""}
+  </div>`;
+}
 function showApp(data) {
   $("#login").hidden = true;
   $("#app").hidden = false;
   $("#hello").textContent = `Olá, ${data.cliente.nome}`;
   const rows = (items, fields) => items?.length ? `<div class="portal-table">${items.map((item) => `<div class="portal-row">${fields.map((field) => `<span><strong>${esc(field[0])}</strong> ${esc(item[field[1]])}</span>`).join("")}</div>`).join("")}</div>` : "<p>Nenhum registro.</p>";
-  $("#summary").innerHTML = `<p><strong>Marca:</strong> ${esc(data.lead.marca)} · <strong>Fase:</strong> ${esc(data.lead.fase)}</p><h3>Processos</h3>${rows(data.processos, [["Número", "numero"], ["Situação", "situacao"]])}<h3>Propostas</h3>${data.propostas?.map((item) => { const podeAssinar = ["enviada", "visualizada", "aceita"].includes(item.status); const acao = item.status === "aceita" ? "<span>Assinada</span>" : podeAssinar ? `<button class="secondary-button" data-assinar-proposta="${item.id}" type="button">Assinar proposta</button>` : "<span class=\"portal-pending-status\">Aguardando envio</span>"; return `<div class="portal-row"><span><strong>${esc(item.numero)}</strong> · ${esc(item.status)}</span>${acao}</div>`; }).join("") || "<p>Nenhuma proposta.</p>"}<h3>Documentos e GRUs</h3>${data.documentos?.map((item) => `<div class="portal-row"><span><strong>${esc(item.tipo)}</strong> · ${esc(item.status)} · v${esc(item.versao)}</span>${item.status !== "assinado" && !item.assinado_em ? `<button class="secondary-button" data-assinar-documento="${item.id}" type="button">Assinar</button>` : "<span>Assinado</span>"}</div>`).join("") || "<p>Nenhum documento.</p>"}${rows(data.guias, [["GRU", "numero_gru"], ["Status", "status"], ["Vencimento", "vencimento"]])}<h3>Pagamentos</h3>${rows(data.pagamentos, [["Descrição", "descricao"], ["Status", "status"], ["Valor", "valor_total"]])}`;
+  $("#summary").innerHTML = `<p><strong>Marca:</strong> ${esc(data.lead.marca)} · <strong>Fase:</strong> ${esc(data.lead.fase)}</p><h3>Processos</h3>${data.processos?.length ? data.processos.map(processoTimeline).join("") : "<p>Nenhum registro.</p>"}<h3>Propostas</h3>${data.propostas?.map((item) => { const podeAssinar = ["enviada", "visualizada", "aceita"].includes(item.status); const acao = item.status === "aceita" ? "<span>Assinada</span>" : podeAssinar ? `<button class="secondary-button" data-assinar-proposta="${item.id}" type="button">Assinar proposta</button>` : "<span class=\"portal-pending-status\">Aguardando envio</span>"; return `<div class="portal-row"><span><strong>${esc(item.numero)}</strong> · ${esc(item.status)}</span>${acao}</div>`; }).join("") || "<p>Nenhuma proposta.</p>"}<h3>Documentos e GRUs</h3>${data.documentos?.map((item) => `<div class="portal-row"><span><strong>${esc(item.tipo)}</strong> · ${esc(item.status)} · v${esc(item.versao)}</span>${item.status !== "assinado" && !item.assinado_em ? `<button class="secondary-button" data-assinar-documento="${item.id}" type="button">Assinar</button>` : "<span>Assinado</span>"}</div>`).join("") || "<p>Nenhum documento.</p>"}${rows(data.guias, [["GRU", "numero_gru"], ["Status", "status"], ["Vencimento", "vencimento"]])}<h3>Pagamentos</h3>${rows(data.pagamentos, [["Descrição", "descricao"], ["Status", "status"], ["Valor", "valor_total"]])}`;
 }
 function formatarTamanho(bytes) {
   if (!bytes) return "0 KB";

@@ -284,7 +284,7 @@ def test_webhook_clicksign_proposta_nao_encontrada_e_ignorado() -> None:
 
 
 def test_login_cliente_portal_bloqueia_apos_muitas_tentativas() -> None:
-    dados = ClienteLogin(email="cliente@empresa.test", senha="senha-errada")
+    dados = ClienteLogin(email="cliente@empresa.com.br", senha="senha-errada")
     request = _request()
     for _ in range(10):
         with pytest.raises(HTTPException) as exc_info:

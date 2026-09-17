@@ -261,6 +261,21 @@ def test_tela_de_leads_permite_distribuir_sem_responsavel_em_lote() -> None:
     assert "botao.hidden = !state.canManage || state.semResponsavel === 0;" in script
 
 
+def test_cards_do_radar_prospeccao_nao_encolhem_alem_do_conteudo() -> None:
+    # Achado do usuário (17/09/2026): minmax(0,1fr) deixava as 6 colunas do
+    # funil encolherem sem limite -- em telas menos largas o número do card
+    # quebrava no meio (ex.: "495" virava "49"/"5" em duas linhas). Mesmo
+    # padrão de .lead-metrics (styles.css): largura mínima + rolagem
+    # horizontal em vez de espremer o conteúdo.
+    page = (web_dir / "admin-prospeccao.html").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "admin-prospeccao.css").read_text(encoding="utf-8")
+
+    assert "admin-prospeccao.css?v=" in page
+    assert ".prospeccao-metrics{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}" not in styles
+    assert ".prospeccao-metrics{display:grid;grid-template-columns:repeat(6,minmax(130px,1fr));gap:12px;overflow-x:auto}" in styles
+    assert ".prospeccao-metric strong{display:block;font-size:1.5rem;color:#076b4c;white-space:nowrap}" in styles
+
+
 def test_tela_de_script_atendimento_existe_com_crud_completo() -> None:
     # Item 1 da lista de melhorias de produto (15/09/2026): modelo de 1º
     # atendimento + opção de adicionar mais modelos manualmente. Reaproveita

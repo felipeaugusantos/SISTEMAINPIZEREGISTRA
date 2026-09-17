@@ -3,9 +3,13 @@
     const response = await fetch("/v1/tenant/branding");
     if (!response.ok) return;
     const tenant = await response.json();
-    if (tenant.cor_primaria && /^#[0-9a-f]{6}$/i.test(tenant.cor_primaria)) {
+    // Achado do usuário (17/09/2026): antes só carregava esta folha quando
+    // havia cor_primaria -- uma organização com só logo_url (sem cor
+    // customizada) nunca recebia a regra que tira o filtro de silhueta
+    // branca da logo padrão (ver app/api/confiabilidade.py::branding_css).
+    if ((tenant.cor_primaria && /^#[0-9a-f]{6}$/i.test(tenant.cor_primaria)) || tenant.logo_url) {
       // CSP style-src estrito bloqueia element.style.setProperty (inline);
-      // a cor é aplicada via folha de estilo carregada do próprio servidor ('self').
+      // a cor/filtro é aplicada via folha de estilo carregada do próprio servidor ('self').
       const link = document.createElement("link");
       link.rel = "stylesheet";
       link.href = "/v1/tenant/branding.css";

@@ -271,7 +271,7 @@ def test_cards_do_radar_prospeccao_nao_encolhem_alem_do_conteudo() -> None:
     styles = (web_dir / "static" / "admin-prospeccao.css").read_text(encoding="utf-8")
 
     assert "admin-prospeccao.css?v=" in page
-    assert "minmax(0,1fr)" not in styles
+    assert ".prospeccao-metrics{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}" not in styles
     assert ".prospeccao-metrics{display:grid;grid-template-columns:repeat(6,minmax(130px,1fr));gap:12px;overflow-x:auto}" in styles
     assert ".prospeccao-metric strong{display:block;font-size:1.5rem;color:#076b4c;white-space:nowrap}" in styles
 

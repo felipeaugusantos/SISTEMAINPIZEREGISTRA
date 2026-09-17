@@ -61,6 +61,7 @@ from app.api.rpi_admin import router as rpi_admin_router
 from app.api.rpi_consulta import router as rpi_consulta_router
 from app.api.saas import exigir_superadmin
 from app.api.saas import router as saas_router
+from app.api.scripts_atendimento_config import router as scripts_atendimento_config_router
 from app.api.social_auth import router as social_auth_router
 from app.api.usuarios import router as usuarios_router
 from app.api.versoes_sistema import router as versoes_sistema_router
@@ -156,6 +157,7 @@ app.include_router(analises_router)
 app.include_router(producao_router)
 app.include_router(propostas_config_router)
 app.include_router(email_leads_config_router)
+app.include_router(scripts_atendimento_config_router)
 app.include_router(assistente_ia_router)
 app.include_router(rpi_admin_router)
 app.include_router(rpi_consulta_router)
@@ -478,6 +480,15 @@ async def painel_modelo_propostas() -> FileResponse:
 )
 async def painel_modelo_email_leads() -> FileResponse:
     return FileResponse(web_dir / "admin-modelo-email-leads.html")
+
+
+@app.get(
+    "/admin/configuracao/script-atendimento",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("leads.view"))],
+)
+async def painel_script_atendimento() -> FileResponse:
+    return FileResponse(web_dir / "admin-script-atendimento.html")
 
 
 @app.get(

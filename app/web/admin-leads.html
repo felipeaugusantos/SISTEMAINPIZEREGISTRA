@@ -7,10 +7,10 @@
     <title>Painel de leads — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=65" />
     <link rel="stylesheet" href="/static/ze-brand.css?v=1" />
-    <link rel="stylesheet" href="/static/admin-leads.css?v=26" />
+    <link rel="stylesheet" href="/static/admin-leads.css?v=28" />
     <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=12 -->
     <script src="/static/admin-shell.js?v=50" defer></script>
-    <script src="/static/admin-leads.js?v=65" defer></script>
+    <script src="/static/admin-leads.js?v=67" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
     <header class="topbar">
@@ -36,6 +36,11 @@
           <button id="export-leads" class="primary-button admin-export" type="button">Exportar resultado</button>
         </div>
       </section>
+
+      <div id="lead-attention-banner" class="lead-attention-banner" role="status" hidden>
+        <span id="lead-attention-text"></span>
+        <button type="button" id="lead-attention-action" class="secondary-button">Ver agora</button>
+      </div>
 
       <section class="lead-metrics" aria-label="Resumo dos leads">
         <div><span>Contatos ativos</span><strong id="metric-global">0</strong></div>

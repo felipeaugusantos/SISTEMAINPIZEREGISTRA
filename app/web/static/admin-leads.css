@@ -131,6 +131,22 @@
   background: #fff8e9;
 }
 
+.lead-attention-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 16px;
+  padding: 13px 18px;
+  border: 1px solid #e6a23c;
+  border-left: 5px solid #d9822b;
+  border-radius: 12px;
+  background: #fff4e2;
+  color: #6b3f0a;
+  font-weight: 600;
+}
+.lead-attention-banner span { flex: 1; }
+
 @media (max-width: 840px) {
   .crm-overview > header { align-items: start; flex-direction: column; }
   .crm-pipeline { grid-template-columns: repeat(7, minmax(130px, 1fr)); }

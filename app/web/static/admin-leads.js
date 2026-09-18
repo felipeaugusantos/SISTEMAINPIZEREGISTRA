@@ -309,6 +309,26 @@ function renderPrioritySelection() {
   });
 }
 
+// Achado do usuário (17/09/2026): "ninguém usa/conhece" os filtros de
+// prioridade (Ações atrasadas/Sem responsável/Sem próxima ação) -- existem
+// desde antes, mas só aparecem como botões discretos no meio da tela, sem
+// nada chamando atenção pra eles. Este banner aparece no topo, impossível
+// de não ver, só quando há pendência de verdade (nunca aparece "vazio").
+function renderAvisoAtencaoLeads(data) {
+  const banner = document.querySelector("#lead-attention-banner");
+  const texto = document.querySelector("#lead-attention-text");
+  if (!banner || !texto) return;
+  const atrasadas = data.atrasadas || 0;
+  const semProximaAcao = data.sem_proxima_acao || 0;
+  if (!atrasadas && !semProximaAcao) { banner.hidden = true; return; }
+  const partes = [];
+  if (atrasadas) partes.push(`${atrasadas} lead${atrasadas === 1 ? "" : "s"} com ação atrasada`);
+  if (semProximaAcao) partes.push(`${semProximaAcao} sem próxima ação definida`);
+  texto.textContent = `⚠ Você tem ${partes.join(" e ")} — precisam de contato.`;
+  banner.dataset.priority = atrasadas ? "atrasadas" : "sem_proxima_acao";
+  banner.hidden = false;
+}
+
 async function loadCrmSummary() {
   try {
     const response = await fetch("/v1/admin/leads-crm");
@@ -321,6 +341,7 @@ async function loadCrmSummary() {
       data.distribuicao_automatica_ativa || !data.sem_responsavel;
     state.semResponsavel = data.sem_responsavel || 0;
     atualizarBotaoDistribuir();
+    renderAvisoAtencaoLeads(data);
   } catch (_) {
     // O carregamento principal continua disponivel se o resumo falhar.
   }
@@ -600,19 +621,25 @@ async function openLead(id, selectedResearchId = null) {
     `<option value="${escapeHtml(item.id)}">${escapeHtml(item.marca)} · ${formatDate(item.criado_em, false)}</option>`
   ).join("");
   document.querySelector("#lead-dialog-title").textContent = lead.nome;
+  // Achado do usuário (17/09/2026): "histórico de contato confuso" -- a
+  // linha do tempo unificada (app/api/leads.py::timeline_lead) já existia
+  // e já junta contatos, mensagens do portal, mudanças de fase, propostas,
+  // documentos etc. em ordem cronológica, mas ficava escondida como a 4ª de
+  // 7 abas, atrás da aba "Atendimento Comercial" (que só mostra pesquisas).
+  // Virou a aba padrão -- é a primeira coisa que a equipe vê ao abrir um lead.
   const ABAS_LEAD = [
+    ["timeline", "Linha do tempo"],
     ["atendimento", "Atendimento Comercial"],
     ["empresa", "Empresa"],
     ["funil", "Funil do Lead"],
-    ["timeline", "Linha do tempo"],
     ["documentos", "Documentos do atendimento"],
     ["guias", "Guias do INPI"],
     ["propostas", "Proposta de registro"],
   ];
   dialogContent.innerHTML = `
-    <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>${state.canManage && lead.email ? ` <button type="button" class="secondary-button lead-send-email" data-lead-id="${lead.id}">Enviar e-mail</button>` : ""}</div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div><div><span>Prioridade (IA)</span><strong id="lead-qualificacao-badge">—</strong></div></section>
+    <section class="lead-contact-summary"><div><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>${state.canManage && lead.email ? ` <button type="button" class="secondary-button lead-send-email" data-lead-id="${lead.id}">Enviar e-mail</button>` : ""}</div><div><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a>${phoneDigits(lead.telefone) ? ` <a class="secondary-button" href="https://wa.me/${phoneDigits(lead.telefone)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div><div id="lead-site-row" hidden><span>Site</span><a id="lead-site-link" href="#" target="_blank" rel="noopener"></a></div><div><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong></div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div><div><span>Prioridade (IA)</span><strong id="lead-qualificacao-badge">—</strong></div></section>
     <nav class="lead-tabs" role="tablist">${ABAS_LEAD.map(([id, label], i) => `<button type="button" class="lead-tab${i === 0 ? " active" : ""}" role="tab" aria-selected="${i === 0}" data-tab="${id}">${label}</button>`).join("")}</nav>
-    <div class="lead-tab-panel" data-panel="atendimento">
+    <div class="lead-tab-panel" data-panel="atendimento" hidden>
       <section class="lead-qualificacao-ia lg-full" id="lead-qualificacao-ia" hidden></section>
       <section class="lead-sugestao-ia lg-full" id="lead-sugestao-ia" hidden></section>
       <section class="lead-history lg-full"><header><div><p class="eyebrow">${selectedResearchId ? "Pesquisa selecionada" : "Histórico"}</p><h3>${pesquisasExibidas.length} pesquisa${pesquisasExibidas.length === 1 ? "" : "s"}</h3></div></header>${pesquisasExibidas.length ? pesquisasExibidas.map(researchCard).join("") : "<p>Nenhuma pesquisa vinculada.</p>"}</section>
@@ -653,7 +680,7 @@ async function openLead(id, selectedResearchId = null) {
       <section class="lead-funil lg-full" id="lead-funil"><p class="lead-funil-loading">Carregando funil…</p></section>
       <section class="lead-checklist" id="lead-checklist"><p class="lead-funil-loading">Carregando checklist…</p></section>
     </div>
-    <div class="lead-tab-panel" data-panel="timeline" hidden>
+    <div class="lead-tab-panel" data-panel="timeline">
       <section class="lead-timeline" id="lead-timeline"><p class="lead-funil-loading">Carregando linha do tempo…</p></section>
     </div>
     <div class="lead-tab-panel" data-panel="documentos" hidden>
@@ -872,6 +899,18 @@ async function renderEmpresa(lead) {
   let data;
   try { data = await (await fetch(`/v1/admin/crm/empresas/${empresaId}`)).json(); }
   catch { box.innerHTML = ""; return; }
+  // Achado do usuário (17/09/2026): o site da empresa (já cadastrado, vindo
+  // do enriquecimento do Radar de Prospecção) ficava só editável nesta aba
+  // "Empresa" -- o atendimento não tinha um link rápido pra abrir na hora
+  // de fazer contato, na seção principal da ficha.
+  const siteRow = document.querySelector("#lead-site-row");
+  const siteLink = document.querySelector("#lead-site-link");
+  if (siteRow && siteLink && data.site) {
+    const url = /^https?:\/\//i.test(data.site) ? data.site : `https://${data.site}`;
+    siteLink.href = url;
+    siteLink.textContent = data.site;
+    siteRow.hidden = false;
+  }
   const canManage = state.canManage;
   const campo = (label, name, value, type = "text") => `<label><span>${escapeHtml(label)}</span><input name="${name}" type="${type}" value="${escapeHtml(value || "")}" ${canManage ? "" : "readonly"} maxlength="200"></label>`;
   const contatos = (data.contatos || []).map(c => {
@@ -1567,12 +1606,22 @@ crmPipeline.addEventListener("click", event => {
   loadLeads();
 });
 
+function aplicarPrioridade(nome) {
+  state.priority = state.priority === nome ? "" : nome;
+  state.offset = 0;
+  loadLeads();
+}
+
 crmPriorities.addEventListener("click", event => {
   const button = event.target.closest(".crm-priority");
   if (!button) return;
-  state.priority = state.priority === button.dataset.priority ? "" : button.dataset.priority;
-  state.offset = 0;
-  loadLeads();
+  aplicarPrioridade(button.dataset.priority);
+});
+
+document.querySelector("#lead-attention-action")?.addEventListener("click", () => {
+  const banner = document.querySelector("#lead-attention-banner");
+  aplicarPrioridade(banner?.dataset.priority || "atrasadas");
+  document.querySelector("#crm-priorities")?.scrollIntoView({ behavior: "smooth", block: "center" });
 });
 
 viewButtons.forEach(button => button.addEventListener("click", () => {

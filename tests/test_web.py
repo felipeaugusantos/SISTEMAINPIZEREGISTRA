@@ -225,6 +225,48 @@ def test_painel_do_lead_usa_abas() -> None:
     assert ".lead-tab-panel" in styles
 
 
+def test_tela_de_leads_avisa_quando_ha_pendencia_de_contato() -> None:
+    # Achado do usuário (17/09/2026): os filtros de prioridade (Ações
+    # atrasadas/Sem responsável/Sem próxima ação) já existiam, mas "ninguém
+    # usa/conhece" -- ficavam discretos no meio da tela. Banner no topo,
+    # só aparece quando há pendência de verdade.
+    page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
+
+    assert 'id="lead-attention-banner"' in page
+    assert 'id="lead-attention-banner" class="lead-attention-banner" role="status" hidden' in page
+    assert "function renderAvisoAtencaoLeads" in script
+    assert "function aplicarPrioridade" in script
+    assert ".lead-attention-banner" in styles
+
+
+def test_ficha_do_lead_tem_whatsapp_e_site_de_facil_acesso() -> None:
+    # Achado do usuário (17/09/2026): o link de WhatsApp já existia na
+    # listagem de leads, mas sumia ao abrir a ficha (só telefone em texto).
+    # O site da empresa (já cadastrado) ficava só editável na aba "Empresa",
+    # sem virar link em lugar nenhum.
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    assert 'href="https://wa.me/${phoneDigits(lead.telefone)}"' in script
+    assert 'id="lead-site-row"' in script
+    assert 'id="lead-site-link"' in script
+    assert "siteRow.hidden = false;" in script
+
+
+def test_ficha_do_lead_abre_direto_na_linha_do_tempo() -> None:
+    # Achado do usuário (17/09/2026): "histórico de contato confuso" -- a
+    # linha do tempo unificada (contatos, mensagens do portal, mudanças de
+    # fase, propostas, documentos etc., já montada por
+    # app/api/leads.py::timeline_lead) ficava escondida como a 4ª de 7 abas,
+    # atrás de "Atendimento Comercial". Passa a ser a aba padrão.
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    assert 'const ABAS_LEAD = [\n    ["timeline", "Linha do tempo"],' in script
+    assert 'data-panel="atendimento" hidden' in script
+    assert '<div class="lead-tab-panel" data-panel="timeline">' in script
+
+
 def test_portal_cliente_mostra_linha_do_tempo_com_progresso() -> None:
     # Item 1 do pedido de melhorias do cliente final (17/09/2026): linha do
     # tempo do processo de registro com % de progresso, pra bater o olho e

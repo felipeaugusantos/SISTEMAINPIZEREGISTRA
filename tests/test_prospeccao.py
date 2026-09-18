@@ -234,8 +234,9 @@ def test_importar_prospects_rejeita_arquivo_infectado(monkeypatch: pytest.Monkey
     # aceitava CSV/XLSX sem nenhuma varredura antivírus, diferente dos
     # demais pontos de upload do sistema (portal do cliente, central de
     # atualizações).
-    import app.api.prospeccao as modulo_prospeccao
     from fastapi import HTTPException
+
+    import app.api.prospeccao as modulo_prospeccao
 
     async def _rejeitar(_conteudo: bytes) -> None:
         raise HTTPException(status_code=422, detail="Arquivo rejeitado: malware detectado.")

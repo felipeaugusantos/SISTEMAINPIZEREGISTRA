@@ -79,6 +79,28 @@ class ArquivoClientePortal(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class MaterialMarcaCliente(Base):
+    """Material de identidade visual (logo, manual de marca, artes) cadastrado
+    pela equipe de atendimento e disponível para download no portal do cliente.
+    """
+
+    __tablename__ = "materiais_marca_clientes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    nome: Mapped[str] = mapped_column(String(255))
+    descricao: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    caminho: Mapped[str] = mapped_column(Text)
+    content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tamanho: Mapped[int] = mapped_column(BigInteger, default=0)
+    arquivo_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    enviado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True
+    )
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class MensagemClientePortal(Base):
     __tablename__ = "mensagens_clientes_portal"
 

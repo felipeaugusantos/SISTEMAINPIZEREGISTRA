@@ -382,6 +382,20 @@ def test_admin_cadastra_logo_do_cliente_para_o_personagem_do_portal() -> None:
     assert "renderLogoCliente(lead);" in script
 
 
+def test_upload_de_logo_do_cliente_mostra_criterios_de_tamanho_e_formato() -> None:
+    # Achado do usuário (17/09/2026): os critérios de validação da logo
+    # (tamanho do arquivo, dimensões, formatos aceitos -- já aplicados no
+    # backend via app/api/confiabilidade.py::normalizar_logo) não apareciam
+    # em lugar nenhum da tela -- a equipe só descobria o limite ao errar.
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
+
+    assert "lead-logo-cliente-hint" in script
+    assert "1 MB" in script
+    assert "32×32" in script and "2000×2000" in script
+    assert ".lead-logo-cliente-hint" in styles
+
+
 def test_admin_visualiza_arquivos_enviados_pelo_cliente_no_portal() -> None:
     # Achado da validação do Portal do Cliente (17/09/2026): documentos
     # enviados pelo cliente (ArquivoClientePortal) não tinham NENHUMA tela

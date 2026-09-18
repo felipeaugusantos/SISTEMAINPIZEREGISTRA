@@ -1193,6 +1193,7 @@ table.lead-docs select {
 .lead-logo-cliente-form { display:grid; gap:8px; margin-top:12px; }
 .lead-logo-cliente-form > div { display:flex; align-items:center; gap:10px; }
 .logo-cliente-status { color:var(--muted); font-size:.82rem; }
+.lead-logo-cliente-hint { margin:0; color:var(--muted); font-size:.72rem; }
 
 @media (min-width: 761px) {
   .admin-body .leads-table-shell { overflow-x: visible; }

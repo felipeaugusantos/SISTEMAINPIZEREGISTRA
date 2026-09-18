@@ -541,7 +541,7 @@ async function renderLogoCliente(lead) {
   if (!state.canManage) return;
   const card = document.createElement("section");
   card.className = "lead-logo-cliente lead-contact-log";
-  card.innerHTML = `<header><div><p class="eyebrow">PORTAL DO CLIENTE</p><h3>Logo do cliente (mão do personagem)</h3></div></header><div class="lead-logo-cliente-preview" data-logo-preview><span class="lead-contact-empty">Nenhuma logo cadastrada ainda.</span></div><form class="lead-logo-cliente-form"><input name="arquivo" type="file" accept="image/png,image/jpeg,image/webp" required><div><button class="primary-button" type="submit">Enviar logo</button><button class="secondary-button" type="button" data-remove-logo-cliente hidden>Remover</button><span class="logo-cliente-status" role="status"></span></div></form>`;
+  card.innerHTML = `<header><div><p class="eyebrow">PORTAL DO CLIENTE</p><h3>Logo do cliente (mão do personagem)</h3></div></header><div class="lead-logo-cliente-preview" data-logo-preview><span class="lead-contact-empty">Nenhuma logo cadastrada ainda.</span></div><form class="lead-logo-cliente-form"><input name="arquivo" type="file" accept="image/png,image/jpeg,image/webp" required><p class="lead-logo-cliente-hint">PNG, JPEG ou WebP · até 1 MB · entre 32×32 e 2000×2000 px</p><div><button class="primary-button" type="submit">Enviar logo</button><button class="secondary-button" type="button" data-remove-logo-cliente hidden>Remover</button><span class="logo-cliente-status" role="status"></span></div></form>`;
   const materiaisCard = dialogContent.querySelector(".lead-portal-materiais");
   if (materiaisCard) materiaisCard.after(card); else dialogContent.prepend(card);
   const preview = card.querySelector("[data-logo-preview]");

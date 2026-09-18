@@ -315,6 +315,31 @@ def test_admin_cadastra_materiais_de_identidade_visual_para_o_cliente() -> None:
     assert "data-remove-material" in script
 
 
+def test_portal_cliente_exibe_personagem_com_logo_dinamica_do_cliente() -> None:
+    # Itens 4/5 do pedido de melhorias do cliente final (17/09/2026):
+    # personagem fixo no portal, segurando dinamicamente a logo do cliente
+    # (a imagem-base já vem com a mão vazia; a logo é sobreposta via CSS
+    # sobre as coordenadas percentuais da mão).
+    page = (web_dir / "portal-cliente.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "portal-cliente.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "portal-cliente.css").read_text(encoding="utf-8")
+
+    assert "mascote-foguete.png" in page
+    assert 'id="mascote-logo-cliente"' in page
+    assert "data.lead.logo_cliente_url" in script
+    assert ".portal-mascote-logo" in styles
+
+
+def test_admin_cadastra_logo_do_cliente_para_o_personagem_do_portal() -> None:
+    # Mesmo item acima, lado administrativo: a equipe cadastra a logo do
+    # cliente na ficha do lead.
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    assert "async function renderLogoCliente" in script
+    assert 'fetch(`/v1/admin/leads/${lead.id}/logo-cliente`' in script
+    assert "renderLogoCliente(lead);" in script
+
+
 def test_admin_visualiza_arquivos_enviados_pelo_cliente_no_portal() -> None:
     # Achado da validação do Portal do Cliente (17/09/2026): documentos
     # enviados pelo cliente (ArquivoClientePortal) não tinham NENHUMA tela

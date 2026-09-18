@@ -48,6 +48,15 @@
 .portal-app { display:grid; gap:18px; }
 .portal-app-header { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; padding:10px 4px 18px; }
 .portal-app-header h2 { margin:5px 0 4px; font-family:Georgia,serif; font-size:2.35rem; font-weight:500; }
+.portal-app-header-actions { display:flex; align-items:center; gap:16px; }
+/* Item 4/5 do pedido de melhorias do cliente final (17/09/2026): personagem
+   fixo segurando dinamicamente a logo do cliente. Coordenadas da logo em %
+   (76.55/28.07/15.15) calculadas sobre a imagem-base de 1254x1254px, onde a
+   mão fica vazia -- por isso escalam corretamente com qualquer largura. */
+.portal-mascote { position:relative; width:96px; flex:none; }
+.portal-mascote-img { display:block; width:100%; height:auto; }
+.portal-mascote-logo { position:absolute; left:76.55%; top:28.07%; width:15.15%; aspect-ratio:1/1; transform:translate(-50%,-50%); border-radius:50%; object-fit:cover; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.25); }
+@media (max-width:760px) { .portal-mascote { display:none; } }
 .portal-app-subtitle { margin:0; color:var(--muted); }
 .portal-summary-card, .portal-content-card { padding:26px; border:1px solid var(--line); border-radius:18px; background:rgba(255,255,252,.92); box-shadow:0 10px 30px rgba(31,65,43,.06); }
 .portal-section-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:15px; margin-bottom:18px; }

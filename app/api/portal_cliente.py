@@ -1058,6 +1058,139 @@ async def remover_material_marca_admin(
     return {"removido": True}
 
 
+# Item 4/5 do pedido de melhorias do cliente final (17/09/2026): logo do
+# próprio cliente exibida dinamicamente na mão do personagem no portal.
+# Mesmo padrão de validação/normalização/armazenamento da logo da
+# organização (app/api/confiabilidade.py::enviar_logo), mas por lead --
+# cada lead tem a própria imagem, guardada em Lead.logo_cliente (mesmo
+# formato de Organizacao.branding["logo_asset"]).
+def logo_cliente_url(lead: Lead) -> str | None:
+    asset = (lead.logo_cliente or {}).get("sha256") if lead.logo_cliente else None
+    return f"/v1/portal/logo-cliente?v={asset[:16]}" if asset else None
+
+
+@router.post("/v1/admin/leads/{lead_id}/logo-cliente", status_code=status.HTTP_201_CREATED)
+async def enviar_logo_cliente_admin(
+    lead_id: int,
+    request: Request,
+    session: SessionDep,
+    usuario: ClientManageDep,
+    arquivo: UploadFile = File(...),
+) -> dict:
+    from app.api.confiabilidade import normalizar_logo
+
+    lead = (
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    _checar_acesso_lead_operador(lead, usuario)
+    conteudo = await arquivo.read(1024 * 1024 + 1)
+    try:
+        normalizado, largura, altura = normalizar_logo(conteudo)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    digest = hashlib.sha256(normalizado).hexdigest()
+    chave = f"logo-cliente/lead-{lead_id}/{digest}.png"
+    try:
+        localizacao = save_bytes(chave, normalizado)
+    except StorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    asset_anterior = dict(lead.logo_cliente or {})
+    lead.logo_cliente = {
+        "localizacao": localizacao,
+        "sha256": digest,
+        "tamanho": len(normalizado),
+        "largura": largura,
+        "altura": altura,
+        "formato": "PNG",
+        "atualizado_em": datetime.now(UTC).isoformat(),
+        "atualizado_por": usuario.email,
+    }
+    _auditar_operador(session, usuario, request, "enviar_logo_cliente", f"lead:{lead_id}")
+    try:
+        await session.commit()
+    except Exception:
+        delete_object(localizacao)
+        raise
+    localizacao_anterior = asset_anterior.get("localizacao")
+    if localizacao_anterior and localizacao_anterior != localizacao:
+        try:
+            delete_object(localizacao_anterior)
+        except (OSError, StorageError):
+            pass
+    return {"logo_url": logo_cliente_url(lead), "sha256": digest}
+
+
+@router.get("/v1/admin/leads/{lead_id}/logo-cliente")
+async def baixar_logo_cliente_admin(lead_id: int, session: SessionDep, usuario: ClientViewDep) -> Response:
+    lead = (
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    _checar_acesso_lead_operador(lead, usuario)
+    localizacao = (lead.logo_cliente or {}).get("localizacao")
+    if not localizacao:
+        raise HTTPException(status_code=404, detail="Logo não configurada")
+    try:
+        conteudo = read_bytes(localizacao)
+    except (OSError, StorageError):
+        raise HTTPException(status_code=404, detail="Logo não encontrada") from None
+    return Response(
+        content=conteudo,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "private, max-age=86400",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.delete("/v1/admin/leads/{lead_id}/logo-cliente")
+async def remover_logo_cliente_admin(
+    lead_id: int, request: Request, session: SessionDep, usuario: ClientManageDep
+) -> dict:
+    lead = (
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    _checar_acesso_lead_operador(lead, usuario)
+    asset = dict(lead.logo_cliente or {})
+    lead.logo_cliente = None
+    _auditar_operador(session, usuario, request, "remover_logo_cliente", f"lead:{lead_id}")
+    await session.commit()
+    localizacao = asset.get("localizacao")
+    if localizacao:
+        try:
+            delete_object(localizacao)
+        except (OSError, StorageError):
+            pass
+    return {"status": "ok"}
+
+
+@router.get("/v1/portal/logo-cliente")
+async def baixar_logo_cliente_portal(cliente: ClientDep, session: SessionDep) -> Response:
+    lead = (
+        await session.execute(
+            select(Lead).where(Lead.id == cliente.lead_id, Lead.organizacao_id == cliente.organizacao_id)
+        )
+    ).scalar_one()
+    asset = lead.logo_cliente or {}
+    localizacao = asset.get("localizacao")
+    if not localizacao:
+        raise HTTPException(status_code=404, detail="Logo não configurada")
+    try:
+        conteudo = read_bytes(localizacao)
+    except (OSError, StorageError):
+        raise HTTPException(status_code=404, detail="Logo não encontrada") from None
+    return Response(
+        content=conteudo,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "private, max-age=86400, immutable",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get("/v1/portal/resumo")
 async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDep) -> dict:
     lead = (
@@ -1159,7 +1292,12 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
     await session.commit()
     return {
         "cliente": _cliente_dict(cliente),
-        "lead": {"id": lead.id, "marca": lead.marca, "fase": lead.fase},
+        "lead": {
+            "id": lead.id,
+            "marca": lead.marca,
+            "fase": lead.fase,
+            "logo_cliente_url": logo_cliente_url(lead),
+        },
         "jornada": montar_jornada_registro(lead, historico_fases, propostas, processos_monitorados),
         "processos": processos,
         "propostas": [

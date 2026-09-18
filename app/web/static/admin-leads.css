@@ -1172,6 +1172,11 @@ table.lead-docs select {
 .lead-material-marca-form input[type="text"] { width:100%; box-sizing:border-box; min-height:36px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; }
 .lead-material-marca-form > div { display:flex; align-items:center; gap:10px; }
 .material-marca-status { color:var(--muted); font-size:.82rem; }
+.lead-logo-cliente-preview { margin-top:12px; }
+.lead-logo-cliente-preview img { width:96px; height:96px; object-fit:cover; border-radius:50%; border:1px solid var(--line); background:#fff; }
+.lead-logo-cliente-form { display:grid; gap:8px; margin-top:12px; }
+.lead-logo-cliente-form > div { display:flex; align-items:center; gap:10px; }
+.logo-cliente-status { color:var(--muted); font-size:.82rem; }
 
 @media (min-width: 761px) {
   .admin-body .leads-table-shell { overflow-x: visible; }

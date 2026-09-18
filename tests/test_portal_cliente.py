@@ -9,8 +9,11 @@ from starlette.requests import Request
 from app.api.portal_cliente import (
     ClienteLogin,
     assinar_proposta_portal,
+    baixar_logo_cliente_admin,
+    baixar_logo_cliente_portal,
     baixar_material_marca_admin,
     baixar_material_marca_portal,
+    enviar_logo_cliente_admin,
     enviar_material_marca_admin,
     listar_arquivos_portal_admin,
     listar_materiais_marca_admin,
@@ -18,9 +21,11 @@ from app.api.portal_cliente import (
     listar_prazos_portal,
     listar_processos_portal,
     login_cliente,
+    logo_cliente_url,
     logout_cliente,
     montar_jornada_registro,
     progresso_processo,
+    remover_logo_cliente_admin,
     remover_material_marca_admin,
     webhook_clicksign,
 )
@@ -68,7 +73,7 @@ class _ArquivoFake:
         self.content_type = "image/png"
         self._conteudo = conteudo
 
-    async def read(self) -> bytes:
+    async def read(self, _tamanho: int | None = None) -> bytes:
         return self._conteudo
 
 
@@ -577,6 +582,104 @@ def test_baixar_material_marca_portal_material_inexistente_retorna_404() -> None
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(baixar_material_marca_portal(3, _request(), cliente, session))
+    assert exc_info.value.status_code == 404
+
+
+# --- Item 4/5 do pedido de melhorias do cliente final (17/09/2026): logo do
+# cliente exibida dinamicamente na mão do personagem no portal. ---
+
+
+def test_logo_cliente_url_sem_asset_retorna_none() -> None:
+    assert logo_cliente_url(Lead(id=9, organizacao_id=1)) is None
+    assert logo_cliente_url(Lead(id=9, organizacao_id=1, logo_cliente={})) is None
+
+
+def test_logo_cliente_url_com_asset_usa_hash_como_cache_bust() -> None:
+    lead = Lead(id=9, organizacao_id=1, logo_cliente={"sha256": "abcdef0123456789" + "0" * 40})
+    assert logo_cliente_url(lead) == "/v1/portal/logo-cliente?v=abcdef0123456789"
+
+
+def test_enviar_logo_cliente_admin_nega_para_quem_nao_e_responsavel() -> None:
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=99)
+    usuario = usuario_teste(perfil="comercial")
+    session = FakeSession([FakeResult(scalar=lead)])
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(enviar_logo_cliente_admin(9, _request(), session, usuario, arquivo=_arquivo_fake()))
+    assert exc_info.value.status_code == 403
+
+
+def test_enviar_logo_cliente_admin_salva_e_audita(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.api.portal_cliente as modulo_portal
+
+    usuario = usuario_teste(perfil="comercial")
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=usuario.id)
+    session = FakeSession([FakeResult(scalar=lead)])
+    monkeypatch.setattr(
+        "app.api.confiabilidade.normalizar_logo", lambda _conteudo: (b"png-normalizado", 200, 200)
+    )
+    monkeypatch.setattr(modulo_portal, "save_bytes", lambda chave, _conteudo: f"data/{chave}")
+
+    resultado = asyncio.run(enviar_logo_cliente_admin(9, _request(), session, usuario, arquivo=_arquivo_fake()))
+
+    assert resultado["logo_url"] is not None
+    assert lead.logo_cliente["largura"] == 200
+    assert lead.logo_cliente["atualizado_por"] == usuario.email
+    assert session.commits == 1
+
+
+def test_enviar_logo_cliente_admin_imagem_invalida_retorna_422(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _rejeitar(_conteudo: bytes) -> tuple[bytes, int, int]:
+        raise ValueError("Envie uma imagem PNG, JPEG ou WebP")
+
+    usuario = usuario_teste(perfil="comercial")
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=usuario.id)
+    session = FakeSession([FakeResult(scalar=lead)])
+    monkeypatch.setattr("app.api.confiabilidade.normalizar_logo", _rejeitar)
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(enviar_logo_cliente_admin(9, _request(), session, usuario, arquivo=_arquivo_fake()))
+    assert exc_info.value.status_code == 422
+
+
+def test_baixar_logo_cliente_admin_sem_logo_retorna_404() -> None:
+    usuario = usuario_teste(perfil="comercial")
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=usuario.id)
+    session = FakeSession([FakeResult(scalar=lead)])
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(baixar_logo_cliente_admin(9, session, usuario))
+    assert exc_info.value.status_code == 404
+
+
+def test_remover_logo_cliente_admin_remove_arquivo_e_limpa_campo(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.api.portal_cliente as modulo_portal
+
+    usuario = usuario_teste(perfil="comercial")
+    lead = Lead(
+        id=9,
+        organizacao_id=1,
+        responsavel_id=usuario.id,
+        logo_cliente={"localizacao": "data/logo-cliente/lead-9/x.png"},
+    )
+    session = FakeSession([FakeResult(scalar=lead)])
+    caminhos_apagados: list[str] = []
+    monkeypatch.setattr(modulo_portal, "delete_object", caminhos_apagados.append)
+
+    resultado = asyncio.run(remover_logo_cliente_admin(9, _request(), session, usuario))
+
+    assert resultado == {"status": "ok"}
+    assert lead.logo_cliente is None
+    assert caminhos_apagados == ["data/logo-cliente/lead-9/x.png"]
+
+
+def test_baixar_logo_cliente_portal_sem_logo_retorna_404() -> None:
+    cliente = _cliente()
+    lead = Lead(id=9, organizacao_id=1)
+    session = FakeSession([FakeResult(scalar=lead)])
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(baixar_logo_cliente_portal(cliente, session))
     assert exc_info.value.status_code == 404
 
 

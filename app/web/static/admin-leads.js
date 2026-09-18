@@ -513,6 +513,51 @@ async function renderMateriaisMarca(lead) {
   await carregar();
 }
 
+// Item 4/5 do pedido de melhorias do cliente final (17/09/2026): logo do
+// cliente exibida dinamicamente na mão do personagem no portal. A equipe
+// cadastra a imagem aqui; o cliente só vê o resultado (portal-cliente.js).
+async function renderLogoCliente(lead) {
+  if (!state.canManage) return;
+  const card = document.createElement("section");
+  card.className = "lead-logo-cliente lead-contact-log";
+  card.innerHTML = `<header><div><p class="eyebrow">PORTAL DO CLIENTE</p><h3>Logo do cliente (mão do personagem)</h3></div></header><div class="lead-logo-cliente-preview" data-logo-preview><span class="lead-contact-empty">Nenhuma logo cadastrada ainda.</span></div><form class="lead-logo-cliente-form"><input name="arquivo" type="file" accept="image/png,image/jpeg,image/webp" required><div><button class="primary-button" type="submit">Enviar logo</button><button class="secondary-button" type="button" data-remove-logo-cliente hidden>Remover</button><span class="logo-cliente-status" role="status"></span></div></form>`;
+  const materiaisCard = dialogContent.querySelector(".lead-portal-materiais");
+  if (materiaisCard) materiaisCard.after(card); else dialogContent.prepend(card);
+  const preview = card.querySelector("[data-logo-preview]");
+  const removeBtn = card.querySelector("[data-remove-logo-cliente]");
+  const atualizarPreview = () => {
+    preview.innerHTML = lead.logo_cliente_url
+      ? `<img src="${lead.logo_cliente_url}" alt="Logo do cliente">`
+      : '<span class="lead-contact-empty">Nenhuma logo cadastrada ainda.</span>';
+    removeBtn.hidden = !lead.logo_cliente_url;
+  };
+  atualizarPreview();
+  card.querySelector(".lead-logo-cliente-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = event.currentTarget; const button = form.querySelector("button[type=submit]"); const status = form.querySelector(".logo-cliente-status");
+    button.disabled = true; status.textContent = "Enviando…";
+    try {
+      const response = await fetch(`/v1/admin/leads/${lead.id}/logo-cliente`, { method: "POST", body: new FormData(form) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Não foi possível enviar a logo.");
+      // A resposta traz a URL do lado do cliente (/v1/portal/...), que exige
+      // a sessão do portal -- aqui, pra pré-visualizar no painel interno,
+      // usamos sempre a rota admin com um cache-bust próprio.
+      lead.logo_cliente_url = `/v1/admin/leads/${lead.id}/logo-cliente?v=${Date.now()}`;
+      form.reset(); status.textContent = "Logo enviada."; atualizarPreview();
+    } catch (error) { status.textContent = error.message; } finally { button.disabled = false; }
+  });
+  removeBtn.addEventListener("click", async () => {
+    if (!confirm("Remover a logo do cliente? Ele deixará de vê-la no portal.")) return;
+    try {
+      const response = await fetch(`/v1/admin/leads/${lead.id}/logo-cliente`, { method: "DELETE" });
+      if (!response.ok) { const erro = await response.json().catch(() => ({})); throw new Error(erro.detail || "Não foi possível remover a logo."); }
+      lead.logo_cliente_url = null;
+      atualizarPreview();
+    } catch (error) { alert(error.message); }
+  });
+}
+
 async function abrirRegistroAtendimento(leadId, pesquisaId) {
   let proximaAcao = "";
   const response = await fetch(`/v1/admin/leads/${leadId}`);
@@ -676,6 +721,7 @@ async function openLead(id, selectedResearchId = null) {
     renderPortalMessages(lead);
     renderPortalArquivos(lead);
     renderMateriaisMarca(lead);
+    renderLogoCliente(lead);
   }
   // Item 30 da auditoria completa do CRM (06/09/2026): score calculado sob
   // demanda (endpoint dedicado, não vem no payload do lead) -- busca à

@@ -541,6 +541,13 @@ async def concluir_mfa(
     usuario = await _usuario_completo(session, tentativa.usuario_id)
     if not usuario or not usuario.ativo:
         raise HTTPException(status_code=401, detail="Usuario indisponivel")
+    # Achado da varredura ampla do sistema (18/09/2026): mesmo bug de ordem
+    # RLS/tenant já corrigido em outros pontos de autenticação (ex.:
+    # portal_cliente.py::logout_cliente) -- aplicar o contexto do tenant
+    # ANTES de mutar qualquer entidade rastreada nesta sessão, senão o
+    # autoflush do SQLAlchemy grava a mudança fora do contexto de RLS
+    # correto (StaleDataError ou escrita silenciosamente descartada).
+    await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
     codigo = dados.codigo.strip().upper()
     segredo_mfa = revelar_segredo(usuario.mfa_segredo or "")
     valido = validar_totp(segredo_mfa, codigo)
@@ -550,7 +557,6 @@ async def concluir_mfa(
         valido = True
     if not valido:
         raise HTTPException(status_code=401, detail="Codigo MFA invalido")
-    await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
     if usuario.mfa_segredo_versao != versao_chave_atual():
         usuario.mfa_segredo = proteger_segredo(segredo_mfa)
         usuario.mfa_segredo_versao = versao_chave_atual()

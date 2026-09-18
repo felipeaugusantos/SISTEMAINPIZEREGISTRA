@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, date, datetime, timedelta
 
+import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
@@ -216,6 +217,33 @@ def test_aceitar_proposta_publica_dentro_da_validade_envia_codigo_por_email() ->
     assert codigos_enviados[0][0] == "cliente@example.com"
     assinaturas = [obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial)]
     assert assinaturas == []
+
+
+def test_aceitar_proposta_publica_loga_falha_de_envio_do_codigo(caplog: pytest.LogCaptureFixture) -> None:
+    # Achado da varredura ampla do sistema (18/09/2026): falha de envio do
+    # código (SMTP fora do ar, etc.) era engolida sem log nenhum -- o
+    # cliente via o aviso de erro na tela, mas a equipe não tinha como
+    # saber que aconteceu sem o cliente reclamar.
+    import app.api.leads_propostas as leads_modulo
+
+    async def _falhar_envio(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("SMTP indisponível")
+
+    original = leads_modulo.enviar_codigo_confirmacao_proposta
+    leads_modulo.enviar_codigo_confirmacao_proposta = _falhar_envio
+    try:
+        proposta = _proposta_com_token(validade_em=date(2099, 12, 31), numero="PROP-42")
+        lead = _lead_com_email()
+        session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=lead)])
+        with caplog.at_level("ERROR", logger="ze_registra.leads_propostas"):
+            resposta = asyncio.run(
+                leads_modulo.aceitar_proposta_publica("token-qualquer", _request_post("/propostas/x/aceitar"), session)
+            )
+    finally:
+        leads_modulo.enviar_codigo_confirmacao_proposta = original
+
+    assert resposta.status_code == 502
+    assert any("PROP-42" in registro.message for registro in caplog.records)
 
 
 def test_confirmar_codigo_proposta_com_codigo_certo_finaliza_o_aceite() -> None:

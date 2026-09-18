@@ -114,7 +114,9 @@ def test_concluir_mfa_aplica_tenant_antes_de_consumir_codigo_recuperacao(
     )
     session = FakeSession(
         [
-            FakeResult(),  # aplicar_contexto_autenticacao (SET config)
+            # aplicar_contexto_autenticacao não chama session.execute aqui: a
+            # FakeSession não tem atributo "info", então a função retorna
+            # cedo (ver app/database.py::aplicar_contexto_autenticacao).
             FakeResult(scalar=tentativa),
             FakeResult(scalar=usuario),
         ]

@@ -229,6 +229,30 @@ def _csv_upload(conteudo: str) -> dict:
     return {"arquivo": ("prospects.csv", conteudo.encode("utf-8"), "text/csv")}
 
 
+def test_importar_prospects_rejeita_arquivo_infectado(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Achado da varredura ampla do sistema (18/09/2026): este endpoint
+    # aceitava CSV/XLSX sem nenhuma varredura antivírus, diferente dos
+    # demais pontos de upload do sistema (portal do cliente, central de
+    # atualizações).
+    from fastapi import HTTPException
+
+    import app.api.prospeccao as modulo_prospeccao
+
+    async def _rejeitar(_conteudo: bytes) -> None:
+        raise HTTPException(status_code=422, detail="Arquivo rejeitado: malware detectado.")
+
+    monkeypatch.setattr(modulo_prospeccao, "escanear_upload_ou_rejeitar", _rejeitar)
+    _sessao_admin()
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospects/importar",
+        files=_csv_upload("Razao Social;Email\nAlpha Ltda;alpha@example.com\n"),
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 422
+
+
 def test_importar_prospects_cria_ignora_duplicado_e_invalido() -> None:
     csv_conteudo = (
         "Razao Social;Email;Telefone\n"

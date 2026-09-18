@@ -13,6 +13,7 @@ from app.cli.consolidar_situacoes_marcas import consolidar_situacao
 from app.crm import obter_ou_criar_empresa, verificar_conflito_interesse
 from app.database import get_session
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
+from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import (
     EmpresaCRM,
     EventoAuditoria,
@@ -1239,6 +1240,10 @@ async def importar_carteira(
         raise HTTPException(400, "Arquivo vazio.")
     if len(conteudo) > TAMANHO_MAXIMO_IMPORTACAO:
         raise HTTPException(413, "Arquivo muito grande (máximo 5 MB).")
+    # Achado da varredura ampla do sistema (18/09/2026): este era um dos
+    # poucos endpoints de upload sem a varredura antivírus já usada em
+    # app/api/portal_cliente.py/app/api/atualizacoes.py.
+    await escanear_upload_ou_rejeitar(conteudo)
     registros = ler_planilha(conteudo, arquivo.filename or "")
     if not registros:
         raise HTTPException(

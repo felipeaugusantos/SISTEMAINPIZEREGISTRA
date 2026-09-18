@@ -1,11 +1,19 @@
 import io
 
+import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
+import app.api.carteira as modulo_carteira
 from app.api.carteira import COLUNAS_EMPRESA, COLUNAS_NUMERO, COLUNAS_OBS, _numero_processo
+from app.auth import hash_token, obter_usuario_atual
+from app.database import get_session
 from app.importacao_planilha import chave_coluna as _chave_coluna
 from app.importacao_planilha import ler_planilha as _ler_planilha
 from app.importacao_planilha import valor_coluna as _valor
+from app.main import app
+from tests.conftest import FakeSession, auth_override, usuario_teste
 
 
 def test_numero_processo_tolera_cabecalhos_variados() -> None:
@@ -65,3 +73,32 @@ def test_planilha_so_com_cabecalho_retorna_vazio() -> None:
 def test_valor_ignora_colunas_desconhecidas() -> None:
     registro = {"numero": "900", "coluna_estranha": "lixo"}
     assert _valor(registro, COLUNAS_EMPRESA) is None
+
+
+def test_importar_carteira_rejeita_arquivo_infectado(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Achado da varredura ampla do sistema (18/09/2026): este endpoint
+    # aceitava CSV/XLSX sem nenhuma varredura antivírus, diferente dos
+    # demais pontos de upload do sistema (portal do cliente, central de
+    # atualizações).
+    async def _rejeitar(_conteudo: bytes) -> None:
+        raise HTTPException(status_code=422, detail="Arquivo rejeitado: malware detectado.")
+
+    monkeypatch.setattr(modulo_carteira, "escanear_upload_ou_rejeitar", _rejeitar)
+
+    async def _sessao() -> FakeSession:
+        yield FakeSession()
+
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = _sessao
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/carteira/importar",
+            files={"arquivo": ("carteira.csv", b"numero;empresa\n900123456;X\n", "text/csv")},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resposta.status_code == 422

@@ -1356,15 +1356,32 @@ async function renderFunil(leadId) {
     return `<li class="lfs ${cls}"><span class="lfs-dot">${marcador}</span><span class="lfs-label">${escapeHtml(FASE_LABELS[f] || f)}</span><span class="lfs-date">${escapeHtml(quando)}</span></li>`;
   }).join("");
   const controle = state.canManage
-    ? `<div class="lead-funil-move"><label><span>Mover para</span><select id="lead-fase-select">${ordem.map(f => `<option value="${f}" ${f === data.fase ? "selected" : ""}>${escapeHtml(FASE_LABELS[f] || f)}</option>`).join("")}</select></label><button class="secondary-button" id="lead-fase-save" type="button">Salvar fase</button></div>`
+    ? `<div class="lead-funil-move"><label><span>Mover para</span><select id="lead-fase-select">${ordem.map(f => `<option value="${f}" ${f === data.fase ? "selected" : ""}>${escapeHtml(FASE_LABELS[f] || f)}</option>`).join("")}</select></label><button class="secondary-button" id="lead-fase-save" type="button">Salvar fase</button><span id="lead-fase-status" class="status-message" role="status"></span></div>`
     : "";
   box.innerHTML = `<header><p class="eyebrow">Funil de atendimento</p><h3>Fase do lead</h3></header><ol class="lead-funil-steps">${steps}</ol>${controle}`;
   const saveBtn = box.querySelector("#lead-fase-save");
+  const status = box.querySelector("#lead-fase-status");
   if (saveBtn) saveBtn.addEventListener("click", async () => {
     const fase = box.querySelector("#lead-fase-select").value;
     saveBtn.disabled = true;
-    const r = await fetch(`/v1/admin/leads/${leadId}/fase`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fase }) });
-    if (r.ok) await renderFunil(leadId); else { saveBtn.disabled = false; saveBtn.textContent = "Erro — tentar de novo"; }
+    if (status) { status.className = "status-message"; status.textContent = ""; }
+    try {
+      const r = await fetch(`/v1/admin/leads/${leadId}/fase`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fase }) });
+      // Achado da varredura ampla do sistema (18/09/2026): o botão só
+      // mostrava "Erro -- tentar de novo" genérico, sem o motivo real --
+      // quem tentava mover um lead pra "Ganho" sem contratação financeira
+      // vinculada (trava do PR #61) não fazia ideia do porquê estava travado.
+      if (!r.ok) {
+        const erro = await r.json().catch(() => ({}));
+        saveBtn.disabled = false;
+        if (status) { status.className = "status-message error"; status.textContent = erro.detail || "Não foi possível salvar a fase."; }
+        return;
+      }
+      await renderFunil(leadId);
+    } catch {
+      saveBtn.disabled = false;
+      if (status) { status.className = "status-message error"; status.textContent = "Não foi possível salvar a fase."; }
+    }
   });
 }
 

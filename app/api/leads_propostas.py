@@ -11,6 +11,7 @@ app.api.leads porque também são usados pelas rotas de documentos de lá.
 
 import hashlib
 import html
+import logging
 import secrets
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -54,6 +55,7 @@ from app.relatorios import gerar_pdf_proposta
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
 
+logger = logging.getLogger("ze_registra.leads_propostas")
 router = APIRouter(tags=["leads"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 LeadsViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
@@ -1116,6 +1118,11 @@ async def aceitar_proposta_publica(token: str, request: Request, session: Sessio
     try:
         await enviar_codigo_confirmacao_proposta(lead.email, lead.nome, codigo, proposta.numero)
     except Exception:
+        # Achado da varredura ampla do sistema (18/09/2026): falha de envio
+        # (SMTP fora do ar, etc.) não ficava registrada em lugar nenhum --
+        # o cliente via o aviso de erro, mas a equipe não tinha como saber
+        # que aconteceu sem o cliente reclamar.
+        logger.exception("Falha ao enviar código de confirmação da proposta %s", proposta.numero)
         return HTMLResponse(
             "<h1>Não foi possível enviar o código</h1><p>Tente novamente em instantes ou "
             "solicite ajuda ao atendimento.</p>",

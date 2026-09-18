@@ -8,6 +8,7 @@ from starlette.requests import Request
 
 from app.api.portal_cliente import (
     ClienteLogin,
+    RecuperacaoSolicitacao,
     assinar_proposta_portal,
     baixar_logo_cliente_admin,
     baixar_logo_cliente_portal,
@@ -27,6 +28,7 @@ from app.api.portal_cliente import (
     progresso_processo,
     remover_logo_cliente_admin,
     remover_material_marca_admin,
+    solicitar_recuperacao_portal,
     webhook_clicksign,
 )
 from app.models import (
@@ -799,3 +801,32 @@ def test_listar_processos_portal_inclui_progresso() -> None:
 
     assert resultado["processos"][0]["percentual"] == 80
     assert resultado["processos"][0]["etapa"] == "Deferido"
+
+
+# --- Achado da varredura ampla do sistema (18/09/2026): falha de envio do
+# e-mail de recuperação era engolida sem log nenhum -- a resposta ao cliente
+# continua indistinguível (não revela se a conta existe), mas agora a
+# falha fica visível para a equipe. ---
+
+
+def test_solicitar_recuperacao_loga_falha_de_envio_sem_mudar_resposta(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import app.api.portal_cliente as modulo_portal
+
+    cliente = _cliente()
+    session = FakeSession([FakeResult(scalar=cliente)])
+
+    async def falhar_envio(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("SMTP indisponível")
+
+    monkeypatch.setattr(modulo_portal, "enviar_recuperacao_portal", falhar_envio)
+
+    with caplog.at_level("ERROR", logger="ze_registra.portal_cliente"):
+        resultado = asyncio.run(
+            solicitar_recuperacao_portal(RecuperacaoSolicitacao(email="cliente@empresa.test"), _request(), session)
+        )
+
+    assert resultado == {"status": "ok", "mensagem": "Se a conta existir, a recuperação foi criada."}
+    assert any("recuperação" in registro.message for registro in caplog.records)
+    assert session.commits == 1

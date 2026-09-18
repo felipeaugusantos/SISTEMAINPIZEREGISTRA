@@ -487,8 +487,11 @@ async def solicitar_recuperacao_portal(dados: RecuperacaoSolicitacao, request: R
         try:
             await enviar_recuperacao_portal(cliente.email, cliente.nome, token)
         except Exception:
-            # Não revelar existência da conta nem transformar falha de SMTP em vazamento.
-            pass
+            # Não revelar existência da conta nem transformar falha de SMTP
+            # em vazamento -- mas a falha precisa ficar visível pra equipe
+            # (achado da varredura ampla do sistema, 18/09/2026: antes era
+            # engolida sem log nenhum, invisível em produção).
+            logger.exception("Falha ao enviar e-mail de recuperação do portal do cliente %s", cliente.id)
     return {"status": "ok", "mensagem": "Se a conta existir, a recuperação foi criada."}
 
 

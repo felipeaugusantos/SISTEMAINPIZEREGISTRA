@@ -889,6 +889,33 @@ def test_contato_fica_mascarado_sem_permissao_pii() -> None:
     assert resposta.telefone == "***8888"
 
 
+def test_lead_response_expoe_logo_cliente_url_so_quando_ha_asset() -> None:
+    # Item 4/5 do pedido de melhorias do cliente final (17/09/2026): logo do
+    # cliente exibida dinamicamente na mão do personagem no portal -- a
+    # ficha do lead (usada pelo painel interno pra cadastrar essa logo)
+    # precisa saber se já existe uma logo, sem expor o caminho de armazenamento.
+    lead = Lead(
+        organizacao_id=1,
+        nome="Contato",
+        email="contato@empresa.com.br",
+        telefone="11999998888",
+        marca="ACME",
+        origem="relatorio",
+        status=StatusLead.NOVO,
+    )
+    lead.id = 11
+    lead.criado_em = datetime.now(UTC)
+    lead.atualizado_em = datetime.now(UTC)
+
+    sem_logo = _lead_response(lead, usuario_teste())
+    assert sem_logo.logo_cliente_url is None
+
+    lead.logo_cliente = {"sha256": "abc123", "localizacao": "data/logo-cliente/lead-11/x.png"}
+    com_logo = _lead_response(lead, usuario_teste())
+    assert com_logo.logo_cliente_url == "/v1/admin/leads/11/logo-cliente"
+    assert "localizacao" not in com_logo.logo_cliente_url
+
+
 def test_pesquisa_sobrevive_a_exclusao_do_contato() -> None:
     fk = next(iter(PesquisaMarca.__table__.c.lead_id.foreign_keys))
     assert PesquisaMarca.__table__.c.lead_id.nullable is True

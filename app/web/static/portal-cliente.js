@@ -38,6 +38,11 @@ function showApp(data) {
   $("#login").hidden = true;
   $("#app").hidden = false;
   $("#hello").textContent = `Olá, ${data.cliente.nome}`;
+  const mascoteLogo = $("#mascote-logo-cliente");
+  if (mascoteLogo) {
+    if (data.lead.logo_cliente_url) { mascoteLogo.src = data.lead.logo_cliente_url; mascoteLogo.hidden = false; }
+    else { mascoteLogo.hidden = true; mascoteLogo.removeAttribute("src"); }
+  }
   const rows = (items, fields) => items?.length ? `<div class="portal-table">${items.map((item) => `<div class="portal-row">${fields.map((field) => `<span><strong>${esc(field[0])}</strong> ${esc(item[field[1]])}</span>`).join("")}</div>`).join("")}</div>` : "<p>Nenhum registro.</p>";
   const acompanhamentoInpi = data.processos?.length
     ? data.processos.map(processoTimeline).join("")

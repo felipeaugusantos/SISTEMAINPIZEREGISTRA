@@ -938,6 +938,11 @@ class Lead(Base):
     motivo_perda: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     motivo_perda_detalhe: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Item 4/5 do pedido de melhorias do cliente final (17/09/2026): logo do
+    # próprio cliente exibida na mão do personagem no portal (mesmo formato
+    # de Organizacao.branding["logo_asset"], mas por lead -- cada cliente vê
+    # a própria logo, não a da organização/agência).
+    logo_cliente: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     arquivado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizado_em: Mapped[datetime] = mapped_column(

@@ -267,6 +267,7 @@ class LeadResponse(BaseModel):
     proxima_acao_em: datetime | None = None
     ultimo_contato_em: datetime | None = None
     tags: list[str] = Field(default_factory=list)
+    logo_cliente_url: str | None = None
     arquivado_em: datetime | None = None
     total_pesquisas: int = 0
     ultima_pesquisa: "PesquisaLeadResumo | None" = None

@@ -496,6 +496,8 @@ def _lead_response(
     dados.relatorios_completos_gerados = sum(item.relatorio_completo_gerado for item in pesquisas)
     dados.mensagens_portal_pendentes = mensagens_portal_pendentes
     dados.pesquisas = pesquisas
+    logo_asset = lead.logo_cliente or {}
+    dados.logo_cliente_url = f"/v1/admin/leads/{lead.id}/logo-cliente" if logo_asset.get("sha256") else None
     pesquisas_com_risco = [item for item in pesquisas if item.risco_nivel]
     if pesquisas_com_risco:
         ordem_risco = {

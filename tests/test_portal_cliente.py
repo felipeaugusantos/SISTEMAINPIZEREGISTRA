@@ -73,7 +73,7 @@ class _ArquivoFake:
         self.content_type = "image/png"
         self._conteudo = conteudo
 
-    async def read(self) -> bytes:
+    async def read(self, _tamanho: int | None = None) -> bytes:
         return self._conteudo
 
 

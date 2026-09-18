@@ -95,6 +95,7 @@ from app.models.observabilidade import ProcessoHeartbeat as ProcessoHeartbeat
 from app.models.observabilidade import VersaoSistema as VersaoSistema
 from app.models.portal_cliente import ArquivoClientePortal as ArquivoClientePortal
 from app.models.portal_cliente import ClientePortal as ClientePortal
+from app.models.portal_cliente import MaterialMarcaCliente as MaterialMarcaCliente
 from app.models.portal_cliente import MensagemClientePortal as MensagemClientePortal
 from app.models.portal_cliente import NotificacaoClientePortal as NotificacaoClientePortal
 from app.models.portal_cliente import RecuperacaoClientePortal as RecuperacaoClientePortal

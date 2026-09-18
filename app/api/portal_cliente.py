@@ -11,6 +11,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     Header,
     HTTPException,
     Request,
@@ -42,6 +43,7 @@ from app.models import (
     HistoricoFaseLead,
     LancamentoFinanceiro,
     Lead,
+    MaterialMarcaCliente,
     MensagemClientePortal,
     NotificacaoClientePortal,
     ParcelaFinanceira,
@@ -56,7 +58,7 @@ from app.models import (
 from app.proxy import cliente_ip, requisicao_https
 from app.ratelimit import RateLimiter
 from app.settings import get_settings
-from app.storage import StorageError, read_bytes, save_bytes
+from app.storage import StorageError, delete_object, read_bytes, save_bytes
 from app.tenancy import aplicar_contexto_tenant
 
 logger = logging.getLogger("ze_registra.portal_cliente")
@@ -898,6 +900,164 @@ async def baixar_arquivo_portal_admin(
     return FileResponse(caminho, media_type=item.content_type or "application/octet-stream", filename=item.nome)
 
 
+# Item 2 do pedido de melhorias do cliente final (17/09/2026): área de
+# Identidade Visual por cliente. Escopo definido com o usuário: só a equipe
+# interna cadastra materiais (logo, manual de marca, artes prontas); o
+# cliente só visualiza e baixa no portal -- mesmo padrão de permissão e
+# armazenamento de ArquivoClientePortal acima, mas com o fluxo de upload
+# invertido (aqui é o operador que envia, o cliente que baixa).
+def _checar_acesso_lead_operador(lead: Lead | None, usuario: object) -> None:
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    if lead.responsavel_id != usuario.id and usuario.perfil != "administrador" and not usuario.superadmin:
+        raise HTTPException(
+            status_code=403,
+            detail="Somente o responsável pelo atendimento pode gerenciar estes materiais",
+        )
+
+
+@router.get("/v1/admin/leads/{lead_id}/materiais-marca")
+async def listar_materiais_marca_admin(lead_id: int, session: SessionDep, usuario: ClientViewDep) -> dict:
+    lead = (
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    _checar_acesso_lead_operador(lead, usuario)
+    itens = (
+        (
+            await session.execute(
+                select(MaterialMarcaCliente)
+                .where(
+                    MaterialMarcaCliente.lead_id == lead_id,
+                    MaterialMarcaCliente.organizacao_id == usuario.organizacao_id,
+                )
+                .order_by(MaterialMarcaCliente.criado_em.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "materiais": [
+            {
+                "id": item.id,
+                "nome": item.nome,
+                "descricao": item.descricao,
+                "content_type": item.content_type,
+                "tamanho": item.tamanho,
+                "criado_em": item.criado_em,
+            }
+            for item in itens
+        ]
+    }
+
+
+@router.post("/v1/admin/leads/{lead_id}/materiais-marca", status_code=status.HTTP_201_CREATED)
+async def enviar_material_marca_admin(
+    lead_id: int,
+    request: Request,
+    session: SessionDep,
+    usuario: ClientManageDep,
+    arquivo: UploadFile = File(...),
+    descricao: str | None = Form(None),
+) -> dict:
+    lead = (
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    _checar_acesso_lead_operador(lead, usuario)
+    if arquivo.size and arquivo.size > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
+    nome = f"{secrets.token_hex(12)}-{Path(arquivo.filename or 'arquivo').name}"
+    conteudo = await arquivo.read()
+    if len(conteudo) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
+    await escanear_upload_ou_rejeitar(conteudo)
+    try:
+        caminho = save_bytes(f"materiais-marca/{usuario.organizacao_id}/{lead_id}/{nome}", conteudo)
+    except StorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    item = MaterialMarcaCliente(
+        organizacao_id=usuario.organizacao_id,
+        lead_id=lead_id,
+        nome=arquivo.filename or nome,
+        descricao=(descricao or "").strip() or None,
+        caminho=caminho,
+        content_type=arquivo.content_type,
+        tamanho=len(conteudo),
+        arquivo_hash=hashlib.sha256(conteudo).hexdigest(),
+        enviado_por_id=usuario.id,
+    )
+    session.add(item)
+    _auditar_operador(session, usuario, request, "enviar_material_marca", f"lead:{lead_id}")
+    await session.commit()
+    return {"id": item.id, "nome": item.nome, "tamanho": item.tamanho}
+
+
+@router.get("/v1/admin/leads/{lead_id}/materiais-marca/{material_id}/download")
+async def baixar_material_marca_admin(
+    lead_id: int, material_id: int, request: Request, session: SessionDep, usuario: ClientViewDep
+) -> FileResponse:
+    lead = (
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    _checar_acesso_lead_operador(lead, usuario)
+    item = (
+        await session.execute(
+            select(MaterialMarcaCliente).where(
+                MaterialMarcaCliente.id == material_id,
+                MaterialMarcaCliente.lead_id == lead_id,
+                MaterialMarcaCliente.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Material não encontrado")
+    if item.caminho.startswith("s3://"):
+        try:
+            conteudo = read_bytes(item.caminho)
+        except (StorageError, OSError) as exc:
+            raise HTTPException(status_code=404, detail="Material não encontrado") from exc
+        _auditar_operador(session, usuario, request, "baixar_material_marca", f"material:{item.id}")
+        await session.commit()
+        return StreamingResponse(
+            iter([conteudo]),
+            media_type=item.content_type or "application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{item.nome}"'},
+        )
+    caminho = Path(item.caminho).resolve()
+    base = (Path("data") / "materiais-marca" / str(usuario.organizacao_id) / str(lead_id)).resolve()
+    if not caminho.is_file() or base not in caminho.parents:
+        raise HTTPException(status_code=404, detail="Material não encontrado")
+    _auditar_operador(session, usuario, request, "baixar_material_marca", f"material:{item.id}")
+    await session.commit()
+    return FileResponse(caminho, media_type=item.content_type or "application/octet-stream", filename=item.nome)
+
+
+@router.delete("/v1/admin/leads/{lead_id}/materiais-marca/{material_id}")
+async def remover_material_marca_admin(
+    lead_id: int, material_id: int, request: Request, session: SessionDep, usuario: ClientManageDep
+) -> dict:
+    lead = (
+        await session.execute(select(Lead).where(Lead.id == lead_id, Lead.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    _checar_acesso_lead_operador(lead, usuario)
+    item = (
+        await session.execute(
+            select(MaterialMarcaCliente).where(
+                MaterialMarcaCliente.id == material_id,
+                MaterialMarcaCliente.lead_id == lead_id,
+                MaterialMarcaCliente.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Material não encontrado")
+    delete_object(item.caminho)
+    await session.delete(item)
+    _auditar_operador(session, usuario, request, "remover_material_marca", f"material:{material_id}")
+    await session.commit()
+    return {"removido": True}
+
+
 @router.get("/v1/portal/resumo")
 async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDep) -> dict:
     lead = (
@@ -1465,6 +1625,75 @@ async def baixar_arquivo_portal(
     if not caminho.is_file() or base not in caminho.parents:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado")
     _auditar_cliente(session, cliente, request, "baixar_arquivo", f"arquivo:{item.id}")
+    await session.commit()
+    return FileResponse(caminho, media_type=item.content_type or "application/octet-stream", filename=item.nome)
+
+
+@router.get("/v1/portal/materiais-marca")
+async def listar_materiais_marca_portal(request: Request, cliente: ClientDep, session: SessionDep) -> dict:
+    itens = (
+        (
+            await session.execute(
+                select(MaterialMarcaCliente)
+                .where(
+                    MaterialMarcaCliente.lead_id == cliente.lead_id,
+                    MaterialMarcaCliente.organizacao_id == cliente.organizacao_id,
+                )
+                .order_by(MaterialMarcaCliente.criado_em.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    _auditar_cliente(session, cliente, request, "consultar_materiais_marca", "portal:materiais-marca")
+    await session.commit()
+    return {
+        "materiais": [
+            {
+                "id": item.id,
+                "nome": item.nome,
+                "descricao": item.descricao,
+                "content_type": item.content_type,
+                "tamanho": item.tamanho,
+                "criado_em": item.criado_em,
+            }
+            for item in itens
+        ]
+    }
+
+
+@router.get("/v1/portal/materiais-marca/{material_id}/download")
+async def baixar_material_marca_portal(
+    material_id: int, request: Request, cliente: ClientDep, session: SessionDep
+) -> FileResponse:
+    item = (
+        await session.execute(
+            select(MaterialMarcaCliente).where(
+                MaterialMarcaCliente.id == material_id,
+                MaterialMarcaCliente.lead_id == cliente.lead_id,
+                MaterialMarcaCliente.organizacao_id == cliente.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Material não encontrado")
+    if item.caminho.startswith("s3://"):
+        try:
+            conteudo = read_bytes(item.caminho)
+        except (StorageError, OSError) as exc:
+            raise HTTPException(status_code=404, detail="Material não encontrado") from exc
+        _auditar_cliente(session, cliente, request, "baixar_material_marca", f"material:{item.id}")
+        await session.commit()
+        return StreamingResponse(
+            iter([conteudo]),
+            media_type=item.content_type or "application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{item.nome}"'},
+        )
+    caminho = Path(item.caminho).resolve()
+    base = (Path("data") / "materiais-marca" / str(cliente.organizacao_id) / str(cliente.lead_id)).resolve()
+    if not caminho.is_file() or base not in caminho.parents:
+        raise HTTPException(status_code=404, detail="Material não encontrado")
+    _auditar_cliente(session, cliente, request, "baixar_material_marca", f"material:{item.id}")
     await session.commit()
     return FileResponse(caminho, media_type=item.content_type or "application/octet-stream", filename=item.nome)
 

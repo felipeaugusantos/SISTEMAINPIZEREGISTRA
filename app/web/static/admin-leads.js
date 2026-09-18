@@ -463,6 +463,56 @@ async function renderPortalArquivos(lead) {
   }
 }
 
+// Item 2 do pedido de melhorias do cliente final (17/09/2026): área de
+// Identidade Visual por cliente. Escopo definido com o usuário: só a
+// equipe interna cadastra materiais (logo, manual de marca, artes
+// prontas); o cliente só visualiza e baixa no portal
+// (app/api/portal_cliente.py::listar_materiais_marca_portal).
+async function renderMateriaisMarca(lead) {
+  if (!state.canManage) return;
+  const card = document.createElement("section");
+  card.className = "lead-portal-materiais lead-contact-log";
+  card.innerHTML = `<header><div><p class="eyebrow">IDENTIDADE VISUAL</p><h3>Materiais da marca (visíveis ao cliente)</h3></div><span data-material-marca-count>0 materiais</span></header><ol class="lead-contact-history" data-material-marca-list><li class="lead-contact-empty">Carregando materiais…</li></ol><form class="lead-material-marca-form"><input name="arquivo" type="file" required><input name="descricao" type="text" maxlength="300" placeholder="Descrição (opcional), ex.: Logo em PNG"><div><button class="primary-button" type="submit">Enviar material</button><span class="material-marca-status" role="status"></span></div></form>`;
+  const arquivosCard = dialogContent.querySelector(".lead-portal-arquivos");
+  if (arquivosCard) arquivosCard.after(card); else dialogContent.prepend(card);
+  const list = card.querySelector("[data-material-marca-list]");
+  const count = card.querySelector("[data-material-marca-count]");
+  const carregar = async () => {
+    try {
+      const response = await fetch(`/v1/admin/leads/${lead.id}/materiais-marca`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Não foi possível carregar os materiais.");
+      const materiais = data.materiais || [];
+      count.textContent = `${materiais.length} material${materiais.length === 1 ? "" : "is"}`;
+      list.innerHTML = materiais.length
+        ? materiais.map(item => `<li class="lead-contact-entry" data-material-marca-id="${item.id}"><div><strong>${escapeHtml(item.nome)}</strong>${item.descricao ? `<span> · ${escapeHtml(item.descricao)}</span>` : ""}<time>${formatDate(item.criado_em)}</time></div><p><a class="secondary-button" href="/v1/admin/leads/${lead.id}/materiais-marca/${item.id}/download" target="_blank" rel="noopener">Baixar</a> <button class="secondary-button" type="button" data-remove-material="${item.id}">Remover</button></p></li>`).join("")
+        : "<li class=\"lead-contact-empty\">Nenhum material cadastrado ainda.</li>";
+    } catch (error) { list.innerHTML = `<li class="lead-contact-empty error">${escapeHtml(error.message)}</li>`; }
+  };
+  card.querySelector(".lead-material-marca-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = event.currentTarget; const button = form.querySelector("button"); const status = form.querySelector(".material-marca-status");
+    button.disabled = true; status.textContent = "Enviando…";
+    try {
+      const response = await fetch(`/v1/admin/leads/${lead.id}/materiais-marca`, { method: "POST", body: new FormData(form) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Não foi possível enviar o material.");
+      form.reset(); status.textContent = "Material enviado."; await carregar();
+    } catch (error) { status.textContent = error.message; } finally { button.disabled = false; }
+  });
+  list.addEventListener("click", async event => {
+    const botao = event.target.closest("[data-remove-material]");
+    if (!botao) return;
+    if (!confirm("Remover este material? O cliente deixará de vê-lo no portal.")) return;
+    try {
+      const response = await fetch(`/v1/admin/leads/${lead.id}/materiais-marca/${botao.dataset.removeMaterial}`, { method: "DELETE" });
+      if (!response.ok) { const erro = await response.json().catch(() => ({})); throw new Error(erro.detail || "Não foi possível remover o material."); }
+      await carregar();
+    } catch (error) { alert(error.message); }
+  });
+  await carregar();
+}
+
 async function abrirRegistroAtendimento(leadId, pesquisaId) {
   let proximaAcao = "";
   const response = await fetch(`/v1/admin/leads/${leadId}`);
@@ -625,6 +675,7 @@ async function openLead(id, selectedResearchId = null) {
     }).catch(error => { const mensagem = error.status === 403 ? "Sem permissão ou este lead não está sob sua responsabilidade." : error.status === 401 ? "Sua sessão expirou. Atualize a página e entre novamente." : (error.message || "Não foi possível verificar o acesso."); portalCard.innerHTML = `<strong>Portal do cliente</strong><p>${mensagem}</p>`; });
     renderPortalMessages(lead);
     renderPortalArquivos(lead);
+    renderMateriaisMarca(lead);
   }
   // Item 30 da auditoria completa do CRM (06/09/2026): score calculado sob
   // demanda (endpoint dedicado, não vem no payload do lead) -- busca à

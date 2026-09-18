@@ -1168,6 +1168,10 @@ table.lead-docs select {
 .lead-portal-reply-form textarea { width:100%; box-sizing:border-box; min-height:72px; padding:10px 12px; border:1px solid var(--line); border-radius:9px; resize:vertical; font:inherit; }
 .lead-portal-reply-form > div { display:flex; align-items:center; gap:10px; }
 .portal-reply-status { color:var(--muted); font-size:.82rem; }
+.lead-material-marca-form { display:grid; gap:8px; margin-top:12px; }
+.lead-material-marca-form input[type="text"] { width:100%; box-sizing:border-box; min-height:36px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+.lead-material-marca-form > div { display:flex; align-items:center; gap:10px; }
+.material-marca-status { color:var(--muted); font-size:.82rem; }
 
 @media (min-width: 761px) {
   .admin-body .leads-table-shell { overflow-x: visible; }

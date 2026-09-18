@@ -287,6 +287,34 @@ def test_portal_cliente_confirma_envio_de_documento_e_lista_arquivos() -> None:
     assert script.count('status.className = "status-message error"') >= 2
 
 
+def test_portal_cliente_exibe_materiais_de_identidade_visual() -> None:
+    # Item 2 do pedido de melhorias do cliente final (17/09/2026): área de
+    # Identidade Visual por cliente. Escopo definido com o usuário: só a
+    # equipe interna cadastra materiais; o cliente só visualiza e baixa no
+    # portal (sem formulário de envio nesta tela).
+    page = (web_dir / "portal-cliente.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "portal-cliente.js").read_text(encoding="utf-8")
+
+    assert 'id="brand-materials"' in page
+    assert "Materiais da marca" in page
+    assert 'api("/v1/portal/materiais-marca")' in script
+    assert "async function carregarMateriaisMarca" in script
+    assert "await carregarMateriaisMarca();" in script
+
+
+def test_admin_cadastra_materiais_de_identidade_visual_para_o_cliente() -> None:
+    # Mesmo item acima, lado administrativo: a equipe cadastra os materiais
+    # na ficha do lead (upload + descrição opcional + lista com remoção).
+    page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    assert "admin-leads.js?v=" in page
+    assert "async function renderMateriaisMarca" in script
+    assert 'fetch(`/v1/admin/leads/${lead.id}/materiais-marca`' in script
+    assert "renderMateriaisMarca(lead);" in script
+    assert "data-remove-material" in script
+
+
 def test_admin_visualiza_arquivos_enviados_pelo_cliente_no_portal() -> None:
     # Achado da validação do Portal do Cliente (17/09/2026): documentos
     # enviados pelo cliente (ArquivoClientePortal) não tinham NENHUMA tela

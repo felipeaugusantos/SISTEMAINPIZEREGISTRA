@@ -49,6 +49,21 @@ function formatarTamanho(bytes) {
   const kb = bytes / 1024;
   return kb < 1024 ? `${kb.toFixed(0)} KB` : `${(kb / 1024).toFixed(1)} MB`;
 }
+// Item 2 do pedido de melhorias do cliente final (17/09/2026): área de
+// Identidade Visual por cliente. Só a equipe interna cadastra os materiais
+// (app/api/portal_cliente.py::enviar_material_marca_admin) -- aqui o cliente
+// só lista e baixa, sem formulário de envio (mesmo padrão de #sent-files,
+// mas sem #file-form).
+async function carregarMateriaisMarca() {
+  const box = $("#brand-materials");
+  if (!box) return;
+  try {
+    const dados = await api("/v1/portal/materiais-marca");
+    box.innerHTML = dados.materiais?.length
+      ? dados.materiais.map((item) => `<div class="portal-row"><span><strong>${esc(item.nome)}</strong>${item.descricao ? ` · ${esc(item.descricao)}` : ""} · ${formatarTamanho(item.tamanho)}</span><a class="secondary-button" href="/v1/portal/materiais-marca/${item.id}/download" target="_blank" rel="noopener">Baixar</a></div>`).join("")
+      : "<p>Nenhum material disponível ainda.</p>";
+  } catch { box.innerHTML = "<p>Não foi possível carregar os materiais da marca.</p>"; }
+}
 async function carregarArquivosEnviados() {
   const box = $("#sent-files");
   if (!box) return;
@@ -66,6 +81,7 @@ async function carregar() {
     const mensagens = await api("/v1/portal/mensagens");
     $("#messages").innerHTML = mensagens.mensagens.map((item) => `<p><small>${new Date(item.criado_em).toLocaleString("pt-BR")}</small><br>${esc(item.mensagem)}</p>`).join("") || "<p>Nenhuma mensagem.</p>";
     await carregarArquivosEnviados();
+    await carregarMateriaisMarca();
   } catch { $("#login").hidden = false; }
 }
 $("#login-form").addEventListener("submit", async (event) => { event.preventDefault(); try { await api("/v1/portal/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.fromEntries(new FormData(event.target))) }); await carregar(); } catch (error) { $("#login-error").textContent = error.message; } });

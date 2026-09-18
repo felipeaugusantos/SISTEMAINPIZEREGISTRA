@@ -9,13 +9,19 @@ from starlette.requests import Request
 from app.api.portal_cliente import (
     ClienteLogin,
     assinar_proposta_portal,
+    baixar_material_marca_admin,
+    baixar_material_marca_portal,
+    enviar_material_marca_admin,
     listar_arquivos_portal_admin,
+    listar_materiais_marca_admin,
+    listar_materiais_marca_portal,
     listar_prazos_portal,
     listar_processos_portal,
     login_cliente,
     logout_cliente,
     montar_jornada_registro,
     progresso_processo,
+    remover_material_marca_admin,
     webhook_clicksign,
 )
 from app.models import (
@@ -24,6 +30,7 @@ from app.models import (
     ClientePortal,
     HistoricoFaseLead,
     Lead,
+    MaterialMarcaCliente,
     PrazoJuridico,
     Processo,
     ProcessoMonitorado,
@@ -48,6 +55,25 @@ def _request() -> Request:
 
 def _cliente() -> ClientePortal:
     return ClientePortal(id=1, organizacao_id=1, lead_id=9, email="cliente@empresa.test", ativo=True)
+
+
+class _ArquivoFake:
+    """Dublê mínimo de UploadFile para testes de upload -- só o que os
+    endpoints de material de marca realmente leem (size/filename/content_type
+    e read() assíncrono)."""
+
+    def __init__(self, conteudo: bytes = b"conteudo-fake", filename: str = "logo.png") -> None:
+        self.size = len(conteudo)
+        self.filename = filename
+        self.content_type = "image/png"
+        self._conteudo = conteudo
+
+    async def read(self) -> bytes:
+        return self._conteudo
+
+
+def _arquivo_fake() -> _ArquivoFake:
+    return _ArquivoFake()
 
 
 # --- Achado 5.4 da auditoria (02/09/2026): portal do cliente sem conexão com prazos (Fase 9) ---
@@ -389,6 +415,168 @@ def test_listar_arquivos_portal_admin_lead_inexistente_retorna_404() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(listar_arquivos_portal_admin(999, session, usuario))
+    assert exc_info.value.status_code == 404
+
+
+# --- Item 2 do pedido de melhorias do cliente final (17/09/2026): área de
+# Identidade Visual por cliente. Escopo definido com o usuário: só a equipe
+# interna cadastra materiais (logo, manual de marca, artes prontas); o
+# cliente só visualiza e baixa no portal. ---
+
+
+def test_listar_materiais_marca_admin_nega_para_quem_nao_e_responsavel() -> None:
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=99)
+    usuario = usuario_teste(perfil="comercial")
+    session = FakeSession([FakeResult(scalar=lead)])
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(listar_materiais_marca_admin(9, session, usuario))
+    assert exc_info.value.status_code == 403
+
+
+def test_listar_materiais_marca_admin_lista_para_o_responsavel() -> None:
+    usuario = usuario_teste(perfil="comercial")
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=usuario.id)
+    material = MaterialMarcaCliente(
+        id=3,
+        organizacao_id=1,
+        lead_id=9,
+        nome="manual-de-marca.pdf",
+        descricao="Manual de identidade visual",
+        caminho="data/materiais-marca/1/9/abc-manual-de-marca.pdf",
+        content_type="application/pdf",
+        tamanho=2048,
+        arquivo_hash="hash456",
+    )
+    session = FakeSession([FakeResult(scalar=lead), FakeResult(itens=[material])])
+
+    resultado = asyncio.run(listar_materiais_marca_admin(9, session, usuario))
+
+    assert resultado["materiais"] == [
+        {
+            "id": 3,
+            "nome": "manual-de-marca.pdf",
+            "descricao": "Manual de identidade visual",
+            "content_type": "application/pdf",
+            "tamanho": 2048,
+            "criado_em": None,
+        }
+    ]
+
+
+def test_listar_materiais_marca_admin_lead_inexistente_retorna_404() -> None:
+    usuario = usuario_teste()
+    session = FakeSession([FakeResult(scalar=None)])
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(listar_materiais_marca_admin(999, session, usuario))
+    assert exc_info.value.status_code == 404
+
+
+def test_enviar_material_marca_admin_nega_para_quem_nao_e_responsavel() -> None:
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=99)
+    usuario = usuario_teste(perfil="comercial")
+    session = FakeSession([FakeResult(scalar=lead)])
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            enviar_material_marca_admin(9, _request(), session, usuario, arquivo=_arquivo_fake(), descricao=None)
+        )
+    assert exc_info.value.status_code == 403
+
+
+def test_enviar_material_marca_admin_salva_e_audita(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.api.portal_cliente as modulo_portal
+
+    usuario = usuario_teste(perfil="comercial")
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=usuario.id)
+    session = FakeSession([FakeResult(scalar=lead)])
+
+    async def escanear_ok(_conteudo: bytes) -> None:
+        return None
+
+    monkeypatch.setattr(modulo_portal, "escanear_upload_ou_rejeitar", escanear_ok)
+    monkeypatch.setattr(modulo_portal, "save_bytes", lambda chave, _conteudo: f"data/{chave}")
+
+    resultado = asyncio.run(
+        enviar_material_marca_admin(
+            9, _request(), session, usuario, arquivo=_arquivo_fake(), descricao="  Logo em PNG  "
+        )
+    )
+
+    assert resultado["nome"] == "logo.png"
+    item = session.adicionados[0]
+    assert isinstance(item, MaterialMarcaCliente)
+    assert item.organizacao_id == 1 and item.lead_id == 9
+    assert item.descricao == "Logo em PNG"
+    assert item.enviado_por_id == usuario.id
+    assert session.commits == 1
+
+
+def test_baixar_material_marca_admin_material_inexistente_retorna_404() -> None:
+    usuario = usuario_teste(perfil="comercial")
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=usuario.id)
+    session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=None)])
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(baixar_material_marca_admin(9, 3, _request(), session, usuario))
+    assert exc_info.value.status_code == 404
+
+
+def test_remover_material_marca_admin_remove_e_audita(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.api.portal_cliente as modulo_portal
+
+    usuario = usuario_teste(perfil="comercial")
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=usuario.id)
+    material = MaterialMarcaCliente(id=3, organizacao_id=1, lead_id=9, nome="logo.png", caminho="data/x")
+    session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=material)])
+    caminhos_apagados: list[str] = []
+    monkeypatch.setattr(modulo_portal, "delete_object", caminhos_apagados.append)
+
+    resultado = asyncio.run(remover_material_marca_admin(9, 3, _request(), session, usuario))
+
+    assert resultado == {"removido": True}
+    assert session.deletados == [material]
+    assert session.commits == 1
+    assert caminhos_apagados == ["data/x"]
+
+
+def test_remover_material_marca_admin_material_inexistente_retorna_404() -> None:
+    usuario = usuario_teste(perfil="comercial")
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=usuario.id)
+    session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=None)])
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(remover_material_marca_admin(9, 3, _request(), session, usuario))
+    assert exc_info.value.status_code == 404
+
+
+def test_listar_materiais_marca_portal_escopado_ao_cliente() -> None:
+    cliente = _cliente()
+    material = MaterialMarcaCliente(
+        id=3,
+        organizacao_id=1,
+        lead_id=9,
+        nome="manual-de-marca.pdf",
+        descricao=None,
+        caminho="x",
+        content_type="application/pdf",
+        tamanho=2048,
+    )
+    session = FakeSession([FakeResult(itens=[material])])
+
+    resultado = asyncio.run(listar_materiais_marca_portal(_request(), cliente, session))
+
+    assert resultado["materiais"][0]["nome"] == "manual-de-marca.pdf"
+    assert session.commits == 1
+
+
+def test_baixar_material_marca_portal_material_inexistente_retorna_404() -> None:
+    cliente = _cliente()
+    session = FakeSession([FakeResult(scalar=None)])
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(baixar_material_marca_portal(3, _request(), cliente, session))
     assert exc_info.value.status_code == 404
 
 

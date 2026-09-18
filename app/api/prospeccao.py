@@ -24,6 +24,7 @@ from app.crm import registrar_consentimento_prospeccao_comercial
 from app.database import get_session
 from app.ia_sombra import enfileirar_qualificacao_ia_se_ativa
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
+from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import (
     CampanhaProspeccao,
     EmpresaCRM,
@@ -550,6 +551,10 @@ async def importar_prospects(
         raise HTTPException(400, "Arquivo vazio.")
     if len(conteudo) > TAMANHO_MAXIMO_IMPORTACAO:
         raise HTTPException(413, "Arquivo muito grande (máximo 5 MB).")
+    # Achado da varredura ampla do sistema (18/09/2026): este era um dos
+    # poucos endpoints de upload sem a varredura antivírus já usada em
+    # app/api/portal_cliente.py/app/api/atualizacoes.py.
+    await escanear_upload_ou_rejeitar(conteudo)
     registros = ler_planilha(conteudo, arquivo.filename or "")
     if not registros:
         raise HTTPException(400, "Planilha vazia ou sem cabeçalho reconhecível. Inclua uma coluna 'razaosocial'.")

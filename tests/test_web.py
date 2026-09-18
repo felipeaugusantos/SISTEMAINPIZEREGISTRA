@@ -423,6 +423,18 @@ def test_funil_do_lead_nao_marca_etapa_pulada_como_concluida() -> None:
     assert ".lfs.skipped .lfs-label" in styles
 
 
+def test_salvar_fase_do_lead_mostra_motivo_real_do_erro() -> None:
+    # Achado da varredura ampla do sistema (18/09/2026): o botão "Salvar
+    # fase" só mostrava "Erro — tentar de novo" genérico, sem o motivo real
+    # -- quem tentava mover um lead pra "Ganho" sem contratação financeira
+    # vinculada (trava do PR #61) não fazia ideia do porquê estava travado.
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    assert 'id="lead-fase-status"' in script
+    assert "erro.detail || \"Não foi possível salvar a fase.\"" in script
+    assert '"Erro — tentar de novo"' not in script
+
+
 def test_registrar_atendimento_nao_quebra_para_lead_sem_pesquisa() -> None:
     # Achado da auditoria de Leads/CRM (10/09/2026, Hipótese 8): o diálogo
     # dedicado "Registrar atendimento" exigia um <select required> só com

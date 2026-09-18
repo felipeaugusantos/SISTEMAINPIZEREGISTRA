@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
+from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import Organizacao
 
 router = APIRouter(prefix="/v1/admin/configuracao/propostas", tags=["configuração de propostas"])
@@ -61,6 +62,10 @@ async def importar_template_pdf(session: SessionDep, usuario: ManageDep, arquivo
     conteudo = await arquivo.read()
     if not conteudo.startswith(b"%PDF") or len(conteudo) > 15 * 1024 * 1024:
         raise HTTPException(422, "PDF inválido ou maior que 15 MB")
+    # Achado da varredura ampla do sistema (18/09/2026): este era um dos
+    # poucos endpoints de upload sem a varredura antivírus já usada em
+    # app/api/portal_cliente.py/app/api/atualizacoes.py.
+    await escanear_upload_ou_rejeitar(conteudo)
     digest = hashlib.sha256(conteudo).hexdigest()
     pasta = Path("data/proposta-templates")
     pasta.mkdir(parents=True, exist_ok=True)

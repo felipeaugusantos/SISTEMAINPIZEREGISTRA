@@ -824,7 +824,7 @@ def test_solicitar_recuperacao_loga_falha_de_envio_sem_mudar_resposta(
 
     with caplog.at_level("ERROR", logger="ze_registra.portal_cliente"):
         resultado = asyncio.run(
-            solicitar_recuperacao_portal(RecuperacaoSolicitacao(email="cliente@empresa.test"), _request(), session)
+            solicitar_recuperacao_portal(RecuperacaoSolicitacao(email="cliente@empresa.com.br"), _request(), session)
         )
 
     assert resultado == {"status": "ok", "mensagem": "Se a conta existir, a recuperação foi criada."}

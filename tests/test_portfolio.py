@@ -21,6 +21,7 @@ from app.api.carteira import (
     buscar_por_procurador,
     cadastrar_manual,
     exportar_carteira,
+    obter_status_sincronizacao_rpi,
 )
 from app.models import (
     EmpresaCRM,
@@ -28,6 +29,7 @@ from app.models import (
     HistoricoEtapaCarteira,
     Processo,
     ProcessoMonitorado,
+    RpiSyncEstado,
     TipoProcesso,
 )
 from tests.conftest import FakeResult, FakeSession, usuario_teste
@@ -227,7 +229,7 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
 
     assert "Pesquisar por procurador" in html
     assert "Cadastrar processo" in html
-    assert "admin-carteira.css?v=12" in html
+    assert "admin-carteira.css?v=13" in html
     assert "admin-carteira.js?v=" in html
     assert "Incluir variações do nome" in html
     assert "titular" in javascript
@@ -295,6 +297,23 @@ def test_tela_expoe_exportacao_da_carteira_em_csv() -> None:
     assert '/v1/admin/carteira/exportar.csv' in html
     assert '#export-csv' in javascript
     assert "exportParams" in javascript
+
+
+def test_tela_expoe_indicador_de_atraso_da_rpi() -> None:
+    # Achado do usuário (20/09/2026): "Atualizar" não busca nada novo no
+    # INPI, só reprocessa o que já foi importado -- sem indicador, o
+    # atendimento não sabia se a base estava desatualizada.
+    page = "app/web/admin-carteira.html"
+    script = "app/web/static/admin-carteira.js"
+    with open(page, encoding="utf-8") as arquivo:
+        html = arquivo.read()
+    with open(script, encoding="utf-8") as arquivo:
+        javascript = arquivo.read()
+
+    assert 'id="rpi-status"' in html
+    assert "function loadRpiStatus" in javascript
+    assert "/v1/admin/carteira/rpi-status" in javascript
+    assert "loadRpiStatus()" in javascript
 
 
 def test_agrupa_situacoes_oficiais_sem_misturar_fluxo_interno() -> None:
@@ -520,3 +539,42 @@ def test_exportar_carteira_escapa_formula_no_titulo() -> None:
 
     assert "'=cmd()" in conteudo
     assert "\n=cmd()" not in conteudo
+
+
+def test_status_sincronizacao_rpi_em_dia() -> None:
+    # Achado do usuário (20/09/2026): "Atualizar situação de todos" e
+    # "Atualizar status" só reprocessam despachos já importados -- não
+    # buscam nada novo no INPI. Sem indicador, o atendimento não sabia se a
+    # base estava desatualizada antes de clicar em "Atualizar".
+    estado = RpiSyncEstado(id=1, status="ocioso", ultima_rpi_oficial=2901)
+    session = FakeSession(objetos_get=[estado], resultados=[FakeResult(scalar=2901)])
+
+    resultado = asyncio.run(obter_status_sincronizacao_rpi(session, usuario_teste()))
+
+    assert resultado["ultima_rpi_local"] == 2901
+    assert resultado["ultima_rpi_oficial"] == 2901
+    assert resultado["edicoes_atraso"] == 0
+    assert resultado["em_dia"] is True
+
+
+def test_status_sincronizacao_rpi_atrasada() -> None:
+    estado = RpiSyncEstado(id=1, status="ocioso", ultima_rpi_oficial=2905)
+    session = FakeSession(objetos_get=[estado], resultados=[FakeResult(scalar=2901)])
+
+    resultado = asyncio.run(obter_status_sincronizacao_rpi(session, usuario_teste()))
+
+    assert resultado["ultima_rpi_local"] == 2901
+    assert resultado["ultima_rpi_oficial"] == 2905
+    assert resultado["edicoes_atraso"] == 4
+    assert resultado["em_dia"] is False
+
+
+def test_status_sincronizacao_rpi_sem_estado_nao_quebra() -> None:
+    session = FakeSession(objetos_get=[None], resultados=[FakeResult(scalar=None)])
+
+    resultado = asyncio.run(obter_status_sincronizacao_rpi(session, usuario_teste()))
+
+    assert resultado["ultima_rpi_local"] is None
+    assert resultado["ultima_rpi_oficial"] is None
+    assert resultado["edicoes_atraso"] == 0
+    assert resultado["em_dia"] is True

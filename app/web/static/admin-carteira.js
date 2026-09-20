@@ -46,6 +46,26 @@ async function loadReferences() {
   document.querySelector("#bulk-owner").insertAdjacentHTML("beforeend", options);
 }
 
+async function loadRpiStatus() {
+  // Achado do usuário (20/09/2026): "Atualizar situação de todos" e
+  // "Atualizar status" só reprocessam despachos já importados -- não
+  // buscam nada novo no INPI. Sem isso, o atendimento não tinha como saber
+  // se a base está desatualizada antes de clicar em "Atualizar".
+  const el = document.querySelector("#rpi-status");
+  let status;
+  try { status = await api("/v1/admin/carteira/rpi-status"); }
+  catch { return; }
+  if (status.ultima_rpi_local == null) return;
+  el.hidden = false;
+  if (status.em_dia) {
+    el.textContent = `Base sincronizada até a RPI ${status.ultima_rpi_local}.`;
+    el.className = "rpi-status-indicator is-em-dia";
+  } else {
+    el.textContent = `Base desatualizada: última RPI importada é a ${status.ultima_rpi_local}, já saiu a ${status.ultima_rpi_oficial} (${status.edicoes_atraso} edição(ões) de atraso). "Atualizar" reprocessa só o que já foi importado -- não busca isso sozinho.`;
+    el.className = "rpi-status-indicator is-atrasado";
+  }
+}
+
 function renderMetrics(summary) {
   const form = document.querySelector("#portfolio-filter");
   const currentStatus = form.elements.status.value;
@@ -466,4 +486,4 @@ document.querySelector("#attorney-name").addEventListener("input", event => {
   suggestionTimer = setTimeout(async () => { try { const names = await api(`/v1/admin/carteira/procuradores?busca=${encodeURIComponent(value)}`); document.querySelector("#attorney-suggestions").replaceChildren(...names.map(name => { const option = document.createElement("option"); option.value = name; return option; })); } catch {} }, 300);
 });
 
-Promise.all([loadReferences(), loadPortfolio(), loadPreCadastros()]).catch(error => showMessage(error.message, "error"));
+Promise.all([loadReferences(), loadPortfolio(), loadPreCadastros(), loadRpiStatus()]).catch(error => showMessage(error.message, "error"));

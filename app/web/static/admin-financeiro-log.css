@@ -6,7 +6,7 @@
 .finance-log-metrics article::after{content:"";position:absolute;right:0;bottom:0;width:64px;height:4px;background:#82958a}
 .finance-log-metrics article.success::after{background:#168258}.finance-log-metrics article.warning::after{background:#d59a32}.finance-log-metrics article.danger::after{background:#b94936}
 .finance-log-metrics span,.finance-log-metrics small{display:block;color:var(--muted);font-size:.7rem}.finance-log-metrics span{font-weight:850;text-transform:uppercase;letter-spacing:.06em}
-.finance-log-metrics strong{display:block;margin:7px 0 3px;color:var(--green);font:500 1.75rem Georgia,serif}
+.finance-log-metrics strong{display:block;margin:7px 0 3px;color:var(--forest);font:500 1.75rem Georgia,serif}
 .finance-log-panel{padding:20px}
 .finance-log-filter{display:grid;grid-template-columns:minmax(260px,1fr) 170px 160px 160px auto auto;gap:10px;align-items:end;padding-bottom:18px;border-bottom:1px solid var(--line)}
 .finance-log-filter label{display:grid;gap:6px}.finance-log-filter label span{font-size:.72rem;font-weight:800}.finance-log-filter input,.finance-log-filter select{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd4cd;border-radius:10px;background:#fff;font:inherit}

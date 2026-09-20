@@ -2328,7 +2328,7 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
 .rpi-current-heading { justify-content: space-between; }
 .rpi-current-heading span { display: block; color: var(--muted); font-size: 0.78rem; }
 .rpi-current-heading strong { display: block; margin-top: 4px; color: var(--ink); }
-.rpi-current-heading > b { color: var(--green); font-size: 1.2rem; }
+.rpi-current-heading > b { color: var(--forest); font-size: 1.2rem; }
 
 .rpi-progress {
   height: 9px;
@@ -2343,7 +2343,7 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
   width: 0;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--green), #df9c27);
+  background: linear-gradient(90deg, var(--forest), #df9c27);
   transition: width 300ms ease;
 }
 
@@ -2402,7 +2402,7 @@ table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; pa
 .rpi-history-table th { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; }
 .rpi-history-table td small { display: block; max-width: 220px; margin-top: 4px; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .rpi-history-table td:last-child { text-align: right; }
-.rpi-retry { border: 0; color: var(--green); background: transparent; font-weight: 800; cursor: pointer; }
+.rpi-retry { border: 0; color: var(--forest); background: transparent; font-weight: 800; cursor: pointer; }
 .rpi-retry:disabled { opacity: 0.5; cursor: wait; }
 
 @media (max-width: 920px) {

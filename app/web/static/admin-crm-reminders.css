@@ -15,7 +15,7 @@
 .crm-reminder.priority-alta{border-left-color:#c44732}.crm-reminder.priority-baixa{border-left-color:#3e876d}.crm-reminder.overdue{background:#fff8f5}
 .crm-reminder h3{margin:5px 0}.crm-reminder p,.crm-reminder small{display:block;margin:3px 0;color:var(--muted)}
 .crm-reminder-motivo{font-style:italic}
-.crm-reminder-type{font-size:.68rem;font-weight:900;text-transform:uppercase;color:var(--green)}
+.crm-reminder-type{font-size:.68rem;font-weight:900;text-transform:uppercase;color:var(--forest)}
 .crm-reminder-due{display:grid;gap:3px}.crm-reminder-due>span{color:#a33128;font-size:.68rem;font-weight:900;text-transform:uppercase}
 .crm-reminder-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px}.crm-reminder-actions button{padding:9px 12px}
 .crm-reminder-state,.crm-client-status{display:inline-flex;width:max-content;padding:4px 8px;border-radius:999px;background:#edf1ee;font-size:.66rem;font-weight:800;text-transform:capitalize}.crm-client-status{margin-left:6px}

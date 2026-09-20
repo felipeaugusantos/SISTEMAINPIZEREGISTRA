@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Processos monitorados — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=66">
-  <link rel="stylesheet" href="/static/admin-carteira.css?v=11">
+  <link rel="stylesheet" href="/static/admin-carteira.css?v=12">
   <script src="/static/admin-shell.js?v=50" defer></script>
-  <script src="/static/admin-carteira.js?v=18" defer></script>
+  <script src="/static/admin-carteira.js?v=19" defer></script>
 </head>
 <body class="admin-body" data-admin-section="portfolio">
   <main class="admin-main portfolio-main">
@@ -57,6 +57,13 @@
         <label><span>Situação no INPI</span><select name="situacao_inpi"><option value="">Todas</option><option value="em_tramitacao">Em tramitação</option><option value="exigencia">Exigência</option><option value="sobrestado">Sobrestado</option><option value="recurso">Recurso / 2ª instância</option><option value="deferido">Deferido</option><option value="registrado">Registro concedido</option><option value="indeferido">Indeferido</option><option value="encerrado">Arquivado / Extinto</option><option value="revisar">Revisar classificação</option></select></label>
         <button class="primary-button" type="submit">Filtrar</button>
       </form>
+      <div id="portfolio-bulk-assign" class="portfolio-link-bar">
+        <label><input id="portfolio-select-page" type="checkbox"> Selecionar todos nesta página</label>
+        <span id="portfolio-bulk-count">Nenhum selecionado</span>
+        <label><span>Empresa/cliente</span><input id="bulk-company" list="company-suggestions" placeholder="Não alterar"></label>
+        <label><span>Responsável</span><select id="bulk-owner"><option value="">Não alterar</option></select></label>
+        <button id="bulk-assign-apply" class="secondary-button" type="button" disabled>Atribuir aos selecionados</button>
+      </div>
       <div id="portfolio-list" class="portfolio-list"></div>
       <nav id="portfolio-pagination" class="portfolio-pagination" aria-label="Páginas da carteira" hidden><button id="portfolio-prev" class="secondary-button" type="button">Anterior</button><span id="portfolio-page-summary"></span><button id="portfolio-next" class="secondary-button" type="button">Próxima</button></nav>
       <div id="portfolio-kanban" class="portfolio-kanban" hidden></div>

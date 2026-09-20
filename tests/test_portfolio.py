@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.api.carteira import (
+    AtribuicaoLote,
     AtualizacaoLote,
     AtualizacaoMonitoramento,
     CadastroManual,
@@ -14,12 +15,14 @@ from app.api.carteira import (
     _procurador_exibicao,
     _titulo_exibicao,
     _validar_grupo_situacao_inpi,
+    atribuir_lote,
     atualizar_monitoramento,
     atualizar_status_lote,
     buscar_por_procurador,
     cadastrar_manual,
 )
 from app.models import (
+    EmpresaCRM,
     EventoAuditoria,
     HistoricoEtapaCarteira,
     Processo,
@@ -223,7 +226,7 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
 
     assert "Pesquisar por procurador" in html
     assert "Cadastrar processo" in html
-    assert "admin-carteira.css?v=11" in html
+    assert "admin-carteira.css?v=12" in html
     assert "admin-carteira.js?v=" in html
     assert "Incluir variações do nome" in html
     assert "titular" in javascript
@@ -253,6 +256,27 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
     assert "Em tramitação" in javascript
     assert "data-metric-filter" in javascript
     assert "function applyMetricFilter" in javascript
+
+
+def test_tela_expoe_atribuicao_em_lote_na_lista() -> None:
+    # Achado do usuário (20/09/2026): atribuir empresa/responsável a
+    # processos já monitorados só existia um por um -- checkbox de seleção
+    # por card + barra de atribuição em lote na view "Lista".
+    page = "app/web/admin-carteira.html"
+    script = "app/web/static/admin-carteira.js"
+    with open(page, encoding="utf-8") as arquivo:
+        html = arquivo.read()
+    with open(script, encoding="utf-8") as arquivo:
+        javascript = arquivo.read()
+
+    assert 'id="portfolio-bulk-assign"' in html
+    assert 'id="portfolio-select-page"' in html
+    assert 'id="bulk-company"' in html
+    assert 'id="bulk-owner"' in html
+    assert 'id="bulk-assign-apply"' in html
+    assert "data-select-id" in javascript
+    assert "/v1/admin/carteira/atribuir-lote" in javascript
+    assert "function updateBulkBar" in javascript
 
 
 def test_agrupa_situacoes_oficiais_sem_misturar_fluxo_interno() -> None:
@@ -361,6 +385,66 @@ def test_atualizar_lote_sem_processos_devolve_404() -> None:
 
     with pytest.raises(HTTPException) as erro:
         asyncio.run(atualizar_status_lote(AtualizacaoLote(), _request(), session, usuario_teste()))
+
+    assert erro.value.status_code == 404
+    assert session.commits == 0
+
+
+def test_atribuir_lote_aplica_empresa_e_responsavel_aos_selecionados() -> None:
+    # Achado do usuário (20/09/2026): atribuir empresa/responsável a
+    # processos já monitorados só existia um por um (PATCH /{id}) --
+    # inviável para dezenas de processos "Não atribuído"/"Sem empresa
+    # vinculada" numa carteira grande.
+    m1 = ProcessoMonitorado(id=1, organizacao_id=1, processo_id=10, status="ativo", vinculado_por="teste")
+    m2 = ProcessoMonitorado(id=2, organizacao_id=1, processo_id=11, status="ativo", vinculado_por="teste")
+    empresa = EmpresaCRM(id=7, organizacao_id=1, nome="Padaria do Zé", nome_normalizado="padaria do ze")
+    session = FakeSession(
+        [
+            FakeResult(itens=[m1, m2]),
+            FakeResult(scalar=empresa),
+            FakeResult(scalar=9),
+        ]
+    )
+
+    resultado = asyncio.run(
+        atribuir_lote(
+            AtribuicaoLote(monitorado_ids=[1, 2], empresa_id=7, responsavel_id=9),
+            _request(),
+            session,
+            usuario_teste(),
+        )
+    )
+
+    assert resultado == {"status": "ok", "atribuidos": 2}
+    assert m1.empresa_id == 7 and m1.responsavel_id == 9
+    assert m2.empresa_id == 7 and m2.responsavel_id == 9
+    assert session.commits == 1
+    evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
+    assert evento.detalhes == {"processos": [1, 2], "empresa_id": 7, "responsavel_id": 9}
+
+
+def test_atribuir_lote_sem_nenhum_campo_devolve_400() -> None:
+    session = FakeSession([])
+
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(atribuir_lote(AtribuicaoLote(monitorado_ids=[1]), _request(), session, usuario_teste()))
+
+    assert erro.value.status_code == 400
+    assert session.commits == 0
+
+
+def test_atribuir_lote_sem_processos_encontrados_devolve_404() -> None:
+    session = FakeSession([FakeResult(itens=[])])
+
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(
+            atribuir_lote(
+                AtribuicaoLote(monitorado_ids=[999], responsavel_id=9),
+                _request(),
+                session,
+                usuario_teste(),
+            )
+        )
 
     assert erro.value.status_code == 404
     assert session.commits == 0

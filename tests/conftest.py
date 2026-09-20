@@ -91,6 +91,16 @@ class FakeSession:
             return self._resultados.pop(0)
         return FakeResult()
 
+    async def scalar(self, statement: Any = None, *_args: Any, **_kwargs: Any) -> Any:
+        # Mesma fila de resultados de execute() -- código que faz
+        # `await session.scalar(select(...))` em vez de
+        # `(await session.execute(...)).scalar_one_or_none()` consome a
+        # próxima FakeResult enfileirada do mesmo jeito.
+        self.executados.append(statement)
+        if self._resultados:
+            return self._resultados.pop(0).scalar_one_or_none()
+        return None
+
     def add(self, obj: Any) -> None:
         self.adicionados.append(obj)
 

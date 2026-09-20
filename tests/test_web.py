@@ -213,6 +213,38 @@ def test_aba_ativa_do_lead_tem_contraste_legivel() -> None:
     assert ".lead-tab.active {\n  color: #fff;\n  background: var(--forest);\n}" in styles
 
 
+def test_resumo_de_contato_do_lead_nao_esprime_colunas_no_desktop() -> None:
+    # Achado do usuário (20/09/2026): com `repeat(5, minmax(0, 1fr))` fixo,
+    # qualquer largura de desktop entre 980px e o max-width do diálogo
+    # (920px) espremia cada coluna do resumo de contato a ~159px -- estreito
+    # demais pro botão "WhatsApp" (quebrava em duas linhas, "WhatsA"/"pp")
+    # e pro rótulo "Prioridade (IA)" (cortava com reticências).
+    styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
+    assert "repeat(5, minmax(0, 1fr))" not in styles
+    assert "grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));" in styles
+
+
+def test_icones_do_resumo_de_contato_usam_data_icon_nao_posicao() -> None:
+    # Achado do usuário (20/09/2026): o mapeamento de ícones por nth-child
+    # ficou desatualizado quando o campo "Site" (oculto) foi inserido entre
+    # Telefone e CPF/CNPJ -- CPF/CNPJ passou a herdar o ícone errado ("OK")
+    # e Empresa ficou sem ícone nenhum. Atributos data-icon são imunes a
+    # mudanças de posição/visibilidade dos campos.
+    styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    assert "nth-child(1)::before" not in styles
+    assert 'div[data-icon="email"]::before { content: "@"' in styles
+    assert 'div[data-icon="telefone"]::before { content: "TEL"' in styles
+    assert 'div[data-icon="documento"]::before { content: "PJ"' in styles
+    assert 'div[data-icon="empresa"]::before { content: "OK"' in styles
+
+    assert '<div data-icon="email"><span>E-mail</span>' in script
+    assert '<div data-icon="telefone"><span>Telefone</span>' in script
+    assert '<div data-icon="documento"><span>CPF/CNPJ</span>' in script
+    assert '<div data-icon="empresa"><span>Empresa</span>' in script
+
+
 def test_painel_do_lead_usa_abas() -> None:
     # Achado 05/09/2026: pedido do usuario para trocar a lista longa e
     # empilhada por abas -- Atendimento Comercial, Empresa, Funil do Lead,

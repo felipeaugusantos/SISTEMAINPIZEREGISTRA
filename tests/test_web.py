@@ -245,6 +245,20 @@ def test_icones_do_resumo_de_contato_usam_data_icon_nao_posicao() -> None:
     assert '<div data-icon="empresa"><span>Empresa</span>' in script
 
 
+def test_ficha_do_lead_tem_atalhos_de_busca_para_a_empresa() -> None:
+    # Pedido do usuário (20/09/2026): ajudar o atendimento a achar site e
+    # Instagram do cliente. Sem API paga de enriquecimento contratada, a
+    # saída sem custo é um atalho de busca pronto (Google e Google
+    # restrito a instagram.com) com o nome da empresa já preenchido --
+    # poupa o atendente de abrir uma aba nova e digitar o nome à mão.
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    assert "https://www.google.com/search?q=${encodeURIComponent(lead.empresa)}" in script
+    assert "site:instagram.com" in script
+    assert ">Buscar no Google</a>" in script
+    assert ">Buscar no Instagram</a>" in script
+
+
 def test_painel_do_lead_usa_abas() -> None:
     # Achado 05/09/2026: pedido do usuario para trocar a lista longa e
     # empilhada por abas -- Atendimento Comercial, Empresa, Funil do Lead,

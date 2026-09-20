@@ -243,6 +243,19 @@ class AtualizacaoLote(BaseModel):
     monitorado_ids: list[int] | None = Field(default=None, max_length=5000)
 
 
+class AtribuicaoLote(BaseModel):
+    # Diferente de AtualizacaoLote: aqui monitorado_ids é obrigatório -- não
+    # existe um "atribuir empresa/responsável a toda a carteira" implícito,
+    # sempre precisa vir de uma seleção explícita na tela (achado do usuário,
+    # 20/09/2026: só existia atribuição processo por processo via PATCH
+    # /{id}, inviável quando dezenas de processos ficam "Não atribuído"/"Sem
+    # empresa vinculada" numa carteira grande).
+    monitorado_ids: list[int] = Field(min_length=1, max_length=5000)
+    empresa_id: int | None = Field(default=None, ge=1)
+    empresa_nome: str | None = Field(default=None, min_length=2, max_length=200)
+    responsavel_id: int | None = Field(default=None, ge=1)
+
+
 async def _empresa(
     session: AsyncSession,
     usuario: UsuarioAutenticado,
@@ -1654,6 +1667,60 @@ async def atualizar_status_lote(
     )
     await session.commit()
     return {"status": "ok", "verificados": len(monitorados), "alterados": alterados}
+
+
+@router.post("/atribuir-lote")
+async def atribuir_lote(
+    dados: AtribuicaoLote,
+    request: Request,
+    session: SessionDep,
+    usuario: ManageDep,
+) -> dict:
+    """Atribui empresa e/ou responsável a vários processos já monitorados de
+    uma vez (achado do usuário, 20/09/2026: só existia via PATCH /{id},
+    processo por processo)."""
+    if dados.empresa_id is None and not dados.empresa_nome and dados.responsavel_id is None:
+        raise HTTPException(400, "Informe uma empresa e/ou um responsável para atribuir")
+
+    monitorados = (
+        await session.execute(
+            select(ProcessoMonitorado).where(
+                ProcessoMonitorado.organizacao_id == usuario.organizacao_id,
+                ProcessoMonitorado.id.in_(dados.monitorado_ids),
+            )
+        )
+    ).scalars().all()
+    if not monitorados:
+        raise HTTPException(404, "Nenhum processo monitorado encontrado para atribuir")
+
+    empresa = None
+    if dados.empresa_id is not None or dados.empresa_nome:
+        empresa = await _empresa(session, usuario, dados.empresa_id, dados.empresa_nome)
+    if dados.responsavel_id is not None:
+        await _validar_responsavel(session, usuario, dados.responsavel_id)
+
+    agora = datetime.now(UTC)
+    for monitorado in monitorados:
+        if empresa is not None:
+            monitorado.empresa_id = empresa.id
+        if dados.responsavel_id is not None:
+            monitorado.responsavel_id = dados.responsavel_id
+        monitorado.atualizado_em = agora
+
+    _auditar(
+        session,
+        request,
+        usuario,
+        "atribuir_lote_carteira",
+        "carteira:lote",
+        {
+            "processos": [monitorado.id for monitorado in monitorados],
+            "empresa_id": empresa.id if empresa else None,
+            "responsavel_id": dados.responsavel_id,
+        },
+    )
+    await session.commit()
+    return {"status": "ok", "atribuidos": len(monitorados)}
 
 
 @router.post("/{monitorado_id}/atualizar")

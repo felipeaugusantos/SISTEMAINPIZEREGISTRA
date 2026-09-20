@@ -1,4 +1,4 @@
-const state = { attorney: null, selected: new Set(), companies: [], owners: [], view: "list", offset: 0, pageSize: 20, draggedId: null };
+const state = { attorney: null, selected: new Set(), selectedPortfolio: new Set(), companies: [], owners: [], view: "list", offset: 0, pageSize: 20, draggedId: null };
 const KANBAN_STAGES = [
   ["triagem", "Novo / Triagem"], ["aguardando_documentos", "Aguardando documentos"],
   ["documentacao_gru", "Documentação e GRU"], ["protocolado", "Protocolado"],
@@ -43,6 +43,7 @@ async function loadReferences() {
   document.querySelector("#attorney-owner").insertAdjacentHTML("beforeend", options);
   document.querySelector("#manual-owner").insertAdjacentHTML("beforeend", options);
   document.querySelector("#import-owner").insertAdjacentHTML("beforeend", options);
+  document.querySelector("#bulk-owner").insertAdjacentHTML("beforeend", options);
 }
 
 function renderMetrics(summary) {
@@ -83,20 +84,34 @@ function inpiBadge(item) {
   const label = item.grupo_situacao_inpi_nome || "Revisar classificação";
   return `<span class="inpi-status-badge is-${escapeHtml(key)}">${escapeHtml(label)}</span>`;
 }
+function updateBulkBar() {
+  const count = state.selectedPortfolio.size;
+  const total = document.querySelectorAll("#portfolio-list [data-select-id]").length;
+  document.querySelector("#portfolio-bulk-count").textContent = count ? `${count} selecionado(s)` : "Nenhum selecionado";
+  document.querySelector("#bulk-assign-apply").disabled = count === 0;
+  document.querySelector("#portfolio-select-page").checked = total > 0 && count === total;
+}
 function renderPortfolio(data) {
   renderMetrics(data.resumo);
+  // Achado do usuário (20/09/2026): atribuir empresa/responsável a
+  // processos já monitorados só existia um por um (PATCH /{id}) -- muitos
+  // ficavam "Não atribuído"/"Sem empresa vinculada" numa carteira grande.
+  // Seleção reseta a cada carregamento da lista (filtro, página ou troca de
+  // view), então sempre corresponde só ao que está visível na tela.
+  state.selectedPortfolio = new Set();
   const target = document.querySelector("#portfolio-list");
-  if (!data.itens.length) { target.innerHTML = `<div class="portfolio-empty">Nenhum processo encontrado nesta carteira.</div>`; renderPagination(data); return; }
+  if (!data.itens.length) { target.innerHTML = `<div class="portfolio-empty">Nenhum processo encontrado nesta carteira.</div>`; renderPagination(data); updateBulkBar(); return; }
   target.innerHTML = data.itens.map(item => {
     const movement = item.ultima_movimentacao;
     return `<article class="portfolio-item" data-id="${item.id}">
-      <div class="portfolio-process"><a class="process-number" href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><h3>${escapeHtml(item.titulo_exibicao || item.titulo || "Título não informado pelo INPI")}</h3><p>${escapeHtml(item.empresa || "Sem empresa vinculada")} · ${escapeHtml(item.procurador || "Procurador não informado")}</p><small>Depósito: ${formatDate(item.data_deposito)} · origem: ${escapeHtml(item.origem)}</small>${item.lead_id ? `<small class="portfolio-lead-link">Lead de origem: ${escapeHtml(item.lead_marca || "#" + item.lead_id)}</small>` : ""}</div>
+      <div class="portfolio-process"><label class="portfolio-select-cell"><input type="checkbox" data-select-id="${item.id}" aria-label="Selecionar processo ${escapeHtml(item.numero)}"></label><a class="process-number" href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><h3>${escapeHtml(item.titulo_exibicao || item.titulo || "Título não informado pelo INPI")}</h3><p>${escapeHtml(item.empresa || "Sem empresa vinculada")} · ${escapeHtml(item.procurador || "Procurador não informado")}</p><small>Depósito: ${formatDate(item.data_deposito)} · origem: ${escapeHtml(item.origem)}</small>${item.lead_id ? `<small class="portfolio-lead-link">Lead de origem: ${escapeHtml(item.lead_marca || "#" + item.lead_id)}</small>` : ""}</div>
       <div class="portfolio-inpi"><span class="portfolio-item-label">Situação no INPI</span>${inpiBadge(item)}<strong>${escapeHtml(item.situacao || "Não informada")}</strong><p><span>Responsável</span>${escapeHtml(item.responsavel || "Não atribuído")}</p></div>
       <div class="latest">${movement ? `<small>Última movimentação · RPI ${movement.numero_rpi}</small><strong>${formatDate(movement.data)}</strong><p>${escapeHtml(movement.descricao || "")}</p>` : `<small>Movimentações</small><strong>Nenhuma localizada</strong>`}</div>
       <div class="portfolio-status"><label><span class="portfolio-item-label">Status interno</span><select data-status>${statusOptions(item.status)}</select></label><label><span class="portfolio-item-label">Procurador</span><input data-procurador type="text" value="${escapeHtml(item.procurador || "")}" placeholder="Não informado" maxlength="500"></label><button class="primary-button" data-save-status type="button">Salvar</button><button class="secondary-button" data-atualizar type="button">Atualizar status</button><button class="secondary-button" data-relatorio type="button">Gerar relatório</button></div>
     </article>`;
   }).join("");
   renderPagination(data);
+  updateBulkBar();
 }
 function renderPagination(data) {
   const nav = document.querySelector("#portfolio-pagination");
@@ -256,6 +271,7 @@ function selectView(view) {
   state.view = view; state.offset = 0;
   const list = view === "list";
   document.querySelector("#portfolio-list").hidden = !list;
+  document.querySelector("#portfolio-bulk-assign").hidden = !list;
   document.querySelector("#portfolio-pagination").hidden = !list;
   document.querySelector("#portfolio-kanban").hidden = list;
   ["list", "kanban", "inpi"].forEach(name => {
@@ -292,6 +308,35 @@ document.querySelector("#portfolio-kanban").addEventListener("drop", event => {
   const column = event.target.closest("[data-stage]"); if (!column || !state.draggedId) return;
   event.preventDefault(); column.classList.remove("is-over");
   moveKanbanCard(state.draggedId, column.dataset.stage).catch(error => showMessage(error.message, "error"));
+});
+document.querySelector("#portfolio-list").addEventListener("change", event => {
+  const checkbox = event.target.closest("[data-select-id]"); if (!checkbox) return;
+  const id = Number(checkbox.dataset.selectId);
+  checkbox.checked ? state.selectedPortfolio.add(id) : state.selectedPortfolio.delete(id);
+  updateBulkBar();
+});
+document.querySelector("#portfolio-select-page").addEventListener("change", event => {
+  document.querySelectorAll("#portfolio-list [data-select-id]").forEach(box => {
+    box.checked = event.target.checked;
+    const id = Number(box.dataset.selectId);
+    box.checked ? state.selectedPortfolio.add(id) : state.selectedPortfolio.delete(id);
+  });
+  updateBulkBar();
+});
+document.querySelector("#bulk-assign-apply").addEventListener("click", async () => {
+  const empresaNome = document.querySelector("#bulk-company").value.trim() || null;
+  const responsavelValor = document.querySelector("#bulk-owner").value;
+  const responsavelId = responsavelValor ? Number(responsavelValor) : null;
+  if (!empresaNome && !responsavelId) { showMessage("Informe uma empresa e/ou um responsável para atribuir.", "error"); return; }
+  const button = document.querySelector("#bulk-assign-apply"); button.disabled = true; button.textContent = "Atribuindo…";
+  try {
+    const result = await api("/v1/admin/carteira/atribuir-lote", { method: "POST", body: JSON.stringify({ monitorado_ids: [...state.selectedPortfolio], empresa_nome: empresaNome, responsavel_id: responsavelId }) });
+    showMessage(`${result.atribuidos} processo(s) atualizado(s).`);
+    document.querySelector("#bulk-company").value = "";
+    document.querySelector("#bulk-owner").value = "";
+    await loadPortfolio();
+  } catch (error) { showMessage(error.message, "error"); }
+  finally { button.disabled = false; button.textContent = "Atribuir aos selecionados"; }
 });
 document.querySelector("#portfolio-list").addEventListener("click", async event => {
   const button = event.target.closest("[data-save-status]"); if (!button) return; const card = button.closest("[data-id]"); button.disabled = true;

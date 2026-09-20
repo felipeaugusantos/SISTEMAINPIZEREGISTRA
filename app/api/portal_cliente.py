@@ -209,9 +209,17 @@ async def webhook_clicksign(
 ) -> dict:
     body = await request.body()
     config = configuracao_clicksign()
-    if config["secret"] and not x_clicksign_signature:
+    # Achado crítico da Fase 8 (auditoria jurídica, 15/09/2026): sem
+    # webhook_secret configurado, os dois `if` abaixo eram pulados por
+    # inteiro (fail-open) -- qualquer requisição, de qualquer origem, era
+    # aceita como se fosse o Clicksign de verdade, sem assinatura nenhuma.
+    # Bastava saber o envelope_id (previsível, gerado por nós) pra forjar
+    # "documento assinado" e disparar a contratação automática. Segredo
+    # ausente agora recusa a requisição (fail-closed) em vez de liberar.
+    if not config["secret"]:
+        logger.error("Webhook Clicksign recusado: webhook_secret não está configurado")
         raise HTTPException(status_code=401, detail="Webhook não autenticado")
-    if config["secret"] and not hmac.compare_digest(
+    if not x_clicksign_signature or not hmac.compare_digest(
         (x_clicksign_signature or "").removeprefix("sha256="),
         hmac.new(config["secret"].encode("utf-8"), body, hashlib.sha256).hexdigest(),
     ):

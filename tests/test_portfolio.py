@@ -648,3 +648,69 @@ def test_tela_avisa_quando_atualizar_status_encontra_varios_titulares() -> None:
 
     assert "result.titulares_multiplos" in javascript
     assert "vincule a empresa manualmente" in javascript
+
+
+def test_atualizar_status_processo_nao_encontrado_devolve_404() -> None:
+    session = FakeSession([FakeResult(scalar=None)])
+
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(atualizar_status_processo(999, _request(), session, usuario_teste()))
+
+    assert erro.value.status_code == 404
+    assert session.commits == 0
+
+
+def test_atualizar_status_nao_mexe_em_empresa_ja_vinculada() -> None:
+    # Empresa já vinculada -- nem chega a consultar titulares, não importa
+    # se o processo tem 1, 2 ou nenhum.
+    processo = Processo(
+        id=3,
+        numero="938111222",
+        numero_normalizado="938111222",
+        tipo=TipoProcesso.MARCA,
+        fonte="RPI 2901",
+        situacao="Registrada",
+    )
+    monitorado = ProcessoMonitorado(
+        id=3,
+        organizacao_id=1,
+        processo_id=3,
+        status="ativo",
+        origem="manual",
+        vinculado_por="teste",
+        empresa_id=42,
+    )
+    session = FakeSession(
+        [FakeResult(scalar=monitorado), FakeResult(rowcount=0)],
+        objetos_get=[processo],
+    )
+
+    resultado = asyncio.run(atualizar_status_processo(3, _request(), session, usuario_teste()))
+
+    assert resultado["cliente_cadastrado"] is None
+    assert resultado["titulares_multiplos"] is False
+    assert monitorado.empresa_id == 42
+
+
+def test_atualizar_status_sem_titular_nao_cadastra_nada() -> None:
+    processo = Processo(
+        id=4,
+        numero="938222333",
+        numero_normalizado="938222333",
+        tipo=TipoProcesso.MARCA,
+        fonte="RPI 2901",
+        situacao="Em tramitação",
+    )
+    monitorado = ProcessoMonitorado(
+        id=4, organizacao_id=1, processo_id=4, status="ativo", origem="manual", vinculado_por="teste"
+    )
+    session = FakeSession(
+        [FakeResult(scalar=monitorado), FakeResult(rowcount=0), FakeResult(itens=[])],
+        objetos_get=[processo],
+    )
+
+    resultado = asyncio.run(atualizar_status_processo(4, _request(), session, usuario_teste()))
+
+    assert resultado["cliente_cadastrado"] is None
+    assert resultado["titulares_multiplos"] is False
+    assert monitorado.empresa_id is None

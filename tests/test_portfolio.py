@@ -468,6 +468,11 @@ def test_atribuir_lote_sem_processos_encontrados_devolve_404() -> None:
     assert session.commits == 0
 
 
+async def _exportar_e_ler_csv(*args: object, **kwargs: object) -> str:
+    resposta = await exportar_carteira(*args, **kwargs)
+    return "".join([parte async for parte in resposta.body_iterator])
+
+
 def test_exportar_carteira_gera_csv_com_cabecalho_e_linhas() -> None:
     # Achado da análise da tela "Processos monitorados" pedida pelo usuário
     # (20/09/2026): só existia relatório em PDF processo por processo, nada
@@ -487,8 +492,7 @@ def test_exportar_carteira_gera_csv_com_cabecalho_e_linhas() -> None:
     )
     session = FakeSession([FakeResult(itens=[(monitorado, processo, "Padaria do Zé", "Ana", "2901", None)])])
 
-    resposta = asyncio.run(exportar_carteira(session, usuario_teste(), _request()))
-    conteudo = "".join([parte async for parte in resposta.body_iterator])
+    conteudo = asyncio.run(_exportar_e_ler_csv(session, usuario_teste(), _request()))
 
     assert "numero;titulo;empresa;procurador;responsavel" in conteudo
     assert "937557234;ECQ;Padaria do Zé;José Vicente;Ana;ativo;Deferido" in conteudo
@@ -512,8 +516,7 @@ def test_exportar_carteira_escapa_formula_no_titulo() -> None:
     )
     session = FakeSession([FakeResult(itens=[(monitorado, processo, None, None, None, None)])])
 
-    resposta = asyncio.run(exportar_carteira(session, usuario_teste(), _request()))
-    conteudo = "".join([parte async for parte in resposta.body_iterator])
+    conteudo = asyncio.run(_exportar_e_ler_csv(session, usuario_teste(), _request()))
 
     assert "'=cmd()" in conteudo
     assert "\n=cmd()" not in conteudo

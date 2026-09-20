@@ -746,7 +746,15 @@ def test_listar_carteira_informa_quando_usuario_nao_pode_gerenciar() -> None:
 
 
 def test_tela_esconde_botoes_de_gerenciamento_para_quem_so_tem_view() -> None:
+    # Achado do revisor (Codex, PR #82): /procuradores e /buscar-procurador
+    # usam ViewDep e gerar_relatorio_pdf também -- a busca por procurador e
+    # o botão "Gerar relatório" continuam disponíveis pra quem só tem
+    # portfolio.view; só o vínculo (empresa/responsável/"Vincular...") e a
+    # edição de status/procurador exigem portfolio.manage.
+    page = "app/web/admin-carteira.html"
     script = "app/web/static/admin-carteira.js"
+    with open(page, encoding="utf-8") as arquivo:
+        html = arquivo.read()
     with open(script, encoding="utf-8") as arquivo:
         javascript = arquivo.read()
 
@@ -754,4 +762,15 @@ def test_tela_esconde_botoes_de_gerenciamento_para_quem_so_tem_view() -> None:
     assert "data.acoes?.gerenciar" in javascript
     assert '"#open-manual"' in javascript
     assert '"#open-import"' in javascript
-    assert '".attorney-search"' in javascript
+    assert '"#attorney-link-bar"' in javascript
+    assert '"#attorney-select-col"' in javascript
+    assert 'id="attorney-link-bar" class="portfolio-link-bar" hidden' in html
+    assert 'id="attorney-select-col" hidden' in html
+    assert '<button class="secondary-button" data-relatorio type="button">Gerar relatório</button>' in javascript
+    # Escondido por padrão no HTML estático -- não fica visível/clicável
+    # entre o carregamento da página e a resposta de /v1/admin/carteira
+    # confirmando (ou recusando) portfolio.manage.
+    assert '<button id="open-manual" class="primary-button" type="button" hidden>' in html
+    assert '<button id="open-import" class="secondary-button" type="button" hidden>' in html
+    assert '<button id="update-all" class="secondary-button" type="button" hidden>' in html
+    assert '<div id="portfolio-bulk-assign" class="portfolio-link-bar" hidden>' in html

@@ -112,7 +112,13 @@ function applyManagePermissions() {
   const canManage = state.canManage;
   document.querySelector("#open-manual").hidden = !canManage;
   document.querySelector("#open-import").hidden = !canManage;
-  document.querySelector(".attorney-search").hidden = !canManage;
+  // Achado do revisor (Codex, PR #82): /procuradores e /buscar-procurador
+  // usam ViewDep -- a busca por procurador em si é permitida pra quem só
+  // tem portfolio.view. Só o vínculo (empresa/responsável/"Vincular...")
+  // exige portfolio.manage; a busca e a tabela de resultados continuam
+  // visíveis pra qualquer um que abrir a tela.
+  document.querySelector("#attorney-link-bar").hidden = !canManage;
+  document.querySelector("#attorney-select-col").hidden = !canManage;
   document.querySelector("#update-all").hidden = !canManage;
   document.querySelector("#portfolio-bulk-assign").hidden = !canManage || state.view !== "list";
 }
@@ -143,9 +149,14 @@ function renderPortfolio(data) {
   target.innerHTML = data.itens.map(item => {
     const movement = item.ultima_movimentacao;
     const selectCell = state.canManage ? `<label class="portfolio-select-cell"><input type="checkbox" data-select-id="${item.id}" aria-label="Selecionar processo ${escapeHtml(item.numero)}"></label>` : "";
-    const acoes = state.canManage
-      ? `<div class="portfolio-status"><label><span class="portfolio-item-label">Status interno</span><select data-status>${statusOptions(item.status)}</select></label><label><span class="portfolio-item-label">Procurador</span><input data-procurador type="text" value="${escapeHtml(item.procurador || "")}" placeholder="Não informado" maxlength="500"></label><button class="primary-button" data-save-status type="button">Salvar</button><button class="secondary-button" data-atualizar type="button">Atualizar status</button><button class="secondary-button" data-relatorio type="button">Gerar relatório</button></div>`
-      : `<div class="portfolio-status"><span class="portfolio-item-label">Status interno</span><strong>${escapeHtml(statusLabel(item.status))}</strong></div>`;
+    // Achado do revisor (Codex, PR #82): gerar_relatorio_pdf usa ViewDep,
+    // não ManageDep -- quem só tem portfolio.view também pode gerar o
+    // relatório em PDF pro cliente. Só editar status/procurador exige
+    // portfolio.manage.
+    const camposEdicao = state.canManage
+      ? `<label><span class="portfolio-item-label">Status interno</span><select data-status>${statusOptions(item.status)}</select></label><label><span class="portfolio-item-label">Procurador</span><input data-procurador type="text" value="${escapeHtml(item.procurador || "")}" placeholder="Não informado" maxlength="500"></label><button class="primary-button" data-save-status type="button">Salvar</button><button class="secondary-button" data-atualizar type="button">Atualizar status</button>`
+      : `<span class="portfolio-item-label">Status interno</span><strong>${escapeHtml(statusLabel(item.status))}</strong>`;
+    const acoes = `<div class="portfolio-status">${camposEdicao}<button class="secondary-button" data-relatorio type="button">Gerar relatório</button></div>`;
     return `<article class="portfolio-item" data-id="${item.id}">
       <div class="portfolio-process">${selectCell}<a class="process-number" href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><h3>${escapeHtml(item.titulo_exibicao || item.titulo || "Título não informado pelo INPI")}</h3><p>${escapeHtml(item.empresa || "Sem empresa vinculada")} · ${escapeHtml(item.procurador || "Procurador não informado")}</p><small>Depósito: ${formatDate(item.data_deposito)} · origem: ${escapeHtml(item.origem)}</small>${item.lead_id ? `<small class="portfolio-lead-link">Lead de origem: ${escapeHtml(item.lead_marca || "#" + item.lead_id)}</small>` : ""}</div>
       <div class="portfolio-inpi"><span class="portfolio-item-label">Situação no INPI</span>${inpiBadge(item)}<strong>${escapeHtml(item.situacao || "Não informada")}</strong><p><span>Responsável</span>${escapeHtml(item.responsavel || "Não atribuído")}</p></div>
@@ -181,7 +192,9 @@ function renderKanban(data) {
         <p>${escapeHtml(item.empresa || "Sem empresa vinculada")}</p>
         <dl><div><dt>INPI</dt><dd>${escapeHtml(item.situacao || "Não informada")}</dd></div><div><dt>Responsável</dt><dd>${escapeHtml(item.responsavel || "Não atribuído")}</dd></div></dl>
         ${item.ultima_movimentacao ? `<small>RPI ${item.ultima_movimentacao.numero_rpi} · ${formatDate(item.ultima_movimentacao.data)}</small>` : ""}
-        ${official || !state.canManage ? "" : `<label><span>Mover para</span><select data-move-stage>${stageOptions(item.etapa_kanban)}</select></label>`}
+        ${official
+          ? '<span class="official-source">Classificação automática pela RPI</span>'
+          : (state.canManage ? `<label><span>Mover para</span><select data-move-stage>${stageOptions(item.etapa_kanban)}</select></label>` : "")}
       </article>`).join("") || '<p class="kanban-empty">Arraste um processo para esta etapa.</p>'}
       ${column.tem_mais ? `<p class="kanban-more">Mostrando 20 de ${column.total}. Use a Lista para ver todos.</p>` : ""}
     </div>
@@ -222,7 +235,7 @@ function renderAttorney(data) {
   const coverage = data.cobertura || {};
   document.querySelector("#attorney-coverage").textContent = `${coverage.primeira_rpi && coverage.ultima_rpi ? `Cobertura sincronizada: RPI ${coverage.primeira_rpi} a ${coverage.ultima_rpi}. ` : ""}${coverage.aviso || ""}`;
   document.querySelector("#attorney-rows").innerHTML = data.itens.map(item => `<tr>
-    <td><input type="checkbox" data-process-id="${item.processo_id}" ${item.monitorado_id ? "disabled" : ""}></td>
+    ${state.canManage ? `<td><input type="checkbox" data-process-id="${item.processo_id}" ${item.monitorado_id ? "disabled" : ""}></td>` : ""}
     <td><a href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><br><small>${escapeHtml(item.fonte)}</small></td>
     <td><strong>${escapeHtml(item.titulo_exibicao || item.titulo || "Título não informado pelo INPI")}</strong><br><small>${escapeHtml(item.procurador || "")}</small></td>
     <td>${escapeHtml(item.situacao || "Não informada")}</td><td>${formatDate(item.data_deposito)}</td>

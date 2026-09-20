@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import hmac
 import json
 from datetime import UTC, date, datetime
 
@@ -272,6 +274,9 @@ def test_assinar_proposta_portal_sem_validade_definida_nao_e_bloqueada() -> None
 # --- Fase 6 do plano proposta-financeiro (03/09/2026): paridade do webhook Clicksign ---
 
 
+_WEBHOOK_SECRET_TESTE = "segredo-de-teste"
+
+
 def _webhook_request(corpo: dict) -> Request:
     request = Request(
         {
@@ -292,7 +297,25 @@ def _webhook_request(corpo: dict) -> Request:
     return request
 
 
-def test_webhook_clicksign_registra_assinatura_e_gera_contratacao_no_primeiro_evento() -> None:
+def _assinatura_webhook(corpo: dict, segredo: str = _WEBHOOK_SECRET_TESTE) -> str:
+    body = json.dumps(corpo).encode()
+    return hmac.new(segredo.encode("utf-8"), body, hashlib.sha256).hexdigest()
+
+
+def _configurar_segredo_webhook(monkeypatch: pytest.MonkeyPatch, secret: str = _WEBHOOK_SECRET_TESTE) -> None:
+    import app.api.portal_cliente as modulo_portal
+
+    monkeypatch.setattr(
+        modulo_portal,
+        "configuracao_clicksign",
+        lambda org=None: {"enabled": True, "base_url": "", "token": "", "secret": secret},
+    )
+
+
+def test_webhook_clicksign_registra_assinatura_e_gera_contratacao_no_primeiro_evento(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configurar_segredo_webhook(monkeypatch)
     proposta = _proposta_para_assinatura(
         id=7, status="enviada", dados={"clicksign": {"envelope_id": "env-123"}}
     )
@@ -302,12 +325,9 @@ def test_webhook_clicksign_registra_assinatura_e_gera_contratacao_no_primeiro_ev
             FakeResult(scalar=None),  # contratação existente? não
         ]
     )
+    corpo = {"envelope_id": "env-123", "event_id": "evt-1", "status": "document_closed"}
     resultado = asyncio.run(
-        webhook_clicksign(
-            _webhook_request({"envelope_id": "env-123", "event_id": "evt-1", "status": "document_closed"}),
-            session,
-            None,
-        )
+        webhook_clicksign(_webhook_request(corpo), session, _assinatura_webhook(corpo))
     )
     assert resultado == {"ok": True, "proposta_id": 7}
     assert proposta.status == "aceita"
@@ -316,7 +336,10 @@ def test_webhook_clicksign_registra_assinatura_e_gera_contratacao_no_primeiro_ev
     assert assinaturas[0].provedor == "clicksign"
 
 
-def test_webhook_clicksign_nao_duplica_assinatura_em_segundo_evento_do_mesmo_envelope() -> None:
+def test_webhook_clicksign_nao_duplica_assinatura_em_segundo_evento_do_mesmo_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configurar_segredo_webhook(monkeypatch)
     proposta = _proposta_para_assinatura(
         id=7,
         status="aceita",
@@ -329,27 +352,50 @@ def test_webhook_clicksign_nao_duplica_assinatura_em_segundo_evento_do_mesmo_env
             FakeResult(scalar=None),
         ]
     )
-    asyncio.run(
-        webhook_clicksign(
-            _webhook_request({"envelope_id": "env-123", "event_id": "evt-2", "status": "envelope_closed"}),
-            session,
-            None,
-        )
-    )
+    corpo = {"envelope_id": "env-123", "event_id": "evt-2", "status": "envelope_closed"}
+    asyncio.run(webhook_clicksign(_webhook_request(corpo), session, _assinatura_webhook(corpo)))
     assinaturas = [obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial)]
     assert assinaturas == []
 
 
-def test_webhook_clicksign_proposta_nao_encontrada_e_ignorado() -> None:
+def test_webhook_clicksign_proposta_nao_encontrada_e_ignorado(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configurar_segredo_webhook(monkeypatch)
     session = FakeSession([FakeResult(scalar=None)])
+    corpo = {"envelope_id": "env-inexistente", "status": "signed"}
     resultado = asyncio.run(
-        webhook_clicksign(
-            _webhook_request({"envelope_id": "env-inexistente", "status": "signed"}),
-            session,
-            None,
-        )
+        webhook_clicksign(_webhook_request(corpo), session, _assinatura_webhook(corpo))
     )
     assert resultado == {"ok": True, "ignorado": True}
+
+
+def test_webhook_clicksign_recusa_sem_segredo_configurado(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Achado crítico da Fase 8 (auditoria jurídica, 15/09/2026): sem
+    # webhook_secret configurado, o webhook aceitava QUALQUER requisição
+    # sem autenticação nenhuma (fail-open) -- bastava saber o envelope_id
+    # (previsível) pra forjar "documento assinado" e disparar a contratação
+    # automática. Agora falha fechado: sem segredo, nada passa, mesmo que o
+    # payload em si seja válido.
+    _configurar_segredo_webhook(monkeypatch, secret="")
+    session = FakeSession([])
+    corpo = {"envelope_id": "env-123", "status": "signed"}
+
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(webhook_clicksign(_webhook_request(corpo), session, None))
+
+    assert erro.value.status_code == 401
+    assert session.executados == []
+
+
+def test_webhook_clicksign_recusa_assinatura_invalida(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configurar_segredo_webhook(monkeypatch)
+    session = FakeSession([])
+    corpo = {"envelope_id": "env-123", "status": "signed"}
+
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(webhook_clicksign(_webhook_request(corpo), session, "sha256=assinatura-forjada"))
+
+    assert erro.value.status_code == 401
+    assert session.executados == []
 
 
 # --- Achado da validação do Portal do Cliente (17/09/2026): login sem limite

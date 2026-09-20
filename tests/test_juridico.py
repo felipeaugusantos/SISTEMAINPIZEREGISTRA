@@ -786,6 +786,45 @@ def test_conclusao_de_prazo_ja_concluido_nao_reexige_evidencia() -> None:
     assert resultado["status"] == "concluido"
 
 
+# --- Achado médio da Fase 8 (auditoria jurídica, 15/09/2026): nada impedia
+# concluir um prazo ainda não confirmado por um humano -- o gate
+# "aguardando_confirmacao"/confirmado=False (achado crítico, PR #50) só se
+# aplicava ao motor automático, não a esta rota. ---
+
+
+def test_conclusao_bloqueada_quando_prazo_nunca_foi_confirmado() -> None:
+    prazo = _prazo_ativo(status="aguardando_confirmacao", confirmado=False, confirmado_por_id=None)
+    session = FakeSession([FakeResult(scalar=prazo)])
+    try:
+        asyncio.run(atualizar_prazo(9, PrazoUpdate(status="concluido"), _request(), session, usuario_teste()))
+        raise AssertionError("Esperava HTTPException 422 por prazo não confirmado")
+    except HTTPException as erro:
+        assert erro.status_code == 422
+        assert "confirme" in erro.detail.lower()
+    assert prazo.status == "aguardando_confirmacao"
+
+
+def test_conclusao_permitida_quando_confirmada_na_mesma_requisicao() -> None:
+    # Confirmar e concluir num único PATCH (confirmar=True + status=concluido)
+    # continua funcionando -- o gate olha prazo.confirmado, que já é True
+    # nesse ponto porque o bloco de confirmação roda antes.
+    prazo = _prazo_ativo(
+        status="aguardando_confirmacao", confirmado=False, confirmado_por_id=None, responsavel_id=2
+    )
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=0), FakeResult(scalar=None)])
+    resultado = asyncio.run(
+        atualizar_prazo(
+            9,
+            PrazoUpdate(status="concluido", confirmar=True, confirmacao_observacoes="Conferido no BuscaWeb."),
+            _request(),
+            session,
+            usuario_teste(),
+        )
+    )
+    assert resultado["status"] == "concluido"
+    assert prazo.confirmado is True
+
+
 def test_editar_politica_juridica_cria_registro_quando_inexistente() -> None:
     session = FakeSession([FakeResult(scalar=None)])
     resultado = asyncio.run(

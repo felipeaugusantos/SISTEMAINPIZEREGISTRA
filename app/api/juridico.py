@@ -1530,6 +1530,18 @@ async def atualizar_prazo(
     if dados.status == "cancelado" and not (dados.descricao_evento and dados.descricao_evento.strip()):
         raise HTTPException(422, "Informe a justificativa do cancelamento")
     if dados.status == "concluido" and anterior in STATUS_ATIVOS:
+        # Achado médio da Fase 8 (auditoria jurídica, 15/09/2026): nada
+        # impedia concluir um prazo ainda não confirmado por um humano --
+        # o gate "aguardando_confirmacao"/confirmado=False (achado crítico
+        # já corrigido, PR #50) só se aplica ao motor automático; chamando
+        # este endpoint direto com status="concluido" (sem nunca passar
+        # confirmar=True, nem antes nem nesta mesma requisição) dava pra
+        # fechar um prazo sugerido pela RPI sem ninguém ter revisado. A
+        # tela já não mostra o botão "Concluir" pra quem não confirmou
+        # (só "Confirmar prazo"/"Descartar sugestão" -- ver
+        # admin-juridico.js), mas o backend não impunha a mesma regra.
+        if not prazo.confirmado:
+            raise HTTPException(422, "Confirme o prazo (revisão humana) antes de concluí-lo")
         # Achado FASE3-2 da auditoria (04/09/2026): nada impedia concluir um
         # prazo com itens do checklist ainda pendentes -- só evidência de
         # entrega e segunda-pessoa eram checadas. Checklist vazio (nenhum

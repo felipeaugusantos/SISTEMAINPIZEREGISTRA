@@ -19,9 +19,23 @@ def backend() -> str:
     return os.getenv("STORAGE_BACKEND", "local").strip().lower()
 
 
+def local_root() -> Path:
+    """Raiz do backend local -- única fonte de verdade pra essa configuração.
+
+    Achado do usuário (20/09/2026): os endpoints de download em
+    app/api/portal_cliente.py recalculavam essa raiz hardcoded como
+    ``Path("data")`` (sem o "uploads"), divergindo do valor de verdade usado
+    aqui pra gravar o arquivo -- toda checagem de path-traversal contra esse
+    "data" errado nunca batia com o caminho real salvo em "data/uploads/...",
+    e o download sempre devolvia 404 "Material não encontrado" mesmo com o
+    arquivo existindo no disco.
+    """
+    return Path(os.getenv("STORAGE_LOCAL_ROOT", "data/uploads"))
+
+
 def save_bytes(key: str, content: bytes) -> str:
     if backend() == "local":
-        root = Path(os.getenv("STORAGE_LOCAL_ROOT", "data/uploads"))
+        root = local_root()
         path = root / key
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)

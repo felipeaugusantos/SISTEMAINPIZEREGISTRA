@@ -18,6 +18,7 @@ from app.api.carteira import (
     atribuir_lote,
     atualizar_monitoramento,
     atualizar_status_lote,
+    atualizar_status_processo,
     buscar_por_procurador,
     cadastrar_manual,
     exportar_carteira,
@@ -578,3 +579,72 @@ def test_status_sincronizacao_rpi_sem_estado_nao_quebra() -> None:
     assert resultado["ultima_rpi_oficial"] is None
     assert resultado["edicoes_atraso"] == 0
     assert resultado["em_dia"] is True
+
+
+def test_atualizar_status_cadastra_empresa_quando_titular_e_unico() -> None:
+    processo = Processo(
+        id=1,
+        numero="937557234",
+        numero_normalizado="937557234",
+        tipo=TipoProcesso.MARCA,
+        fonte="RPI 2901",
+        situacao="Deferido",
+    )
+    monitorado = ProcessoMonitorado(
+        id=1, organizacao_id=1, processo_id=1, status="ativo", origem="manual", vinculado_por="teste"
+    )
+    session = FakeSession(
+        [
+            FakeResult(scalar=monitorado),  # busca do monitorado
+            FakeResult(rowcount=0),  # consolidar_situacao
+            FakeResult(itens=["Titular Único Ltda"]),  # titulares do processo
+            FakeResult(scalar=None),  # obter_ou_criar_empresa: não existe ainda
+        ],
+        objetos_get=[processo],
+    )
+
+    resultado = asyncio.run(atualizar_status_processo(1, _request(), session, usuario_teste()))
+
+    assert resultado["cliente_cadastrado"] == "Titular Único Ltda"
+    assert resultado["titulares_multiplos"] is False
+    assert monitorado.empresa_id is not None
+
+
+def test_atualizar_status_nao_cadastra_empresa_quando_ha_varios_titulares() -> None:
+    # Achado do usuário (20/09/2026): antes escolhia o titular
+    # "alfabeticamente primeiro" sozinho -- com cotitularidade, isso podia
+    # vincular a empresa errada sem nenhum aviso.
+    processo = Processo(
+        id=2,
+        numero="937999999",
+        numero_normalizado="937999999",
+        tipo=TipoProcesso.MARCA,
+        fonte="RPI 2901",
+        situacao="Em tramitação",
+    )
+    monitorado = ProcessoMonitorado(
+        id=2, organizacao_id=1, processo_id=2, status="ativo", origem="manual", vinculado_por="teste"
+    )
+    session = FakeSession(
+        [
+            FakeResult(scalar=monitorado),
+            FakeResult(rowcount=0),
+            FakeResult(itens=["Ana Comércio Ltda", "Beto Distribuidora Ltda"]),
+        ],
+        objetos_get=[processo],
+    )
+
+    resultado = asyncio.run(atualizar_status_processo(2, _request(), session, usuario_teste()))
+
+    assert resultado["cliente_cadastrado"] is None
+    assert resultado["titulares_multiplos"] is True
+    assert monitorado.empresa_id is None
+
+
+def test_tela_avisa_quando_atualizar_status_encontra_varios_titulares() -> None:
+    script = "app/web/static/admin-carteira.js"
+    with open(script, encoding="utf-8") as arquivo:
+        javascript = arquivo.read()
+
+    assert "result.titulares_multiplos" in javascript
+    assert "vincule a empresa manualmente" in javascript

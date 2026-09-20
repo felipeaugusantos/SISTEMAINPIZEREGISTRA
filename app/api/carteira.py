@@ -28,6 +28,7 @@ from app.models import (
     Processo,
     ProcessoMonitorado,
     RpiImportacao,
+    RpiSyncEstado,
     TipoProcesso,
     Titular,
     UsuarioOperacoes,
@@ -435,6 +436,35 @@ async def _vincular_ids(
     )
     await session.commit()
     return resultado
+
+
+@router.get("/rpi-status")
+async def obter_status_sincronizacao_rpi(session: SessionDep, usuario: ViewDep) -> dict:
+    """Achado do usuário (20/09/2026): "Atualizar situação de todos" e
+    "Atualizar status" só reprocessam despachos JÁ importados localmente --
+    não buscam nada novo no INPI (isso é feito por um job de sincronização à
+    parte). Sem nenhum indicador na tela, o atendimento não tinha como saber
+    se clicar em "Atualizar" tinha alguma chance de revelar algo novo.
+
+    Versão enxuta do painel de sincronização (ver app/api/rpi_admin.py),
+    liberada para quem só tem portfolio.view -- o perfil comercial (quem usa
+    esta tela no dia a dia) não tem rpi.view (app/permissions.py), então o
+    painel completo de sincronização fica fora do alcance dele de propósito."""
+    estado = await session.get(RpiSyncEstado, 1)
+    ultima_local = await session.scalar(
+        select(func.max(RpiImportacao.numero_rpi)).where(RpiImportacao.tipo == "marca")
+    )
+    ultima_oficial = estado.ultima_rpi_oficial if estado else None
+    atraso = (
+        max(0, ultima_oficial - ultima_local) if ultima_oficial is not None and ultima_local is not None else 0
+    )
+    return {
+        "ultima_rpi_local": ultima_local,
+        "ultima_rpi_oficial": ultima_oficial,
+        "edicoes_atraso": atraso,
+        "ultima_verificacao_em": estado.ultima_verificacao_em if estado else None,
+        "em_dia": atraso == 0,
+    }
 
 
 @router.get("")

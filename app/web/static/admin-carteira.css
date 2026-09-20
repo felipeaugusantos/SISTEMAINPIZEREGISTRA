@@ -67,3 +67,6 @@
 .portfolio-select-cell{margin-right:8px;font-size:.76rem;font-weight:700;color:#52645a}
 #portfolio-bulk-count{align-self:center;color:#52645a;font-size:.78rem}
 .import-guide>small{color:#66776e;font-size:.74rem;line-height:1.5}
+.rpi-status-indicator{margin:0 0 14px;padding:10px 14px;border-radius:11px;font-size:.8rem;font-weight:700}
+.rpi-status-indicator.is-em-dia{border:1px solid #cfe6d9;background:#eef8f2;color:#0d6b46}
+.rpi-status-indicator.is-atrasado{border:1px solid #f0d9a8;background:#fdf6e8;color:#8a6414}

@@ -20,6 +20,7 @@ from app.api.leads import _garantir_proxima_acao_padrao
 from app.api.pesquisas import detectar_pesquisa_duplicada
 from app.api.saas import SuperAdminDep
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
+from app.cnae import descricao_cnae
 from app.crm import registrar_consentimento_prospeccao_comercial
 from app.database import get_session
 from app.ia_sombra import enfileirar_qualificacao_ia_se_ativa
@@ -110,6 +111,7 @@ def _auditar(
 def _prospect_response(prospect: Prospect) -> ProspectResponse:
     dados = ProspectResponse.model_validate(prospect)
     dados.responsavel_nome = getattr(getattr(prospect, "responsavel", None), "nome", None)
+    dados.cnae_principal_descricao = descricao_cnae(prospect.cnae_principal)
     return dados
 
 

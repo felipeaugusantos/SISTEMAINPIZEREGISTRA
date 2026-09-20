@@ -486,6 +486,16 @@ def test_cards_do_radar_prospeccao_nao_encolhem_alem_do_conteudo() -> None:
     assert ".prospeccao-metric strong{display:block;font-size:1.5rem;color:#076b4c;white-space:nowrap}" in styles
 
 
+def test_card_de_prospeccao_mostra_descricao_do_cnae() -> None:
+    # Achado do usuário (20/09/2026): a tela de Prospecção mostrava só o
+    # código do CNAE (ex.: "CNAE 4711302"), sem a equipe de atendimento
+    # saber o que cada número significa -- descrição vem do backend
+    # (app/cnae.py, tabela oficial do CNAE 2.0) via cnae_principal_descricao.
+    script = (web_dir / "static" / "admin-prospeccao.js").read_text(encoding="utf-8")
+
+    assert "item.cnae_principal_descricao" in script
+
+
 def test_tela_de_script_atendimento_existe_com_crud_completo() -> None:
     # Item 1 da lista de melhorias de produto (15/09/2026): modelo de 1º
     # atendimento + opção de adicionar mais modelos manualmente. Reaproveita

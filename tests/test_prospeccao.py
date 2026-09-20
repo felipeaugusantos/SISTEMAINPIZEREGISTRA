@@ -68,6 +68,28 @@ def _prospect(**kwargs: object) -> Prospect:
 PAYLOAD_BASE = {"razao_social": "Nova Empresa Ltda", "cnpj": "11222333000181", "email": "nova@empresa.local"}
 
 
+def test_prospect_response_inclui_descricao_do_cnae() -> None:
+    # Achado do usuário (20/09/2026): a tela de Prospecção mostrava só o
+    # código do CNAE, sem a equipe saber o que ele significa.
+    from app.api.prospeccao import _prospect_response
+
+    prospect = _prospect(cnae_principal="4711302")
+    resultado = _prospect_response(prospect)
+
+    assert resultado.cnae_principal_descricao == (
+        "COMÉRCIO VAREJISTA DE MERCADORIAS EM GERAL, COM PREDOMINÂNCIA DE "
+        "PRODUTOS ALIMENTÍCIOS - SUPERMERCADOS"
+    )
+
+
+def test_prospect_response_sem_cnae_nao_quebra() -> None:
+    from app.api.prospeccao import _prospect_response
+
+    resultado = _prospect_response(_prospect(cnae_principal=None))
+
+    assert resultado.cnae_principal_descricao is None
+
+
 def test_listar_prospects_retorna_paginado() -> None:
     prospect = _prospect()
     _sessao_admin(FakeResult(scalar=1), FakeResult(itens=[prospect]))

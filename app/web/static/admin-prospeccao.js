@@ -167,7 +167,7 @@ function renderProspects(data) {
       <div class="prospeccao-identidade">
         <h3>${escapeHtml(item.nome_fantasia || item.razao_social)}</h3>
         <p>${escapeHtml(item.razao_social)}${item.cnpj ? ` · ${escapeHtml(item.cnpj)}` : ""}</p>
-        <small>${[item.cidade, item.uf].filter(Boolean).map(escapeHtml).join("/") || "Localização não informada"}${item.cnae_principal ? ` · CNAE ${escapeHtml(item.cnae_principal)}` : ""}</small>
+        <small>${[item.cidade, item.uf].filter(Boolean).map(escapeHtml).join("/") || "Localização não informada"}${item.cnae_principal ? ` · CNAE ${escapeHtml(item.cnae_principal)}${item.cnae_principal_descricao ? ` (${escapeHtml(item.cnae_principal_descricao)})` : ""}` : ""}</small>
         <small class="prospeccao-contato">${item.email ? escapeHtml(item.email) : "Sem e-mail"} · ${item.telefone ? escapeHtml(item.telefone) : "Sem telefone"}</small>
       </div>
       <div class="prospeccao-sinais">

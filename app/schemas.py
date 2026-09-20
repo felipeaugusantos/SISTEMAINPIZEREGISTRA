@@ -696,6 +696,7 @@ class ProspectResponse(BaseModel):
     nome_fantasia: str | None
     cnpj: str | None
     cnae_principal: str | None
+    cnae_principal_descricao: str | None = None
     cnaes_secundarios: list[str]
     porte: str | None
     situacao_cadastral: str | None

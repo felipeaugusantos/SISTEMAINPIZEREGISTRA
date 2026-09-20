@@ -2094,11 +2094,22 @@ async def _reconciliar_prazos_historicos(
     organizacao_id: int,
     ator: str,
 ) -> tuple[int, int]:
-    """Arquiva sugestões que já estavam vencidas quando foram descobertas.
+    """Sinaliza sugestões de arquivamento (duplicidade ou vencimento anterior
+    à descoberta), para revisão humana -- não fecha nada sozinho.
 
-    O prazo legal continua registrado, mas deixa de ser contado como pendência
-    vencida da equipe. Publicações repetidas da mesma RPI são preservadas como
-    duplicadas para manter a trilha de auditoria.
+    Achado médio da Fase 8 (auditoria jurídica, 15/09/2026): esta função
+    marcava confirmado=True sozinha nos dois casos (duplicado/histórico),
+    sem nunca registrar confirmado_por_id/confirmacao_origem -- mesmo padrão
+    de risco do achado crítico já corrigido em _reconciliar_prazos_terminais
+    (a classificação é heurística: casamento de chave de publicação pra
+    duplicidade, comparação de datas pra "descoberto depois do vencimento";
+    um caso de borda classificado errado ficava arquivado como "revisado"
+    sem ninguém ter revisado). Agora confirmado fica False -- o prazo
+    continua saindo da contagem de pendência vencida ativa (status muda pra
+    duplicado/historico, fora de STATUS_ATIVOS), mas passa a aparecer na
+    contagem "a confirmar" (PrazoJuridico.confirmado.is_(False)) até um
+    humano revisar. Também passa a respeitar um prazo já confirmado por um
+    humano: não reclassifica como duplicado por baixo dos panos.
     """
     linhas = (
         await session.execute(
@@ -2119,9 +2130,9 @@ async def _reconciliar_prazos_historicos(
     duplicados: list[PrazoJuridico] = []
     for prazo, origem in linhas:
         chave = _chave_publicacao(prazo, origem)
-        if chave in vistos:
+        if chave in vistos and not prazo.confirmado:
             prazo.status = "duplicado"
-            prazo.confirmado = True
+            prazo.confirmado = False
             prazo.concluido_em = agora
             prazo.concluido_por = ator
             duplicados.append(prazo)
@@ -2130,12 +2141,13 @@ async def _reconciliar_prazos_historicos(
                 motor_usuario,
                 prazo.processo_monitorado_id,
                 "prazo_duplicado",
-                "Publicação repetida da mesma RPI arquivada pelo motor",
+                "Sugestão do motor: publicação repetida da mesma RPI -- aguarda confirmação humana",
                 prazo.id,
                 {"prazo_canonico_id": vistos[chave].id, "rpi": origem.numero_rpi},
             )
             continue
-        vistos[chave] = prazo
+        if chave not in vistos:
+            vistos[chave] = prazo
         criado_em = prazo.criado_em
         if criado_em is not None and criado_em.tzinfo is None:
             criado_em = criado_em.replace(tzinfo=UTC)
@@ -2146,7 +2158,7 @@ async def _reconciliar_prazos_historicos(
         if prazo.status in STATUS_ATIVOS and not prazo.confirmado and vencimento < agora and descoberto_depois:
             prazo.status = "historico"
             prazo.prioridade = "baixa"
-            prazo.confirmado = True
+            prazo.confirmado = False
             prazo.concluido_em = agora
             prazo.concluido_por = ator
             historicos.append(prazo)
@@ -2155,7 +2167,7 @@ async def _reconciliar_prazos_historicos(
                 motor_usuario,
                 prazo.processo_monitorado_id,
                 "prazo_historico",
-                "Prazo já encerrado quando a publicação foi importada; mantido como referência",
+                "Sugestão do motor: prazo já vencido quando a publicação foi importada -- aguarda confirmação humana",
                 prazo.id,
                 {"rpi": origem.numero_rpi, "vencimento_em": vencimento.isoformat()},
             )

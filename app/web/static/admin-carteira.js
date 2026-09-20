@@ -1,4 +1,4 @@
-const state = { attorney: null, selected: new Set(), selectedPortfolio: new Set(), companies: [], owners: [], view: "list", offset: 0, pageSize: 20, draggedId: null };
+const state = { attorney: null, selected: new Set(), selectedPortfolio: new Set(), companies: [], owners: [], view: "list", offset: 0, pageSize: 20, draggedId: null, canManage: false };
 const KANBAN_STAGES = [
   ["triagem", "Novo / Triagem"], ["aguardando_documentos", "Aguardando documentos"],
   ["documentacao_gru", "Documentação e GRU"], ["protocolado", "Protocolado"],
@@ -96,8 +96,25 @@ function applyMetricFilter(filter, value) {
   state.offset = 0;
   selectView("list");
 }
+const STATUS_LABELS = { ativo: "Ativo", pausado: "Pausado", encerrado: "Encerrado", arquivado: "Arquivado" };
 function statusOptions(current) {
-  return [["ativo","Ativo"],["pausado","Pausado"],["encerrado","Encerrado"],["arquivado","Arquivado"]].map(([value,label]) => `<option value="${value}" ${current === value ? "selected" : ""}>${label}</option>`).join("");
+  return Object.entries(STATUS_LABELS).map(([value, label]) => `<option value="${value}" ${current === value ? "selected" : ""}>${label}</option>`).join("");
+}
+function statusLabel(value) { return STATUS_LABELS[value] || value || "Não informado"; }
+// Achado do usuário (20/09/2026): a tela sempre mostrava todos os botões de
+// gerenciamento (cadastrar, importar, vincular, atualizar, atribuir em
+// lote, arrastar no kanban etc.), mesmo pra quem só tem portfolio.view
+// (perfis "comercial" e "auditor") -- clicar em qualquer um devolvia
+// "Acesso não autorizado" sem nenhum aviso prévio. Mesmo padrão já usado em
+// admin-leads.js (state.canManage, vindo de acoes.gerenciar na resposta da
+// API): esconde o que a API já sabe que vai recusar.
+function applyManagePermissions() {
+  const canManage = state.canManage;
+  document.querySelector("#open-manual").hidden = !canManage;
+  document.querySelector("#open-import").hidden = !canManage;
+  document.querySelector(".attorney-search").hidden = !canManage;
+  document.querySelector("#update-all").hidden = !canManage;
+  document.querySelector("#portfolio-bulk-assign").hidden = !canManage || state.view !== "list";
 }
 function inpiBadge(item) {
   const key = item.grupo_situacao_inpi || "revisar";
@@ -112,6 +129,8 @@ function updateBulkBar() {
   document.querySelector("#portfolio-select-page").checked = total > 0 && count === total;
 }
 function renderPortfolio(data) {
+  state.canManage = Boolean(data.acoes?.gerenciar);
+  applyManagePermissions();
   renderMetrics(data.resumo);
   // Achado do usuário (20/09/2026): atribuir empresa/responsável a
   // processos já monitorados só existia um por um (PATCH /{id}) -- muitos
@@ -123,11 +142,15 @@ function renderPortfolio(data) {
   if (!data.itens.length) { target.innerHTML = `<div class="portfolio-empty">Nenhum processo encontrado nesta carteira.</div>`; renderPagination(data); updateBulkBar(); return; }
   target.innerHTML = data.itens.map(item => {
     const movement = item.ultima_movimentacao;
+    const selectCell = state.canManage ? `<label class="portfolio-select-cell"><input type="checkbox" data-select-id="${item.id}" aria-label="Selecionar processo ${escapeHtml(item.numero)}"></label>` : "";
+    const acoes = state.canManage
+      ? `<div class="portfolio-status"><label><span class="portfolio-item-label">Status interno</span><select data-status>${statusOptions(item.status)}</select></label><label><span class="portfolio-item-label">Procurador</span><input data-procurador type="text" value="${escapeHtml(item.procurador || "")}" placeholder="Não informado" maxlength="500"></label><button class="primary-button" data-save-status type="button">Salvar</button><button class="secondary-button" data-atualizar type="button">Atualizar status</button><button class="secondary-button" data-relatorio type="button">Gerar relatório</button></div>`
+      : `<div class="portfolio-status"><span class="portfolio-item-label">Status interno</span><strong>${escapeHtml(statusLabel(item.status))}</strong></div>`;
     return `<article class="portfolio-item" data-id="${item.id}">
-      <div class="portfolio-process"><label class="portfolio-select-cell"><input type="checkbox" data-select-id="${item.id}" aria-label="Selecionar processo ${escapeHtml(item.numero)}"></label><a class="process-number" href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><h3>${escapeHtml(item.titulo_exibicao || item.titulo || "Título não informado pelo INPI")}</h3><p>${escapeHtml(item.empresa || "Sem empresa vinculada")} · ${escapeHtml(item.procurador || "Procurador não informado")}</p><small>Depósito: ${formatDate(item.data_deposito)} · origem: ${escapeHtml(item.origem)}</small>${item.lead_id ? `<small class="portfolio-lead-link">Lead de origem: ${escapeHtml(item.lead_marca || "#" + item.lead_id)}</small>` : ""}</div>
+      <div class="portfolio-process">${selectCell}<a class="process-number" href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><h3>${escapeHtml(item.titulo_exibicao || item.titulo || "Título não informado pelo INPI")}</h3><p>${escapeHtml(item.empresa || "Sem empresa vinculada")} · ${escapeHtml(item.procurador || "Procurador não informado")}</p><small>Depósito: ${formatDate(item.data_deposito)} · origem: ${escapeHtml(item.origem)}</small>${item.lead_id ? `<small class="portfolio-lead-link">Lead de origem: ${escapeHtml(item.lead_marca || "#" + item.lead_id)}</small>` : ""}</div>
       <div class="portfolio-inpi"><span class="portfolio-item-label">Situação no INPI</span>${inpiBadge(item)}<strong>${escapeHtml(item.situacao || "Não informada")}</strong><p><span>Responsável</span>${escapeHtml(item.responsavel || "Não atribuído")}</p></div>
       <div class="latest">${movement ? `<small>Última movimentação · RPI ${movement.numero_rpi}</small><strong>${formatDate(movement.data)}</strong><p>${escapeHtml(movement.descricao || "")}</p>` : `<small>Movimentações</small><strong>Nenhuma localizada</strong>`}</div>
-      <div class="portfolio-status"><label><span class="portfolio-item-label">Status interno</span><select data-status>${statusOptions(item.status)}</select></label><label><span class="portfolio-item-label">Procurador</span><input data-procurador type="text" value="${escapeHtml(item.procurador || "")}" placeholder="Não informado" maxlength="500"></label><button class="primary-button" data-save-status type="button">Salvar</button><button class="secondary-button" data-atualizar type="button">Atualizar status</button><button class="secondary-button" data-relatorio type="button">Gerar relatório</button></div>
+      ${acoes}
     </article>`;
   }).join("");
   renderPagination(data);
@@ -152,13 +175,13 @@ function renderKanban(data) {
   target.innerHTML = `${official ? `<p class="kanban-source">${escapeHtml(data.fonte)}. A organização é automática e não altera o fluxo interno do escritório.</p>` : ""}` + data.colunas.map(column => `<section class="kanban-column ${official ? `is-${column.chave}` : ""}" data-stage="${column.chave}">
     <header><h3>${escapeHtml(column.titulo)}</h3><span>${column.total}</span></header>
     <div class="kanban-dropzone">
-      ${column.itens.map(item => `<article class="kanban-card" draggable="${official ? "false" : "true"}" data-id="${item.id}">
+      ${column.itens.map(item => `<article class="kanban-card" draggable="${official || !state.canManage ? "false" : "true"}" data-id="${item.id}">
         <a href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a>
         <h4>${escapeHtml(item.titulo_exibicao || item.titulo || "Título não informado pelo INPI")}</h4>
         <p>${escapeHtml(item.empresa || "Sem empresa vinculada")}</p>
         <dl><div><dt>INPI</dt><dd>${escapeHtml(item.situacao || "Não informada")}</dd></div><div><dt>Responsável</dt><dd>${escapeHtml(item.responsavel || "Não atribuído")}</dd></div></dl>
         ${item.ultima_movimentacao ? `<small>RPI ${item.ultima_movimentacao.numero_rpi} · ${formatDate(item.ultima_movimentacao.data)}</small>` : ""}
-        ${official ? '<span class="official-source">Classificação automática pela RPI</span>' : `<label><span>Mover para</span><select data-move-stage>${stageOptions(item.etapa_kanban)}</select></label>`}
+        ${official || !state.canManage ? "" : `<label><span>Mover para</span><select data-move-stage>${stageOptions(item.etapa_kanban)}</select></label>`}
       </article>`).join("") || '<p class="kanban-empty">Arraste um processo para esta etapa.</p>'}
       ${column.tem_mais ? `<p class="kanban-more">Mostrando 20 de ${column.total}. Use a Lista para ver todos.</p>` : ""}
     </div>
@@ -269,7 +292,7 @@ async function loadPreCadastros() {
       <td>${escapeHtml(item.responsavel_nome || "Não atribuído")}</td>
       <td>${escapeHtml(item.criado_por)}</td>
       <td>${new Date(item.criado_em).toLocaleDateString("pt-BR")}</td>
-      <td><button class="secondary-button cancel-pre-cadastro" type="button">Cancelar</button></td>
+      <td>${state.canManage ? '<button class="secondary-button cancel-pre-cadastro" type="button">Cancelar</button>' : ""}</td>
     </tr>`).join("");
 }
 document.querySelector("#pre-cadastros-rows").addEventListener("click", async event => {
@@ -298,9 +321,9 @@ function selectView(view) {
   state.view = view; state.offset = 0;
   const list = view === "list";
   document.querySelector("#portfolio-list").hidden = !list;
-  document.querySelector("#portfolio-bulk-assign").hidden = !list;
   document.querySelector("#portfolio-pagination").hidden = !list;
   document.querySelector("#portfolio-kanban").hidden = list;
+  applyManagePermissions();
   ["list", "kanban", "inpi"].forEach(name => {
     const button = document.querySelector(`#portfolio-view-${name}`);
     const active = name === view; button.classList.toggle("is-active", active); button.setAttribute("aria-pressed", active);
@@ -490,4 +513,11 @@ document.querySelector("#attorney-name").addEventListener("input", event => {
   suggestionTimer = setTimeout(async () => { try { const names = await api(`/v1/admin/carteira/procuradores?busca=${encodeURIComponent(value)}`); document.querySelector("#attorney-suggestions").replaceChildren(...names.map(name => { const option = document.createElement("option"); option.value = name; return option; })); } catch {} }, 300);
 });
 
-Promise.all([loadReferences(), loadPortfolio(), loadPreCadastros(), loadRpiStatus()]).catch(error => showMessage(error.message, "error"));
+(async () => {
+  // loadPortfolio() primeiro e sozinho -- é ela que traz acoes.gerenciar
+  // (state.canManage), usado por loadPreCadastros() pra decidir se mostra
+  // o botão "Cancelar". Rodar tudo em paralelo arriscava renderizar a
+  // tabela de pré-cadastros antes de saber se o usuário pode gerenciar.
+  await loadPortfolio();
+  await Promise.all([loadReferences(), loadPreCadastros(), loadRpiStatus()]);
+})().catch(error => showMessage(error.message, "error"));

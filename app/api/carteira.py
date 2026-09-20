@@ -585,6 +585,15 @@ async def listar_carteira(
         "total": total,
         "limite": limite,
         "deslocamento": deslocamento,
+        # Achado do usuário (20/09/2026): a tela sempre mostrava todos os
+        # botões de gerenciamento (cadastrar, importar, vincular, atualizar,
+        # atribuir em lote, etc.), mesmo pra quem só tem portfolio.view
+        # (perfis "comercial" e "auditor", ver app/permissions.py) -- clicar
+        # em qualquer um devolvia "Acesso não autorizado" sem aviso prévio.
+        # Mesmo padrão já usado em leads (ver app/api/leads.py, campo
+        # "acoes.gerenciar"): a tela esconde o que a API já sabe que vai
+        # recusar.
+        "acoes": {"gerenciar": usuario.pode("portfolio.manage")},
         "resumo": {
             "total": sum(resumo.values()),
             "pausados": resumo.get("pausado", 0),

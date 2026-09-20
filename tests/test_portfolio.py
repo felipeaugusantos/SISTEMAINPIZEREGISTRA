@@ -22,6 +22,7 @@ from app.api.carteira import (
     buscar_por_procurador,
     cadastrar_manual,
     exportar_carteira,
+    listar_carteira,
     obter_status_sincronizacao_rpi,
 )
 from app.models import (
@@ -714,3 +715,62 @@ def test_atualizar_status_sem_titular_nao_cadastra_nada() -> None:
     assert resultado["cliente_cadastrado"] is None
     assert resultado["titulares_multiplos"] is False
     assert monitorado.empresa_id is None
+
+
+def _fake_session_listar_carteira() -> FakeSession:
+    return FakeSession(
+        [
+            FakeResult(itens=[]),  # resumo por status
+            FakeResult(itens=[]),  # resumo por situação INPI
+            FakeResult(scalar=0),  # total
+            FakeResult(itens=[]),  # itens da página
+        ]
+    )
+
+
+def test_listar_carteira_informa_quando_usuario_pode_gerenciar() -> None:
+    # Achado do usuário (20/09/2026): a tela sempre mostrava todos os
+    # botões de gerenciamento, mesmo pra quem só tem portfolio.view
+    # (perfis "comercial" e "auditor") -- clicar em qualquer um devolvia
+    # "Acesso não autorizado" sem aviso. Mesmo padrão de app/api/leads.py
+    # ("acoes.gerenciar"): a tela esconde o que a API já sabe que vai
+    # recusar.
+    resultado = asyncio.run(listar_carteira(_fake_session_listar_carteira(), usuario_teste()))
+    assert resultado["acoes"] == {"gerenciar": True}
+
+
+def test_listar_carteira_informa_quando_usuario_nao_pode_gerenciar() -> None:
+    usuario_comercial = usuario_teste(perfil="comercial", permissoes={"portfolio.view"})
+    resultado = asyncio.run(listar_carteira(_fake_session_listar_carteira(), usuario_comercial))
+    assert resultado["acoes"] == {"gerenciar": False}
+
+
+def test_tela_esconde_botoes_de_gerenciamento_para_quem_so_tem_view() -> None:
+    # Achado do revisor (Codex, PR #82): /procuradores e /buscar-procurador
+    # usam ViewDep e gerar_relatorio_pdf também -- a busca por procurador e
+    # o botão "Gerar relatório" continuam disponíveis pra quem só tem
+    # portfolio.view; só o vínculo (empresa/responsável/"Vincular...") e a
+    # edição de status/procurador exigem portfolio.manage.
+    page = "app/web/admin-carteira.html"
+    script = "app/web/static/admin-carteira.js"
+    with open(page, encoding="utf-8") as arquivo:
+        html = arquivo.read()
+    with open(script, encoding="utf-8") as arquivo:
+        javascript = arquivo.read()
+
+    assert "function applyManagePermissions" in javascript
+    assert "data.acoes?.gerenciar" in javascript
+    assert '"#open-manual"' in javascript
+    assert '"#open-import"' in javascript
+    assert '"#attorney-link-bar"' in javascript
+    assert '"#attorney-select-col"' in javascript
+    assert 'id="attorney-link-bar" class="portfolio-link-bar" hidden' in html
+    assert 'id="attorney-select-col" hidden' in html
+    assert '<button class="secondary-button" data-relatorio type="button">Gerar relatório</button>' in javascript
+    # Escondido por padrão no HTML estático -- não fica visível/clicável
+    # entre o carregamento da página e a resposta de /v1/admin/carteira
+    # confirmando (ou recusando) portfolio.manage.
+    assert '<button id="open-manual" class="primary-button" type="button" hidden>' in html
+    assert '<button id="open-import" class="secondary-button" type="button" hidden>' in html
+    assert '<button id="update-all" class="secondary-button" type="button" hidden>' in html
+    assert '<div id="portfolio-bulk-assign" class="portfolio-link-bar" hidden>' in html

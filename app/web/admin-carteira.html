@@ -8,15 +8,15 @@
   <link rel="stylesheet" href="/static/styles.css?v=66">
   <link rel="stylesheet" href="/static/admin-carteira.css?v=13">
   <script src="/static/admin-shell.js?v=50" defer></script>
-  <script src="/static/admin-carteira.js?v=22" defer></script>
+  <script src="/static/admin-carteira.js?v=23" defer></script>
 </head>
 <body class="admin-body" data-admin-section="portfolio">
   <main class="admin-main portfolio-main">
     <section class="portfolio-hero">
       <div><p class="eyebrow">CARTEIRA DE PROPRIEDADE INTELECTUAL</p><h1>Processos monitorados</h1><p>Cadastre processos da base RPI ou encontre todos os pedidos vinculados a um procurador. As movimentações futuras são atualizadas pela sincronização do INPI.</p></div>
       <div class="portfolio-hero-actions">
-        <button id="open-import" class="secondary-button" type="button">Importar carteira</button>
-        <button id="open-manual" class="primary-button" type="button">Cadastrar processo</button>
+        <button id="open-import" class="secondary-button" type="button" hidden>Importar carteira</button>
+        <button id="open-manual" class="primary-button" type="button" hidden>Cadastrar processo</button>
       </div>
     </section>
 
@@ -37,20 +37,20 @@
         <button class="primary-button" type="submit">Pesquisar processos</button>
       </form>
       <div id="attorney-result" hidden>
-        <div class="portfolio-link-bar">
-          <div id="attorney-total" class="attorney-summary"></div>
+        <div id="attorney-total" class="attorney-summary"></div>
+        <div id="attorney-link-bar" class="portfolio-link-bar" hidden>
           <label><span>Empresa/cliente</span><input id="attorney-company" list="company-suggestions" placeholder="Opcional"></label>
           <label><span>Responsável</span><select id="attorney-owner"><option value="">Não atribuído</option></select></label>
           <button id="link-selected" class="secondary-button" type="button">Vincular selecionados</button>
           <button id="link-all" class="primary-button" type="button">Vincular todos encontrados</button>
         </div>
         <div class="attorney-insights"><div><span>Variações encontradas nesta página</span><div id="attorney-variants" class="attorney-variants"></div></div><p id="attorney-coverage"></p></div>
-        <div class="portfolio-table-wrap"><table><thead><tr><th><input id="select-page" type="checkbox" aria-label="Selecionar página"></th><th>Processo</th><th>Marca</th><th>Situação</th><th>Depósito</th><th>Vínculo</th></tr></thead><tbody id="attorney-rows"></tbody></table></div>
+        <div class="portfolio-table-wrap"><table><thead><tr><th id="attorney-select-col" hidden><input id="select-page" type="checkbox" aria-label="Selecionar página"></th><th>Processo</th><th>Marca</th><th>Situação</th><th>Depósito</th><th>Vínculo</th></tr></thead><tbody id="attorney-rows"></tbody></table></div>
       </div>
     </section>
 
     <section class="portfolio-card">
-      <header class="portfolio-list-header"><div><p class="eyebrow">ACOMPANHAMENTO</p><h2>Minha carteira</h2></div><button id="update-all" class="secondary-button" type="button">Atualizar situação de todos</button><a id="export-csv" class="secondary-button" href="/v1/admin/carteira/exportar.csv">Exportar CSV</a><div class="view-switch" role="group" aria-label="Visualização da carteira"><button id="portfolio-view-list" class="is-active" type="button" aria-pressed="true">Lista</button><button id="portfolio-view-kanban" type="button" aria-pressed="false">Fluxo interno</button><button id="portfolio-view-inpi" type="button" aria-pressed="false">Situação INPI</button></div></header>
+      <header class="portfolio-list-header"><div><p class="eyebrow">ACOMPANHAMENTO</p><h2>Minha carteira</h2></div><button id="update-all" class="secondary-button" type="button" hidden>Atualizar situação de todos</button><a id="export-csv" class="secondary-button" href="/v1/admin/carteira/exportar.csv">Exportar CSV</a><div class="view-switch" role="group" aria-label="Visualização da carteira"><button id="portfolio-view-list" class="is-active" type="button" aria-pressed="true">Lista</button><button id="portfolio-view-kanban" type="button" aria-pressed="false">Fluxo interno</button><button id="portfolio-view-inpi" type="button" aria-pressed="false">Situação INPI</button></div></header>
       <p id="rpi-status" class="rpi-status-indicator" role="status" hidden></p>
       <form id="portfolio-filter" class="portfolio-form filter-form">
         <label class="wide"><span>Buscar</span><input name="busca" placeholder="Número, marca, procurador ou empresa"></label>
@@ -58,7 +58,7 @@
         <label><span>Situação no INPI</span><select name="situacao_inpi"><option value="">Todas</option><option value="em_tramitacao">Em tramitação</option><option value="exigencia">Exigência</option><option value="sobrestado">Sobrestado</option><option value="recurso">Recurso / 2ª instância</option><option value="deferido">Deferido</option><option value="registrado">Registro concedido</option><option value="indeferido">Indeferido</option><option value="encerrado">Arquivado / Extinto</option><option value="revisar">Revisar classificação</option></select></label>
         <button class="primary-button" type="submit">Filtrar</button>
       </form>
-      <div id="portfolio-bulk-assign" class="portfolio-link-bar">
+      <div id="portfolio-bulk-assign" class="portfolio-link-bar" hidden>
         <label><input id="portfolio-select-page" type="checkbox"> Selecionar todos nesta página</label>
         <span id="portfolio-bulk-count">Nenhum selecionado</span>
         <label><span>Empresa/cliente</span><input id="bulk-company" list="company-suggestions" placeholder="Não alterar"></label>

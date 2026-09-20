@@ -188,6 +188,31 @@ def test_leads_exibe_status_e_acao_do_relatorio_completo() -> None:
     assert ".chk-actions > .chk-padrao" in styles
 
 
+def test_aba_ativa_do_lead_tem_contraste_legivel() -> None:
+    # Achado do usuário (20/09/2026): a aba ativa (ex.: "Linha do tempo")
+    # mostrava texto branco sobre fundo praticamente branco, ilegível --
+    # causa raiz: `var(--green)` nunca foi definida em nenhum arquivo CSS
+    # (o token real é `--forest`), então o `background` da regra falhava
+    # silenciosamente e caía no fundo claro do container pai. O mesmo
+    # `var(--green)` inexistente também quebrava (sem erro visível) o
+    # destaque de cor em Financeiro, CRM e RPI -- corrigido em todos os
+    # arquivos de uma vez, por ser o mesmo bug mecânico.
+    for nome in (
+        "admin-leads.css",
+        "admin-crm.css",
+        "admin-crm-overrides.css",
+        "admin-crm-reminders.css",
+        "admin-financeiro.css",
+        "admin-financeiro-log.css",
+        "styles.css",
+    ):
+        conteudo = (web_dir / "static" / nome).read_text(encoding="utf-8")
+        assert "var(--green)" not in conteudo, f"var(--green) não existe -- {nome} ainda referencia"
+
+    styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
+    assert ".lead-tab.active {\n  color: #fff;\n  background: var(--forest);\n}" in styles
+
+
 def test_painel_do_lead_usa_abas() -> None:
     # Achado 05/09/2026: pedido do usuario para trocar a lista longa e
     # empilhada por abas -- Atendimento Comercial, Empresa, Funil do Lead,
@@ -687,7 +712,7 @@ def test_politica_crm_usa_permissao_correta_e_checkboxes_compactos() -> None:
     script = (web_dir / "static" / "admin-regras-automaticas.js").read_text(encoding="utf-8")
     styles = (web_dir / "static" / "admin-crm-overrides.css").read_text(encoding="utf-8")
 
-    assert "admin-crm-overrides.css?v=6" in page
+    assert "admin-crm-overrides.css?v=7" in page
     assert "admin-regras-automaticas.js?v=5" in page
     assert 'includes("crm.manage")' in script
     assert 'includes("leads.manage")' not in script

@@ -3,7 +3,7 @@
 .crm-entry strong { display: block; }
 .crm-entry small { display: block; margin-top: 4px; color: var(--muted); font-size: .75rem; }
 .crm-entry time, .crm-history-observation, .crm-history-next { color: var(--muted); font-size: .8rem; }
-.crm-entry a { color: var(--green); font-size: .78rem; font-weight: 800; text-decoration: none; }
+.crm-entry a { color: var(--forest); font-size: .78rem; font-weight: 800; text-decoration: none; }
 .crm-entry a:hover { text-decoration: underline; }
 .crm-history-card { overflow: hidden; }
 .crm-kanban-header { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
@@ -13,7 +13,7 @@
 .crm-kanban-column { min-width: 148px; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: #f5f8f4; }
 .crm-kanban-column > header { display: flex; align-items: start; justify-content: space-between; gap: 6px; min-height: 40px; }
 .crm-kanban-column h3 { margin: 0; color: var(--ink); font-size: .7rem; line-height: 1.2; }
-.crm-kanban-column > header strong { display: grid; min-width: 20px; min-height: 20px; place-items: center; border-radius: 999px; color: var(--green); background: #e4f0e9; font-size: .64rem; }
+.crm-kanban-column > header strong { display: grid; min-width: 20px; min-height: 20px; place-items: center; border-radius: 999px; color: var(--forest); background: #e4f0e9; font-size: .64rem; }
 .crm-kanban-column-badges { display: flex; align-items: center; gap: 4px; }
 .crm-kanban-atrasados { color: #a3402f !important; background: #fbe9e5 !important; }
 .crm-kanban-card-item.atrasado { border-color: #e3ab9e; background: #fff8f6; }
@@ -25,7 +25,7 @@
 .crm-kanban-card-item.dragging { opacity: .5; }
 .crm-kanban-card-item strong { font-size: .7rem; }
 .crm-kanban-card-item span, .crm-kanban-card-item small, .crm-kanban-card-item time { color: var(--muted); font-size: .62rem; overflow-wrap: anywhere; }
-.crm-kanban-card-item a { color: var(--green); font-size: .64rem; font-weight: 800; text-decoration: none; }
+.crm-kanban-card-item a { color: var(--forest); font-size: .64rem; font-weight: 800; text-decoration: none; }
 .crm-kanban-card-item .kanban-no-action { color: #9b5a18; }
 .crm-kanban-empty { margin: 0; padding: 14px 4px; color: var(--muted); font-size: .64rem; text-align: center; }
 @media (max-width: 700px) { .crm-kanban-header { align-items: stretch; flex-direction: column; } .crm-kanban { grid-template-columns: repeat(8, minmax(190px, 1fr)); } }

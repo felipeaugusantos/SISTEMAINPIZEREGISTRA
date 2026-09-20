@@ -1944,20 +1944,32 @@ async def atualizar_status_processo(
     processo = await session.get(Processo, monitorado.processo_id)
 
     cliente_cadastrado = None
+    titulares_multiplos = False
     if monitorado.empresa_id is None:
-        titular_nome = (
+        # Achado do usuário (20/09/2026): pegava só o titular "alfabeticamente
+        # primeiro" (order_by(Titular.nome).limit(1)) -- quando o processo
+        # tinha mais de um titular (cotitularidade), o cadastro automático de
+        # empresa podia vincular silenciosamente ao titular errado, sem
+        # nenhum aviso pro operador. Sem coluna que marque qual titular é o
+        # "principal" (processo_titulares é só uma tabela de associação, sem
+        # ordem), o único jeito seguro é: só cadastra sozinho quando não há
+        # ambiguidade (exatamente 1 titular); com 2+, avisa e deixa pro
+        # operador vincular manualmente.
+        titulares_nomes = (
             await session.execute(
                 select(Titular.nome)
                 .join(processo_titulares, processo_titulares.c.titular_id == Titular.id)
                 .where(processo_titulares.c.processo_id == monitorado.processo_id)
                 .order_by(Titular.nome)
-                .limit(1)
             )
-        ).scalar_one_or_none()
-        empresa = await obter_ou_criar_empresa(session, usuario.organizacao_id, titular_nome)
-        if empresa is not None:
-            monitorado.empresa_id = empresa.id
-            cliente_cadastrado = empresa.nome
+        ).scalars().all()
+        if len(titulares_nomes) == 1:
+            empresa = await obter_ou_criar_empresa(session, usuario.organizacao_id, titulares_nomes[0])
+            if empresa is not None:
+                monitorado.empresa_id = empresa.id
+                cliente_cadastrado = empresa.nome
+        elif len(titulares_nomes) > 1:
+            titulares_multiplos = True
 
     monitorado.atualizado_em = datetime.now(UTC)
     _auditar(
@@ -1969,6 +1981,7 @@ async def atualizar_status_processo(
         {
             "situacao": processo.situacao if processo else None,
             "cliente_cadastrado": cliente_cadastrado,
+            "titulares_multiplos": titulares_multiplos,
         },
     )
     await session.commit()
@@ -1978,4 +1991,5 @@ async def atualizar_status_processo(
         "situacao_normalizada": processo.situacao_normalizada if processo else None,
         "relevancia_situacao": processo.relevancia_situacao if processo else None,
         "cliente_cadastrado": cliente_cadastrado,
+        "titulares_multiplos": titulares_multiplos,
     }

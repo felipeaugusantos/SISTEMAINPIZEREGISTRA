@@ -376,6 +376,10 @@ document.querySelector("#portfolio-list").addEventListener("click", async event 
     const result = await api(`/v1/admin/carteira/${card.dataset.id}/atualizar`, { method: "POST" });
     const partes = [`Situação: ${result.situacao || "não informada"}`];
     if (result.cliente_cadastrado) partes.push(`Cliente cadastrado: ${result.cliente_cadastrado}`);
+    // Achado do usuário (20/09/2026): com mais de um titular no processo, o
+    // sistema não escolhe mais um sozinho (evita vincular à empresa
+    // errada) -- avisa pra vincular manualmente em vez disso.
+    if (result.titulares_multiplos) partes.push("Vários titulares encontrados -- vincule a empresa manualmente");
     showMessage(partes.join(" · "));
     await loadPortfolio();
   }

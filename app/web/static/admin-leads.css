@@ -452,7 +452,13 @@
 .lead-contact-summary {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* auto-fit em vez de um número fixo de colunas -- achado do usuário
+     (20/09/2026): com repeat(5, ...) fixo, qualquer largura de desktop
+     entre 980px e o max-width do diálogo (920px) espremia cada coluna a
+     ~159px, fazendo o botão "WhatsApp" quebrar em duas linhas e o rótulo
+     "Prioridade (IA)" cortar com reticências. minmax(190px, 1fr) garante
+     que cada coluna nunca fique mais estreita do que isso. */
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 12px;
   margin: 0;
 }
@@ -483,10 +489,15 @@
   font-weight: 850;
 }
 
-.lead-contact-summary > div:nth-child(1)::before { content: "@"; font-size: 0.9rem; }
-.lead-contact-summary > div:nth-child(2)::before { content: "TEL"; }
-.lead-contact-summary > div:nth-child(3)::before { content: "PJ"; }
-.lead-contact-summary > div:nth-child(4)::before { content: "OK"; }
+/* Ícones por data-icon, não por posição -- achado do usuário
+   (20/09/2026): com nth-child, o campo "Site" oculto (inserido entre
+   Telefone e CPF/CNPJ numa correção anterior) deslocava a contagem e
+   fazia CPF/CNPJ herdar o ícone errado ("OK") e Empresa ficar sem
+   ícone nenhum. */
+.lead-contact-summary > div[data-icon="email"]::before { content: "@"; font-size: 0.9rem; }
+.lead-contact-summary > div[data-icon="telefone"]::before { content: "TEL"; }
+.lead-contact-summary > div[data-icon="documento"]::before { content: "PJ"; }
+.lead-contact-summary > div[data-icon="empresa"]::before { content: "OK"; }
 
 .lead-contact-summary span {
   display: block;

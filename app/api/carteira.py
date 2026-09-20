@@ -1,5 +1,6 @@
 import re
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
@@ -664,67 +665,90 @@ async def listar_kanban(
         .limit(1)
         .scalar_subquery()
     )
+    # Achado da análise da tela (20/09/2026): antes eram 8 queries separadas
+    # (uma por etapa, em loop) a cada carregamento do Kanban -- N+1 real.
+    # Uma única query com row_number() OVER (PARTITION BY etapa) resolve os
+    # "top 20 de cada coluna" de uma vez só; a divisão em colunas volta a
+    # ser feita em Python, sobre o resultado já vindo pronto do banco.
+    linha_numero = func.row_number().over(
+        partition_by=ProcessoMonitorado.etapa_kanban,
+        order_by=(
+            ProcessoMonitorado.ordem_kanban,
+            ProcessoMonitorado.etapa_atualizada_em.desc(),
+            ProcessoMonitorado.id.desc(),
+        ),
+    )
+    subconsulta = (
+        select(
+            ProcessoMonitorado.id.label("monitorado_id"),
+            ProcessoMonitorado.status.label("status"),
+            ProcessoMonitorado.etapa_kanban.label("etapa_kanban"),
+            Processo.numero.label("numero"),
+            Processo.titulo.label("titulo"),
+            Processo.apresentacao.label("apresentacao"),
+            Processo.situacao.label("situacao"),
+            Processo.situacao_normalizada.label("situacao_normalizada"),
+            Processo.data_deposito.label("data_deposito"),
+            EmpresaCRM.nome.label("empresa_nome"),
+            UsuarioOperacoes.nome.label("responsavel_nome"),
+            ultima_rpi.label("ultima_rpi"),
+            ultima_data.label("ultima_data"),
+            ultima_descricao.label("ultima_descricao"),
+            linha_numero.label("linha_numero"),
+        )
+        .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+        .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
+        .outerjoin(UsuarioOperacoes, UsuarioOperacoes.id == ProcessoMonitorado.responsavel_id)
+        .where(*filtros)
+        .subquery()
+    )
+    linhas = (
+        await session.execute(
+            select(subconsulta)
+            .where(subconsulta.c.linha_numero <= 20)
+            .order_by(subconsulta.c.etapa_kanban, subconsulta.c.linha_numero)
+        )
+    ).all()
+    linhas_por_etapa: dict[str, list] = {}
+    for linha in linhas:
+        linhas_por_etapa.setdefault(linha.etapa_kanban, []).append(linha)
+
     colunas = []
     for chave, titulo in ETAPAS_KANBAN:
-        linhas = (
-            await session.execute(
-                select(
-                    ProcessoMonitorado,
-                    Processo,
-                    EmpresaCRM.nome,
-                    UsuarioOperacoes.nome,
-                    ultima_rpi,
-                    ultima_data,
-                    ultima_descricao,
-                )
-                .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
-                .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
-                .outerjoin(
-                    UsuarioOperacoes,
-                    UsuarioOperacoes.id == ProcessoMonitorado.responsavel_id,
-                )
-                .where(*filtros, ProcessoMonitorado.etapa_kanban == chave)
-                .order_by(
-                    ProcessoMonitorado.ordem_kanban,
-                    ProcessoMonitorado.etapa_atualizada_em.desc(),
-                    ProcessoMonitorado.id.desc(),
-                )
-                .limit(20)
-            )
-        ).all()
-        itens = []
-        for (
-            monitorado,
-            processo,
-            empresa_nome,
-            responsavel_nome,
-            numero_rpi,
-            data_rpi,
-            descricao,
-        ) in linhas:
-            itens.append(
-                {
-                    "id": monitorado.id,
-                    "numero": processo.numero,
-                    "titulo": processo.titulo,
-                    "titulo_exibicao": _titulo_exibicao(processo),
-                    "situacao": processo.situacao,
-                    "data_deposito": processo.data_deposito,
-                    "status": monitorado.status,
-                    "etapa_kanban": monitorado.etapa_kanban,
-                    "empresa": empresa_nome,
-                    "responsavel": responsavel_nome,
-                    "ultima_movimentacao": (
-                        {
-                            "numero_rpi": numero_rpi,
-                            "data": data_rpi,
-                            "descricao": descricao,
-                        }
-                        if numero_rpi is not None
-                        else None
-                    ),
-                }
-            )
+        itens = [
+            {
+                "id": linha.monitorado_id,
+                "numero": linha.numero,
+                "titulo": linha.titulo,
+                # _titulo_exibicao() só olha titulo/apresentacao/situacao_normalizada
+                # -- aqui não temos mais um Processo de verdade (a query virou
+                # colunas soltas), então um SimpleNamespace com esses 3 campos
+                # basta.
+                "titulo_exibicao": _titulo_exibicao(
+                    SimpleNamespace(
+                        titulo=linha.titulo,
+                        apresentacao=linha.apresentacao,
+                        situacao_normalizada=linha.situacao_normalizada,
+                    )
+                ),
+                "situacao": linha.situacao,
+                "data_deposito": linha.data_deposito,
+                "status": linha.status,
+                "etapa_kanban": linha.etapa_kanban,
+                "empresa": linha.empresa_nome,
+                "responsavel": linha.responsavel_nome,
+                "ultima_movimentacao": (
+                    {
+                        "numero_rpi": linha.ultima_rpi,
+                        "data": linha.ultima_data,
+                        "descricao": linha.ultima_descricao,
+                    }
+                    if linha.ultima_rpi is not None
+                    else None
+                ),
+            }
+            for linha in linhas_por_etapa.get(chave, [])
+        ]
         total = int(contagens.get(chave, 0))
         colunas.append(
             {
@@ -800,66 +824,82 @@ async def listar_kanban_inpi(
         .limit(1)
         .scalar_subquery()
     )
+    # Achado da análise da tela (20/09/2026): mesmo N+1 do listar_kanban --
+    # 1 query por grupo de situação em loop. Mesma solução: row_number()
+    # OVER (PARTITION BY grupo) numa query só.
+    linha_numero = func.row_number().over(
+        partition_by=grupo,
+        order_by=(ProcessoMonitorado.atualizado_em.desc(), ProcessoMonitorado.id.desc()),
+    )
+    subconsulta = (
+        select(
+            ProcessoMonitorado.id.label("monitorado_id"),
+            ProcessoMonitorado.status.label("status"),
+            ProcessoMonitorado.etapa_kanban.label("etapa_kanban"),
+            Processo.numero.label("numero"),
+            Processo.titulo.label("titulo"),
+            Processo.apresentacao.label("apresentacao"),
+            Processo.situacao.label("situacao"),
+            Processo.situacao_normalizada.label("situacao_normalizada"),
+            Processo.data_deposito.label("data_deposito"),
+            EmpresaCRM.nome.label("empresa_nome"),
+            UsuarioOperacoes.nome.label("responsavel_nome"),
+            ultima_rpi.label("ultima_rpi"),
+            ultima_data.label("ultima_data"),
+            ultima_descricao.label("ultima_descricao"),
+            grupo.label("grupo_situacao_inpi"),
+            linha_numero.label("linha_numero"),
+        )
+        .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+        .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
+        .outerjoin(UsuarioOperacoes, UsuarioOperacoes.id == ProcessoMonitorado.responsavel_id)
+        .where(*filtros)
+        .subquery()
+    )
+    linhas = (
+        await session.execute(
+            select(subconsulta)
+            .where(subconsulta.c.linha_numero <= 20)
+            .order_by(subconsulta.c.grupo_situacao_inpi, subconsulta.c.linha_numero)
+        )
+    ).all()
+    linhas_por_grupo: dict[str, list] = {}
+    for linha in linhas:
+        linhas_por_grupo.setdefault(linha.grupo_situacao_inpi, []).append(linha)
+
     colunas = []
     for chave, titulo in GRUPOS_SITUACAO_INPI:
-        linhas = (
-            await session.execute(
-                select(
-                    ProcessoMonitorado,
-                    Processo,
-                    EmpresaCRM.nome,
-                    UsuarioOperacoes.nome,
-                    ultima_rpi,
-                    ultima_data,
-                    ultima_descricao,
-                )
-                .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
-                .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
-                .outerjoin(
-                    UsuarioOperacoes,
-                    UsuarioOperacoes.id == ProcessoMonitorado.responsavel_id,
-                )
-                .where(*filtros, grupo == chave)
-                .order_by(
-                    ProcessoMonitorado.atualizado_em.desc(),
-                    ProcessoMonitorado.id.desc(),
-                )
-                .limit(20)
-            )
-        ).all()
         itens = [
             {
-                "id": monitorado.id,
-                "numero": processo.numero,
-                "titulo": processo.titulo,
-                "titulo_exibicao": _titulo_exibicao(processo),
-                "situacao": processo.situacao,
-                "situacao_normalizada": processo.situacao_normalizada,
+                "id": linha.monitorado_id,
+                "numero": linha.numero,
+                "titulo": linha.titulo,
+                "titulo_exibicao": _titulo_exibicao(
+                    SimpleNamespace(
+                        titulo=linha.titulo,
+                        apresentacao=linha.apresentacao,
+                        situacao_normalizada=linha.situacao_normalizada,
+                    )
+                ),
+                "situacao": linha.situacao,
+                "situacao_normalizada": linha.situacao_normalizada,
                 "grupo_situacao_inpi": chave,
-                "data_deposito": processo.data_deposito,
-                "status": monitorado.status,
-                "etapa_kanban": monitorado.etapa_kanban,
-                "empresa": empresa_nome,
-                "responsavel": responsavel_nome,
+                "data_deposito": linha.data_deposito,
+                "status": linha.status,
+                "etapa_kanban": linha.etapa_kanban,
+                "empresa": linha.empresa_nome,
+                "responsavel": linha.responsavel_nome,
                 "ultima_movimentacao": (
                     {
-                        "numero_rpi": numero_rpi,
-                        "data": data_rpi,
-                        "descricao": descricao,
+                        "numero_rpi": linha.ultima_rpi,
+                        "data": linha.ultima_data,
+                        "descricao": linha.ultima_descricao,
                     }
-                    if numero_rpi is not None
+                    if linha.ultima_rpi is not None
                     else None
                 ),
             }
-            for (
-                monitorado,
-                processo,
-                empresa_nome,
-                responsavel_nome,
-                numero_rpi,
-                data_rpi,
-                descricao,
-            ) in linhas
+            for linha in linhas_por_grupo.get(chave, [])
         ]
         total = int(contagens.get(chave, 0))
         colunas.append(

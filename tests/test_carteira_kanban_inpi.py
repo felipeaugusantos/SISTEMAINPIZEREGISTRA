@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from app.api.carteira import listar_kanban_inpi
+from app.api.carteira import GRUPOS_SITUACAO_INPI, listar_kanban_inpi
 from app.auth import UsuarioAutenticado
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
@@ -44,6 +44,11 @@ async def test_listar_kanban_inpi_sem_busca_nao_quebra() -> None:
             resultado = await listar_kanban_inpi(session, _usuario_teste())
             assert "total" in resultado
             assert "colunas" in resultado
+            assert [coluna["chave"] for coluna in resultado["colunas"]] == [
+                chave for chave, _ in GRUPOS_SITUACAO_INPI
+            ]
+            for coluna in resultado["colunas"]:
+                assert len(coluna["itens"]) <= 20
     finally:
         await engine.dispose()
 

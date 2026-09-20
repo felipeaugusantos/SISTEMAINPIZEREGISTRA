@@ -1,9 +1,12 @@
+import csv
+import io
 import re
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -163,6 +166,16 @@ def _grupo_situacao_valor(codigo: str | None) -> str:
     if codigo in {"arquivada", "inexistente", "extinta", "cancelada"}:
         return "encerrado"
     return "revisar"
+
+
+def _valor_csv(valor: object) -> str:
+    # Mesma proteção contra injeção de fórmula usada em app/api/leads.py
+    # (_valor_csv) -- um valor começando com =/+/-/@ é interpretado como
+    # fórmula pelo Excel/Sheets ao abrir o CSV.
+    texto = "" if valor is None else str(valor)
+    if texto.lstrip().startswith(("=", "+", "-", "@")):
+        return "'" + texto
+    return texto
 
 
 def _titulo_exibicao(processo: Processo) -> str:
@@ -603,6 +616,120 @@ async def listar_carteira(
         ],
         "tem_mais": deslocamento + len(linhas) < total,
     }
+
+
+@router.get("/exportar.csv")
+async def exportar_carteira(
+    session: SessionDep,
+    usuario: ViewDep,
+    request: Request,
+    busca: Annotated[str | None, Query(max_length=150)] = None,
+    status: Annotated[str | None, Query(max_length=20)] = None,
+    situacao_inpi: Annotated[str | None, Query(max_length=30)] = None,
+) -> StreamingResponse:
+    """Exporta em CSV o mesmo filtro (busca/status/situação) já aplicado na
+    tela -- achado da análise da tela "Processos monitorados" (20/09/2026):
+    só existia relatório em PDF processo por processo, sem nada pra exportar
+    a carteira inteira ou um filtro de uma vez. Limite de 5000 linhas, mesmo
+    teto já usado nos outros lotes desta tela."""
+    situacao_inpi = _validar_grupo_situacao_inpi(situacao_inpi)
+    filtros = [ProcessoMonitorado.organizacao_id == usuario.organizacao_id]
+    if status:
+        filtros.append(ProcessoMonitorado.status == status)
+    if situacao_inpi:
+        filtros.append(_expressao_grupo_situacao_inpi() == situacao_inpi)
+    if busca:
+        termo = f"%{_normalizar_busca(busca)}%"
+        filtros.append(
+            or_(
+                Processo.numero_normalizado.ilike(f"%{normalizar_numero_processo(busca)}%"),
+                func.immutable_unaccent(Processo.titulo).ilike(termo),
+                _expressao_procurador().ilike(termo),
+                _expressao_procurador_manual().ilike(termo),
+                func.immutable_unaccent(func.lower(EmpresaCRM.nome)).ilike(termo),
+            )
+        )
+    ultima_rpi = (
+        select(Movimentacao.numero_rpi)
+        .where(Movimentacao.processo_id == Processo.id)
+        .order_by(Movimentacao.data_rpi.desc(), Movimentacao.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    ultima_data = (
+        select(Movimentacao.data_rpi)
+        .where(Movimentacao.processo_id == Processo.id)
+        .order_by(Movimentacao.data_rpi.desc(), Movimentacao.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    linhas = (
+        await session.execute(
+            select(
+                ProcessoMonitorado,
+                Processo,
+                EmpresaCRM.nome,
+                UsuarioOperacoes.nome,
+                ultima_rpi,
+                ultima_data,
+            )
+            .join(Processo, Processo.id == ProcessoMonitorado.processo_id)
+            .outerjoin(EmpresaCRM, EmpresaCRM.id == ProcessoMonitorado.empresa_id)
+            .outerjoin(UsuarioOperacoes, UsuarioOperacoes.id == ProcessoMonitorado.responsavel_id)
+            .where(*filtros)
+            .order_by(Processo.numero)
+            .limit(5000)
+        )
+    ).all()
+
+    arquivo = io.StringIO()
+    escritor = csv.writer(arquivo, delimiter=";")
+    escritor.writerow(
+        (
+            "numero",
+            "titulo",
+            "empresa",
+            "procurador",
+            "responsavel",
+            "status_interno",
+            "situacao_inpi",
+            "data_deposito",
+            "origem",
+            "ultima_rpi",
+            "ultima_rpi_data",
+        )
+    )
+    for monitorado, processo, empresa_nome, responsavel_nome, numero_rpi, data_rpi in linhas:
+        escritor.writerow(
+            (
+                _valor_csv(processo.numero),
+                _valor_csv(_titulo_exibicao(processo)),
+                _valor_csv(empresa_nome),
+                _valor_csv(_procurador_exibicao(processo, monitorado)),
+                _valor_csv(responsavel_nome),
+                _valor_csv(monitorado.status),
+                _valor_csv(processo.situacao),
+                _valor_csv(processo.data_deposito.isoformat() if processo.data_deposito else ""),
+                _valor_csv(monitorado.origem),
+                _valor_csv(numero_rpi),
+                _valor_csv(data_rpi.isoformat() if data_rpi else ""),
+            )
+        )
+    _auditar(
+        session,
+        request,
+        usuario,
+        "exportar_carteira",
+        "carteira:csv",
+        {"quantidade": len(linhas), "busca": busca, "status": status, "situacao_inpi": situacao_inpi},
+    )
+    await session.commit()
+    conteudo = "﻿" + arquivo.getvalue()
+    return StreamingResponse(
+        iter((conteudo,)),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="carteira-processos.csv"'},
+    )
 
 
 @router.get("/kanban")

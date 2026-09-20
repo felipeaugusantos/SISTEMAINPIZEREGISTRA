@@ -149,6 +149,13 @@ async function loadPortfolio() {
   [...params.entries()].forEach(([key, value]) => {
     if (!String(value).trim()) params.delete(key);
   });
+  // Achado do usuário (20/09/2026): só existia relatório em PDF processo por
+  // processo, nada pra exportar a carteira inteira ou um filtro de uma vez
+  // -- o link de exportação sempre reflete o filtro atualmente aplicado.
+  const exportParams = new URLSearchParams(params);
+  exportParams.delete("limite");
+  exportParams.delete("deslocamento");
+  document.querySelector("#export-csv").href = `/v1/admin/carteira/exportar.csv?${exportParams}`;
   if (state.view === "kanban") {
     const data = await api(`/v1/admin/carteira/kanban?${params}`); renderKanban(data); return;
   }

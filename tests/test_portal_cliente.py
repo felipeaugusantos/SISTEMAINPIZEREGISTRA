@@ -40,6 +40,7 @@ from app.models import (
     HistoricoFaseLead,
     Lead,
     MaterialMarcaCliente,
+    Organizacao,
     PrazoJuridico,
     Processo,
     ProcessoMonitorado,
@@ -374,28 +375,71 @@ def test_webhook_clicksign_recusa_sem_segredo_configurado(monkeypatch: pytest.Mo
     # sem autenticação nenhuma (fail-open) -- bastava saber o envelope_id
     # (previsível) pra forjar "documento assinado" e disparar a contratação
     # automática. Agora falha fechado: sem segredo, nada passa, mesmo que o
-    # payload em si seja válido.
+    # payload em si seja válido e o envelope exista de verdade.
     _configurar_segredo_webhook(monkeypatch, secret="")
-    session = FakeSession([])
+    proposta = _proposta_para_assinatura(id=7, status="enviada", dados={"clicksign": {"envelope_id": "env-123"}})
+    session = FakeSession([FakeResult(scalar=proposta)], objetos_get=[Organizacao(id=1, nome="Teste", slug="teste")])
     corpo = {"envelope_id": "env-123", "status": "signed"}
 
     with pytest.raises(HTTPException) as erro:
         asyncio.run(webhook_clicksign(_webhook_request(corpo), session, None))
 
     assert erro.value.status_code == 401
-    assert session.executados == []
+    assert proposta.status == "enviada"  # recusado antes de qualquer mutação
+    assert session.commits == 0
 
 
 def test_webhook_clicksign_recusa_assinatura_invalida(monkeypatch: pytest.MonkeyPatch) -> None:
     _configurar_segredo_webhook(monkeypatch)
-    session = FakeSession([])
+    proposta = _proposta_para_assinatura(id=7, status="enviada", dados={"clicksign": {"envelope_id": "env-123"}})
+    session = FakeSession([FakeResult(scalar=proposta)], objetos_get=[Organizacao(id=1, nome="Teste", slug="teste")])
     corpo = {"envelope_id": "env-123", "status": "signed"}
 
     with pytest.raises(HTTPException) as erro:
         asyncio.run(webhook_clicksign(_webhook_request(corpo), session, "sha256=assinatura-forjada"))
 
     assert erro.value.status_code == 401
-    assert session.executados == []
+    assert proposta.status == "enviada"
+    assert session.commits == 0
+
+
+def test_webhook_clicksign_usa_segredo_da_organizacao_dona_do_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Achados altos da Fase 8 (auditoria jurídica, 15/09/2026): o webhook
+    # ficava travado em default_organization_id -- tanto pro tenant quanto
+    # pro segredo de validação -- então uma organização não-padrão com sua
+    # própria conta/segredo do Clicksign nunca tinha o pagamento reconhecido
+    # por aqui. Agora resolve a organização dona do envelope primeiro
+    # (busca cross-tenant, só leitura) e valida a assinatura com o segredo
+    # daquela organização específica, não o do platform-wide default.
+    import app.api.portal_cliente as modulo_portal
+
+    organizacao_nao_padrao = Organizacao(id=42, nome="Escritório B", slug="escritorio-b")
+    segredo_org_42 = "segredo-da-organizacao-42"
+
+    def configuracao_por_organizacao(org=None):
+        secret = segredo_org_42 if org is not None and org.id == 42 else "segredo-errado-do-default"
+        return {"enabled": True, "base_url": "", "token": "", "secret": secret}
+
+    monkeypatch.setattr(modulo_portal, "configuracao_clicksign", configuracao_por_organizacao)
+
+    proposta = _proposta_para_assinatura(
+        id=9, organizacao_id=42, status="enviada", dados={"clicksign": {"envelope_id": "env-999"}}
+    )
+    session = FakeSession(
+        [
+            FakeResult(scalar=proposta),  # busca cross-tenant por envelope_id
+            FakeResult(scalar=None),  # contratação existente? não
+        ],
+        objetos_get=[organizacao_nao_padrao],
+    )
+    corpo = {"envelope_id": "env-999", "event_id": "evt-1", "status": "document_closed"}
+
+    resultado = asyncio.run(
+        webhook_clicksign(_webhook_request(corpo), session, _assinatura_webhook(corpo, segredo=segredo_org_42))
+    )
+
+    assert resultado == {"ok": True, "proposta_id": 9}
+    assert proposta.status == "aceita"
 
 
 # --- Achado da validação do Portal do Cliente (17/09/2026): login sem limite

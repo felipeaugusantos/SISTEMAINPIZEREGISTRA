@@ -46,6 +46,7 @@ from app.models import (
     MaterialMarcaCliente,
     MensagemClientePortal,
     NotificacaoClientePortal,
+    Organizacao,
     ParcelaFinanceira,
     PrazoJuridico,
     Processo,
@@ -208,22 +209,6 @@ async def webhook_clicksign(
     request: Request, session: SessionDep, x_clicksign_signature: str | None = Header(default=None)
 ) -> dict:
     body = await request.body()
-    config = configuracao_clicksign()
-    # Achado crítico da Fase 8 (auditoria jurídica, 15/09/2026): sem
-    # webhook_secret configurado, os dois `if` abaixo eram pulados por
-    # inteiro (fail-open) -- qualquer requisição, de qualquer origem, era
-    # aceita como se fosse o Clicksign de verdade, sem assinatura nenhuma.
-    # Bastava saber o envelope_id (previsível, gerado por nós) pra forjar
-    # "documento assinado" e disparar a contratação automática. Segredo
-    # ausente agora recusa a requisição (fail-closed) em vez de liberar.
-    if not config["secret"]:
-        logger.error("Webhook Clicksign recusado: webhook_secret não está configurado")
-        raise HTTPException(status_code=401, detail="Webhook não autenticado")
-    if not x_clicksign_signature or not hmac.compare_digest(
-        (x_clicksign_signature or "").removeprefix("sha256="),
-        hmac.new(config["secret"].encode("utf-8"), body, hashlib.sha256).hexdigest(),
-    ):
-        raise HTTPException(status_code=401, detail="Webhook inválido")
     try:
         payload = json.loads(body or b"{}")
     except json.JSONDecodeError as exc:
@@ -235,19 +220,51 @@ async def webhook_clicksign(
         envelope_id = envelope_id or str(data.get("id") or data.get("envelope_id") or "") or None
     if not envelope_id:
         raise HTTPException(status_code=422, detail="Envelope não informado")
-    await aplicar_contexto_tenant(session, get_settings().default_organization_id)
+
+    # Achados altos da Fase 8 (auditoria jurídica, 15/09/2026): o webhook
+    # ficava travado em default_organization_id -- tanto pra resolver o
+    # tenant quanto pra escolher o segredo de validação -- então uma
+    # organização não-padrão com sua própria conta/segredo do Clicksign
+    # (ver app/clicksign.py::configuracao, aceita `org` pra usar
+    # credenciais próprias) nunca tinha o pagamento reconhecido por aqui.
+    # Não há como saber de antemão qual organização mandou o webhook (a URL
+    # é compartilhada por toda a plataforma) -- por isso a busca abaixo roda
+    # em modo superadmin (cross-tenant), só pra achar QUAL organização é
+    # dona do envelope. É apenas uma consulta, sem mutação nem side-effect;
+    # a verificação de assinatura de verdade (com o segredo daquela
+    # organização específica) acontece antes de qualquer alteração de dado.
+    await aplicar_contexto_tenant(session, get_settings().default_organization_id, superadmin=True)
     proposta = (
         await session.execute(
             select(PropostaComercial)
-            .where(
-                PropostaComercial.organizacao_id == get_settings().default_organization_id,
-                PropostaComercial.dados["clicksign"]["envelope_id"].as_string() == envelope_id,
-            )
+            .where(PropostaComercial.dados["clicksign"]["envelope_id"].as_string() == envelope_id)
             .limit(1)
         )
     ).scalar_one_or_none()
     if proposta is None:
         return {"ok": True, "ignorado": True}
+    organizacao = await session.get(Organizacao, proposta.organizacao_id)
+    config = configuracao_clicksign(organizacao)
+    # Achado crítico da Fase 8: sem webhook_secret configurado, os dois
+    # `if` abaixo eram pulados por inteiro (fail-open) -- qualquer
+    # requisição, de qualquer origem, era aceita como se fosse o Clicksign
+    # de verdade, sem assinatura nenhuma. Segredo ausente agora recusa a
+    # requisição (fail-closed) em vez de liberar.
+    if not config["secret"]:
+        logger.error(
+            "Webhook Clicksign recusado: webhook_secret não está configurado (organização %s)",
+            proposta.organizacao_id,
+        )
+        raise HTTPException(status_code=401, detail="Webhook não autenticado")
+    if not x_clicksign_signature or not hmac.compare_digest(
+        (x_clicksign_signature or "").removeprefix("sha256="),
+        hmac.new(config["secret"].encode("utf-8"), body, hashlib.sha256).hexdigest(),
+    ):
+        raise HTTPException(status_code=401, detail="Webhook inválido")
+    # Assinatura validada contra o segredo certo -- agora sim volta pro
+    # contexto normal (não-superadmin) da organização dona da proposta,
+    # antes de qualquer mutação.
+    await aplicar_contexto_tenant(session, proposta.organizacao_id)
     if any(term in texto for term in ("document_closed", "envelope_closed", "signed", "assinado", "completed")):
         # Achado 6 do plano proposta-financeiro (Fase 6, 03/09/2026): este era
         # o único dos 3 canais de aceite que não registrava evidência

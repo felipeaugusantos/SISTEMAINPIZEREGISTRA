@@ -20,6 +20,7 @@ from app.api.carteira import (
     atualizar_status_lote,
     buscar_por_procurador,
     cadastrar_manual,
+    exportar_carteira,
 )
 from app.models import (
     EmpresaCRM,
@@ -279,6 +280,23 @@ def test_tela_expoe_atribuicao_em_lote_na_lista() -> None:
     assert "function updateBulkBar" in javascript
 
 
+def test_tela_expoe_exportacao_da_carteira_em_csv() -> None:
+    # Achado do usuário (20/09/2026): só existia relatório em PDF processo
+    # por processo -- link de exportação reflete o filtro atual (busca,
+    # status, situação no INPI), não uma exportação genérica descolada dele.
+    page = "app/web/admin-carteira.html"
+    script = "app/web/static/admin-carteira.js"
+    with open(page, encoding="utf-8") as arquivo:
+        html = arquivo.read()
+    with open(script, encoding="utf-8") as arquivo:
+        javascript = arquivo.read()
+
+    assert 'id="export-csv"' in html
+    assert '/v1/admin/carteira/exportar.csv' in html
+    assert '#export-csv' in javascript
+    assert "exportParams" in javascript
+
+
 def test_agrupa_situacoes_oficiais_sem_misturar_fluxo_interno() -> None:
     assert _validar_grupo_situacao_inpi("") is None
     assert _validar_grupo_situacao_inpi("deferido") == "deferido"
@@ -448,3 +466,57 @@ def test_atribuir_lote_sem_processos_encontrados_devolve_404() -> None:
 
     assert erro.value.status_code == 404
     assert session.commits == 0
+
+
+async def _exportar_e_ler_csv(*args: object, **kwargs: object) -> str:
+    resposta = await exportar_carteira(*args, **kwargs)
+    return "".join([parte async for parte in resposta.body_iterator])
+
+
+def test_exportar_carteira_gera_csv_com_cabecalho_e_linhas() -> None:
+    # Achado da análise da tela "Processos monitorados" pedida pelo usuário
+    # (20/09/2026): só existia relatório em PDF processo por processo, nada
+    # pra exportar a carteira inteira (ou um filtro) de uma vez.
+    processo = Processo(
+        id=1,
+        numero="937557234",
+        numero_normalizado="937557234",
+        tipo=TipoProcesso.MARCA,
+        fonte="RPI 2901",
+        titulo="ECQ",
+        procurador="José Vicente",
+        situacao="Deferido",
+    )
+    monitorado = ProcessoMonitorado(
+        id=1, organizacao_id=1, processo_id=1, status="ativo", origem="manual", vinculado_por="teste"
+    )
+    session = FakeSession([FakeResult(itens=[(monitorado, processo, "Padaria do Zé", "Ana", "2901", None)])])
+
+    conteudo = asyncio.run(_exportar_e_ler_csv(session, usuario_teste(), _request()))
+
+    assert "numero;titulo;empresa;procurador;responsavel" in conteudo
+    assert "937557234;ECQ;Padaria do Zé;José Vicente;Ana;ativo;Deferido" in conteudo
+    assert session.commits == 1
+
+
+def test_exportar_carteira_escapa_formula_no_titulo() -> None:
+    # Mesma proteção contra injeção de fórmula de app/api/leads.py -- um
+    # título começando com "=" não pode virar fórmula ao abrir no Excel.
+    processo = Processo(
+        id=2,
+        numero="937999999",
+        numero_normalizado="937999999",
+        tipo=TipoProcesso.MARCA,
+        fonte="RPI 2901",
+        titulo="=cmd()",
+        procurador=None,
+    )
+    monitorado = ProcessoMonitorado(
+        id=2, organizacao_id=1, processo_id=2, status="ativo", origem="manual", vinculado_por="teste"
+    )
+    session = FakeSession([FakeResult(itens=[(monitorado, processo, None, None, None, None)])])
+
+    conteudo = asyncio.run(_exportar_e_ler_csv(session, usuario_teste(), _request()))
+
+    assert "'=cmd()" in conteudo
+    assert "\n=cmd()" not in conteudo

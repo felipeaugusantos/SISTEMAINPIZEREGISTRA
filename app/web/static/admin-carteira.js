@@ -157,8 +157,23 @@ function renderPortfolio(data) {
       ? `<label><span class="portfolio-item-label">Status interno</span><select data-status>${statusOptions(item.status)}</select></label><label><span class="portfolio-item-label">Procurador</span><input data-procurador type="text" value="${escapeHtml(item.procurador || "")}" placeholder="Não informado" maxlength="500"></label><button class="primary-button" data-save-status type="button">Salvar</button><button class="secondary-button" data-atualizar type="button">Atualizar status</button>`
       : `<span class="portfolio-item-label">Status interno</span><strong>${escapeHtml(statusLabel(item.status))}</strong>`;
     const acoes = `<div class="portfolio-status">${camposEdicao}<button class="secondary-button" data-relatorio type="button">Gerar relatório</button></div>`;
+    // Achado do usuário (21/09/2026): não existia como vincular um processo já
+    // monitorado a um lead depois do fato -- só o vínculo automático por
+    // Lead.processo_numero (que também não tinha onde ser editado). O
+    // operador não tinha como registrar manualmente "este processo é deste
+    // cliente" (PATCH /v1/admin/carteira/{id} já aceita lead_id, só faltava
+    // a tela). Só quem gerencia carteira vê/mexe nisso.
+    const leadSection = item.lead_id
+      ? `<small class="portfolio-lead-link">Lead de origem: ${escapeHtml(item.lead_marca || `#${item.lead_id}`)}${state.canManage ? ` <button class="text-button" data-unlink-lead type="button">Desvincular</button>` : ""}</small>`
+      : state.canManage
+        ? `<form class="portfolio-lead-search" data-lead-search>
+            <label><span class="portfolio-item-label">Vincular a um lead</span><input type="text" data-lead-query placeholder="Nome, empresa ou marca do cliente" maxlength="150" autocomplete="off"></label>
+            <button class="secondary-button" type="submit">Buscar</button>
+            <div class="portfolio-lead-results" data-lead-results hidden></div>
+          </form>`
+        : "";
     return `<article class="portfolio-item" data-id="${item.id}">
-      <div class="portfolio-process">${selectCell}<a class="process-number" href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><h3>${escapeHtml(item.titulo_exibicao || item.titulo || "Título não informado pelo INPI")}</h3><p>${escapeHtml(item.empresa || "Sem empresa vinculada")} · ${escapeHtml(item.procurador || "Procurador não informado")}</p><small>Depósito: ${formatDate(item.data_deposito)} · origem: ${escapeHtml(item.origem)}</small>${item.lead_id ? `<small class="portfolio-lead-link">Lead de origem: ${escapeHtml(item.lead_marca || "#" + item.lead_id)}</small>` : ""}</div>
+      <div class="portfolio-process">${selectCell}<a class="process-number" href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><h3>${escapeHtml(item.titulo_exibicao || item.titulo || "Título não informado pelo INPI")}</h3><p>${escapeHtml(item.empresa || "Sem empresa vinculada")} · ${escapeHtml(item.procurador || "Procurador não informado")}</p><small>Depósito: ${formatDate(item.data_deposito)} · origem: ${escapeHtml(item.origem)}</small>${leadSection}</div>
       <div class="portfolio-inpi"><span class="portfolio-item-label">Situação no INPI</span>${inpiBadge(item)}<strong>${escapeHtml(item.situacao || "Não informada")}</strong><p><span>Responsável</span>${escapeHtml(item.responsavel || "Não atribuído")}</p></div>
       <div class="latest">${movement ? `<small>Última movimentação · RPI ${movement.numero_rpi}</small><strong>${formatDate(movement.data)}</strong><p>${escapeHtml(movement.descricao || "")}</p>` : `<small>Movimentações</small><strong>Nenhuma localizada</strong>`}</div>
       ${acoes}
@@ -405,6 +420,39 @@ document.querySelector("#portfolio-list").addEventListener("click", async event 
   const button = event.target.closest("[data-save-status]"); if (!button) return; const card = button.closest("[data-id]"); button.disabled = true;
   try { await api(`/v1/admin/carteira/${card.dataset.id}`, { method: "PATCH", body: JSON.stringify({ status: card.querySelector("[data-status]").value, procurador: card.querySelector("[data-procurador]").value }) }); showMessage("Carteira atualizada."); await loadPortfolio(); }
   catch (error) { showMessage(error.message, "error"); button.disabled = false; }
+});
+document.querySelector("#portfolio-list").addEventListener("submit", async event => {
+  const form = event.target.closest("[data-lead-search]"); if (!form) return;
+  event.preventDefault();
+  const termo = form.querySelector("[data-lead-query]").value.trim();
+  const results = form.querySelector("[data-lead-results]");
+  if (!termo) { results.hidden = true; results.innerHTML = ""; return; }
+  results.hidden = false; results.innerHTML = "<small>Buscando…</small>";
+  try {
+    const data = await api(`/v1/admin/leads?busca=${encodeURIComponent(termo)}&limite=5`);
+    results.innerHTML = data.itens.length
+      ? data.itens.map(lead => `<button class="secondary-button" type="button" data-vincular-lead-id="${lead.id}">${escapeHtml(lead.nome)}${lead.empresa ? ` · ${escapeHtml(lead.empresa)}` : ""}</button>`).join("")
+      : "<small>Nenhum lead encontrado.</small>";
+  } catch (error) { results.innerHTML = `<small>${escapeHtml(error.message)}</small>`; }
+});
+document.querySelector("#portfolio-list").addEventListener("click", async event => {
+  const button = event.target.closest("[data-vincular-lead-id]"); if (!button) return;
+  const card = button.closest("[data-id]"); button.disabled = true;
+  try {
+    await api(`/v1/admin/carteira/${card.dataset.id}`, { method: "PATCH", body: JSON.stringify({ lead_id: Number(button.dataset.vincularLeadId) }) });
+    showMessage("Processo vinculado ao lead.");
+    await loadPortfolio();
+  } catch (error) { showMessage(error.message, "error"); button.disabled = false; }
+});
+document.querySelector("#portfolio-list").addEventListener("click", async event => {
+  const button = event.target.closest("[data-unlink-lead]"); if (!button) return;
+  if (!confirm("Desvincular este processo do lead? A Jornada do Cliente no portal volta a não mostrar o andamento real.")) return;
+  const card = button.closest("[data-id]"); button.disabled = true;
+  try {
+    await api(`/v1/admin/carteira/${card.dataset.id}`, { method: "PATCH", body: JSON.stringify({ remover_lead: true }) });
+    showMessage("Processo desvinculado do lead.");
+    await loadPortfolio();
+  } catch (error) { showMessage(error.message, "error"); button.disabled = false; }
 });
 document.querySelector("#portfolio-list").addEventListener("click", async event => {
   const button = event.target.closest("[data-atualizar]"); if (!button) return; const card = button.closest("[data-id]"); button.disabled = true; button.textContent = "Atualizando…";

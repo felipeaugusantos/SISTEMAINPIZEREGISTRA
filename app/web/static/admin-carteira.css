@@ -70,3 +70,12 @@
 .rpi-status-indicator{margin:0 0 14px;padding:10px 14px;border-radius:11px;font-size:.8rem;font-weight:700}
 .rpi-status-indicator.is-em-dia{border:1px solid #cfe6d9;background:#eef8f2;color:#0d6b46}
 .rpi-status-indicator.is-atrasado{border:1px solid #f0d9a8;background:#fdf6e8;color:#8a6414}
+.portfolio-lead-link{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.text-button{border:0;background:none;padding:0;color:#a33128;font-size:.72rem;font-weight:800;cursor:pointer}
+.portfolio-lead-search{display:grid;gap:6px;margin-top:4px}
+.portfolio-lead-search label{display:grid;gap:3px}
+.portfolio-lead-search input{padding:7px 9px;border:1px solid #cbd4cd;border-radius:8px;font:inherit;font-size:.76rem}
+.portfolio-lead-search button{width:max-content;padding:6px 10px;font-size:.72rem}
+.portfolio-lead-results{display:grid;gap:5px}
+.portfolio-lead-results button{width:100%;padding:6px 9px;font-size:.72rem;text-align:left}
+.portfolio-lead-results small{color:#617068;font-size:.72rem}

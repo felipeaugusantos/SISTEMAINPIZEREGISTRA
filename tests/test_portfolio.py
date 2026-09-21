@@ -231,7 +231,7 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
 
     assert "Pesquisar por procurador" in html
     assert "Cadastrar processo" in html
-    assert "admin-carteira.css?v=13" in html
+    assert "admin-carteira.css?v=14" in html
     assert "admin-carteira.js?v=" in html
     assert "Incluir variações do nome" in html
     assert "titular" in javascript
@@ -261,6 +261,33 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
     assert "Em tramitação" in javascript
     assert "data-metric-filter" in javascript
     assert "function applyMetricFilter" in javascript
+
+
+def test_tela_permite_vincular_processo_ja_monitorado_a_um_lead() -> None:
+    # Achado do usuário (21/09/2026): um processo já vinculado à carteira
+    # (ex.: cadastro manual antes do lead avançar de fase) não tinha como
+    # ser ligado a um lead depois -- só o vínculo automático por
+    # Lead.processo_numero, que também não tinha onde ser editado. O
+    # backend já aceitava lead_id/remover_lead em PATCH /carteira/{id}; só
+    # faltava a tela.
+    page = "app/web/admin-carteira.html"
+    script = "app/web/static/admin-carteira.js"
+    with open(page, encoding="utf-8") as arquivo:
+        html = arquivo.read()
+    with open(script, encoding="utf-8") as arquivo:
+        javascript = arquivo.read()
+
+    assert "admin-carteira.css?v=14" in html
+    assert "data-lead-search" in javascript
+    assert "data-lead-query" in javascript
+    assert "data-vincular-lead-id" in javascript
+    assert "data-unlink-lead" in javascript
+    assert '/v1/admin/leads?busca=' in javascript
+    assert '{ lead_id: Number(button.dataset.vincularLeadId) }' in javascript
+    assert '{ remover_lead: true }' in javascript
+    # Só quem gerencia a carteira vê o controle -- mesmo padrão de
+    # state.canManage já usado pra editar status/procurador.
+    assert "state.canManage" in javascript
 
 
 def test_tela_expoe_atribuicao_em_lote_na_lista() -> None:

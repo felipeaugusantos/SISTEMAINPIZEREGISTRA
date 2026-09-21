@@ -7,13 +7,12 @@ const reminderForm = document.querySelector("#reminder-form");
 const postponeDialog = document.querySelector("#postpone-dialog");
 const postponeForm = document.querySelector("#postpone-form");
 let postponeReminderId = null;
-const contactDialog = document.querySelector("#contact-dialog");
-const message = document.querySelector("#crm-message");
+const crmMessage = document.querySelector("#crm-message");
 const channels = { telefone: "Telefone", whatsapp: "WhatsApp", email: "E-mail", reuniao: "Reunião", outro: "Atendimento" };
 const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
 
 function esc(value) { const node = document.createElement("span"); node.textContent = value ?? ""; return node.innerHTML; }
-function show(text, kind = "error") { message.hidden = !text; message.textContent = text; message.className = `status-message ${kind}`; }
+function show(text, kind = "error") { crmMessage.hidden = !text; crmMessage.textContent = text; crmMessage.className = `status-message ${kind}`; }
 async function api(url, options = {}) {
   const response = await fetch(url, { headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
   const data = await response.json().catch(() => ({}));
@@ -95,50 +94,23 @@ async function loadKanban() { renderKanban(await api("/v1/admin/leads-kanban"));
 
 // Achado do usuário (21/09/2026): "Abrir contato" no Kanban/histórico do CRM
 // levava pra página de Leads inteira (troca de tela, recarrega a lista
-// inteira lá) só pra ver e-mail/telefone. Este modal mostra o contato sem
-// sair do CRM; "Abrir ficha completa" continua levando pra tela de Leads
-// pra quem precisa editar atendimento, documentos etc.
-const CRM_FASE_LABELS = {
-  contato_inicial: "Contato inicial",
-  qualificado: "Qualificado",
-  relatorio_enviado: "Relatório enviado",
-  proposta_enviada: "Proposta enviada",
-  proposta_aceita: "Proposta aceita",
-  aguardando_pagamento: "Aguardando pagamento",
-  pagamento_confirmado: "Pagamento confirmado",
-  ganho: "Ganho",
-  protocolo_inpi: "Protocolo INPI",
-  processo_inpi: "Processo no INPI",
-};
-async function openContact(id) {
-  document.querySelector("#contact-dialog-title").textContent = "Carregando…";
-  document.querySelector("#contact-dialog-body").innerHTML = "";
-  contactDialog.showModal();
-  let lead;
-  try { lead = await api(`/v1/admin/leads/${id}`); }
-  catch { document.querySelector("#contact-dialog-body").innerHTML = `<p class="status-message error">Não foi possível carregar o contato.</p>`; return; }
-  const digits = (lead.telefone || "").replace(/\D/g, "");
-  document.querySelector("#contact-dialog-title").textContent = lead.nome;
-  document.querySelector("#contact-dialog-body").innerHTML = `
-    ${lead.processo_vinculado_pendente ? `<p class="lead-processo-aviso">⚠ A fase avançou no CRM (${esc(CRM_FASE_LABELS[lead.fase] || lead.fase)}), mas nenhum processo do INPI está vinculado a este lead ainda — o portal do cliente não reflete esse avanço até vincular em Processos monitorados.</p>` : ""}
-    <div class="crm-contact-summary">
-      <div><span>Empresa</span><strong>${esc(lead.empresa || "Não informada")}</strong></div>
-      <div><span>E-mail</span><a href="mailto:${esc(lead.email)}">${esc(lead.email)}</a></div>
-      <div><span>Telefone</span><a href="tel:${esc(lead.telefone)}">${esc(lead.telefone)}</a>${digits ? ` <a class="secondary-button" href="https://wa.me/${digits}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div>
-      <div><span>CPF/CNPJ</span><strong>${esc(lead.documento || "Não informado")}</strong></div>
-      <div><span>Marca</span><strong>${esc(lead.marca || "Interesse geral")}</strong></div>
-      <div><span>Etapa</span><strong>${esc(CRM_FASE_LABELS[lead.fase] || lead.fase)}</strong></div>
-    </div>
-    <footer><a class="primary-button" href="/admin/pesquisas?lead_id=${lead.id}">Abrir ficha completa</a></footer>`;
-}
-document.querySelector("#close-contact").addEventListener("click", () => contactDialog.close());
+// inteira lá) só pra ver e-mail/telefone. O usuário pediu que fosse
+// "exatamente a mesma tela" do lead -- em vez de duplicar a lógica enorme
+// e interligada de admin-leads.js (lista e diálogo compartilham estado,
+// permissões e funções auxiliares), esta página carrega aquele script
+// inteiro (ver admin-crm.html) e reaproveita a função openLead() dele
+// direto, sem navegar pra fora do CRM.
 document.addEventListener("click", (evento) => {
   const gatilho = evento.target.closest("[data-open-contact]");
   if (!gatilho || !gatilho.dataset.openContact) return;
   if (evento.button !== 0 || evento.ctrlKey || evento.metaKey || evento.shiftKey) return;
   evento.preventDefault();
-  openContact(gatilho.dataset.openContact);
+  openLead(Number(gatilho.dataset.openContact));
 });
+// admin-leads.js liga o fechar do #lead-dialog via document.querySelector(".dialog-close")
+// (só o primeiro da página) -- aqui já existem outros dois antes dele no DOM, então o
+// dele precisa de um handler próprio, feito aqui em vez de tocar admin-leads.js.
+document.querySelector("#close-lead-dialog")?.addEventListener("click", () => document.querySelector("#lead-dialog")?.close());
 function renderHistory(data) {
   crmState.total = data.total; crmState.ultimoHistorico = data; renderMetrics(data);
   document.querySelector("#crm-total").textContent = `${data.total} registro${data.total === 1 ? "" : "s"}`;

@@ -18,6 +18,7 @@ function formatarDataJornada(valor) {
 // macroetapa corrente, sem virar um degrau de progresso à parte. Clicar
 // num nó abre o drawer (#journey-drawer) com os sub-eventos daquela fase.
 let ultimasJornadas = [];
+let logoClienteUrl = null;
 // Regra de dado nulo do pedido do usuário: uma macroetapa/sub-evento
 // concluído sem data registrada mostra só o badge "Concluída", nunca o
 // texto "data não registrada" (achado de UX do rótulo anterior).
@@ -27,10 +28,19 @@ function detalheSituacao(item) {
   if (item.situacao === "atual") return "Etapa atual";
   return "Aguardando";
 }
+// Achado do usuário (21/09/2026): as bolinhas verdes da Jornada do Cliente
+// deveriam usar o mesmo personagem foguete + logo do cliente já usado no
+// cabeçalho do portal (#mascote-logo-cliente), não um círculo genérico.
+function iconeJornada() {
+  const logo = logoClienteUrl
+    ? `<img class="portal-journey-logo" src="${esc(logoClienteUrl)}" alt="">`
+    : "";
+  return `<span class="portal-journey-icon"><img class="portal-journey-mascote" src="/static/assets/mascote-foguete.png?v=1" alt="">${logo}</span>`;
+}
 function macroJornada(bloco, indiceBloco) {
   const nos = bloco.macroetapas.map((macro) => {
     const classes = [`is-${esc(macro.situacao)}`, macro.alerta ? "has-alerta" : ""].filter(Boolean).join(" ");
-    return `<li class="${classes}"><button class="portal-journey-node" type="button" data-bloco="${indiceBloco}" data-macro="${macro.indice}"><i aria-hidden="true"></i><span><strong>${esc(macro.titulo)}</strong><small>${esc(detalheSituacao(macro))}</small></span></button></li>`;
+    return `<li class="${classes}"><button class="portal-journey-node" type="button" data-bloco="${indiceBloco}" data-macro="${macro.indice}">${iconeJornada()}<span><strong>${esc(macro.titulo)}</strong><small>${esc(detalheSituacao(macro))}</small></span></button></li>`;
   }).join("");
   const atual = bloco.macroetapas.find((macro) => macro.situacao === "atual");
   const extras = atual?.alerta
@@ -63,6 +73,7 @@ function showApp(data) {
   $("#app").hidden = false;
   $("#hello").textContent = `Olá, ${data.cliente.nome}`;
   const mascoteLogo = $("#mascote-logo-cliente");
+  logoClienteUrl = data.lead.logo_cliente_url || null;
   if (mascoteLogo) {
     if (data.lead.logo_cliente_url) { mascoteLogo.src = data.lead.logo_cliente_url; mascoteLogo.hidden = false; }
     else { mascoteLogo.hidden = true; mascoteLogo.removeAttribute("src"); }

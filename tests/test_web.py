@@ -107,6 +107,12 @@ def test_unified_admin_dashboard_requires_authentication() -> None:
     assert script.status_code == 200
     assert 'fetch("/v1/admin/rpi")' in script.text
     assert 'fetch(url, { method: "POST" })' in script.text
+    # Achado do usuário (21/09/2026): além do sino, uma notificação nativa
+    # do navegador/sistema avisa quando chega mensagem nova do cliente --
+    # reaproveita o polling de 60s já existente pro sino.
+    assert "function notificarMensagensNovas" in script.text
+    assert "Notification.requestPermission" in script.text
+    assert 'id="notif-native-toggle"' in response.text
     _limpar_auth()
 
 
@@ -364,6 +370,12 @@ def test_portal_cliente_mostra_jornada_unificada_em_macroetapas() -> None:
     # protocolado) -- a lista completa "Documentos e GRUs" precisa expor o
     # download de qualquer documento com arquivo, incluindo procuração/GRU.
     assert "item.tem_arquivo" in script
+    # Achado do usuário (21/09/2026): as bolinhas verdes dos nós da jornada
+    # viram o mascote foguete + logo do cliente (mesma imagem do cabeçalho).
+    assert "function iconeJornada" in script
+    assert "mascote-foguete.png" in script
+    assert ".portal-journey-mascote" in styles
+    assert ".portal-journey-logo" in styles
 
 
 def test_portal_cliente_usa_a_mesma_logo_do_painel_interno() -> None:

@@ -438,22 +438,23 @@ async def listar_notificacoes(
         ]
         if usuario.perfil != "administrador" and not usuario.superadmin:
             filtros_mensagens.append(Lead.responsavel_id == usuario.id)
-        linhas_mensagens = await session.execute(
-            select(
-                Lead.id,
-                Lead.nome,
-                Lead.marca,
-                func.count(MensagemClientePortal.id).filter(MensagemClientePortal.lida_em.is_(None)),
-                func.max(MensagemClientePortal.criado_em),
-            )
+        pendentes_count = func.count(MensagemClientePortal.id).filter(MensagemClientePortal.lida_em.is_(None))
+        ultima_mensagem = func.max(MensagemClientePortal.criado_em)
+        consulta_mensagens = (
+            select(Lead.id, Lead.nome, Lead.marca, pendentes_count, ultima_mensagem)
             .join(MensagemClientePortal, MensagemClientePortal.lead_id == Lead.id)
             .where(*filtros_mensagens)
             .group_by(Lead.id, Lead.nome, Lead.marca)
-            .limit(limite)
         )
+        if not todas:
+            # Achado do Codex review (PR #91): filtrar "sem pendência" em
+            # Python DEPOIS do LIMIT deixava leads com mensagem não lida de
+            # fora sempre que havia mais de `limite` leads com histórico de
+            # mensagem -- o sino podia dizer "Tudo em dia" com pendência
+            # real. Filtra no SQL (HAVING) antes do LIMIT.
+            consulta_mensagens = consulta_mensagens.having(pendentes_count > 0)
+        linhas_mensagens = await session.execute(consulta_mensagens.order_by(ultima_mensagem.desc()).limit(limite))
         for lead_id, nome, marca, pendentes_lead, ultima_em in linhas_mensagens.all():
-            if pendentes_lead == 0 and not todas:
-                continue
             itens.append(
                 {
                     "id": lead_id,
@@ -508,11 +509,15 @@ async def marcar_notificacao_lida(fonte: str, item_id: int, session: SessionDep,
         if item is None:
             raise HTTPException(404, "Notificação não encontrada")
         item.resolvido_em = agora
-    elif fonte == "mensagem_portal" and usuario.pode("leads.view"):
+    elif fonte == "mensagem_portal" and usuario.pode("leads.manage"):
         # Aqui item_id é o lead_id (uma notificação por lead, não por
         # mensagem) -- marca todas as mensagens não lidas do cliente
         # daquele lead, mesma query de
-        # portal_cliente.marcar_mensagens_portal_lidas.
+        # portal_cliente.marcar_mensagens_portal_lidas. leads.manage (não
+        # .view): achado do Codex review (PR #91) -- o endpoint
+        # equivalente já exige .manage, e .view é só consulta no catálogo
+        # de permissões; um perfil só-leitura não deveria conseguir
+        # apagar o sinal de pendência antes de quem pode atender de fato.
         filtros_lead = [Lead.id == item_id, Lead.organizacao_id == organizacao_id]
         if usuario.perfil != "administrador" and not usuario.superadmin:
             filtros_lead.append(Lead.responsavel_id == usuario.id)
@@ -620,8 +625,11 @@ async def marcar_todas_notificacoes(
     # "Marcar todas como não lidas" não se aplica a mensagens do portal --
     # reverter exigiria escolher qual mensagem específica desmarcar entre
     # várias, ambíguo (mesma razão de marcar_notificacao_nao_lida não
-    # cobrir esta fonte).
-    if pode_comercial_alertas and lida:
+    # cobrir esta fonte). leads.manage (não .view): mesmo achado do Codex
+    # review (PR #91) do bloco de marcar_notificacao_lida acima -- só
+    # quem pode gerenciar o lead deveria conseguir apagar o sinal de
+    # mensagem pendente em lote.
+    if usuario.pode("leads.manage") and lida:
         filtros_mensagens = [
             Lead.organizacao_id == organizacao_id,
             MensagemClientePortal.autor_tipo == "cliente",

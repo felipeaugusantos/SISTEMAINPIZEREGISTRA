@@ -297,22 +297,6 @@ async def test_notificacoes_inclui_lead_com_mensagem_pendente() -> None:
 
 
 @pytest.mark.asyncio
-async def test_notificacoes_mensagem_portal_some_quando_lida_e_nao_pede_todas() -> None:
-    session = FakeSession(
-        [
-            FakeResult(itens=[]),
-            FakeResult(itens=[]),
-            FakeResult(itens=[(9, "Gustavo Moraes", "Tactical Cloud", 0, datetime(2026, 9, 21, tzinfo=UTC))]),
-        ]
-    )
-    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
-
-    resposta = await listar_notificacoes(session, usuario)
-
-    assert resposta["itens"] == []
-
-
-@pytest.mark.asyncio
 async def test_marcar_mensagem_portal_como_lida_marca_todas_as_mensagens_do_lead() -> None:
     mensagem1 = SimpleNamespace(lida_em=None)
     mensagem2 = SimpleNamespace(lida_em=None)
@@ -336,6 +320,21 @@ async def test_marcar_mensagem_portal_lida_nega_quando_lead_nao_e_visivel() -> N
     # Achado: operador só pode marcar como lida mensagens de leads onde é
     # responsável -- mesma regra de portal_cliente.listar_mensagens_portal_admin.
     session = FakeSession([FakeResult(scalar=None)])
+    usuario = usuario_teste(perfil="operador", permissoes={"leads.manage", "leads.view", "dashboard.view"})
+
+    with pytest.raises(HTTPException) as erro:
+        await marcar_notificacao_lida("mensagem_portal", 9, session, usuario)
+
+    assert erro.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_marcar_mensagem_portal_lida_exige_leads_manage() -> None:
+    # Achado do Codex review (PR #91): leads.view é só consulta no
+    # catálogo de permissões -- marcar_mensagens_portal_lidas (endpoint
+    # equivalente) já exige leads.manage, então essa mutação também
+    # precisa, senão um perfil só-leitura apagaria o sinal de pendência.
+    session = FakeSession([])
     usuario = usuario_teste(perfil="operador", permissoes={"leads.view", "dashboard.view"})
 
     with pytest.raises(HTTPException) as erro:
@@ -360,6 +359,18 @@ async def test_marcar_todas_notificacoes_marca_mensagens_pendentes_quando_lida()
 
     assert resultado == {"afetadas": 1, "lida": True}
     assert mensagem.lida_em is not None
+
+
+@pytest.mark.asyncio
+async def test_marcar_todas_notificacoes_leads_view_nao_mexe_em_mensagens() -> None:
+    # Mesmo achado do Codex review (PR #91) que exigiu leads.manage em
+    # marcar_notificacao_lida -- vale também pro branch em lote.
+    session = FakeSession([FakeResult(itens=[])])  # sistema (só leads.view, sem juridico)
+    usuario = usuario_teste(perfil="operador", permissoes={"leads.view", "dashboard.view"})
+
+    resultado = await marcar_todas_notificacoes(session, usuario, lida=True)
+
+    assert resultado == {"afetadas": 0, "lida": True}
 
 
 @pytest.mark.asyncio

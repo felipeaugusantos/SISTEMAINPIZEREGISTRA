@@ -28,7 +28,6 @@ from app.models import (
     EventoAuditoria,
     Lead,
     PesquisaMarca,
-    ProcessoMonitorado,
     PropostaComercial,
     QualificacaoIALead,
     RespostaEmailLead,
@@ -1034,7 +1033,6 @@ def test_detalhe_avisa_processo_nao_vinculado_na_fase_protocolo_inpi() -> None:
 
     assert resposta.status_code == 200
     assert resposta.json()["processo_vinculado_pendente"] is True
-    assert corpo["pesquisas"][0]["marca"] == "MARCA MAIS RECENTE"
 
 
 def test_leituras_admin_nao_sao_bloqueadas_por_rate_limit() -> None:

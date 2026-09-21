@@ -85,33 +85,74 @@ _limitar_login_portal = RateLimiter(limite=10, janela_segundos=60, escopo="porta
 # "resultado" só é "negativo" nos desfechos que encerram o processo sem
 # registro (ou o extinguem depois de concedido); todo o resto é "ativo".
 _ETAPAS_PROCESSO: dict[str | None, dict] = {
-    None: {"percentual": 20, "etapa": "Depositado", "alerta": None},
-    "nao_classificada": {"percentual": 20, "etapa": "Depositado", "alerta": None},
-    "publicada": {"percentual": 40, "etapa": "Publicado para oposição", "alerta": None},
-    "oposicao": {"percentual": 40, "etapa": "Publicado para oposição", "alerta": "Marca sob oposição de terceiros"},
-    "em_exame": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": None},
-    "exigencia": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": "Exigência aberta — aguardando resposta"},
-    "suspensa": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": "Processo sobrestado (suspenso)"},
-    "recurso": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": "Em recurso da decisão"},
-    "recurso_decidido": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": "Recurso decidido"},
-    "peticao_decidida": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": "Petição decidida"},
-    "deferida": {"percentual": 80, "etapa": "Deferido", "alerta": None},
+    None: {"percentual": 20, "etapa": "Depositado", "alerta": None, "macro": 2},
+    "nao_classificada": {"percentual": 20, "etapa": "Depositado", "alerta": None, "macro": 2},
+    "publicada": {"percentual": 40, "etapa": "Publicado para oposição", "alerta": None, "macro": 3},
+    "oposicao": {
+        "percentual": 40,
+        "etapa": "Publicado para oposição",
+        "alerta": "Marca sob oposição de terceiros",
+        "macro": 3,
+    },
+    "em_exame": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": None, "macro": 4},
+    "exigencia": {
+        "percentual": 60,
+        "etapa": "Em exame de mérito",
+        "alerta": "Exigência aberta — aguardando resposta",
+        "macro": 4,
+    },
+    "suspensa": {
+        "percentual": 60,
+        "etapa": "Em exame de mérito",
+        "alerta": "Processo sobrestado (suspenso)",
+        "macro": 4,
+    },
+    "recurso": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": "Em recurso da decisão", "macro": 4},
+    "recurso_decidido": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": "Recurso decidido", "macro": 4},
+    "peticao_decidida": {"percentual": 60, "etapa": "Em exame de mérito", "alerta": "Petição decidida", "macro": 4},
+    "deferida": {"percentual": 80, "etapa": "Deferido", "alerta": None, "macro": 5},
     "deferida_parcial": {
         "percentual": 80,
         "etapa": "Deferido parcialmente",
         "alerta": "Deferimento parcial — nem todas as classes foram concedidas",
+        "macro": 5,
     },
-    "registrada": {"percentual": 100, "etapa": "Registro concedido", "alerta": None},
-    "indeferida": {"percentual": 60, "etapa": "Pedido indeferido", "alerta": None, "resultado": "negativo"},
-    "arquivada": {"percentual": 20, "etapa": "Processo arquivado", "alerta": None, "resultado": "negativo"},
+    "registrada": {"percentual": 100, "etapa": "Registro concedido", "alerta": None, "macro": 5},
+    "indeferida": {
+        "percentual": 60,
+        "etapa": "Pedido indeferido",
+        "alerta": "Pedido indeferido",
+        "resultado": "negativo",
+        "macro": 4,
+    },
+    "arquivada": {
+        "percentual": 20,
+        "etapa": "Processo arquivado",
+        "alerta": "Processo arquivado",
+        "resultado": "negativo",
+        "macro": 2,
+    },
     "inexistente": {
         "percentual": 20,
         "etapa": "Pedido considerado inexistente",
-        "alerta": None,
+        "alerta": "Pedido considerado inexistente",
         "resultado": "negativo",
+        "macro": 2,
     },
-    "extinta": {"percentual": 100, "etapa": "Registro extinto", "alerta": None, "resultado": "negativo"},
-    "cancelada": {"percentual": 100, "etapa": "Registro cancelado", "alerta": None, "resultado": "negativo"},
+    "extinta": {
+        "percentual": 100,
+        "etapa": "Registro extinto",
+        "alerta": "Registro extinto",
+        "resultado": "negativo",
+        "macro": 5,
+    },
+    "cancelada": {
+        "percentual": 100,
+        "etapa": "Registro cancelado",
+        "alerta": "Registro cancelado",
+        "resultado": "negativo",
+        "macro": 5,
+    },
 }
 
 
@@ -202,6 +243,148 @@ def montar_jornada_registro(
             }
         )
     return jornada
+
+
+MACROETAPAS_LABELS: dict[int, str] = {
+    1: "Onboarding & Contratação",
+    2: "Protocolo no INPI",
+    3: "Publicação & Prazo de Oposição",
+    4: "Exame de Mérito",
+    5: "Decisão & Emissão de Certificado",
+}
+PREVISAO_EXAME_MERITO = "Previsão média: 8 a 14 meses"
+_FASES_PRE_CONTRATACAO = {fase.value for fase, _label in _JORNADA_REGISTRO[:7]}
+_DOC_LABELS: dict[str, str] = {
+    "procuracao": "Procuração",
+    "gru": "GRU",
+    "protocolo": "Comprovante de protocolo",
+    "oposicao": "Notificação de oposição",
+    "certificado": "Certificado de registro",
+}
+
+
+def _macroetapa_onboarding(jornada_comercial: list[dict], contratacao_concluida: bool) -> dict:
+    return {
+        "indice": 1,
+        "titulo": MACROETAPAS_LABELS[1],
+        "situacao": "concluida" if contratacao_concluida else "atual",
+        "alerta": None,
+        "previsao": None,
+        "sub_eventos": [
+            {"label": item["label"], "situacao": item["situacao"], "ocorrido_em": item["ocorrido_em"]}
+            for item in jornada_comercial[:8]
+        ],
+    }
+
+
+def _evento_documento(documento: DocumentoLead | None) -> dict | None:
+    if documento is None:
+        return None
+    return {
+        "label": _DOC_LABELS.get(documento.tipo, documento.tipo),
+        "situacao": "pendente" if documento.status == "pendente" else "concluida",
+        "ocorrido_em": documento.assinado_em or documento.data,
+    }
+
+
+def _macroetapas_processo(processo: Processo | None, documentos_por_tipo: dict[str, DocumentoLead]) -> list[dict]:
+    """Monta as macroetapas 2 a 5 a partir da situação oficial do processo no INPI.
+
+    Sem processo vinculado ainda, as 4 ficam "pendente" -- o cliente só vê a
+    macroetapa de onboarding até o protocolo acontecer de fato. Reaproveita
+    ``_ETAPAS_PROCESSO`` (mesmo mapa usado por ``progresso_processo``) em vez
+    de recriar a classificação de situação -> etapa/alerta.
+    """
+    if processo is None:
+        return [
+            {
+                "indice": indice,
+                "titulo": MACROETAPAS_LABELS[indice],
+                "situacao": "pendente",
+                "alerta": None,
+                "previsao": None,
+                "sub_eventos": [],
+            }
+            for indice in (2, 3, 4, 5)
+        ]
+
+    info = _ETAPAS_PROCESSO.get(processo.situacao_normalizada) or _ETAPAS_PROCESSO["nao_classificada"]
+    macro_atual = info["macro"]
+    # Desfecho encerra a jornada aqui (deferido/registrado positivamente ou
+    # indeferido/arquivado/extinto/cancelado negativamente) -- não é mais
+    # "em andamento", mesmo sendo a macroetapa mais recente com evidência.
+    encerrado = info.get("resultado") == "negativo" or processo.situacao_normalizada == "registrada"
+
+    eventos_por_macro: dict[int, list[dict]] = {2: [], 3: [], 4: [], 5: []}
+    if processo.data_deposito:
+        eventos_por_macro[2].append(
+            {"label": "Pedido depositado", "situacao": "concluida", "ocorrido_em": processo.data_deposito}
+        )
+    for tipo, macro in (("protocolo", 2), ("oposicao", 3), ("certificado", 5)):
+        evento = _evento_documento(documentos_por_tipo.get(tipo))
+        if evento:
+            eventos_por_macro[macro].append(evento)
+
+    macroetapas = []
+    for indice in (2, 3, 4, 5):
+        if indice < macro_atual:
+            situacao = "concluida"
+        elif indice == macro_atual:
+            situacao = "concluida" if encerrado else "atual"
+        else:
+            situacao = "pendente"
+        macroetapas.append(
+            {
+                "indice": indice,
+                "titulo": MACROETAPAS_LABELS[indice],
+                "situacao": situacao,
+                "alerta": info["alerta"] if indice == macro_atual else None,
+                "previsao": PREVISAO_EXAME_MERITO if indice == 4 and situacao == "atual" else None,
+                "sub_eventos": eventos_por_macro[indice] if situacao != "pendente" else [],
+            }
+        )
+    return macroetapas
+
+
+def montar_macroetapas(
+    lead: Lead,
+    jornada_comercial: list[dict],
+    processos: list[tuple[ProcessoMonitorado, Processo]],
+    documentos: list[DocumentoLead],
+) -> list[dict]:
+    """Monta a jornada unificada (item 1 do pedido de melhorias, revisão de
+    20/09/2026): substitui os 10 passos comerciais lineares + o bloco à
+    parte de acompanhamento do INPI por uma jornada única de até 5
+    macroetapas por marca/processo, com nós condicionais (exigência,
+    oposição, indeferimento) aparecendo só como alerta quando acontecem, em
+    vez de virarem um degrau de progresso à parte.
+
+    Documentos objetivos (``TIPOS_DOCUMENTO_LEAD``) só entram como
+    sub-evento quando o lead tem exatamente um processo vinculado -- com
+    mais de um, não dá pra saber a qual marca o documento pertence
+    (``DocumentoLead`` é por lead, não por processo).
+    """
+    contratacao_concluida = bool(processos) or lead.fase not in _FASES_PRE_CONTRATACAO
+    macro1 = _macroetapa_onboarding(jornada_comercial, contratacao_concluida)
+    documentos_por_tipo = {documento.tipo: documento for documento in documentos} if len(processos) == 1 else {}
+
+    if not processos:
+        return [
+            {
+                "marca": lead.marca,
+                "processo_numero": None,
+                "macroetapas": [macro1, *_macroetapas_processo(None, {})],
+            }
+        ]
+
+    return [
+        {
+            "marca": processo.titulo or lead.marca,
+            "processo_numero": processo.numero,
+            "macroetapas": [macro1, *_macroetapas_processo(processo, documentos_por_tipo)],
+        }
+        for _monitorado, processo in processos
+    ]
 
 
 @router.post("/v1/webhooks/clicksign")
@@ -1326,7 +1509,12 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
             "fase": lead.fase,
             "logo_cliente_url": logo_cliente_url(lead),
         },
-        "jornada": montar_jornada_registro(lead, historico_fases, propostas, processos_monitorados),
+        "jornadas": montar_macroetapas(
+            lead,
+            montar_jornada_registro(lead, historico_fases, propostas, processos_monitorados),
+            processos_monitorados,
+            documentos,
+        ),
         "processos": processos,
         "propostas": [
             {

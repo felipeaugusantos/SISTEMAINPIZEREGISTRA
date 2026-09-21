@@ -940,6 +940,88 @@ def test_conclusao_permitida_quando_confirmada_na_mesma_requisicao() -> None:
     assert prazo.confirmado is True
 
 
+# --- Achado baixo da Fase 8 (auditoria jurídica, 21/09/2026): confirmar a
+# revisão humana de um prazo CRÍTICO exigia só "legal.manage", a mesma
+# permissão de qualquer edição de rotina -- sem diferenciação de RBAC (a
+# política exigir_segunda_pessoa_critico exige um segundo usuário, não um
+# usuário com privilégio maior). Nova permissão legal.confirm_critical. ---
+
+
+def test_confirmar_prazo_critico_sem_permissao_extra_e_bloqueado() -> None:
+    usuario = usuario_teste(perfil="supervisor", permissoes={"legal.manage"})
+    prazo = _prazo_ativo(prioridade="critica", confirmado=False, confirmado_por_id=None)
+    session = FakeSession([FakeResult(scalar=prazo)])
+    try:
+        asyncio.run(
+            atualizar_prazo(
+                9,
+                PrazoUpdate(confirmar=True, confirmacao_observacoes="Conferido no BuscaWeb."),
+                _request(),
+                session,
+                usuario,
+            )
+        )
+        raise AssertionError("Esperava HTTPException 403 por falta de legal.confirm_critical")
+    except HTTPException as erro:
+        assert erro.status_code == 403
+    assert prazo.confirmado is False
+
+
+def test_confirmar_prazo_critico_com_permissao_extra_e_aceito() -> None:
+    usuario = usuario_teste(perfil="supervisor", permissoes={"legal.manage", "legal.confirm_critical"})
+    prazo = _prazo_ativo(prioridade="critica", confirmado=False, confirmado_por_id=None, responsavel_id=2)
+    session = FakeSession([FakeResult(scalar=prazo)])
+    resultado = asyncio.run(
+        atualizar_prazo(
+            9,
+            PrazoUpdate(confirmar=True, confirmacao_observacoes="Conferido no BuscaWeb."),
+            _request(),
+            session,
+            usuario,
+        )
+    )
+    assert resultado["status"] == "pendente"
+    assert prazo.confirmado is True
+
+
+def test_confirmar_prazo_nao_critico_nao_exige_permissao_extra() -> None:
+    usuario = usuario_teste(perfil="supervisor", permissoes={"legal.manage"})
+    prazo = _prazo_ativo(prioridade="alta", confirmado=False, confirmado_por_id=None, responsavel_id=2)
+    session = FakeSession([FakeResult(scalar=prazo)])
+    resultado = asyncio.run(
+        atualizar_prazo(
+            9,
+            PrazoUpdate(confirmar=True, confirmacao_observacoes="Conferido no BuscaWeb."),
+            _request(),
+            session,
+            usuario,
+        )
+    )
+    assert resultado["status"] == "pendente"
+    assert prazo.confirmado is True
+
+
+def test_confirmar_prazo_bloqueado_quando_dados_prioridade_muda_para_critica() -> None:
+    """A checagem usa a prioridade final da requisição -- quem tenta mudar
+    pra "critica" e confirmar no mesmo PATCH não escapa da permissão."""
+    usuario = usuario_teste(perfil="supervisor", permissoes={"legal.manage"})
+    prazo = _prazo_ativo(prioridade="alta", confirmado=False, confirmado_por_id=None)
+    session = FakeSession([FakeResult(scalar=prazo)])
+    try:
+        asyncio.run(
+            atualizar_prazo(
+                9,
+                PrazoUpdate(confirmar=True, prioridade="critica", confirmacao_observacoes="Conferido."),
+                _request(),
+                session,
+                usuario,
+            )
+        )
+        raise AssertionError("Esperava HTTPException 403 por falta de legal.confirm_critical")
+    except HTTPException as erro:
+        assert erro.status_code == 403
+
+
 def test_editar_politica_juridica_cria_registro_quando_inexistente() -> None:
     session = FakeSession([FakeResult(scalar=None)])
     resultado = asyncio.run(

@@ -56,6 +56,17 @@ def test_perfis_ceo_e_tech_possuem_acesso_integral() -> None:
     assert permissoes_do_perfil("tech") == CHAVES_PERMISSAO
 
 
+def test_perfil_supervisor_gerencia_juridico_mas_nao_confirma_prazo_critico() -> None:
+    """Achado baixo da Fase 8 (auditoria jurídica, 21/09/2026): confirmar
+    revisão humana de prazo CRÍTICO exige permissão à parte de
+    legal.manage (ver app/api/juridico.py::atualizar_prazo)."""
+    from app.permissions import permissoes_do_perfil
+
+    permissoes = permissoes_do_perfil("supervisor")
+    assert "legal.manage" in permissoes
+    assert "legal.confirm_critical" not in permissoes
+
+
 def test_http_basic_foi_removido() -> None:
     resposta = TestClient(app).get("/v1/admin/leads", auth=("admin", "qualquer-senha"))
     assert resposta.status_code == 401

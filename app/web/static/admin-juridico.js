@@ -6,7 +6,7 @@ function setBarWidth(el, percentual) {
   el.classList.add(`w-pct-${passo}`);
 }
 
-const legalState = { references: null, canManage: false, checklists: {}, offset: 0, pageSize: 10 };
+const legalState = { references: null, canManage: false, canConfirmCritical: false, checklists: {}, offset: 0, pageSize: 10 };
 const legalMessage = document.querySelector("#legal-message");
 const deadlineDialog = document.querySelector("#deadline-dialog");
 const deadlineForm = document.querySelector("#deadline-form");
@@ -111,7 +111,13 @@ function deadlineTimeLabel(item) {
 }
 function deadlineActions(item) {
   if (!legalState.canManage || ["concluido", "cancelado", "dispensado", "historico", "duplicado"].includes(item.status)) return "";
-  if (!item.confirmado) return `<button class="primary-button confirm-deadline" data-id="${item.id}" type="button">Confirmar prazo</button><button class="secondary-button cancel-deadline" data-id="${item.id}" type="button">Descartar sugestão</button>`;
+  if (!item.confirmado) {
+    const podeConfirmar = item.prioridade !== "critica" || legalState.canConfirmCritical;
+    const botaoConfirmar = podeConfirmar
+      ? `<button class="primary-button confirm-deadline" data-id="${item.id}" type="button">Confirmar prazo</button>`
+      : `<span class="legal-badge">Confirmação restrita a administrador/tech</span>`;
+    return `${botaoConfirmar}<button class="secondary-button cancel-deadline" data-id="${item.id}" type="button">Descartar sugestão</button>`;
+  }
   return `<button class="primary-button complete-deadline" data-id="${item.id}" type="button">Concluir</button><button class="secondary-button progress-deadline" data-id="${item.id}" type="button">Em andamento</button><button class="secondary-button delivery-deadline" data-id="${item.id}" type="button">Registrar entrega</button>`;
 }
 function renderDeadlines(items) {
@@ -152,6 +158,7 @@ async function loadDashboard() {
     api("/v1/admin/juridico/encaminhamentos"),
   ]);
   legalState.canManage = data.acoes.gerenciar;
+  legalState.canConfirmCritical = data.acoes.confirmar_critico;
   legalState.checklists = checklists || {};
   document.querySelector("#new-legal-deadline").hidden = !legalState.canManage;
   document.querySelector("#run-legal-engine").hidden = !legalState.canManage;

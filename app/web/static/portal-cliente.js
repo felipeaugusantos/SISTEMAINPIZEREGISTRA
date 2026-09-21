@@ -5,34 +5,58 @@ async function api(path, options = {}) {
   return response.status === 204 ? null : response.json();
 }
 const esc = (value) => String(value ?? "—").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
-// Item 1 do pedido de melhorias do cliente final (17/09/2026): linha do
-// tempo do processo de registro com % de progresso, pra bater o olho e
-// entender em qual etapa está. O percentual já vem calculado do backend
-// (app/api/portal_cliente.py::progresso_processo), sempre múltiplo de 20
-// pra bater com as classes CSS w-pct-N já existentes (largura via classe,
-// não via style="" -- CSP style-src estrito bloqueia estilo inline).
-function processoTimeline(item) {
-  const negativo = item.resultado === "negativo";
-  return `<div class="portal-processo${negativo ? " is-negativo" : ""}">
-    <div class="portal-processo-header"><strong>${esc(item.numero)}</strong><span>${esc(item.etapa)}</span></div>
-    <div class="portal-progress"><i class="portal-progress-fill w-pct-${Number(item.percentual) || 0}"></i></div>
-    <div class="portal-progress-percent">${esc(item.percentual)}%</div>
-    ${item.alerta ? `<p class="portal-processo-alerta">⚠ ${esc(item.alerta)}</p>` : ""}
-  </div>`;
-}
 function formatarDataJornada(valor) {
   if (!valor) return "";
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(new Date(valor));
 }
-function jornadaRegistro(itens = []) {
-  return `<ol class="portal-journey">${itens.map((item) => {
-    const detalhe = item.ocorrido_em
-      ? formatarDataJornada(item.ocorrido_em)
-      : item.situacao === "concluida_sem_data"
-        ? "Concluída · data não registrada"
-        : item.situacao === "atual" ? "Etapa atual" : "Aguardando";
-    return `<li class="is-${esc(item.situacao)}"><i aria-hidden="true"></i><span><strong>${esc(item.label)}</strong><small>${esc(detalhe)}</small></span></li>`;
-  }).join("")}</ol>`;
+// Item 1 do pedido de melhorias do cliente final (17/09/2026, revisado em
+// 21/09/2026): a jornada era 10 passos comerciais lineares + um bloco à
+// parte de acompanhamento do INPI, granular demais e redundante entre si.
+// Agora é uma única jornada de até 5 macroetapas por marca/processo
+// (app/api/portal_cliente.py::montar_macroetapas) -- nós condicionais
+// (exigência, oposição, indeferimento) aparecem só como alerta na
+// macroetapa corrente, sem virar um degrau de progresso à parte. Clicar
+// num nó abre o drawer (#journey-drawer) com os sub-eventos daquela fase.
+let ultimasJornadas = [];
+// Regra de dado nulo do pedido do usuário: uma macroetapa/sub-evento
+// concluído sem data registrada mostra só o badge "Concluída", nunca o
+// texto "data não registrada" (achado de UX do rótulo anterior).
+function detalheSituacao(item) {
+  if (item.ocorrido_em) return formatarDataJornada(item.ocorrido_em);
+  if (item.situacao === "concluida" || item.situacao === "concluida_sem_data") return "Concluída";
+  if (item.situacao === "atual") return "Etapa atual";
+  return "Aguardando";
+}
+function macroJornada(bloco, indiceBloco) {
+  const nos = bloco.macroetapas.map((macro) => {
+    const classes = [`is-${esc(macro.situacao)}`, macro.alerta ? "has-alerta" : ""].filter(Boolean).join(" ");
+    return `<li class="${classes}"><button class="portal-journey-node" type="button" data-bloco="${indiceBloco}" data-macro="${macro.indice}"><i aria-hidden="true"></i><span><strong>${esc(macro.titulo)}</strong><small>${esc(detalheSituacao(macro))}</small></span></button></li>`;
+  }).join("");
+  const atual = bloco.macroetapas.find((macro) => macro.situacao === "atual");
+  const extras = atual?.alerta
+    ? `<p class="portal-journey-alerta">⚠ ${esc(atual.alerta)}</p>`
+    : atual?.previsao
+      ? `<p class="portal-journey-previsao">${esc(atual.previsao)}</p>`
+      : "";
+  const titulo = bloco.marca ? `<p class="portal-journey-marca">${esc(bloco.marca)}</p>` : "";
+  return `<div class="portal-journey-block">${titulo}<ol class="portal-journey">${nos}</ol>${extras}</div>`;
+}
+function abrirDrawerJornada(indiceBloco, indiceMacro) {
+  const bloco = ultimasJornadas[indiceBloco];
+  const macro = bloco?.macroetapas.find((item) => item.indice === indiceMacro);
+  if (!macro) return;
+  $("#journey-drawer-titulo").textContent = macro.titulo;
+  $("#journey-drawer-situacao").textContent = detalheSituacao(macro);
+  $("#journey-drawer-alerta").hidden = !macro.alerta;
+  $("#journey-drawer-alerta").textContent = macro.alerta ? `⚠ ${macro.alerta}` : "";
+  $("#journey-drawer-previsao").hidden = !macro.previsao;
+  $("#journey-drawer-previsao").textContent = macro.previsao || "";
+  const eventos = $("#journey-drawer-eventos");
+  eventos.innerHTML = macro.sub_eventos?.length
+    ? macro.sub_eventos.map((evento) => `<li><span>${esc(evento.label)}</span><small>${esc(detalheSituacao(evento))}</small></li>`).join("")
+    : "";
+  $("#journey-drawer-vazio").hidden = Boolean(macro.sub_eventos?.length);
+  $("#journey-drawer").showModal();
 }
 function showApp(data) {
   $("#login").hidden = true;
@@ -44,10 +68,11 @@ function showApp(data) {
     else { mascoteLogo.hidden = true; mascoteLogo.removeAttribute("src"); }
   }
   const rows = (items, fields) => items?.length ? `<div class="portal-table">${items.map((item) => `<div class="portal-row">${fields.map((field) => `<span><strong>${esc(field[0])}</strong> ${esc(item[field[1]])}</span>`).join("")}</div>`).join("")}</div>` : "<p>Nenhum registro.</p>";
-  const acompanhamentoInpi = data.processos?.length
-    ? data.processos.map(processoTimeline).join("")
-    : '<p class="portal-inpi-pending">O acompanhamento oficial do INPI aparecerá aqui quando o processo for protocolado e vinculado. A jornada acima continua disponível desde o primeiro contato.</p>';
-  $("#summary").innerHTML = `<p><strong>Marca:</strong> ${esc(data.lead.marca)} · <strong>Fase:</strong> ${esc(data.lead.fase)}</p><h3>Jornada do atendimento ao registro</h3>${jornadaRegistro(data.jornada)}<h3>Acompanhamento oficial no INPI</h3>${acompanhamentoInpi}<h3>Propostas</h3>${data.propostas?.map((item) => { const podeAssinar = ["enviada", "visualizada", "aceita"].includes(item.status); const acao = item.status === "aceita" ? "<span>Assinada</span>" : podeAssinar ? `<button class="secondary-button" data-assinar-proposta="${item.id}" type="button">Assinar proposta</button>` : "<span class=\"portal-pending-status\">Aguardando envio</span>"; return `<div class="portal-row"><span><strong>${esc(item.numero)}</strong> · ${esc(item.status)}</span>${acao}</div>`; }).join("") || "<p>Nenhuma proposta.</p>"}<h3>Documentos e GRUs</h3>${data.documentos?.map((item) => `<div class="portal-row"><span><strong>${esc(item.tipo)}</strong> · ${esc(item.status)} · v${esc(item.versao)}</span>${item.status !== "assinado" && !item.assinado_em ? `<button class="secondary-button" data-assinar-documento="${item.id}" type="button">Assinar</button>` : "<span>Assinado</span>"}</div>`).join("") || "<p>Nenhum documento.</p>"}${rows(data.guias, [["GRU", "numero_gru"], ["Status", "status"], ["Vencimento", "vencimento"]])}<h3>Pagamentos</h3>${rows(data.pagamentos, [["Descrição", "descricao"], ["Status", "status"], ["Valor", "valor_total"]])}`;
+  ultimasJornadas = data.jornadas || [];
+  $("#summary").innerHTML = `<p><strong>Marca:</strong> ${esc(data.lead.marca)} · <strong>Fase:</strong> ${esc(data.lead.fase)}</p><h3>Jornada do Cliente</h3>${ultimasJornadas.map(macroJornada).join("")}<h3>Propostas</h3>${data.propostas?.map((item) => { const podeAssinar = ["enviada", "visualizada", "aceita"].includes(item.status); const acao = item.status === "aceita" ? "<span>Assinada</span>" : podeAssinar ? `<button class="secondary-button" data-assinar-proposta="${item.id}" type="button">Assinar proposta</button>` : "<span class=\"portal-pending-status\">Aguardando envio</span>"; return `<div class="portal-row"><span><strong>${esc(item.numero)}</strong> · ${esc(item.status)}</span>${acao}</div>`; }).join("") || "<p>Nenhuma proposta.</p>"}<h3>Documentos e GRUs</h3>${data.documentos?.map((item) => `<div class="portal-row"><span><strong>${esc(item.tipo)}</strong> · ${esc(item.status)} · v${esc(item.versao)}</span>${item.status !== "assinado" && !item.assinado_em ? `<button class="secondary-button" data-assinar-documento="${item.id}" type="button">Assinar</button>` : "<span>Assinado</span>"}</div>`).join("") || "<p>Nenhum documento.</p>"}${rows(data.guias, [["GRU", "numero_gru"], ["Status", "status"], ["Vencimento", "vencimento"]])}<h3>Pagamentos</h3>${rows(data.pagamentos, [["Descrição", "descricao"], ["Status", "status"], ["Valor", "valor_total"]])}`;
+  $("#summary").querySelectorAll(".portal-journey-node").forEach((botao) => {
+    botao.addEventListener("click", () => abrirDrawerJornada(Number(botao.dataset.bloco), Number(botao.dataset.macro)));
+  });
 }
 function formatarTamanho(bytes) {
   if (!bytes) return "0 KB";
@@ -92,6 +117,7 @@ async function carregar() {
 $("#login-form").addEventListener("submit", async (event) => { event.preventDefault(); try { await api("/v1/portal/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.fromEntries(new FormData(event.target))) }); await carregar(); } catch (error) { $("#login-error").textContent = error.message; } });
 $("#recovery-form").addEventListener("submit", async (event) => { event.preventDefault(); const message = $("#recovery-message"); try { await api("/v1/portal/recuperacao/solicitar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.fromEntries(new FormData(event.target))) }); message.textContent = "Se a conta existir, enviaremos as instruções por e-mail."; } catch { message.textContent = "Não foi possível solicitar a recuperação."; } });
 $("#logout").addEventListener("click", async (event) => { const button = event.currentTarget; button.disabled = true; button.textContent = "Saindo…"; try { await api("/v1/portal/logout", { method: "POST" }); } finally { location.replace("/portal"); } });
+$("#close-journey-drawer").addEventListener("click", () => $("#journey-drawer").close());
 $("#message-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const status = $("#message-status");

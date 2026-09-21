@@ -28,6 +28,7 @@ from app.api.portal_cliente import (
     logo_cliente_url,
     logout_cliente,
     montar_jornada_registro,
+    montar_macroetapas,
     progresso_processo,
     remover_logo_cliente_admin,
     remover_material_marca_admin,
@@ -38,6 +39,7 @@ from app.models import (
     ArquivoClientePortal,
     AssinaturaPropostaComercial,
     ClientePortal,
+    DocumentoLead,
     HistoricoFaseLead,
     Lead,
     MaterialMarcaCliente,
@@ -937,6 +939,134 @@ def test_jornada_portal_usa_eventos_objetivos_da_proposta_e_do_processo() -> Non
     assert por_fase["protocolo_inpi"]["ocorrido_em"] == vinculado_em
     assert por_fase["processo_inpi"]["situacao"] == "atual"
     assert por_fase["processo_inpi"]["ocorrido_em"] == vinculado_em
+
+
+def test_macroetapas_sem_processo_mostra_so_onboarding_atual() -> None:
+    # Revisão do pedido do usuário (21/09/2026): sem processo vinculado
+    # ainda, a jornada unificada mostra só a macroetapa 1 em andamento -- as
+    # macroetapas 2 a 5 (oficiais do INPI) ficam "pendente", sem inventar
+    # progresso que ainda não aconteceu.
+    lead = Lead(id=1, organizacao_id=1, fase="proposta_enviada", criado_em=datetime(2026, 9, 1, tzinfo=UTC))
+    jornada = montar_jornada_registro(lead, [], [], [])
+
+    blocos = montar_macroetapas(lead, jornada, [], [])
+
+    assert len(blocos) == 1
+    macroetapas = blocos[0]["macroetapas"]
+    assert [item["indice"] for item in macroetapas] == [1, 2, 3, 4, 5]
+    assert macroetapas[0]["situacao"] == "atual"
+    assert [item["situacao"] for item in macroetapas[1:]] == ["pendente"] * 4
+    assert all(item["sub_eventos"] == [] for item in macroetapas[1:])
+
+
+def test_macroetapas_marca_onboarding_concluido_quando_ha_processo() -> None:
+    lead = Lead(id=1, organizacao_id=1, fase="ganho", criado_em=datetime(2026, 9, 1, tzinfo=UTC))
+    jornada = montar_jornada_registro(lead, [], [], [])
+    processo = Processo(numero="BR912345678", situacao_normalizada="em_exame")
+    monitorado = ProcessoMonitorado(criado_em=datetime(2026, 9, 10, tzinfo=UTC))
+
+    blocos = montar_macroetapas(lead, jornada, [(monitorado, processo)], [])
+
+    assert blocos[0]["macroetapas"][0]["situacao"] == "concluida"
+
+
+def test_macroetapas_em_exame_mostra_previsao_so_na_etapa_atual() -> None:
+    lead = Lead(id=1, organizacao_id=1, fase="ganho", criado_em=datetime(2026, 9, 1, tzinfo=UTC))
+    jornada = montar_jornada_registro(lead, [], [], [])
+    processo = Processo(numero="BR912345678", situacao_normalizada="em_exame")
+    monitorado = ProcessoMonitorado(criado_em=datetime(2026, 9, 10, tzinfo=UTC))
+
+    macroetapas = montar_macroetapas(lead, jornada, [(monitorado, processo)], [])[0]["macroetapas"]
+
+    exame = next(item for item in macroetapas if item["indice"] == 4)
+    assert exame["situacao"] == "atual"
+    assert exame["previsao"] == "Previsão média: 8 a 14 meses"
+    assert macroetapas[0]["previsao"] is None
+    assert macroetapas[4]["previsao"] is None
+
+
+def test_macroetapas_exigencia_e_oposicao_viram_alerta_sem_desviar_etapa() -> None:
+    lead = Lead(id=1, organizacao_id=1, fase="ganho", criado_em=datetime(2026, 9, 1, tzinfo=UTC))
+    jornada = montar_jornada_registro(lead, [], [], [])
+    monitorado = ProcessoMonitorado(criado_em=datetime(2026, 9, 10, tzinfo=UTC))
+
+    exigencia = montar_macroetapas(
+        lead, jornada, [(monitorado, Processo(numero="BR1", situacao_normalizada="exigencia"))], []
+    )[0]["macroetapas"]
+    assert next(item for item in exigencia if item["indice"] == 4)["alerta"] is not None
+    assert [item["indice"] for item in exigencia if item["situacao"] == "atual"] == [4]
+
+    oposicao = montar_macroetapas(
+        lead, jornada, [(monitorado, Processo(numero="BR2", situacao_normalizada="oposicao"))], []
+    )[0]["macroetapas"]
+    assert next(item for item in oposicao if item["indice"] == 3)["alerta"] is not None
+    assert [item["indice"] for item in oposicao if item["situacao"] == "atual"] == [3]
+
+
+def test_macroetapas_indeferida_encerra_como_concluida_com_alerta() -> None:
+    lead = Lead(id=1, organizacao_id=1, fase="ganho", criado_em=datetime(2026, 9, 1, tzinfo=UTC))
+    jornada = montar_jornada_registro(lead, [], [], [])
+    processo = Processo(numero="BR1", situacao_normalizada="indeferida")
+    monitorado = ProcessoMonitorado(criado_em=datetime(2026, 9, 10, tzinfo=UTC))
+
+    macroetapas = montar_macroetapas(lead, jornada, [(monitorado, processo)], [])[0]["macroetapas"]
+
+    exame = next(item for item in macroetapas if item["indice"] == 4)
+    assert exame["situacao"] == "concluida"
+    assert exame["alerta"] == "Pedido indeferido"
+    assert next(item for item in macroetapas if item["indice"] == 5)["situacao"] == "pendente"
+
+
+def test_macroetapas_registrada_fica_100_por_cento_concluida() -> None:
+    lead = Lead(id=1, organizacao_id=1, fase="ganho", criado_em=datetime(2026, 9, 1, tzinfo=UTC))
+    jornada = montar_jornada_registro(lead, [], [], [])
+    processo = Processo(numero="BR1", situacao_normalizada="registrada")
+    monitorado = ProcessoMonitorado(criado_em=datetime(2026, 9, 10, tzinfo=UTC))
+
+    macroetapas = montar_macroetapas(lead, jornada, [(monitorado, processo)], [])[0]["macroetapas"]
+
+    assert all(item["situacao"] == "concluida" for item in macroetapas)
+
+
+def test_macroetapas_anexa_documento_ao_sub_evento_certo_quando_processo_unico() -> None:
+    lead = Lead(id=1, organizacao_id=1, fase="ganho", criado_em=datetime(2026, 9, 1, tzinfo=UTC))
+    jornada = montar_jornada_registro(lead, [], [], [])
+    processo = Processo(numero="BR1", situacao_normalizada="registrada", data_deposito=date(2026, 8, 1))
+    monitorado = ProcessoMonitorado(criado_em=datetime(2026, 9, 10, tzinfo=UTC))
+    certificado = DocumentoLead(tipo="certificado", status="assinado", assinado_em=datetime(2026, 9, 20, tzinfo=UTC))
+    protocolo = DocumentoLead(tipo="protocolo", status="assinado", data=date(2026, 8, 2))
+
+    macroetapas = montar_macroetapas(lead, jornada, [(monitorado, processo)], [certificado, protocolo])[0][
+        "macroetapas"
+    ]
+
+    macro5 = next(item for item in macroetapas if item["indice"] == 5)
+    assert any(evento["label"] == "Certificado de registro" for evento in macro5["sub_eventos"])
+    macro2 = next(item for item in macroetapas if item["indice"] == 2)
+    labels_macro2 = [evento["label"] for evento in macro2["sub_eventos"]]
+    assert "Pedido depositado" in labels_macro2
+    assert "Comprovante de protocolo" in labels_macro2
+
+
+def test_macroetapas_nao_anexa_documento_quando_lead_tem_mais_de_um_processo() -> None:
+    # Achado do desenho desta jornada: DocumentoLead é por lead, não por
+    # processo -- com duas marcas no mesmo lead não dá pra saber a qual
+    # delas o documento pertence, então nenhum sub-evento de documento
+    # aparece em nenhum dos dois blocos.
+    lead = Lead(id=1, organizacao_id=1, fase="ganho", criado_em=datetime(2026, 9, 1, tzinfo=UTC))
+    jornada = montar_jornada_registro(lead, [], [], [])
+    monitorado = ProcessoMonitorado(criado_em=datetime(2026, 9, 10, tzinfo=UTC))
+    processo_a = Processo(numero="BR1", situacao_normalizada="registrada")
+    processo_b = Processo(numero="BR2", situacao_normalizada="publicada")
+    certificado = DocumentoLead(tipo="certificado", status="assinado")
+
+    blocos = montar_macroetapas(
+        lead, jornada, [(monitorado, processo_a), (monitorado, processo_b)], [certificado]
+    )
+
+    assert len(blocos) == 2
+    for bloco in blocos:
+        assert all(item["sub_eventos"] == [] for item in bloco["macroetapas"] if item["indice"] != 1)
 
 
 def test_listar_processos_portal_inclui_progresso() -> None:

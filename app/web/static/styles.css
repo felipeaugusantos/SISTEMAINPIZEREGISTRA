@@ -4562,6 +4562,12 @@ table.lead-docs .doc-arquivo-cell input[type="file"] { width: auto; min-width: 0
 .notif-wrap {
   position: relative;
 }
+.notif-native-toggle {
+  align-self: center;
+  font-size: .78rem;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
 .notif-button {
   position: relative;
   display: inline-flex;

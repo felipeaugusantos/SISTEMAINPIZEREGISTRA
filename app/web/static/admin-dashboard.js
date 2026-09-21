@@ -249,6 +249,31 @@ function notifItem(item) {
   return `<li><a href="${item.url || "#"}" data-fonte="${item.fonte}" data-id="${item.id}" data-url="${item.url || ""}"><span class="notif-dot sev-${sev}" aria-hidden="true"></span><div><strong>${escapeHtml(item.titulo)}</strong><p>${escapeHtml(item.mensagem)}</p><small>${fonte} · ${formatDate(item.criado_em)}</small></div></a></li>`;
 }
 
+// Achado do usuário (21/09/2026): além do sino, avisar com uma notificação
+// nativa do navegador/sistema quando chega mensagem nova do cliente --
+// reaproveita o polling de 60s já existente (setInterval no fim do arquivo)
+// em vez de criar um mecanismo novo. "Vistas" fica em localStorage pra não
+// notificar de novo a cada poll nem depois de recarregar a página; falha
+// silenciosa se localStorage não estiver disponível (modo privado etc.).
+const CHAVE_MENSAGENS_NOTIFICADAS = "notif-mensagens-vistas";
+function mensagensJaNotificadas() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(CHAVE_MENSAGENS_NOTIFICADAS) || "[]"));
+  } catch { return new Set(); }
+}
+function notificarMensagensNovas(itens) {
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  const vistas = mensagensJaNotificadas();
+  const pendentes = itens.filter((item) => item.fonte === "mensagem_portal" && !item.lida && !vistas.has(item.id));
+  if (!pendentes.length) return;
+  for (const item of pendentes) {
+    const notificacao = new Notification(item.titulo, { body: item.mensagem, tag: `mensagem-portal-${item.id}` });
+    notificacao.onclick = () => { window.focus(); if (item.url) window.location.href = item.url; };
+    vistas.add(item.id);
+  }
+  try { localStorage.setItem(CHAVE_MENSAGENS_NOTIFICADAS, JSON.stringify([...vistas])); } catch { /* modo privado etc. */ }
+}
+
 async function loadNotifications() {
   const response = await fetch("/v1/admin/notificacoes");
   if (!response.ok) return;
@@ -263,6 +288,20 @@ async function loadNotifications() {
   list.innerHTML = data.total
     ? data.itens.map(notifItem).join("")
     : '<li class="notif-empty">Nenhuma notificação pendente. 🎉</li>';
+  notificarMensagensNovas(data.itens);
+}
+
+const notifNativeToggle = document.querySelector("#notif-native-toggle");
+if (notifNativeToggle) {
+  const atualizarBotaoNativo = () => {
+    const suportado = typeof Notification !== "undefined";
+    notifNativeToggle.hidden = !suportado || Notification.permission !== "default";
+  };
+  notifNativeToggle.addEventListener("click", async () => {
+    await Notification.requestPermission();
+    atualizarBotaoNativo();
+  });
+  atualizarBotaoNativo();
 }
 
 const notifList = document.querySelector("#notif-list");

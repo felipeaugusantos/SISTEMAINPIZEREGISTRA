@@ -155,7 +155,7 @@ async def test_notificacoes_unifica_e_ordena_por_data() -> None:
         criado_em=datetime(2026, 8, 11, tzinfo=UTC),
         resolvido_em=None,
     )
-    session = FakeSession([FakeResult(itens=[juridica]), FakeResult(itens=[alerta])])
+    session = FakeSession([FakeResult(itens=[juridica]), FakeResult(itens=[alerta]), FakeResult(itens=[])])
     usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
     resposta = await listar_notificacoes(session, usuario)
     assert resposta["total"] == 2
@@ -229,7 +229,7 @@ async def test_marcar_alerta_sistema_como_nao_resolvido() -> None:
 async def test_marcar_todas_como_lidas_afeta_juridico_e_sistema() -> None:
     juridica = SimpleNamespace(status="nova", lida_em=None, lida_por=None)
     alerta = SimpleNamespace(resolvido_em=None)
-    session = FakeSession([FakeResult(itens=[juridica]), FakeResult(itens=[alerta])])
+    session = FakeSession([FakeResult(itens=[juridica]), FakeResult(itens=[alerta]), FakeResult(itens=[])])
     usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
     resultado = await marcar_todas_notificacoes(session, usuario, lida=True)
     assert resultado == {"afetadas": 2, "lida": True}
@@ -261,8 +261,125 @@ async def test_notificacoes_incluem_id_e_fonte() -> None:
         criado_em=datetime(2026, 8, 10, tzinfo=UTC),
         lida_em=None,
     )
-    session = FakeSession([FakeResult(itens=[juridica]), FakeResult(itens=[])])
+    session = FakeSession([FakeResult(itens=[juridica]), FakeResult(itens=[]), FakeResult(itens=[])])
     usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
     resposta = await listar_notificacoes(session, usuario)
     assert resposta["itens"][0]["id"] == 42
     assert resposta["itens"][0]["fonte"] == "juridico"
+
+
+# --- Achado do usuário (21/09/2026): mensagem do cliente pelo portal não
+# gerava nenhum aviso na central de notificações, só o selo "!" na lista
+# de Leads. Nova fonte "mensagem_portal", derivada de
+# MensagemClientePortal.lida_em (sem tabela nova). ---
+
+
+@pytest.mark.asyncio
+async def test_notificacoes_inclui_lead_com_mensagem_pendente() -> None:
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # juridico
+            FakeResult(itens=[]),  # sistema
+            FakeResult(itens=[(9, "Gustavo Moraes", "Tactical Cloud", 2, datetime(2026, 9, 21, tzinfo=UTC))]),
+        ]
+    )
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+
+    resposta = await listar_notificacoes(session, usuario)
+
+    assert resposta["total"] == 1
+    item = resposta["itens"][0]
+    assert item["fonte"] == "mensagem_portal"
+    assert item["id"] == 9
+    assert item["lida"] is False
+    assert "2 mensagens" in item["mensagem"]
+    assert item["url"] == "/admin/pesquisas?lead_id=9"
+
+
+@pytest.mark.asyncio
+async def test_marcar_mensagem_portal_como_lida_marca_todas_as_mensagens_do_lead() -> None:
+    mensagem1 = SimpleNamespace(lida_em=None)
+    mensagem2 = SimpleNamespace(lida_em=None)
+    session = FakeSession(
+        [
+            FakeResult(scalar=9),  # lead existe e é visível
+            FakeResult(itens=[mensagem1, mensagem2]),
+        ]
+    )
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+
+    resultado = await marcar_notificacao_lida("mensagem_portal", 9, session, usuario)
+
+    assert resultado == {"lida": True}
+    assert mensagem1.lida_em is not None
+    assert mensagem2.lida_em is not None
+
+
+@pytest.mark.asyncio
+async def test_marcar_mensagem_portal_lida_nega_quando_lead_nao_e_visivel() -> None:
+    # Achado: operador só pode marcar como lida mensagens de leads onde é
+    # responsável -- mesma regra de portal_cliente.listar_mensagens_portal_admin.
+    session = FakeSession([FakeResult(scalar=None)])
+    usuario = usuario_teste(perfil="operador", permissoes={"leads.manage", "leads.view", "dashboard.view"})
+
+    with pytest.raises(HTTPException) as erro:
+        await marcar_notificacao_lida("mensagem_portal", 9, session, usuario)
+
+    assert erro.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_marcar_mensagem_portal_lida_exige_leads_manage() -> None:
+    # Achado do Codex review (PR #91): leads.view é só consulta no
+    # catálogo de permissões -- marcar_mensagens_portal_lidas (endpoint
+    # equivalente) já exige leads.manage, então essa mutação também
+    # precisa, senão um perfil só-leitura apagaria o sinal de pendência.
+    session = FakeSession([])
+    usuario = usuario_teste(perfil="operador", permissoes={"leads.view", "dashboard.view"})
+
+    with pytest.raises(HTTPException) as erro:
+        await marcar_notificacao_lida("mensagem_portal", 9, session, usuario)
+
+    assert erro.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_marcar_todas_notificacoes_marca_mensagens_pendentes_quando_lida() -> None:
+    mensagem = SimpleNamespace(lida_em=None)
+    session = FakeSession(
+        [
+            FakeResult(itens=[]),  # juridico
+            FakeResult(itens=[]),  # sistema
+            FakeResult(itens=[mensagem]),
+        ]
+    )
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+
+    resultado = await marcar_todas_notificacoes(session, usuario, lida=True)
+
+    assert resultado == {"afetadas": 1, "lida": True}
+    assert mensagem.lida_em is not None
+
+
+@pytest.mark.asyncio
+async def test_marcar_todas_notificacoes_leads_view_nao_mexe_em_mensagens() -> None:
+    # Mesmo achado do Codex review (PR #91) que exigiu leads.manage em
+    # marcar_notificacao_lida -- vale também pro branch em lote.
+    session = FakeSession([FakeResult(itens=[])])  # sistema (só leads.view, sem juridico)
+    usuario = usuario_teste(perfil="operador", permissoes={"leads.view", "dashboard.view"})
+
+    resultado = await marcar_todas_notificacoes(session, usuario, lida=True)
+
+    assert resultado == {"afetadas": 0, "lida": True}
+
+
+@pytest.mark.asyncio
+async def test_marcar_todas_notificacoes_nao_lidas_nao_mexe_em_mensagens() -> None:
+    # "Marcar todas como não lidas" não se aplica a mensagens -- reverter
+    # exigiria escolher qual mensagem específica desmarcar.
+    session = FakeSession([FakeResult(itens=[]), FakeResult(itens=[])])
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+
+    resultado = await marcar_todas_notificacoes(session, usuario, lida=False)
+
+    assert resultado == {"afetadas": 0, "lida": False}

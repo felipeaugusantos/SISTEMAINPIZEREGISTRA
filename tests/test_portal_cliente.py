@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException, Response
@@ -620,6 +621,38 @@ def test_baixar_material_marca_admin_material_inexistente_retorna_404() -> None:
     assert exc_info.value.status_code == 404
 
 
+def test_baixar_material_marca_admin_encontra_arquivo_salvo_localmente(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Achado do usuário (20/09/2026, lead "Tactical Cloud"): baixar um
+    # material de marca já enviado devolvia 404 "Material não encontrado"
+    # mesmo com o arquivo existindo no disco. Causa: a checagem de
+    # path-traversal aqui usava Path("data") hardcoded, mas save_bytes()
+    # grava em STORAGE_LOCAL_ROOT (padrão "data/uploads") -- o "uploads"
+    # nunca batia, então todo download local falhava sempre, não só pra
+    # este cliente.
+    monkeypatch.setenv("STORAGE_LOCAL_ROOT", str(tmp_path))
+    usuario = usuario_teste(perfil="comercial")
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=usuario.id)
+    caminho_real = tmp_path / "materiais-marca" / "1" / "9" / "logo.png"
+    caminho_real.parent.mkdir(parents=True)
+    caminho_real.write_bytes(b"conteudo-fake")
+    material = MaterialMarcaCliente(
+        id=3,
+        organizacao_id=1,
+        lead_id=9,
+        nome="logo.png",
+        caminho=str(caminho_real),
+        content_type="image/png",
+    )
+    session = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=material)])
+
+    resultado = asyncio.run(baixar_material_marca_admin(9, 3, _request(), session, usuario))
+
+    assert Path(resultado.path) == caminho_real
+    assert session.commits == 1
+
+
 def test_remover_material_marca_admin_remove_e_audita(monkeypatch: pytest.MonkeyPatch) -> None:
     import app.api.portal_cliente as modulo_portal
 
@@ -675,6 +708,31 @@ def test_baixar_material_marca_portal_material_inexistente_retorna_404() -> None
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(baixar_material_marca_portal(3, _request(), cliente, session))
     assert exc_info.value.status_code == 404
+
+
+def test_baixar_material_marca_portal_encontra_arquivo_salvo_localmente(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Mesmo achado do lado do cliente (download direto do portal, não pelo
+    # admin) -- ver test_baixar_material_marca_admin_encontra_arquivo_salvo_localmente.
+    monkeypatch.setenv("STORAGE_LOCAL_ROOT", str(tmp_path))
+    cliente = _cliente()
+    caminho_real = tmp_path / "materiais-marca" / "1" / "9" / "manual-de-marca.pdf"
+    caminho_real.parent.mkdir(parents=True)
+    caminho_real.write_bytes(b"conteudo-fake")
+    material = MaterialMarcaCliente(
+        id=3,
+        organizacao_id=1,
+        lead_id=9,
+        nome="manual-de-marca.pdf",
+        caminho=str(caminho_real),
+        content_type="application/pdf",
+    )
+    session = FakeSession([FakeResult(scalar=material)])
+
+    resultado = asyncio.run(baixar_material_marca_portal(3, _request(), cliente, session))
+
+    assert Path(resultado.path) == caminho_real
 
 
 # --- Item 4/5 do pedido de melhorias do cliente final (17/09/2026): logo do

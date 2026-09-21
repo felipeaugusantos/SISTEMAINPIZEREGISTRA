@@ -59,7 +59,7 @@ from app.models import (
 from app.proxy import cliente_ip, requisicao_https
 from app.ratelimit import RateLimiter
 from app.settings import get_settings
-from app.storage import StorageError, delete_object, read_bytes, save_bytes
+from app.storage import StorageError, delete_object, local_root, read_bytes, save_bytes
 from app.tenancy import aplicar_contexto_tenant
 
 logger = logging.getLogger("ze_registra.portal_cliente")
@@ -920,7 +920,7 @@ async def baixar_arquivo_portal_admin(
             headers={"Content-Disposition": f'attachment; filename="{item.nome}"'},
         )
     caminho = Path(item.caminho).resolve()
-    base = (Path("data") / "portal" / str(usuario.organizacao_id) / str(item.cliente_id)).resolve()
+    base = (local_root() / "portal" / str(usuario.organizacao_id) / str(item.cliente_id)).resolve()
     if not caminho.is_file() or base not in caminho.parents:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado")
     _auditar_operador(session, usuario, request, "baixar_arquivo_portal", f"arquivo:{item.id}")
@@ -1052,7 +1052,7 @@ async def baixar_material_marca_admin(
             headers={"Content-Disposition": f'attachment; filename="{item.nome}"'},
         )
     caminho = Path(item.caminho).resolve()
-    base = (Path("data") / "materiais-marca" / str(usuario.organizacao_id) / str(lead_id)).resolve()
+    base = (local_root() / "materiais-marca" / str(usuario.organizacao_id) / str(lead_id)).resolve()
     if not caminho.is_file() or base not in caminho.parents:
         raise HTTPException(status_code=404, detail="Material não encontrado")
     _auditar_operador(session, usuario, request, "baixar_material_marca", f"material:{item.id}")
@@ -1787,7 +1787,7 @@ async def baixar_arquivo_portal(
             headers={"Content-Disposition": f'attachment; filename="{item.nome}"'},
         )
     caminho = Path(item.caminho).resolve()
-    base = (Path("data") / "portal" / str(cliente.organizacao_id) / str(cliente.id)).resolve()
+    base = (local_root() / "portal" / str(cliente.organizacao_id) / str(cliente.id)).resolve()
     if not caminho.is_file() or base not in caminho.parents:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado")
     _auditar_cliente(session, cliente, request, "baixar_arquivo", f"arquivo:{item.id}")
@@ -1856,7 +1856,7 @@ async def baixar_material_marca_portal(
             headers={"Content-Disposition": f'attachment; filename="{item.nome}"'},
         )
     caminho = Path(item.caminho).resolve()
-    base = (Path("data") / "materiais-marca" / str(cliente.organizacao_id) / str(cliente.lead_id)).resolve()
+    base = (local_root() / "materiais-marca" / str(cliente.organizacao_id) / str(cliente.lead_id)).resolve()
     if not caminho.is_file() or base not in caminho.parents:
         raise HTTPException(status_code=404, detail="Material não encontrado")
     _auditar_cliente(session, cliente, request, "baixar_material_marca", f"material:{item.id}")

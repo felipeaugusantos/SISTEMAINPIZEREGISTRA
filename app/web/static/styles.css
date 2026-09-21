@@ -1077,6 +1077,8 @@ table.lead-docs .doc-type { font-weight: 700; white-space: nowrap; }
 table.lead-docs input, table.lead-docs select { width: 100%; min-width: 80px; padding: 7px 9px; border: 1px solid #cbd4cd; border-radius: 8px; background: #fff; font: inherit; font-size: .8rem; box-sizing: border-box; }
 .lead-docs-actions { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
 .lead-docs-actions span { font-size: .78rem; color: var(--muted); }
+table.lead-docs .doc-arquivo-cell { display: flex; flex-direction: column; gap: 6px; min-width: 160px; }
+table.lead-docs .doc-arquivo-cell input[type="file"] { width: auto; min-width: 0; padding: 4px; border: 0; font-size: .74rem; }
 .lead-checklist { margin-bottom: 24px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: #f8f8f4; }
 .lead-checklist > header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .lead-checklist > header .eyebrow { margin: 0; color: var(--muted); font-size: .7rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }

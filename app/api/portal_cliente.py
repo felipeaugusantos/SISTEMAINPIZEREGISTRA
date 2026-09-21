@@ -284,6 +284,7 @@ def _evento_documento(documento: DocumentoLead | None) -> dict | None:
         "label": _DOC_LABELS.get(documento.tipo, documento.tipo),
         "situacao": "pendente" if documento.status == "pendente" else "concluida",
         "ocorrido_em": documento.assinado_em or documento.data,
+        "documento_id": documento.id if documento.caminho else None,
     }
 
 
@@ -1538,6 +1539,7 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
                 "validade_em": d.validade_em,
                 "obrigatorio": d.obrigatorio,
                 "assinado_em": d.assinado_em,
+                "tem_arquivo": bool(d.caminho),
             }
             for d in documentos
         ],
@@ -1808,10 +1810,14 @@ async def listar_prazos_portal(request: Request, cliente: ClientDep, session: Se
     return {"prazos": prazos}
 
 
-@router.get("/v1/portal/documentos/{documento_id}/download")
+@router.get("/v1/portal/documentos/{documento_id}/download", response_model=None)
 async def baixar_documento_portal(
     documento_id: int, request: Request, cliente: ClientDep, session: SessionDep
-) -> FileResponse:
+) -> FileResponse | StreamingResponse:
+    """Corrigido em 21/09/2026: este endpoint sempre 404ava -- lia
+    ``documento.caminho``, um atributo que não existia no modelo até
+    DocumentoLead ganhar upload de arquivo de verdade (achado do usuário:
+    "Etapa bloqueada" sem lugar pra anexar a procuração)."""
     documento = (
         await session.execute(
             select(DocumentoLead).where(
@@ -1821,18 +1827,32 @@ async def baixar_documento_portal(
             )
         )
     ).scalar_one_or_none()
-    caminho_registrado = getattr(documento, "caminho", None) if documento else None
-    if documento is None or not caminho_registrado:
+    if documento is None or not documento.caminho:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
-    caminho = Path(caminho_registrado).resolve()
-    if not caminho.is_file():
-        raise HTTPException(status_code=404, detail="Arquivo do documento não encontrado")
+    if documento.caminho.startswith("s3://"):
+        try:
+            conteudo = read_bytes(documento.caminho)
+        except (StorageError, OSError) as exc:
+            raise HTTPException(status_code=404, detail="Documento não encontrado") from exc
+        _auditar_cliente(session, cliente, request, "baixar_documento", f"documento:{documento.id}")
+        await session.commit()
+        return StreamingResponse(
+            iter([conteudo]),
+            media_type=documento.content_type or "application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{documento.tipo}"'},
+        )
+    caminho = Path(documento.caminho).resolve()
+    base = (
+        local_root() / "documentos-lead" / str(cliente.organizacao_id) / str(cliente.lead_id) / documento.tipo
+    ).resolve()
+    if not caminho.is_file() or base not in caminho.parents:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
     _auditar_cliente(session, cliente, request, "baixar_documento", f"documento:{documento.id}")
     await session.commit()
     return FileResponse(
         caminho,
-        media_type="application/octet-stream",
-        filename=getattr(documento, "nome", None) or caminho.name,
+        media_type=documento.content_type or "application/octet-stream",
+        filename=documento.tipo,
     )
 
 

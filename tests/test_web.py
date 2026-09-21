@@ -359,6 +359,11 @@ def test_portal_cliente_mostra_jornada_unificada_em_macroetapas() -> None:
     assert ".portal-journey" in styles
     assert ".portal-journey-alerta" in styles
     assert ".portal-drawer-body" in styles
+    # Achado do Codex review (PR #90): o link de download só aparecia no
+    # drawer da jornada (protocolo/oposição/certificado, e só depois de
+    # protocolado) -- a lista completa "Documentos e GRUs" precisa expor o
+    # download de qualquer documento com arquivo, incluindo procuração/GRU.
+    assert "item.tem_arquivo" in script
 
 
 def test_portal_cliente_usa_a_mesma_logo_do_painel_interno() -> None:

@@ -1,8 +1,10 @@
 import csv
 import hashlib
 import io
+import secrets
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
@@ -42,6 +44,7 @@ from app.emailing import (
 )
 from app.ia_sombra import enfileirar_qualificacao_ia_se_ativa
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
+from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import (
     MOTIVOS_PERDA,
     ORDEM_FASE_LEAD,
@@ -91,6 +94,7 @@ from app.schemas import (
     PesquisaLeadResumo,
     RelatorioMarcaResponse,
 )
+from app.storage import StorageError, local_root, read_bytes, save_bytes
 from app.tenancy import OrganizacaoPublicaDep
 from app.trademarks.analysis_workflow import EstadoAnalise, revisao_obrigatoria_pendente
 from app.trademarks.consolidated import analise_para_exibicao
@@ -2601,6 +2605,8 @@ async def listar_documentos_lead(lead_id: int, session: SessionDep, usuario: Lea
                 "obrigatorio": por_tipo[t].obrigatorio if t in por_tipo else False,
                 "validade_em": por_tipo[t].validade_em if t in por_tipo else None,
                 "assinado_em": por_tipo[t].assinado_em if t in por_tipo else None,
+                "tem_arquivo": bool(por_tipo[t].caminho) if t in por_tipo else False,
+                "tamanho": por_tipo[t].tamanho if t in por_tipo else None,
             }
             for t in TIPOS_DOCUMENTO_LEAD
         ],
@@ -2717,6 +2723,161 @@ async def salvar_documentos_lead(
     _auditar(session, usuario, request, "documentos_lead", f"lead:{lead_id}", {})
     await session.commit()
     return {"ok": True}
+
+
+@router.post("/v1/admin/leads/{lead_id}/documentos/{tipo}/arquivo", status_code=status.HTTP_201_CREATED)
+async def enviar_arquivo_documento_lead(
+    lead_id: int,
+    tipo: str,
+    request: Request,
+    session: SessionDep,
+    usuario: LeadsManageDep,
+    arquivo: Annotated[UploadFile, File()],
+) -> dict:
+    """Achado do usuário (21/09/2026): "Etapa bloqueada. Documentos
+    obrigatórios pendentes: procuração", sem nenhum lugar pra anexar o
+    arquivo -- DocumentoLead sempre foi só metadado. Mesmo padrão de
+    validação/armazenamento de app.api.portal_cliente.enviar_material_marca_admin.
+    """
+    if tipo not in TIPOS_DOCUMENTO_LEAD:
+        raise HTTPException(status_code=422, detail="Tipo de documento inválido")
+    await _lead_da_org(session, lead_id, usuario.organizacao_id)
+    if arquivo.size and arquivo.size > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
+    conteudo = await arquivo.read()
+    if len(conteudo) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
+    await escanear_upload_ou_rejeitar(conteudo)
+    nome = f"{secrets.token_hex(12)}-{Path(arquivo.filename or 'arquivo').name}"
+    try:
+        caminho = save_bytes(f"documentos-lead/{usuario.organizacao_id}/{lead_id}/{tipo}/{nome}", conteudo)
+    except StorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    novo_hash = hashlib.sha256(conteudo).hexdigest()
+    documento = (
+        await session.execute(
+            select(DocumentoLead).where(
+                DocumentoLead.lead_id == lead_id,
+                DocumentoLead.organizacao_id == usuario.organizacao_id,
+                DocumentoLead.tipo == tipo,
+            )
+        )
+    ).scalar_one_or_none()
+    if documento is None:
+        documento = DocumentoLead(organizacao_id=usuario.organizacao_id, lead_id=lead_id, tipo=tipo)
+        session.add(documento)
+    else:
+        # Achado do Codex review (PR #90): trocar o arquivo de um documento
+        # que já existia precisa do mesmo tratamento de "mudou_conteudo" de
+        # salvar_documentos_lead -- versiona o estado anterior e invalida
+        # uma assinatura clickwrap existente (assinar_documento_portal só
+        # hasheia metadado, não o arquivo; sem isso o portal continuaria
+        # mostrando "assinado" com o conteúdo trocado por baixo).
+        session.add(
+            VersaoDocumentoLead(
+                organizacao_id=documento.organizacao_id,
+                documento_id=documento.id,
+                versao=documento.versao,
+                hash_documento=documento.hash_documento
+                or hashlib.sha256(
+                    f"{documento.tipo}|{documento.numero or ''}|{documento.data or ''}|{documento.status}|"
+                    f"{documento.observacoes or ''}|{documento.validade_em or ''}".encode()
+                ).hexdigest(),
+                conteudo={
+                    "tipo": documento.tipo,
+                    "numero": documento.numero,
+                    "data": documento.data.isoformat() if documento.data else None,
+                    "status": documento.status,
+                    "observacoes": documento.observacoes,
+                    "obrigatorio": documento.obrigatorio,
+                    "validade_em": documento.validade_em.isoformat() if documento.validade_em else None,
+                    "arquivo_hash": documento.arquivo_hash,
+                },
+            )
+        )
+        documento.versao += 1
+        documento.hash_documento = None
+        documento.assinado_em = None
+        documento.assinado_ip_hash = None
+        documento.assinado_por_cliente_id = None
+    documento.caminho = caminho
+    documento.content_type = arquivo.content_type
+    documento.tamanho = len(conteudo)
+    documento.arquivo_hash = novo_hash
+    # O upload por si só já satisfaz o gate de avanço de fase
+    # (DOCUMENTOS_VALIDOS) -- sem isso o operador precisaria também lembrar
+    # de trocar o status manualmente. Nunca rebaixa um status já válido
+    # (ex.: "aprovado" por revisão jurídica); qualquer outro valor, incluindo
+    # os legados que o dropdown antigo oferecia (em_andamento/concluido/
+    # nao_aplicavel -- achado do Codex review, PR #90), nunca satisfazia o
+    # gate mesmo assim, então também vira "recebido".
+    if documento.status not in DOCUMENTOS_VALIDOS:
+        documento.status = "recebido"
+    # Mesma reconciliação de SLA que salvar_documentos_lead já faz: o
+    # upload pode ser justamente o último documento pendente que libera o
+    # protocolo (achado do Codex review, PR #90) -- sem isso sla_inicio_em/
+    # sla_prazo_em ficavam nulos e o prazo de 24h nunca começava a contar.
+    propostas_aguardando = (
+        (
+            await session.execute(
+                select(PropostaComercial).where(
+                    PropostaComercial.lead_id == lead_id,
+                    PropostaComercial.organizacao_id == usuario.organizacao_id,
+                    PropostaComercial.status == "aceita",
+                    PropostaComercial.pagamento_status == "confirmado",
+                    PropostaComercial.sla_inicio_em.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for proposta in propostas_aguardando:
+        if await _documentacao_protocolavel(session, proposta):
+            proposta.sla_inicio_em = datetime.now(UTC)
+            proposta.sla_prazo_em = _prazo_sla_24h(proposta.sla_inicio_em)
+            proposta.sla_status = "em_prazo"
+    _auditar(session, usuario, request, "arquivo_documento", f"lead:{lead_id}:{tipo}", {})
+    await session.commit()
+    return {"tipo": tipo, "status": documento.status, "tamanho": documento.tamanho}
+
+
+@router.get("/v1/admin/leads/{lead_id}/documentos/{tipo}/arquivo")
+async def baixar_arquivo_documento_lead(
+    lead_id: int, tipo: str, request: Request, session: SessionDep, usuario: LeadsViewDep
+) -> StreamingResponse:
+    if tipo not in TIPOS_DOCUMENTO_LEAD:
+        raise HTTPException(status_code=422, detail="Tipo de documento inválido")
+    await _lead_da_org(session, lead_id, usuario.organizacao_id)
+    documento = (
+        await session.execute(
+            select(DocumentoLead).where(
+                DocumentoLead.lead_id == lead_id,
+                DocumentoLead.organizacao_id == usuario.organizacao_id,
+                DocumentoLead.tipo == tipo,
+            )
+        )
+    ).scalar_one_or_none()
+    if documento is None or not documento.caminho:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    if documento.caminho.startswith("s3://"):
+        try:
+            conteudo = read_bytes(documento.caminho)
+        except (StorageError, OSError) as exc:
+            raise HTTPException(status_code=404, detail="Documento não encontrado") from exc
+    else:
+        caminho = Path(documento.caminho).resolve()
+        base = (local_root() / "documentos-lead" / str(usuario.organizacao_id) / str(lead_id) / tipo).resolve()
+        if not caminho.is_file() or base not in caminho.parents:
+            raise HTTPException(status_code=404, detail="Documento não encontrado")
+        conteudo = caminho.read_bytes()
+    _auditar(session, usuario, request, "baixar_documento", f"lead:{lead_id}:{tipo}", {})
+    await session.commit()
+    return StreamingResponse(
+        iter([conteudo]),
+        media_type=documento.content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{tipo}-{lead_id}"'},
+    )
 
 
 @router.get("/v1/admin/leads/{lead_id}/documentos/{documento_id}/versoes")

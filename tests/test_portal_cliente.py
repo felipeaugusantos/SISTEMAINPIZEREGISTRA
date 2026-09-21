@@ -13,6 +13,7 @@ from app.api.portal_cliente import (
     ClienteLogin,
     RecuperacaoSolicitacao,
     assinar_proposta_portal,
+    baixar_documento_portal,
     baixar_logo_cliente_admin,
     baixar_logo_cliente_portal,
     baixar_material_marca_admin,
@@ -735,6 +736,60 @@ def test_baixar_material_marca_portal_encontra_arquivo_salvo_localmente(
     resultado = asyncio.run(baixar_material_marca_portal(3, _request(), cliente, session))
 
     assert Path(resultado.path) == caminho_real
+
+
+# --- Achado do usuário (21/09/2026): baixar_documento_portal sempre 404ava
+# -- lia documento.caminho, um atributo que não existia no modelo antes de
+# DocumentoLead ganhar upload de arquivo de verdade. ---
+
+
+def test_baixar_documento_portal_encontra_arquivo_salvo_localmente(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("STORAGE_LOCAL_ROOT", str(tmp_path))
+    cliente = _cliente()
+    caminho_real = tmp_path / "documentos-lead" / "1" / "9" / "procuracao" / "arquivo.pdf"
+    caminho_real.parent.mkdir(parents=True)
+    caminho_real.write_bytes(b"conteudo-real")
+    documento = DocumentoLead(
+        id=3,
+        organizacao_id=1,
+        lead_id=9,
+        tipo="procuracao",
+        caminho=str(caminho_real),
+        content_type="application/pdf",
+    )
+    session = FakeSession([FakeResult(scalar=documento)])
+
+    resultado = asyncio.run(baixar_documento_portal(3, _request(), cliente, session))
+
+    assert Path(resultado.path) == caminho_real
+
+
+def test_baixar_documento_portal_sem_arquivo_retorna_404() -> None:
+    documento = DocumentoLead(id=3, organizacao_id=1, lead_id=9, tipo="procuracao", caminho=None)
+    session = FakeSession([FakeResult(scalar=documento)])
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(baixar_documento_portal(3, _request(), _cliente(), session))
+
+    assert exc.value.status_code == 404
+
+
+def test_baixar_documento_portal_nega_caminho_fora_da_raiz(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("STORAGE_LOCAL_ROOT", str(tmp_path))
+    caminho_fora = tmp_path.parent / "arquivo-fora.pdf"
+    caminho_fora.write_bytes(b"nao deveria ser servido")
+    documento = DocumentoLead(
+        id=3, organizacao_id=1, lead_id=9, tipo="procuracao", caminho=str(caminho_fora), content_type="application/pdf"
+    )
+    session = FakeSession([FakeResult(scalar=documento)])
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(baixar_documento_portal(3, _request(), _cliente(), session))
+
+    assert exc.value.status_code == 404
+    caminho_fora.unlink()
 
 
 # --- Item 4/5 do pedido de melhorias do cliente final (17/09/2026): logo do

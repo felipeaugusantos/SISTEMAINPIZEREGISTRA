@@ -461,7 +461,7 @@ async def listar_notificacoes(
                     "severidade": "info",
                     "titulo": f"Mensagem de {nome}",
                     "mensagem": (
-                        f"{pendentes_lead} mensagem{'ns' if pendentes_lead != 1 else ''} não lida(s)"
+                        f"{pendentes_lead} mensagem{'s' if pendentes_lead != 1 else ''} não lida(s)"
                         f" sobre {marca or 'contato geral'}"
                         if pendentes_lead
                         else f"Sem mensagens pendentes de {nome}"

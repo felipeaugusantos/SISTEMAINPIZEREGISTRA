@@ -595,7 +595,13 @@ def test_login_cliente_bloqueia_conta_apos_5_tentativas_mesmo_com_ips_diferentes
     # tentativas -- só o IP muda, simulando um atacante rotacionando IPs
     # pra nunca bater no rate-limit (10/60s por IP), que sozinho não bastava.
     cliente = ClientePortal(
-        id=1, organizacao_id=1, lead_id=9, email="cliente@empresa.com.br", senha_hash="hash-invalido", ativo=True
+        id=1,
+        organizacao_id=1,
+        lead_id=9,
+        email="cliente@empresa.com.br",
+        senha_hash="hash-invalido",
+        ativo=True,
+        tentativas_falhas=0,
     )
     for tentativa in range(5):
         request = Request(

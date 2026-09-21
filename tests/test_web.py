@@ -110,8 +110,8 @@ def test_unified_admin_dashboard_requires_authentication() -> None:
     # Achado do usuário (21/09/2026): além do sino, uma notificação nativa
     # do navegador/sistema avisa quando chega mensagem nova do cliente --
     # reaproveita o polling de 60s já existente pro sino.
-    assert "function notificarMensagensNovas" in script
-    assert "Notification.requestPermission" in script
+    assert "function notificarMensagensNovas" in script.text
+    assert "Notification.requestPermission" in script.text
     assert 'id="notif-native-toggle"' in response.text
     _limpar_auth()
 

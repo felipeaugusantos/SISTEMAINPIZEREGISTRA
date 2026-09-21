@@ -969,7 +969,7 @@ def test_confirmar_prazo_critico_sem_permissao_extra_e_bloqueado() -> None:
 
 def test_confirmar_prazo_critico_com_permissao_extra_e_aceito() -> None:
     usuario = usuario_teste(perfil="supervisor", permissoes={"legal.manage", "legal.confirm_critical"})
-    prazo = _prazo_ativo(prioridade="critica", confirmado=False, confirmado_por_id=None)
+    prazo = _prazo_ativo(prioridade="critica", confirmado=False, confirmado_por_id=None, responsavel_id=2)
     session = FakeSession([FakeResult(scalar=prazo)])
     resultado = asyncio.run(
         atualizar_prazo(
@@ -986,7 +986,7 @@ def test_confirmar_prazo_critico_com_permissao_extra_e_aceito() -> None:
 
 def test_confirmar_prazo_nao_critico_nao_exige_permissao_extra() -> None:
     usuario = usuario_teste(perfil="supervisor", permissoes={"legal.manage"})
-    prazo = _prazo_ativo(prioridade="alta", confirmado=False, confirmado_por_id=None)
+    prazo = _prazo_ativo(prioridade="alta", confirmado=False, confirmado_por_id=None, responsavel_id=2)
     session = FakeSession([FakeResult(scalar=prazo)])
     resultado = asyncio.run(
         atualizar_prazo(

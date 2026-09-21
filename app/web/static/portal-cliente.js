@@ -1,6 +1,14 @@
 const $ = (selector) => document.querySelector(selector);
+function readCookie(name) { return decodeURIComponent(document.cookie.split("; ").find((x) => x.startsWith(`${name}=`))?.split("=").slice(1).join("=") || ""); }
+// Achado médio da auditoria do Portal do Cliente (Fase 9, 21/09/2026):
+// nenhuma mutação exigia CSRF -- mesmo padrão double-submit do painel
+// administrativo (admin-shell.js), aplicado aqui em toda requisição que
+// não seja GET/HEAD/OPTIONS.
 async function api(path, options = {}) {
-  const response = await fetch(path, { credentials: "same-origin", ...options });
+  const method = (options.method || "GET").toUpperCase();
+  const headers = { ...(options.headers || {}) };
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) headers["X-CSRF-Token"] = readCookie("zr_portal_csrf");
+  const response = await fetch(path, { credentials: "same-origin", ...options, headers });
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || "Não foi possível concluir a operação");
   return response.status === 204 ? null : response.json();
 }

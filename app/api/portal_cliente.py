@@ -9,6 +9,7 @@ from typing import Annotated
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -26,6 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.juridico import TIPOS_PRAZO
+from app.api.leads import DOCUMENTOS_VALIDOS
 from app.api.leads_propostas import criar_contratacao_automatica_proposta
 from app.auth import exigir_permissao, hash_ip, hash_senha, hash_token, verificar_senha
 from app.clicksign import configuracao as configuracao_clicksign
@@ -74,6 +76,25 @@ SESSION_COOKIE = "zr_client_session"
 # login administrativo (auth_routes.limitar_login), permitia força bruta de
 # senha sem restrição contra contas de ClientePortal. Mesmo limite usado lá.
 _limitar_login_portal = RateLimiter(limite=10, janela_segundos=60, escopo="portal-login")
+# Achado médio da Fase 9 (21/09/2026): recuperação de senha do portal não
+# tinha nenhum rate limit (diferente de app.api.auth_routes.limitar_recuperacao),
+# permitindo mail-bombing de um cliente-alvo em escala. Mesmo limite do admin.
+_limitar_recuperacao_portal = RateLimiter(limite=5, janela_segundos=300, escopo="portal-recuperacao")
+
+
+async def _enviar_recuperacao_portal_com_log(email: str, nome: str, token: str, cliente_id: int) -> None:
+    """Rodado como BackgroundTask, depois da resposta já ter sido enviada --
+    achado médio da Fase 9 (21/09/2026): aguardar o envio SMTP antes de
+    responder criava um oráculo de tempo (a resposta demorava visivelmente
+    mais quando a conta existia, mesmo com o corpo da resposta sendo
+    idêntico), permitindo enumerar e-mails de clientes com portal ativo. A
+    falha continua logada, nunca engolida em silêncio (achado da varredura
+    ampla de 18/09/2026)."""
+    try:
+        await enviar_recuperacao_portal(email, nome, token)
+    except Exception:
+        logger.exception("Falha ao enviar e-mail de recuperação do portal do cliente %s", cliente_id)
+
 
 # Item 1 do pedido de melhorias do cliente final do usuário (17/09/2026):
 # linha do tempo do processo de registro com % de progresso, pra bater o
@@ -621,10 +642,35 @@ async def obter_cliente_portal(request: Request, session: SessionDep) -> Cliente
     # Cada requisição do portal cria uma nova sessão de banco. Reaplique o
     # tenant resolvido pelo cookie antes de qualquer auditoria protegida por RLS.
     await aplicar_contexto_tenant(session, cliente.organizacao_id)
+    # Guardado pra exigir_csrf_portal conferir sem precisar reconsultar a
+    # sessão (ver achado médio da Fase 9: portal não exigia CSRF).
+    request.state.portal_csrf_hash = sessao.csrf_hash
     return cliente
 
 
 ClientDep = Annotated[ClientePortal, Depends(obter_cliente_portal)]
+
+PORTAL_CSRF_COOKIE = "zr_portal_csrf"
+_METODOS_SEGUROS_PORTAL = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+async def exigir_csrf_portal(request: Request, cliente: ClientDep) -> ClientePortal:
+    """Achado médio da auditoria do Portal do Cliente (Fase 9, 21/09/2026):
+    nenhuma mutação exigia CSRF, diferente do painel administrativo
+    (app.auth.exigir_csrf). Mesmo padrão de double-submit token aqui:
+    cookie legível por JS (definido no login) + header X-CSRF-Token
+    conferido contra o hash guardado na sessão. Sessões anteriores a esta
+    mudança não têm hash (coluna nullable) -- tratadas como inválidas,
+    forçando um novo login (que já gera o par)."""
+    if request.method not in _METODOS_SEGUROS_PORTAL:
+        token = request.headers.get("X-CSRF-Token", "")
+        esperado = getattr(request.state, "portal_csrf_hash", None)
+        if not token or not esperado or not secrets.compare_digest(hash_token(token), esperado):
+            raise HTTPException(status_code=403, detail="Token CSRF inválido")
+    return cliente
+
+
+ClientCsrfDep = Annotated[ClientePortal, Depends(exigir_csrf_portal)]
 
 
 def _auditar_cliente(session: AsyncSession, cliente: ClientePortal, request: Request, acao: str, recurso: str) -> None:
@@ -702,41 +748,61 @@ async def login_cliente(dados: ClienteLogin, request: Request, response: Respons
     cliente = (
         await session.execute(select(ClientePortal).where(ClientePortal.email == str(dados.email).lower()))
     ).scalar_one_or_none()
-    if (
-        cliente is None
-        or not cliente.ativo
-        or cliente.bloqueado_em
-        or not verificar_senha(cliente.senha_hash, dados.senha)
-    ):
+    agora = datetime.now(UTC)
+    bloqueado_por_conta = cliente is not None and cliente.bloqueado_ate and cliente.bloqueado_ate > agora
+    valido = (
+        cliente is not None
+        and cliente.ativo
+        and not cliente.bloqueado_em
+        and not bloqueado_por_conta
+        and verificar_senha(cliente.senha_hash, dados.senha)
+    )
+    if not valido:
+        # Achado alto da Fase 9 (21/09/2026): faltava bloqueio da própria
+        # conta -- só havia rate-limit por IP, contornável rotacionando IP.
+        # Mesmo limiar (5 falhas / 15 min) usado no login administrativo.
+        if cliente is not None and not bloqueado_por_conta:
+            await aplicar_contexto_tenant(session, cliente.organizacao_id)
+            cliente.tentativas_falhas += 1
+            if cliente.tentativas_falhas >= 5:
+                cliente.bloqueado_ate = agora + timedelta(minutes=15)
+                cliente.tentativas_falhas = 0
+            await session.commit()
         raise HTTPException(status_code=401, detail="E-mail ou senha inválidos")
     # O login do cliente ocorre sem a sessão do operador; estabeleça o tenant
     # antes de gravar a auditoria protegida por RLS.
     await aplicar_contexto_tenant(session, cliente.organizacao_id)
     token = secrets.token_urlsafe(48)
+    csrf = secrets.token_urlsafe(32)
     session.add(
         SessaoClientePortal(
             cliente_id=cliente.id,
             token_hash=hash_token(token),
+            csrf_hash=hash_token(csrf),
             expira_em=datetime.now(UTC) + timedelta(hours=12),
         )
     )
-    cliente.ultimo_login_em = datetime.now(UTC)
+    cliente.tentativas_falhas = 0
+    cliente.bloqueado_ate = None
+    cliente.ultimo_login_em = agora
     _auditar_cliente(session, cliente, request, "login_cliente", "portal:login")
     await session.commit()
-    response.set_cookie(
-        SESSION_COOKIE,
-        token,
-        httponly=True,
-        samesite="lax",
-        secure=requisicao_https(request),
-        max_age=43200,
-        path="/",
-    )
+    comum = {
+        "samesite": "lax",
+        "secure": requisicao_https(request),
+        "max_age": 43200,
+        "path": "/",
+    }
+    response.set_cookie(SESSION_COOKIE, token, httponly=True, **comum)
+    response.set_cookie(PORTAL_CSRF_COOKIE, csrf, httponly=False, **comum)
     return {"cliente": _cliente_dict(cliente)}
 
 
 @router.post("/v1/portal/recuperacao/solicitar")
-async def solicitar_recuperacao_portal(dados: RecuperacaoSolicitacao, request: Request, session: SessionDep) -> dict:
+async def solicitar_recuperacao_portal(
+    dados: RecuperacaoSolicitacao, request: Request, session: SessionDep, background_tasks: BackgroundTasks
+) -> dict:
+    _limitar_recuperacao_portal.aplicar(cliente_ip(request))
     cliente = (
         await session.execute(
             select(ClientePortal).where(ClientePortal.email == str(dados.email).lower(), ClientePortal.ativo.is_(True))
@@ -755,14 +821,10 @@ async def solicitar_recuperacao_portal(dados: RecuperacaoSolicitacao, request: R
         )
         _auditar_cliente(session, cliente, request, "recuperacao_solicitada", "portal:recuperacao")
         await session.commit()
-        try:
-            await enviar_recuperacao_portal(cliente.email, cliente.nome, token)
-        except Exception:
-            # Não revelar existência da conta nem transformar falha de SMTP
-            # em vazamento -- mas a falha precisa ficar visível pra equipe
-            # (achado da varredura ampla do sistema, 18/09/2026: antes era
-            # engolida sem log nenhum, invisível em produção).
-            logger.exception("Falha ao enviar e-mail de recuperação do portal do cliente %s", cliente.id)
+        # BackgroundTask -- a resposta não espera o SMTP, fechando o
+        # oráculo de tempo do achado médio da Fase 9 (o envio só quando a
+        # conta existia deixava a latência visivelmente diferente).
+        background_tasks.add_task(_enviar_recuperacao_portal_com_log, cliente.email, cliente.nome, token, cliente.id)
     return {"status": "ok", "mensagem": "Se a conta existir, a recuperação foi criada."}
 
 
@@ -770,6 +832,7 @@ async def solicitar_recuperacao_portal(dados: RecuperacaoSolicitacao, request: R
 async def redefinir_acesso_portal(
     dados: RecuperacaoRedefinicao, request: Request, response: Response, session: SessionDep
 ) -> dict:
+    _limitar_recuperacao_portal.aplicar(cliente_ip(request))
     registro = (
         await session.execute(
             select(RecuperacaoClientePortal).where(
@@ -1645,7 +1708,7 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
 
 
 @router.post("/v1/portal/propostas/{proposta_id}/assinar")
-async def assinar_proposta_portal(proposta_id: int, request: Request, cliente: ClientDep, session: SessionDep) -> dict:
+async def assinar_proposta_portal(proposta_id: int, request: Request, cliente: ClientCsrfDep, session: SessionDep) -> dict:
     proposta = (
         await session.execute(
             select(PropostaComercial).where(
@@ -1728,7 +1791,7 @@ async def assinar_proposta_portal(proposta_id: int, request: Request, cliente: C
 
 @router.post("/v1/portal/documentos/{documento_id}/assinar")
 async def assinar_documento_portal(
-    documento_id: int, request: Request, cliente: ClientDep, session: SessionDep
+    documento_id: int, request: Request, cliente: ClientCsrfDep, session: SessionDep
 ) -> dict:
     documento = (
         await session.execute(
@@ -1741,6 +1804,17 @@ async def assinar_documento_portal(
     ).scalar_one_or_none()
     if documento is None:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
+    # Achado médio da Fase 9 (21/09/2026): diferente de assinar_proposta_portal
+    # (checa proposta.status antes de aceitar), esta rota não verificava se o
+    # documento já tinha sido de fato preenchido pela equipe -- um DocumentoLead
+    # recém-criado nasce com status "pendente" e numero/data vazios (ver
+    # app/models/_core.py::DocumentoLead), mas já aparecia em /v1/portal/resumo
+    # com o documento_id pronto pra assinar. Mesmo conjunto DOCUMENTOS_VALIDOS
+    # usado no gate de avanço de fase (app/api/leads.py).
+    if documento.status not in DOCUMENTOS_VALIDOS:
+        raise HTTPException(status_code=409, detail="Documento ainda não está pronto para assinatura")
+    if not documento.numero or not documento.data:
+        raise HTTPException(status_code=409, detail="Documento incompleto; aguarde a equipe preencher os dados")
     if documento.validade_em and documento.validade_em < datetime.now(UTC).date():
         raise HTTPException(status_code=409, detail="Documento expirado; solicite uma nova versão")
     conteudo = f"{documento.tipo}|{documento.numero or ''}|{documento.data or ''}|{documento.observacoes or ''}|v{documento.versao}".encode()
@@ -1969,7 +2043,7 @@ async def portal_mensagens(request: Request, cliente: ClientDep, session: Sessio
 
 @router.post("/v1/portal/mensagens", status_code=status.HTTP_201_CREATED)
 async def enviar_mensagem_portal(
-    dados: MensagemInput, request: Request, cliente: ClientDep, session: SessionDep
+    dados: MensagemInput, request: Request, cliente: ClientCsrfDep, session: SessionDep
 ) -> dict:
     item = MensagemClientePortal(
         organizacao_id=cliente.organizacao_id,
@@ -1985,7 +2059,7 @@ async def enviar_mensagem_portal(
 
 @router.post("/v1/portal/arquivos", status_code=status.HTTP_201_CREATED)
 async def enviar_arquivo_portal(
-    request: Request, cliente: ClientDep, session: SessionDep, arquivo: UploadFile = File(...)
+    request: Request, cliente: ClientCsrfDep, session: SessionDep, arquivo: UploadFile = File(...)
 ) -> dict:
     if arquivo.size and arquivo.size > 15 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
@@ -2186,7 +2260,7 @@ async def listar_notificacoes_portal(request: Request, cliente: ClientDep, sessi
 
 @router.patch("/v1/portal/notificacoes/{notificacao_id}/ler")
 async def marcar_notificacao_lida(
-    notificacao_id: int, request: Request, cliente: ClientDep, session: SessionDep
+    notificacao_id: int, request: Request, cliente: ClientCsrfDep, session: SessionDep
 ) -> dict:
     item = (
         await session.execute(

@@ -1516,7 +1516,7 @@ def test_enviar_arquivo_documento_lead_libera_sla_da_proposta_quando_ultima_pend
         sla_inicio_em=None,
     )
     documento_recebido = DocumentoLead(id=3, organizacao_id=1, lead_id=9, tipo="procuracao", status="recebido")
-    session = _sessao_admin(
+    _sessao_admin(
         FakeResult(scalar=9),
         FakeResult(scalar=None),
         FakeResult(itens=[proposta]),

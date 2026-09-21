@@ -1767,6 +1767,29 @@ def test_baixar_arquivo_documento_lead_serve_arquivo_existente(
     assert 'filename="procuracao-9.pdf"' in resposta.headers["content-disposition"]
 
 
+def test_baixar_arquivo_documento_lead_sanitiza_extensao_fora_de_ascii(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: object
+) -> None:
+    # Achado do Codex review (PR #95): um Content-Disposition montado à mão
+    # só aceita latin-1 -- um nome de arquivo original com extensão fora de
+    # ASCII (ex.: caracteres chineses) quebrava o download com 500
+    # (UnicodeEncodeError) em vez de simplesmente sanitizar a extensão.
+    monkeypatch.setenv("STORAGE_LOCAL_ROOT", str(tmp_path))
+    caminho_real = Path(str(tmp_path)) / "documentos-lead" / "1" / "9" / "procuracao" / "arquivo.测试"
+    caminho_real.parent.mkdir(parents=True)
+    caminho_real.write_bytes(b"conteudo-real")
+    documento = DocumentoLead(
+        id=3, organizacao_id=1, lead_id=9, tipo="procuracao", caminho=str(caminho_real), content_type="application/pdf"
+    )
+    _sessao_admin(FakeResult(scalar=9), FakeResult(scalar=documento))
+
+    resposta = TestClient(app).get("/v1/admin/leads/9/documentos/procuracao/arquivo")
+
+    assert resposta.status_code == 200
+    assert resposta.headers["content-disposition"] == 'attachment; filename="procuracao-9"'
+    assert resposta.content == b"conteudo-real"
+
+
 def test_baixar_arquivo_documento_lead_nega_caminho_fora_da_raiz(
     monkeypatch: pytest.MonkeyPatch, tmp_path: object
 ) -> None:

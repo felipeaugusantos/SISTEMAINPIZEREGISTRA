@@ -769,6 +769,29 @@ def test_baixar_documento_portal_encontra_arquivo_salvo_localmente(
     assert resultado.filename == "procuracao.pdf"
 
 
+def test_baixar_documento_portal_s3_sanitiza_extensao_fora_de_ascii(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Achado do Codex review (PR #95): um Content-Disposition montado à mão
+    # só aceita latin-1 -- um nome de arquivo original com extensão fora de
+    # ASCII (ex.: caracteres chineses) quebrava o download com 500
+    # (UnicodeEncodeError) em vez de simplesmente sanitizar a extensão.
+    import app.api.portal_cliente as modulo_portal
+
+    monkeypatch.setattr(modulo_portal, "read_bytes", lambda caminho: b"conteudo-s3")
+    documento = DocumentoLead(
+        id=3,
+        organizacao_id=1,
+        lead_id=9,
+        tipo="procuracao",
+        caminho="s3://bucket/documentos-lead/1/9/procuracao/arquivo.测试",
+        content_type="application/pdf",
+    )
+    session = FakeSession([FakeResult(scalar=documento)])
+
+    resultado = asyncio.run(baixar_documento_portal(3, _request(), _cliente(), session))
+
+    assert resultado.headers["content-disposition"] == 'attachment; filename="procuracao"'
+
+
 def test_baixar_documento_portal_sem_arquivo_retorna_404() -> None:
     documento = DocumentoLead(id=3, organizacao_id=1, lead_id=9, tipo="procuracao", caminho=None)
     session = FakeSession([FakeResult(scalar=documento)])

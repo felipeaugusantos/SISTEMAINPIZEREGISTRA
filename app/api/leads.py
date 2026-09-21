@@ -2929,7 +2929,13 @@ async def baixar_arquivo_documento_lead(
     # sufixo, e o sistema operacional não sabia com o que abrir o arquivo.
     # A extensão original sobrevive no nome salvo em disco/S3 (ver "nome" em
     # enviar_arquivo_documento_lead), então é só reaproveitar o sufixo dali.
-    extensao = Path(documento.caminho).suffix
+    # Achado do Codex review (PR #95): o nome do arquivo enviado pelo
+    # usuário pode ter caracteres fora de ASCII, e um Content-Disposition
+    # montado à mão só aceita latin-1 -- interpolar o sufixo direto quebrava
+    # o download com 500 (UnicodeEncodeError). Filtra pra alfanumérico/ponto.
+    extensao = "".join(c for c in Path(documento.caminho).suffix if c.isascii() and (c.isalnum() or c == "."))[:10]
+    if len(extensao) <= 1:  # só um "." sobrou depois de filtrar (ex.: extensão só com acentos/CJK)
+        extensao = ""
     nome_arquivo = f"{tipo}-{lead_id}{extensao}"
     return StreamingResponse(
         iter([conteudo]),

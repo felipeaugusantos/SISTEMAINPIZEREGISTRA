@@ -1838,7 +1838,13 @@ async def baixar_documento_portal(
         # não tinha extensão -- o navegador salvava "procuracao" sem sufixo
         # e o sistema não sabia com o que abrir. A extensão original
         # sobrevive no nome salvo (ver "nome" em enviar_arquivo_documento_lead).
-        nome_arquivo = f"{documento.tipo}{Path(documento.caminho).suffix}"
+        # Achado do Codex review (PR #95): montar o header à mão só aceita
+        # latin-1 -- um sufixo com caractere fora de ASCII quebrava o
+        # download com 500 (UnicodeEncodeError). Filtra pra alfanumérico/ponto.
+        extensao = "".join(c for c in Path(documento.caminho).suffix if c.isascii() and (c.isalnum() or c == "."))[:10]
+        if len(extensao) <= 1:  # só um "." sobrou depois de filtrar (ex.: extensão só com acentos/CJK)
+            extensao = ""
+        nome_arquivo = f"{documento.tipo}{extensao}"
         _auditar_cliente(session, cliente, request, "baixar_documento", f"documento:{documento.id}")
         await session.commit()
         return StreamingResponse(

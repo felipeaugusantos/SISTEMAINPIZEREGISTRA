@@ -839,7 +839,13 @@ function faseMini(lead) {
 }
 
 const DOC_LABELS = { procuracao: "Procuração", gru: "GRU", protocolo: "Protocolo", oposicao: "Oposição", certificado: "Certificado" };
-const DOC_STATUS = [["pendente", "Pendente"], ["em_andamento", "Em andamento"], ["concluido", "Concluído"], ["nao_aplicavel", "N/A"]];
+// Achado do usuário (21/09/2026): "Etapa bloqueada. Documentos obrigatórios
+// pendentes: procuração" nunca destravava -- os valores daqui
+// (pendente/em_andamento/concluido/nao_aplicavel) nunca batiam com
+// DOCUMENTOS_VALIDOS = {"validado","recebido","aprovado"} que o backend
+// checa (app/api/leads.py), então nenhuma opção do dropdown jamais
+// satisfazia o gate de avanço de fase.
+const DOC_STATUS = [["pendente", "Pendente"], ["recebido", "Recebido"], ["validado", "Validado"], ["aprovado", "Aprovado"]];
 
 // Achado do usuário (08/09/2026): o motor de cadência já registra status,
 // abertura e resposta de cada e-mail (EnvioCadenciaEmail), mas nenhuma tela
@@ -1016,14 +1022,43 @@ async function renderDocumentos(leadId) {
   const canManage = state.canManage;
   const statusOpts = cur => DOC_STATUS.map(([v, l]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${l}</option>`).join("");
   const statusLabel = v => (DOC_STATUS.find(s => s[0] === v) || ["", "—"])[1];
+  // Achado do usuário (21/09/2026): não existia onde anexar o arquivo real
+  // da procuração (DocumentoLead sempre foi só metadado). Coluna "Arquivo"
+  // nova: link de download quando já tem arquivo, input + botão de envio
+  // quando pode gerenciar (app/api/leads.py::enviar_arquivo_documento_lead).
+  const arquivoCol = d => d.tem_arquivo
+    ? `<a class="secondary-button" href="/v1/admin/leads/${leadId}/documentos/${d.tipo}/arquivo" target="_blank" rel="noopener">Baixar</a>`
+    : `<small>Nenhum arquivo</small>`;
   const rows = (data.documentos || []).map(d => {
     const dataVal = d.data ? String(d.data).slice(0, 10) : "";
     if (!canManage) {
-      return `<tr><td class="doc-type" data-label="Tipo">${escapeHtml(DOC_LABELS[d.tipo] || d.tipo)}</td><td data-label="Número">${escapeHtml(d.numero || "—")}</td><td data-label="Data">${d.data ? formatDate(d.data, false) : "—"}</td><td data-label="Status">${escapeHtml(statusLabel(d.status))}</td><td data-label="Observações">${escapeHtml(d.observacoes || "")}</td></tr>`;
+      return `<tr><td class="doc-type" data-label="Tipo">${escapeHtml(DOC_LABELS[d.tipo] || d.tipo)}</td><td data-label="Número">${escapeHtml(d.numero || "—")}</td><td data-label="Data">${d.data ? formatDate(d.data, false) : "—"}</td><td data-label="Status">${escapeHtml(statusLabel(d.status))}</td><td data-label="Observações">${escapeHtml(d.observacoes || "")}</td><td data-label="Arquivo">${arquivoCol(d)}</td></tr>`;
     }
-    return `<tr data-tipo="${escapeHtml(d.tipo)}"><td class="doc-type" data-label="Tipo">${escapeHtml(DOC_LABELS[d.tipo] || d.tipo)}</td><td data-label="Número"><input data-f="numero" value="${escapeHtml(d.numero || "")}" maxlength="60" placeholder="—"></td><td data-label="Data"><input data-f="data" type="date" value="${escapeHtml(dataVal)}"></td><td data-label="Status"><select data-f="status">${statusOpts(d.status || "pendente")}</select></td><td data-label="Observações"><input data-f="observacoes" value="${escapeHtml(d.observacoes || "")}" maxlength="2000" placeholder="—"></td></tr>`;
+    return `<tr data-tipo="${escapeHtml(d.tipo)}"><td class="doc-type" data-label="Tipo">${escapeHtml(DOC_LABELS[d.tipo] || d.tipo)}</td><td data-label="Número"><input data-f="numero" value="${escapeHtml(d.numero || "")}" maxlength="60" placeholder="—"></td><td data-label="Data"><input data-f="data" type="date" value="${escapeHtml(dataVal)}"></td><td data-label="Status"><select data-f="status">${statusOpts(d.status || "pendente")}</select></td><td data-label="Observações"><input data-f="observacoes" value="${escapeHtml(d.observacoes || "")}" maxlength="2000" placeholder="—"></td><td data-label="Arquivo" class="doc-arquivo-cell">${arquivoCol(d)}<input data-arquivo-input type="file"><button class="secondary-button" data-arquivo-enviar type="button">Enviar arquivo</button></td></tr>`;
   }).join("");
-  box.innerHTML = `<header><p class="eyebrow">Documentos</p><h3>Procuração, GRU, protocolo, oposição, certificado</h3></header><div class="doc-table-scroll"><table class="lead-docs"><thead><tr><th>Tipo</th><th>Número</th><th>Data</th><th>Status</th><th>Observações</th></tr></thead><tbody>${rows}</tbody></table></div>${canManage ? `<div class="lead-docs-actions"><button class="secondary-button" id="lead-docs-save" type="button">Salvar documentos</button><span id="lead-docs-msg" role="status"></span></div>` : ""}`;
+  box.innerHTML = `<header><p class="eyebrow">Documentos</p><h3>Procuração, GRU, protocolo, oposição, certificado</h3></header><div class="doc-table-scroll"><table class="lead-docs"><thead><tr><th>Tipo</th><th>Número</th><th>Data</th><th>Status</th><th>Observações</th><th>Arquivo</th></tr></thead><tbody>${rows}</tbody></table></div>${canManage ? `<div class="lead-docs-actions"><button class="secondary-button" id="lead-docs-save" type="button">Salvar documentos</button><span id="lead-docs-msg" role="status"></span></div>` : ""}`;
+  if (canManage) box.querySelectorAll("tr[data-tipo]").forEach(tr => {
+    const botao = tr.querySelector("[data-arquivo-enviar]");
+    const input = tr.querySelector("[data-arquivo-input]");
+    botao.addEventListener("click", async () => {
+      if (!input.files.length) { input.click(); return; }
+      const body = new FormData();
+      body.append("arquivo", input.files[0]);
+      botao.disabled = true;
+      botao.textContent = "Enviando…";
+      try {
+        const r = await fetch(`/v1/admin/leads/${leadId}/documentos/${tr.dataset.tipo}/arquivo`, { method: "POST", body });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Falha ao enviar arquivo");
+        await renderDocumentos(leadId);
+      } catch (error) {
+        botao.disabled = false;
+        botao.textContent = "Enviar arquivo";
+        const msg = box.querySelector("#lead-docs-msg");
+        if (msg) msg.textContent = error.message;
+      }
+    });
+    input.addEventListener("change", () => { if (input.files.length) botao.click(); });
+  });
   const saveBtn = box.querySelector("#lead-docs-save");
   if (saveBtn) saveBtn.addEventListener("click", async () => {
     const documentos = [...box.querySelectorAll("tr[data-tipo]")].map(tr => ({

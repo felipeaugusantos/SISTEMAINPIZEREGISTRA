@@ -1001,7 +1001,15 @@ TIPOS_DOCUMENTO_LEAD: tuple[str, ...] = (
 
 class DocumentoLead(Base):
     """Metadados de um documento do lead (procuração, GRU, protocolo, oposição,
-    certificado). Um registro por tipo por lead — sem armazenamento de arquivo."""
+    certificado). Um registro por tipo por lead.
+
+    Achado do usuário (21/09/2026): "Etapa bloqueada. Documentos obrigatórios
+    pendentes: procuração", sem nenhum lugar pra anexar o arquivo -- esta
+    tabela só guardava metadado (número/data/status), nunca um arquivo de
+    verdade. caminho/content_type/tamanho/arquivo_hash espelham
+    MaterialMarcaCliente (app/models/portal_cliente.py) pro mesmo padrão de
+    armazenamento local/S3 (app/storage.py).
+    """
 
     __tablename__ = "documentos_lead"
     __table_args__ = (UniqueConstraint("organizacao_id", "lead_id", "tipo", name="uq_documento_lead_tipo"),)
@@ -1021,6 +1029,10 @@ class DocumentoLead(Base):
     assinado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     assinado_ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     assinado_por_cliente_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    caminho: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tamanho: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    arquivo_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

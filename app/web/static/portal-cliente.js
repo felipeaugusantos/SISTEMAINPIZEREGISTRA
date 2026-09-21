@@ -53,7 +53,7 @@ function abrirDrawerJornada(indiceBloco, indiceMacro) {
   $("#journey-drawer-previsao").textContent = macro.previsao || "";
   const eventos = $("#journey-drawer-eventos");
   eventos.innerHTML = macro.sub_eventos?.length
-    ? macro.sub_eventos.map((evento) => `<li><span>${esc(evento.label)}</span><small>${esc(detalheSituacao(evento))}</small></li>`).join("")
+    ? macro.sub_eventos.map((evento) => `<li><span>${esc(evento.label)}</span><span>${evento.documento_id ? `<a class="secondary-button" href="/v1/portal/documentos/${evento.documento_id}/download" target="_blank" rel="noopener">Baixar</a>` : `<small>${esc(detalheSituacao(evento))}</small>`}</span></li>`).join("")
     : "";
   $("#journey-drawer-vazio").hidden = Boolean(macro.sub_eventos?.length);
   $("#journey-drawer").showModal();

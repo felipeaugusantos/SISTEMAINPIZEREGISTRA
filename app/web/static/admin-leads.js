@@ -641,6 +641,7 @@ async function openLead(id, selectedResearchId = null) {
     ["propostas", "Proposta de registro"],
   ];
   dialogContent.innerHTML = `
+    ${lead.processo_vinculado_pendente ? processoNaoVinculadoAviso(lead) : ""}
     <section class="lead-contact-summary"><div data-icon="email"><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>${state.canManage && lead.email ? ` <button type="button" class="secondary-button lead-send-email" data-lead-id="${lead.id}">Enviar e-mail</button>` : ""}</div><div data-icon="telefone"><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a>${phoneDigits(lead.telefone) ? ` <a class="secondary-button" href="https://wa.me/${phoneDigits(lead.telefone)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div><div id="lead-site-row" hidden><span>Site</span><a id="lead-site-link" href="#" target="_blank" rel="noopener"></a></div><div data-icon="documento"><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div data-icon="empresa"><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong>${lead.empresa ? ` <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(lead.empresa)}" target="_blank" rel="noopener">Buscar no Google</a> <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(`site:instagram.com ${lead.empresa}`)}" target="_blank" rel="noopener">Buscar no Instagram</a>` : ""}</div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div><div><span>Prioridade (IA)</span><strong id="lead-qualificacao-badge">—</strong></div></section>
     <nav class="lead-tabs" role="tablist">${ABAS_LEAD.map(([id, label], i) => `<button type="button" class="lead-tab${i === 0 ? " active" : ""}" role="tab" aria-selected="${i === 0}" data-tab="${id}">${label}</button>`).join("")}</nav>
     <div class="lead-tab-panel" data-panel="atendimento" hidden>
@@ -825,6 +826,11 @@ function etapaKanbanLead(lead) {
   if (lead.fase === "contato_inicial") return lead.status === "em_contato" ? "aguardando_contato_nosso" : "primeiro_contato";
   if (lead.fase === "relatorio_enviado" && lead.status === "sem_retorno") return "aguardando_retorno_cliente";
   return ETAPA_KANBAN_LABELS[lead.fase] ? lead.fase : "primeiro_contato";
+}
+
+function processoNaoVinculadoAviso(lead) {
+  const fase = escapeHtml(FASE_LABELS[lead.fase] || lead.fase);
+  return `<p class="lead-processo-aviso">⚠ A fase avançou no CRM (${fase}), mas nenhum processo do INPI está vinculado a este lead ainda — o portal do cliente não reflete esse avanço até vincular em Processos monitorados.</p>`;
 }
 
 function faseMini(lead) {

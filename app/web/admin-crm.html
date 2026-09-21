@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>CRM — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=66"><link rel="stylesheet" href="/static/ze-brand.css?v=1"><link rel="stylesheet" href="/static/admin-crm.css?v=4"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=7"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=3">
-  <script src="/static/admin-shell.js?v=50" defer></script><script src="/static/admin-crm.js?v=14" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=66"><link rel="stylesheet" href="/static/ze-brand.css?v=1"><link rel="stylesheet" href="/static/admin-crm.css?v=4"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=7"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=4">
+  <script src="/static/admin-shell.js?v=50" defer></script><script src="/static/admin-crm.js?v=15" defer></script>
 </head>
 <body class="admin-body ze-brand-theme" data-admin-section="crm">
   <main class="admin-main crm-main">
@@ -67,6 +67,10 @@
       <div id="postpone-message" class="status-message" hidden role="status"></div>
       <footer><button id="cancel-postpone" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Adiar</button></footer>
     </form>
+  </dialog>
+  <dialog id="contact-dialog" class="crm-reminder-dialog crm-contact-dialog">
+    <header><div><p class="eyebrow">CONTATO</p><h2 id="contact-dialog-title">Carregando…</h2></div><button id="close-contact" class="dialog-close" type="button" aria-label="Fechar">×</button></header>
+    <div id="contact-dialog-body"></div>
   </dialog>
 </body>
 </html>

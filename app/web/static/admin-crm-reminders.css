@@ -26,5 +26,14 @@
 .crm-reminder-dialog header,.crm-reminder-dialog footer{display:flex;align-items:center;justify-content:space-between;gap:12px}.crm-reminder-dialog h2{margin:3px 0;font:500 2rem Georgia,serif}
 .crm-reminder-dialog label{display:grid;gap:6px}.crm-reminder-dialog input,.crm-reminder-dialog select,.crm-reminder-dialog textarea{box-sizing:border-box;width:100%;padding:11px;border:1px solid #b9c5bd;border-radius:10px;font:inherit}.crm-reminder-dialog footer{justify-content:flex-end}
 .text-button{border:0;background:none;color:#a33128;font-weight:800;cursor:pointer}
+.crm-contact-dialog{padding:26px}
+.crm-contact-dialog header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.crm-contact-dialog h2{margin:3px 0;font:500 2rem Georgia,serif}
+.crm-contact-summary{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px}
+.crm-contact-summary>div{min-width:0;padding:14px;border:1px solid #b9c5bd;border-radius:12px;background:#f8f8f4}
+.crm-contact-summary span{display:block;margin-bottom:4px;color:var(--muted);font-size:.68rem;font-weight:800;text-transform:uppercase}
+.crm-contact-summary a,.crm-contact-summary strong{display:block;overflow-wrap:anywhere}
+.crm-contact-dialog footer{display:flex;justify-content:flex-end}
+@media(max-width:700px){.crm-contact-summary{grid-template-columns:1fr}}
 @media(max-width:1150px){.crm-reminder{grid-template-columns:1fr 1fr}.crm-reminder-actions{grid-column:1/-1;justify-content:flex-start}}
 @media(max-width:700px){.crm-reminder-card>header{align-items:stretch;flex-direction:column}.crm-reminder-filter,.crm-reminder,.crm-reminder-dialog form{grid-template-columns:1fr}.crm-reminder-dialog header,.crm-reminder-dialog footer,.crm-reminder-dialog .wide,.crm-reminder-dialog .status-message{grid-column:auto}.crm-reminder-metrics{justify-content:flex-start}}

@@ -1325,7 +1325,7 @@ async def painel(
             }
             for evento, numero in historico
         ],
-        "acoes": {"gerenciar": usuario.pode("legal.manage")},
+        "acoes": {"gerenciar": usuario.pode("legal.manage"), "confirmar_critico": usuario.pode("legal.confirm_critical")},
     }
 
 
@@ -1515,6 +1515,17 @@ async def atualizar_prazo(
             raise HTTPException(404, "Responsável não encontrado")
     anterior = prazo.status
     if dados.confirmar:
+        # Achado baixo da Fase 8 (auditoria jurídica, 21/09/2026): confirmar
+        # a revisão humana de um prazo CRÍTICO exigia só "legal.manage", a
+        # mesma permissão de qualquer edição de rotina -- sem diferenciação
+        # de RBAC (a política exigir_segunda_pessoa_critico exige um
+        # segundo usuário, não um usuário com privilégio maior). Usa a
+        # prioridade final (dados.prioridade, se vier junto nesta mesma
+        # requisição) para não deixar passar quem muda pra "critica" e
+        # confirma no mesmo PATCH.
+        prioridade_final = dados.prioridade or prazo.prioridade
+        if prioridade_final == "critica" and not usuario.pode("legal.confirm_critical"):
+            raise HTTPException(403, "Confirmar prazo crítico exige permissão adicional (legal.confirm_critical)")
         responsavel_final = dados.responsavel_id or prazo.responsavel_id
         if responsavel_final is None:
             raise HTTPException(422, "Defina o responsável antes de confirmar o prazo")

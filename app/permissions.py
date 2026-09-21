@@ -74,7 +74,13 @@ PERMISSOES = (
         "legal.manage",
         "Operacao juridica",
         "Gerenciar operacao juridica",
-        "Criar, confirmar, atribuir e concluir prazos juridicos.",
+        "Criar, atribuir e concluir prazos juridicos.",
+    ),
+    PermissaoDef(
+        "legal.confirm_critical",
+        "Operacao juridica",
+        "Confirmar prazo critico",
+        "Confirmar a revisao humana de um prazo juridico de prioridade critica.",
     ),
     PermissaoDef("finance.view", "Financeiro", "Visualizar financeiro", "Consultar contas e indicadores."),
     PermissaoDef("finance.manage", "Financeiro", "Gerenciar lançamentos", "Criar contas e registrar baixas."),
@@ -131,7 +137,23 @@ PERFIS = {
     "administrador": CHAVES_PERMISSAO,
     "ceo": CHAVES_PERMISSAO,
     "tech": CHAVES_PERMISSAO,
-    "supervisor": CHAVES_PERMISSAO - {"users.manage", "users.reset_password", "users.revoke_sessions", "leads.delete"},
+    # Achado baixo da Fase 8 (auditoria juridica, 21/09/2026): confirmar
+    # revisao humana de um prazo CRITICO exigia so "legal.manage", a mesma
+    # permissao de qualquer edicao rotineira de prazo -- nao havia
+    # diferenciacao de RBAC (so a politica opcional
+    # exigir_segunda_pessoa_critico, que exige um SEGUNDO usuario, nao um
+    # usuario com privilegio maior). "supervisor" mantem legal.manage
+    # (cria/atribui/conclui prazos normalmente) mas fica de fora de
+    # legal.confirm_critical -- confirmar prazo critico passa a exigir
+    # administrador/ceo/tech.
+    "supervisor": CHAVES_PERMISSAO
+    - {
+        "users.manage",
+        "users.reset_password",
+        "users.revoke_sessions",
+        "leads.delete",
+        "legal.confirm_critical",
+    },
     "tecnico": frozenset(
         {
             "dashboard.view",

@@ -136,6 +136,10 @@ function updateBulkBar() {
 }
 function renderPortfolio(data) {
   state.canManage = Boolean(data.acoes?.gerenciar);
+  // Achado do Codex review (PR #97): portfolio.manage e leads.view são
+  // permissões independentes -- uma conta com a primeira mas sem a segunda
+  // via 403 silencioso na busca de lead. A API expõe se a busca é permitida.
+  state.canBuscarLeads = Boolean(data.acoes?.buscar_leads);
   applyManagePermissions();
   renderMetrics(data.resumo);
   // Achado do usuário (20/09/2026): atribuir empresa/responsável a
@@ -166,11 +170,13 @@ function renderPortfolio(data) {
     const leadSection = item.lead_id
       ? `<small class="portfolio-lead-link">Lead de origem: ${escapeHtml(item.lead_marca || `#${item.lead_id}`)}${state.canManage ? ` <button class="text-button" data-unlink-lead type="button">Desvincular</button>` : ""}</small>`
       : state.canManage
-        ? `<form class="portfolio-lead-search" data-lead-search>
-            <label><span class="portfolio-item-label">Vincular a um lead</span><input type="text" data-lead-query placeholder="Nome, empresa ou marca do cliente" maxlength="150" autocomplete="off"></label>
-            <button class="secondary-button" type="submit">Buscar</button>
-            <div class="portfolio-lead-results" data-lead-results hidden></div>
-          </form>`
+        ? state.canBuscarLeads
+          ? `<form class="portfolio-lead-search" data-lead-search>
+              <label><span class="portfolio-item-label">Vincular a um lead</span><input type="text" data-lead-query placeholder="Nome, empresa ou marca do cliente" maxlength="100" autocomplete="off"></label>
+              <button class="secondary-button" type="submit">Buscar</button>
+              <div class="portfolio-lead-results" data-lead-results hidden></div>
+            </form>`
+          : `<small class="portfolio-item-label">Vincular a um lead exige acesso a Leads -- peça a alguém com esse acesso.</small>`
         : "";
     return `<article class="portfolio-item" data-id="${item.id}">
       <div class="portfolio-process">${selectCell}<a class="process-number" href="/processos/${encodeURIComponent(item.numero)}" target="_blank" rel="noopener">${escapeHtml(item.numero)}</a><h3>${escapeHtml(item.titulo_exibicao || item.titulo || "Título não informado pelo INPI")}</h3><p>${escapeHtml(item.empresa || "Sem empresa vinculada")} · ${escapeHtml(item.procurador || "Procurador não informado")}</p><small>Depósito: ${formatDate(item.data_deposito)} · origem: ${escapeHtml(item.origem)}</small>${leadSection}</div>
@@ -431,7 +437,10 @@ document.querySelector("#portfolio-list").addEventListener("submit", async event
   try {
     const data = await api(`/v1/admin/leads?busca=${encodeURIComponent(termo)}&limite=5`);
     results.innerHTML = data.itens.length
-      ? data.itens.map(lead => `<button class="secondary-button" type="button" data-vincular-lead-id="${lead.id}">${escapeHtml(lead.nome)}${lead.empresa ? ` · ${escapeHtml(lead.empresa)}` : ""}</button>`).join("")
+      // Achado do Codex review (PR #97): nome + empresa repetem entre leads
+      // do mesmo contato com marcas diferentes -- sem a marca (e o id como
+      // desempate final), dava pra vincular ao lead errado sem perceber.
+      ? data.itens.map(lead => `<button class="secondary-button" type="button" data-vincular-lead-id="${lead.id}">${escapeHtml(lead.nome)}${lead.empresa ? ` · ${escapeHtml(lead.empresa)}` : ""} · ${escapeHtml(lead.marca || "Interesse geral")} <small>#${lead.id}</small></button>`).join("")
       : "<small>Nenhum lead encontrado.</small>";
   } catch (error) { results.innerHTML = `<small>${escapeHtml(error.message)}</small>`; }
 });

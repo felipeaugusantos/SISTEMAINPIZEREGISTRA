@@ -593,7 +593,13 @@ async def listar_carteira(
         # Mesmo padrão já usado em leads (ver app/api/leads.py, campo
         # "acoes.gerenciar"): a tela esconde o que a API já sabe que vai
         # recusar.
-        "acoes": {"gerenciar": usuario.pode("portfolio.manage")},
+        # Achado do Codex review (PR #97): o controle de "vincular a um lead"
+        # usava state.canManage (portfolio.manage) pra decidir se mostra a
+        # busca, mas a busca em si bate em /v1/admin/leads, que exige
+        # leads.view -- uma conta com portfolio.manage e sem leads.view via
+        # 403 sem aviso claro. Expõe a permissão real aqui, no mesmo padrão
+        # de "gerenciar".
+        "acoes": {"gerenciar": usuario.pode("portfolio.manage"), "buscar_leads": usuario.pode("leads.view")},
         "resumo": {
             "total": sum(resumo.values()),
             "pausados": resumo.get("pausado", 0),

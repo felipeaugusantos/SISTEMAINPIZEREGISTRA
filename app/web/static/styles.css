@@ -1005,6 +1005,11 @@ footer p {
 .lead-dialog-main, .lead-dialog-aside { min-width: 0; }
 .lead-dialog-aside .lead-history { margin-top: 24px; }
 .lead-processo-aviso { margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; background: #fbe9e5; color: #a3402f; font-size: .82rem; font-weight: 700; }
+.lead-processo-aviso p { margin: 0 0 8px; }
+.lead-processo-vincular { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; font-weight: 400; }
+.lead-processo-vincular label { display: grid; gap: 3px; font-size: .74rem; font-weight: 700; }
+.lead-processo-vincular input { padding: 7px 9px; border: 1px solid #e0b3a8; border-radius: 8px; font: inherit; font-size: .8rem; }
+.lead-processo-vincular-status { font-size: .74rem; font-weight: 700; }
 .lead-contact-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
 .lead-contact-summary > div { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #f8f8f4; }
 .lead-contact-summary span, .lead-contact-summary a, .lead-contact-summary strong { display: block; overflow-wrap: anywhere; }

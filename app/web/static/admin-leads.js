@@ -830,7 +830,17 @@ function etapaKanbanLead(lead) {
 
 function processoNaoVinculadoAviso(lead) {
   const fase = escapeHtml(FASE_LABELS[lead.fase] || lead.fase);
-  return `<p class="lead-processo-aviso">⚠ A fase avançou no CRM (${fase}), mas nenhum processo do INPI está vinculado a este lead ainda — o portal do cliente não reflete esse avanço até vincular em Processos monitorados.</p>`;
+  // Achado do usuário (21/09/2026): o aviso só mandava o operador pra tela de
+  // Processos monitorados pra vincular -- agora dá pra fazer isso direto
+  // daqui, digitando o número do processo já cadastrado lá.
+  const vincular = state.canManage
+    ? `<form class="lead-processo-vincular" data-vincular-processo data-lead-id="${lead.id}">
+        <label><span>Número do processo (já em Processos monitorados)</span><input type="text" data-processo-numero placeholder="Ex.: 944072976" maxlength="30"></label>
+        <button class="secondary-button" type="submit">Vincular</button>
+        <span class="lead-processo-vincular-status" role="status"></span>
+      </form>`
+    : "";
+  return `<div class="lead-processo-aviso"><p>⚠ A fase avançou no CRM (${fase}), mas nenhum processo do INPI está vinculado a este lead ainda — o portal do cliente não reflete esse avanço até vincular.</p>${vincular}</div>`;
 }
 
 function faseMini(lead) {
@@ -1769,6 +1779,56 @@ document.querySelector("#confirm-archive").addEventListener("click", async event
 });
 
 dialogContent.addEventListener("submit", async event => {
+  // Achado do usuário (21/09/2026): só dava pra vincular um processo já
+  // monitorado a um lead pela tela de Processos monitorados -- de dentro da
+  // ficha do lead (aqui, onde o aviso "processo não vinculado" aparece) não
+  // tinha jeito nenhum. Reaproveita a mesma busca/vínculo da carteira
+  // (GET /v1/admin/carteira?busca= + PATCH /v1/admin/carteira/{id}).
+  if (event.target.matches("[data-vincular-processo]")) {
+    event.preventDefault();
+    const form = event.target;
+    const numero = form.querySelector("[data-processo-numero]").value.trim();
+    const status = form.querySelector(".lead-processo-vincular-status");
+    if (!numero) { status.textContent = "Informe o número do processo."; return; }
+    const botao = form.querySelector("button[type=submit]");
+    botao.disabled = true;
+    status.textContent = "Buscando…";
+    try {
+      const buscaResposta = await fetch(`/v1/admin/carteira?busca=${encodeURIComponent(numero)}&limite=5`);
+      const busca = await buscaResposta.json().catch(() => ({}));
+      if (!buscaResposta.ok) {
+        status.textContent = busca.detail || "Não foi possível buscar o processo.";
+        return;
+      }
+      const encontrados = (busca.itens || []).filter(item => item.numero === numero || item.numero.replace(/\D/g, "") === numero.replace(/\D/g, ""));
+      if (!encontrados.length) {
+        status.textContent = "Processo não encontrado em Processos monitorados. Cadastre-o lá primeiro.";
+        return;
+      }
+      if (encontrados.length > 1) {
+        status.textContent = "Mais de um processo encontrado -- vincule pela tela de Processos monitorados.";
+        return;
+      }
+      status.textContent = "Vinculando…";
+      const resposta = await fetch(`/v1/admin/carteira/${encontrados[0].id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lead_id: Number(form.dataset.leadId) }),
+      });
+      if (!resposta.ok) {
+        const erro = await resposta.json().catch(() => ({}));
+        status.textContent = erro.detail || "Não foi possível vincular o processo.";
+        return;
+      }
+      await openLead(Number(form.dataset.leadId));
+      await Promise.all([loadLeads().catch(() => {}), loadCrmSummary().catch(() => {})]);
+    } catch {
+      status.textContent = "Não foi possível vincular o processo.";
+    } finally {
+      botao.disabled = false;
+    }
+    return;
+  }
   if (event.target.matches("#lead-contact-form")) {
     event.preventDefault();
     const form = event.target;

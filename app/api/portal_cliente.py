@@ -1539,6 +1539,7 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
                 "validade_em": d.validade_em,
                 "obrigatorio": d.obrigatorio,
                 "assinado_em": d.assinado_em,
+                "tem_arquivo": bool(d.caminho),
             }
             for d in documentos
         ],

@@ -2753,6 +2753,7 @@ async def enviar_arquivo_documento_lead(
         caminho = save_bytes(f"documentos-lead/{usuario.organizacao_id}/{lead_id}/{tipo}/{nome}", conteudo)
     except StorageError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    novo_hash = hashlib.sha256(conteudo).hexdigest()
     documento = (
         await session.execute(
             select(DocumentoLead).where(
@@ -2765,16 +2766,77 @@ async def enviar_arquivo_documento_lead(
     if documento is None:
         documento = DocumentoLead(organizacao_id=usuario.organizacao_id, lead_id=lead_id, tipo=tipo)
         session.add(documento)
+    else:
+        # Achado do Codex review (PR #90): trocar o arquivo de um documento
+        # que já existia precisa do mesmo tratamento de "mudou_conteudo" de
+        # salvar_documentos_lead -- versiona o estado anterior e invalida
+        # uma assinatura clickwrap existente (assinar_documento_portal só
+        # hasheia metadado, não o arquivo; sem isso o portal continuaria
+        # mostrando "assinado" com o conteúdo trocado por baixo).
+        session.add(
+            VersaoDocumentoLead(
+                organizacao_id=documento.organizacao_id,
+                documento_id=documento.id,
+                versao=documento.versao,
+                hash_documento=documento.hash_documento
+                or hashlib.sha256(
+                    f"{documento.tipo}|{documento.numero or ''}|{documento.data or ''}|{documento.status}|"
+                    f"{documento.observacoes or ''}|{documento.validade_em or ''}".encode()
+                ).hexdigest(),
+                conteudo={
+                    "tipo": documento.tipo,
+                    "numero": documento.numero,
+                    "data": documento.data.isoformat() if documento.data else None,
+                    "status": documento.status,
+                    "observacoes": documento.observacoes,
+                    "obrigatorio": documento.obrigatorio,
+                    "validade_em": documento.validade_em.isoformat() if documento.validade_em else None,
+                    "arquivo_hash": documento.arquivo_hash,
+                },
+            )
+        )
+        documento.versao += 1
+        documento.hash_documento = None
+        documento.assinado_em = None
+        documento.assinado_ip_hash = None
+        documento.assinado_por_cliente_id = None
     documento.caminho = caminho
     documento.content_type = arquivo.content_type
     documento.tamanho = len(conteudo)
-    documento.arquivo_hash = hashlib.sha256(conteudo).hexdigest()
+    documento.arquivo_hash = novo_hash
     # O upload por si só já satisfaz o gate de avanço de fase
     # (DOCUMENTOS_VALIDOS) -- sem isso o operador precisaria também lembrar
-    # de trocar o status manualmente. Nunca rebaixa um status já definido
-    # (ex.: "validado"/"aprovado" por revisão jurídica).
-    if documento.status in (None, "", "pendente"):
+    # de trocar o status manualmente. Nunca rebaixa um status já válido
+    # (ex.: "aprovado" por revisão jurídica); qualquer outro valor, incluindo
+    # os legados que o dropdown antigo oferecia (em_andamento/concluido/
+    # nao_aplicavel -- achado do Codex review, PR #90), nunca satisfazia o
+    # gate mesmo assim, então também vira "recebido".
+    if documento.status not in DOCUMENTOS_VALIDOS:
         documento.status = "recebido"
+    # Mesma reconciliação de SLA que salvar_documentos_lead já faz: o
+    # upload pode ser justamente o último documento pendente que libera o
+    # protocolo (achado do Codex review, PR #90) -- sem isso sla_inicio_em/
+    # sla_prazo_em ficavam nulos e o prazo de 24h nunca começava a contar.
+    propostas_aguardando = (
+        (
+            await session.execute(
+                select(PropostaComercial).where(
+                    PropostaComercial.lead_id == lead_id,
+                    PropostaComercial.organizacao_id == usuario.organizacao_id,
+                    PropostaComercial.status == "aceita",
+                    PropostaComercial.pagamento_status == "confirmado",
+                    PropostaComercial.sla_inicio_em.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for proposta in propostas_aguardando:
+        if await _documentacao_protocolavel(session, proposta):
+            proposta.sla_inicio_em = datetime.now(UTC)
+            proposta.sla_prazo_em = _prazo_sla_24h(proposta.sla_inicio_em)
+            proposta.sla_status = "em_prazo"
     _auditar(session, usuario, request, "arquivo_documento", f"lead:{lead_id}:{tipo}", {})
     await session.commit()
     return {"tipo": tipo, "status": documento.status, "tamanho": documento.tamanho}

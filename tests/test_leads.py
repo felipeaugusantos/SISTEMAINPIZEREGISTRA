@@ -28,11 +28,13 @@ from app.models import (
     EventoAuditoria,
     Lead,
     PesquisaMarca,
+    PropostaComercial,
     QualificacaoIALead,
     RespostaEmailLead,
     StatusLead,
     SugestaoIALead,
     UsuarioOperacoes,
+    VersaoDocumentoLead,
     VersaoRelatorioMarca,
 )
 from app.settings import get_settings
@@ -1393,7 +1395,7 @@ def test_enviar_arquivo_documento_lead_cria_documento_e_libera_gate(
     monkeypatch: pytest.MonkeyPatch, tmp_path: object
 ) -> None:
     monkeypatch.setenv("STORAGE_LOCAL_ROOT", str(tmp_path))
-    session = _sessao_admin(FakeResult(scalar=9), FakeResult(scalar=None))
+    session = _sessao_admin(FakeResult(scalar=9), FakeResult(scalar=None), FakeResult(itens=[]))
 
     resposta = TestClient(app).post(
         "/v1/admin/leads/9/documentos/procuracao/arquivo",
@@ -1422,7 +1424,7 @@ def test_enviar_arquivo_documento_lead_nao_rebaixa_status_ja_validado(
     documento_existente = DocumentoLead(
         id=3, organizacao_id=1, lead_id=9, tipo="procuracao", status="validado", obrigatorio=True
     )
-    _sessao_admin(FakeResult(scalar=9), FakeResult(scalar=documento_existente))
+    _sessao_admin(FakeResult(scalar=9), FakeResult(scalar=documento_existente), FakeResult(itens=[]))
 
     resposta = TestClient(app).post(
         "/v1/admin/leads/9/documentos/procuracao/arquivo",
@@ -1434,6 +1436,102 @@ def test_enviar_arquivo_documento_lead_nao_rebaixa_status_ja_validado(
     assert resposta.json()["status"] == "validado"
     assert documento_existente.status == "validado"
     assert documento_existente.caminho is not None
+
+
+def test_enviar_arquivo_documento_lead_promove_status_legado_do_dropdown_antigo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: object
+) -> None:
+    # Achado do Codex review (PR #90): o dropdown antigo do admin salvou
+    # documentos com pendente/em_andamento/concluido/nao_aplicavel -- nenhum
+    # desses satisfaz DOCUMENTOS_VALIDOS. O upload precisa promover
+    # qualquer status inválido, não só "pendente".
+    monkeypatch.setenv("STORAGE_LOCAL_ROOT", str(tmp_path))
+    documento_existente = DocumentoLead(
+        id=3, organizacao_id=1, lead_id=9, tipo="procuracao", status="concluido", versao=1
+    )
+    _sessao_admin(FakeResult(scalar=9), FakeResult(scalar=documento_existente), FakeResult(itens=[]))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/9/documentos/procuracao/arquivo",
+        files={"arquivo": ("procuracao.pdf", b"conteudo", "application/pdf")},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 201
+    assert resposta.json()["status"] == "recebido"
+    assert documento_existente.status == "recebido"
+
+
+def test_enviar_arquivo_documento_lead_substituir_versiona_e_invalida_assinatura(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: object
+) -> None:
+    # Achado do Codex review (PR #90): trocar o arquivo de um documento já
+    # assinado (clickwrap) sem versionar/invalidar deixava o portal
+    # mostrando "assinado" com o conteúdo real trocado por baixo.
+    monkeypatch.setenv("STORAGE_LOCAL_ROOT", str(tmp_path))
+    documento_existente = DocumentoLead(
+        id=3,
+        organizacao_id=1,
+        lead_id=9,
+        tipo="procuracao",
+        status="validado",
+        versao=1,
+        hash_documento="hash-antigo",
+        assinado_em=datetime(2026, 9, 1, tzinfo=UTC),
+        assinado_ip_hash="ip-hash",
+        assinado_por_cliente_id=5,
+    )
+    session = _sessao_admin(FakeResult(scalar=9), FakeResult(scalar=documento_existente), FakeResult(itens=[]))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/9/documentos/procuracao/arquivo",
+        files={"arquivo": ("procuracao-v2.pdf", b"conteudo-novo", "application/pdf")},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 201
+    assert documento_existente.versao == 2
+    assert documento_existente.assinado_em is None
+    assert documento_existente.assinado_ip_hash is None
+    assert documento_existente.assinado_por_cliente_id is None
+    versoes = [obj for obj in session.adicionados if isinstance(obj, VersaoDocumentoLead)]
+    assert len(versoes) == 1
+    assert versoes[0].hash_documento == "hash-antigo"
+
+
+def test_enviar_arquivo_documento_lead_libera_sla_da_proposta_quando_ultima_pendencia(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: object
+) -> None:
+    # Achado do Codex review (PR #90): o upload pode ser justamente o
+    # último documento pendente que libera o protocolo -- precisa da mesma
+    # reconciliação de SLA que salvar_documentos_lead já faz, senão
+    # sla_inicio_em/sla_prazo_em ficam nulos pra sempre.
+    monkeypatch.setenv("STORAGE_LOCAL_ROOT", str(tmp_path))
+    proposta = PropostaComercial(
+        id=20,
+        lead_id=9,
+        organizacao_id=1,
+        status="aceita",
+        pagamento_status="confirmado",
+        sla_inicio_em=None,
+    )
+    documento_recebido = DocumentoLead(id=3, organizacao_id=1, lead_id=9, tipo="procuracao", status="recebido")
+    session = _sessao_admin(
+        FakeResult(scalar=9),
+        FakeResult(scalar=None),
+        FakeResult(itens=[proposta]),
+        FakeResult(itens=[documento_recebido]),
+    )
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/9/documentos/procuracao/arquivo",
+        files={"arquivo": ("procuracao.pdf", b"conteudo", "application/pdf")},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 201
+    assert proposta.sla_inicio_em is not None
+    assert proposta.sla_status == "em_prazo"
 
 
 def test_enviar_arquivo_documento_lead_tipo_invalido_retorna_422() -> None:

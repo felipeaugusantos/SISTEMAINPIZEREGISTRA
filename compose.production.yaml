@@ -16,6 +16,14 @@ services:
       SECURITY_MASTER_KEY: ${SECURITY_MASTER_KEY:?configure SECURITY_MASTER_KEY}
       AUDIT_IP_SALT: ${AUDIT_IP_SALT:?configure AUDIT_IP_SALT}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?configure ADMIN_PASSWORD}
+      # Achado baixo da auditoria do Portal do Cliente (Fase 9, 21/09/2026):
+      # CLAMAV_ENABLED tem default "false" em compose.yaml (decisão para o
+      # dev local, ver o comentário no serviço clamav -- o primeiro boot
+      # baixa a base de assinaturas e pode levar minutos). O serviço clamav
+      # já sobe sempre (sem profile), então em produção não há motivo pra
+      # ficar desligado -- fixado aqui explicitamente em vez de depender de
+      # alguém lembrar de setar a variável de ambiente.
+      CLAMAV_ENABLED: "true"
     restart: unless-stopped
     read_only: true
     tmpfs:

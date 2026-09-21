@@ -2,17 +2,19 @@ import asyncio
 import hashlib
 import hmac
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException, Response
+from fastapi import BackgroundTasks, HTTPException, Response
 from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 from app.api.portal_cliente import (
     ClienteLogin,
+    RecuperacaoRedefinicao,
     RecuperacaoSolicitacao,
+    assinar_documento_portal,
     assinar_proposta_portal,
     baixar_documento_portal,
     baixar_logo_cliente_admin,
@@ -21,6 +23,7 @@ from app.api.portal_cliente import (
     baixar_material_marca_portal,
     enviar_logo_cliente_admin,
     enviar_material_marca_admin,
+    exigir_csrf_portal,
     listar_arquivos_portal_admin,
     listar_materiais_marca_admin,
     listar_materiais_marca_portal,
@@ -32,11 +35,13 @@ from app.api.portal_cliente import (
     montar_jornada_registro,
     montar_macroetapas,
     progresso_processo,
+    redefinir_acesso_portal,
     remover_logo_cliente_admin,
     remover_material_marca_admin,
     solicitar_recuperacao_portal,
     webhook_clicksign,
 )
+from app.auth import hash_senha, hash_token
 from app.models import (
     ArquivoClientePortal,
     AssinaturaPropostaComercial,
@@ -61,6 +66,21 @@ def _request() -> Request:
             "method": "GET",
             "path": "/v1/portal/prazos",
             "headers": [],
+            "client": ("127.0.0.1", 12345),
+            "scheme": "http",
+            "server": ("testserver", 80),
+        }
+    )
+
+
+def _request_mutavel(method: str = "POST", csrf_token: str | None = None) -> Request:
+    headers = [(b"x-csrf-token", csrf_token.encode())] if csrf_token else []
+    return Request(
+        {
+            "type": "http",
+            "method": method,
+            "path": "/v1/portal/mensagens",
+            "headers": headers,
             "client": ("127.0.0.1", 12345),
             "scheme": "http",
             "server": ("testserver", 80),
@@ -562,6 +582,184 @@ def test_login_cliente_portal_bloqueia_apos_muitas_tentativas() -> None:
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(login_cliente(dados, request, Response(), FakeSession([])))
     assert exc_info.value.status_code == 429
+
+
+# --- Achado alto da auditoria do Portal do Cliente (Fase 9, 21/09/2026):
+# só havia rate-limit por IP, sem bloqueio da própria conta -- um atacante
+# rotacionando IPs podia tentar senha contra um cliente indefinidamente. ---
+
+
+def test_login_cliente_bloqueia_conta_apos_5_tentativas_mesmo_com_ips_diferentes() -> None:
+    dados = ClienteLogin(email="cliente@empresa.com.br", senha="senha-errada")
+    # A mesma conta (mesma linha ClientePortal) é reaproveitada em todas as
+    # tentativas -- só o IP muda, simulando um atacante rotacionando IPs
+    # pra nunca bater no rate-limit (10/60s por IP), que sozinho não bastava.
+    cliente = ClientePortal(
+        id=1, organizacao_id=1, lead_id=9, email="cliente@empresa.com.br", senha_hash="hash-invalido", ativo=True
+    )
+    for tentativa in range(5):
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/v1/portal/login",
+                "headers": [],
+                "client": (f"10.0.0.{tentativa}", 12345),
+                "scheme": "http",
+                "server": ("testserver", 80),
+            }
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(login_cliente(dados, request, Response(), FakeSession([FakeResult(scalar=cliente)])))
+        assert exc_info.value.status_code == 401
+        assert cliente.tentativas_falhas == (tentativa + 1) % 5
+    assert cliente.bloqueado_ate is not None
+
+    cliente_bloqueado = ClientePortal(
+        id=1,
+        organizacao_id=1,
+        lead_id=9,
+        email="cliente@empresa.com.br",
+        # Senha certa desta vez -- mesmo assim deve ser recusado, porque a
+        # 5ª tentativa acima já deixou a conta bloqueada.
+        senha_hash=hash_senha("Senha-Correta-123"),
+        ativo=True,
+        bloqueado_ate=datetime.now(UTC) + timedelta(minutes=15),
+    )
+    request_final = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/portal/login",
+            "headers": [],
+            "client": ("10.0.0.99", 12345),
+            "scheme": "http",
+            "server": ("testserver", 80),
+        }
+    )
+    dados_certos = ClienteLogin(email="cliente@empresa.com.br", senha="Senha-Correta-123")
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            login_cliente(dados_certos, request_final, Response(), FakeSession([FakeResult(scalar=cliente_bloqueado)]))
+        )
+    assert exc_info.value.status_code == 401
+
+
+def test_login_cliente_com_sucesso_zera_tentativas_e_gera_par_csrf() -> None:
+    cliente = ClientePortal(
+        id=1,
+        organizacao_id=1,
+        lead_id=9,
+        email="cliente@empresa.com.br",
+        senha_hash=hash_senha("Senha-Correta-123"),
+        ativo=True,
+        tentativas_falhas=3,
+    )
+    dados = ClienteLogin(email="cliente@empresa.com.br", senha="Senha-Correta-123")
+    session = FakeSession([FakeResult(scalar=cliente)])
+    response = Response()
+
+    resultado = asyncio.run(login_cliente(dados, _request(), response, session))
+
+    assert resultado == {"cliente": {"id": 1, "lead_id": 9, "nome": None, "email": "cliente@empresa.com.br"}}
+    assert cliente.tentativas_falhas == 0
+    assert cliente.bloqueado_ate is None
+    sessao_criada = session.adicionados[0]
+    assert sessao_criada.csrf_hash is not None
+    cookies = response.headers.getlist("set-cookie")
+    assert any("zr_client_session=" in cookie and "HttpOnly" in cookie for cookie in cookies)
+    assert any("zr_portal_csrf=" in cookie and "HttpOnly" not in cookie for cookie in cookies)
+
+
+# --- Achado médio da auditoria do Portal do Cliente (Fase 9, 21/09/2026):
+# nenhuma mutação do portal exigia CSRF, diferente do painel administrativo. ---
+
+
+def test_exigir_csrf_portal_bloqueia_requisicao_sem_token() -> None:
+    request = _request_mutavel(csrf_token=None)
+    request.state.portal_csrf_hash = hash_token("token-real")
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(exigir_csrf_portal(request, _cliente()))
+    assert exc_info.value.status_code == 403
+
+
+def test_exigir_csrf_portal_bloqueia_token_incorreto() -> None:
+    request = _request_mutavel(csrf_token="token-errado")
+    request.state.portal_csrf_hash = hash_token("token-real")
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(exigir_csrf_portal(request, _cliente()))
+    assert exc_info.value.status_code == 403
+
+
+def test_exigir_csrf_portal_bloqueia_sessao_sem_par_csrf() -> None:
+    """Sessões criadas antes da migration f2a3b4c5d6e7 não têm csrf_hash --
+    tratadas como inválidas em vez de aceitas por omissão."""
+    request = _request_mutavel(csrf_token="qualquer-coisa")
+    request.state.portal_csrf_hash = None
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(exigir_csrf_portal(request, _cliente()))
+    assert exc_info.value.status_code == 403
+
+
+def test_exigir_csrf_portal_aceita_token_correto() -> None:
+    request = _request_mutavel(csrf_token="token-real")
+    request.state.portal_csrf_hash = hash_token("token-real")
+    cliente = _cliente()
+    resultado = asyncio.run(exigir_csrf_portal(request, cliente))
+    assert resultado is cliente
+
+
+def test_exigir_csrf_portal_ignora_metodos_seguros() -> None:
+    request = _request_mutavel(method="GET", csrf_token=None)
+    request.state.portal_csrf_hash = None
+    cliente = _cliente()
+    resultado = asyncio.run(exigir_csrf_portal(request, cliente))
+    assert resultado is cliente
+
+
+# --- Achado médio da auditoria do Portal do Cliente (Fase 9, 21/09/2026):
+# assinar_documento_portal não verificava se o documento já tinha sido
+# preenchido pela equipe -- diferente de assinar_proposta_portal, que exige
+# um status válido antes de aceitar a assinatura. ---
+
+
+def test_assinar_documento_portal_bloqueia_quando_status_ainda_e_pendente() -> None:
+    documento = DocumentoLead(
+        id=3, organizacao_id=1, lead_id=9, tipo="procuracao", status="pendente", numero=None, data=None
+    )
+    session = FakeSession([FakeResult(scalar=documento)])
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(assinar_documento_portal(3, _request(), _cliente(), session))
+    assert exc_info.value.status_code == 409
+    assert "pronto" in exc_info.value.detail.lower()
+
+
+def test_assinar_documento_portal_bloqueia_quando_numero_ou_data_vazios() -> None:
+    documento = DocumentoLead(
+        id=3, organizacao_id=1, lead_id=9, tipo="procuracao", status="recebido", numero=None, data=date(2026, 9, 1)
+    )
+    session = FakeSession([FakeResult(scalar=documento)])
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(assinar_documento_portal(3, _request(), _cliente(), session))
+    assert exc_info.value.status_code == 409
+    assert "incompleto" in exc_info.value.detail.lower()
+
+
+def test_assinar_documento_portal_aceita_quando_pronto() -> None:
+    documento = DocumentoLead(
+        id=3,
+        organizacao_id=1,
+        lead_id=9,
+        tipo="procuracao",
+        status="recebido",
+        numero="123",
+        data=date(2026, 9, 1),
+        versao=1,
+    )
+    session = FakeSession([FakeResult(scalar=documento)])
+    resultado = asyncio.run(assinar_documento_portal(3, _request(), _cliente(), session))
+    assert resultado["ok"] is True
+    assert documento.assinado_em is not None
 
 
 # --- Achado da validação do Portal do Cliente (17/09/2026): documentos
@@ -1281,11 +1479,49 @@ def test_solicitar_recuperacao_loga_falha_de_envio_sem_mudar_resposta(
 
     monkeypatch.setattr(modulo_portal, "enviar_recuperacao_portal", falhar_envio)
 
-    with caplog.at_level("ERROR", logger="ze_registra.portal_cliente"):
-        resultado = asyncio.run(
-            solicitar_recuperacao_portal(RecuperacaoSolicitacao(email="cliente@empresa.com.br"), _request(), session)
+    # Achado médio da Fase 9 (21/09/2026): o envio agora roda como
+    # BackgroundTask (depois da resposta, fechando o oráculo de tempo) --
+    # aqui a task é executada manualmente pra continuar testando o log.
+    background_tasks = BackgroundTasks()
+
+    async def _fluxo() -> dict:
+        resultado = await solicitar_recuperacao_portal(
+            RecuperacaoSolicitacao(email="cliente@empresa.com.br"), _request(), session, background_tasks
         )
+        await background_tasks()
+        return resultado
+
+    with caplog.at_level("ERROR", logger="ze_registra.portal_cliente"):
+        resultado = asyncio.run(_fluxo())
 
     assert resultado == {"status": "ok", "mensagem": "Se a conta existir, a recuperação foi criada."}
     assert any("recuperação" in registro.message for registro in caplog.records)
     assert session.commits == 1
+
+
+# --- Achado médio da auditoria do Portal do Cliente (Fase 9, 21/09/2026):
+# nenhum rate limit em recuperacao/solicitar -- permitia mail-bombing de um
+# cliente-alvo em escala (e escalava o oráculo de tempo corrigido acima). ---
+
+
+def test_solicitar_recuperacao_tem_rate_limit() -> None:
+    background_tasks = BackgroundTasks()
+    dados = RecuperacaoSolicitacao(email="inexistente@empresa.com.br")
+    for _ in range(5):
+        session = FakeSession([FakeResult(scalar=None)])
+        asyncio.run(solicitar_recuperacao_portal(dados, _request(), session, background_tasks))
+    with pytest.raises(HTTPException) as exc_info:
+        session = FakeSession([FakeResult(scalar=None)])
+        asyncio.run(solicitar_recuperacao_portal(dados, _request(), session, background_tasks))
+    assert exc_info.value.status_code == 429
+
+
+def test_redefinir_acesso_portal_tem_rate_limit() -> None:
+    dados = RecuperacaoRedefinicao(token="token-que-nao-existe-em-lugar-nenhum", nova_senha="Senha-Correta-123")
+    for _ in range(5):
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(redefinir_acesso_portal(dados, _request(), Response(), FakeSession([FakeResult(scalar=None)])))
+        assert exc_info.value.status_code == 400
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(redefinir_acesso_portal(dados, _request(), Response(), FakeSession([FakeResult(scalar=None)])))
+    assert exc_info.value.status_code == 429

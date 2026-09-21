@@ -1004,6 +1004,7 @@ footer p {
 .lead-dialog-grid { display: block; }
 .lead-dialog-main, .lead-dialog-aside { min-width: 0; }
 .lead-dialog-aside .lead-history { margin-top: 24px; }
+.lead-processo-aviso { margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; background: #fbe9e5; color: #a3402f; font-size: .82rem; font-weight: 700; }
 .lead-contact-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
 .lead-contact-summary > div { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #f8f8f4; }
 .lead-contact-summary span, .lead-contact-summary a, .lead-contact-summary strong { display: block; overflow-wrap: anywhere; }
@@ -1064,6 +1065,7 @@ footer p {
 .fm-dot.done + .fm-dot::before { background: #1c8a57; }
 .fm-dot.current { background: #fff; box-shadow: 0 0 0 2px #9a6500; width: 11px; height: 11px; }
 .fase-mini-label { font-size: .66rem; font-weight: 800; color: #775512; }
+.fase-mini-aviso { display: inline-block; width: fit-content; margin-top: 3px; padding: 2px 6px; border-radius: 999px; background: #fbe9e5; color: #a3402f; font-size: .58rem; font-weight: 800; }
 /* Documentos do lead (metadados) */
 .lead-documentos { margin-bottom: 24px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: #f8f8f4; }
 .lead-documentos > header .eyebrow { margin: 0; color: var(--muted); font-size: .7rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }

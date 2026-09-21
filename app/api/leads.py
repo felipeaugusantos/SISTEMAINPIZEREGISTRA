@@ -70,6 +70,7 @@ from app.models import (
     MensagemClientePortal,
     Organizacao,
     PesquisaMarca,
+    ProcessoMonitorado,
     PropostaComercial,
     QualificacaoIALead,
     RespostaEmailLead,
@@ -481,11 +482,15 @@ async def gerar_relatorio_completo_admin(
     )
 
 
+FASES_EXIGEM_PROCESSO_VINCULADO = {FaseLead.PROTOCOLO_INPI.value, FaseLead.PROCESSO_INPI.value}
+
+
 def _lead_response(
     lead: Lead,
     usuario: UsuarioAutenticado,
     pesquisas: list[PesquisaLeadResumo] | None = None,
     mensagens_portal_pendentes: int = 0,
+    tem_processo_vinculado: bool = True,
 ) -> LeadResponse:
     pesquisas = pesquisas or []
     dados = LeadResponse.model_validate(lead)
@@ -499,6 +504,7 @@ def _lead_response(
     dados.ultima_pesquisa_em = pesquisas[0].criado_em if pesquisas else lead.criado_em
     dados.relatorios_completos_gerados = sum(item.relatorio_completo_gerado for item in pesquisas)
     dados.mensagens_portal_pendentes = mensagens_portal_pendentes
+    dados.processo_vinculado_pendente = lead.fase in FASES_EXIGEM_PROCESSO_VINCULADO and not tem_processo_vinculado
     dados.pesquisas = pesquisas
     logo_asset = lead.logo_cliente or {}
     dados.logo_cliente_url = f"/v1/admin/leads/{lead.id}/logo-cliente" if logo_asset.get("sha256") else None
@@ -871,6 +877,21 @@ async def listar_leads(
     pesquisas_por_lead: dict[int, list[PesquisaLeadResumo]] = {}
     ids = [item.id for item in itens]
     mensagens_pendentes_por_lead: dict[int, int] = {}
+    leads_com_processo_vinculado: set[int] = set()
+    ids_exigem_processo = [item.id for item in itens if item.fase in FASES_EXIGEM_PROCESSO_VINCULADO]
+    if ids_exigem_processo:
+        leads_com_processo_vinculado = set(
+            (
+                await session.execute(
+                    select(ProcessoMonitorado.lead_id).where(
+                        ProcessoMonitorado.organizacao_id == usuario.organizacao_id,
+                        ProcessoMonitorado.lead_id.in_(ids_exigem_processo),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
     if ids:
         contagens_mensagens = await session.execute(
             select(MensagemClientePortal.lead_id, func.count())
@@ -930,6 +951,7 @@ async def listar_leads(
                 usuario,
                 pesquisas_por_lead.get(item.id, []),
                 mensagens_pendentes_por_lead.get(item.id, 0),
+                item.id in leads_com_processo_vinculado,
             )
             for item in itens
         ],
@@ -1008,12 +1030,30 @@ async def listar_leads_kanban(session: SessionDep, usuario: LeadsViewDep) -> dic
         .all()
     )
     agora = datetime.now(UTC)
+    ids_exigem_processo = [lead.id for lead in leads if lead.fase in FASES_EXIGEM_PROCESSO_VINCULADO]
+    leads_com_processo_vinculado: set[int] = set()
+    if ids_exigem_processo:
+        leads_com_processo_vinculado = set(
+            (
+                await session.execute(
+                    select(ProcessoMonitorado.lead_id).where(
+                        ProcessoMonitorado.organizacao_id == usuario.organizacao_id,
+                        ProcessoMonitorado.lead_id.in_(ids_exigem_processo),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
     cards = []
     for lead in leads:
         etapa = _kanban_etapa(lead)
         sla_horas = SLA_HORAS_POR_ETAPA.get(etapa)
         entrou_etapa_em = lead.atualizado_em
         atrasado = sla_horas is not None and agora - entrou_etapa_em > timedelta(hours=sla_horas)
+        processo_vinculado_pendente = (
+            lead.fase in FASES_EXIGEM_PROCESSO_VINCULADO and lead.id not in leads_com_processo_vinculado
+        )
         cards.append(
             {
                 "id": lead.id,
@@ -1027,6 +1067,7 @@ async def listar_leads_kanban(session: SessionDep, usuario: LeadsViewDep) -> dic
                 "entrou_etapa_em": entrou_etapa_em,
                 "sla_horas": sla_horas,
                 "atrasado": atrasado,
+                "processo_vinculado_pendente": processo_vinculado_pendente,
             }
         )
     return {
@@ -2206,7 +2247,17 @@ async def detalhar_lead(
         _resumo_pesquisa(pesquisa, nivel, pontuacao, bool(disponivel), exclusao_status)
         for pesquisa, nivel, pontuacao, disponivel, exclusao_status in linhas
     ]
-    base = _lead_response(lead, usuario, pesquisas)
+    tem_processo_vinculado = True
+    if lead.fase in FASES_EXIGEM_PROCESSO_VINCULADO:
+        tem_processo_vinculado = (
+            await session.execute(
+                select(ProcessoMonitorado.id).where(
+                    ProcessoMonitorado.organizacao_id == usuario.organizacao_id,
+                    ProcessoMonitorado.lead_id == lead.id,
+                )
+            )
+        ).first() is not None
+    base = _lead_response(lead, usuario, pesquisas, tem_processo_vinculado=tem_processo_vinculado)
     return LeadDetalheResponse.model_validate(base.model_dump())
 
 

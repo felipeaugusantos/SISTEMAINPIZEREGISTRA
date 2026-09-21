@@ -558,6 +558,55 @@ def test_tela_de_leads_permite_distribuir_sem_responsavel_em_lote() -> None:
     assert "botao.hidden = !state.canManage || state.semResponsavel === 0;" in script
 
 
+def test_crm_abre_contato_usa_a_mesma_tela_do_lead() -> None:
+    # Achado do usuário (21/09/2026): "Abrir contato" no Kanban/histórico do
+    # CRM tinha que abrir "exatamente a mesma tela" do lead -- em vez de
+    # duplicar a lógica enorme e interligada de admin-leads.js (lista e
+    # diálogo compartilham estado, permissões e funções auxiliares), a
+    # página do CRM passou a carregar aquele script inteiro e reaproveitar
+    # openLead() dele direto, com uma cópia oculta do HTML que ele espera
+    # encontrar (filtros, métricas, tabela, paginação) pra não quebrar.
+    page = (web_dir / "admin-crm.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-crm.js").read_text(encoding="utf-8")
+
+    assert '/static/admin-leads.js?v=71" defer' in page
+    assert '/static/admin-leads.css?v=31"' in page
+    # O diálogo do lead de verdade (não uma cópia reduzida) fica visível.
+    assert '<dialog id="lead-dialog" class="lead-dialog">' in page
+    assert 'id="lead-dialog-content"' in page
+    # Cópia oculta do que admin-leads.js precisa pra não quebrar ao carregar
+    # nesta página (ver comentário no próprio admin-crm.html).
+    assert '<div hidden aria-hidden="true">' in page
+    assert 'id="leads-list"' in page
+    assert 'id="lead-filters"' in page
+
+    assert "openLead(Number(gatilho.dataset.openContact));" in script
+    # Achado: admin-leads.js só fecha o diálogo com querySelector(".dialog-close")
+    # (o primeiro da página) -- como o CRM já tinha outros dois antes dele no
+    # DOM (lembrete/adiar), o close do #lead-dialog precisa de handler próprio.
+    assert 'id="close-lead-dialog"' in page
+    assert '#close-lead-dialog' in script
+
+    # Achado: os dois scripts declaravam `const message` no mesmo escopo
+    # global (scripts sem type=module compartilham o escopo) -- quebrava
+    # com SyntaxError assim que os dois carregavam juntos na mesma página.
+    assert "const crmMessage = " in script
+    assert "const message = " not in script
+
+    # Achados do Codex review (PR #96):
+    # 1) salvar atendimento/mover fase dentro do diálogo reaproveitado só
+    #    recarregava a lista oculta de Leads -- Kanban e histórico do CRM
+    #    ficavam desatualizados até um refresh manual.
+    assert 'addEventListener("close", () => {' in script
+    assert "loadKanban().catch" in script
+    assert "loadHistory().catch" in script
+    # 2) #admin-message (onde admin-leads.js escreve confirmações/erros de
+    #    ações do diálogo) estava dentro do bloco oculto -- o operador nunca
+    #    via essas mensagens. Agora fica visível dentro do próprio diálogo.
+    assert '<div id="admin-message" class="status-message lead-dialog-message" role="status"></div>' in page
+    assert page.index('id="admin-message"') < page.index('<div hidden aria-hidden="true">')
+
+
 def test_cards_do_radar_prospeccao_nao_encolhem_alem_do_conteudo() -> None:
     # Achado do usuário (17/09/2026): minmax(0,1fr) deixava as 6 colunas do
     # funil encolherem sem limite -- em telas menos largas o número do card

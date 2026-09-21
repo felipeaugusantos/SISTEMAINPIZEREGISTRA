@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>CRM — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=66"><link rel="stylesheet" href="/static/ze-brand.css?v=1"><link rel="stylesheet" href="/static/admin-crm.css?v=4"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=7"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=3">
-  <script src="/static/admin-shell.js?v=50" defer></script><script src="/static/admin-crm.js?v=13" defer></script>
+  <script src="/static/admin-shell.js?v=50" defer></script><script src="/static/admin-crm.js?v=14" defer></script>
 </head>
 <body class="admin-body ze-brand-theme" data-admin-section="crm">
   <main class="admin-main crm-main">
@@ -58,6 +58,14 @@
       <label class="wide"><span>Descrição</span><textarea name="descricao" maxlength="2000" rows="4"></textarea></label>
       <div id="reminder-message" class="status-message" hidden role="status"></div>
       <footer><button id="cancel-reminder" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Salvar lembrete</button></footer>
+    </form>
+  </dialog>
+  <dialog id="postpone-dialog" class="crm-reminder-dialog">
+    <form id="postpone-form" method="dialog">
+      <header><div><p class="eyebrow">AGENDA DO CRM</p><h2>Adiar lembrete em 1 dia</h2></div><button id="close-postpone" class="dialog-close" type="button" aria-label="Fechar">×</button></header>
+      <label class="wide"><span>Motivo do adiamento</span><textarea name="motivo" minlength="1" maxlength="300" rows="3" required placeholder="Ex.: cliente pediu para retornar amanhã"></textarea></label>
+      <div id="postpone-message" class="status-message" hidden role="status"></div>
+      <footer><button id="cancel-postpone" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Adiar</button></footer>
     </form>
   </dialog>
 </body>

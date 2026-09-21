@@ -4,6 +4,9 @@ const form = document.querySelector("#crm-filter");
 const reminderFilter = document.querySelector("#crm-reminder-filter");
 const reminderDialog = document.querySelector("#reminder-dialog");
 const reminderForm = document.querySelector("#reminder-form");
+const postponeDialog = document.querySelector("#postpone-dialog");
+const postponeForm = document.querySelector("#postpone-form");
+let postponeReminderId = null;
 const message = document.querySelector("#crm-message");
 const channels = { telefone: "Telefone", whatsapp: "WhatsApp", email: "E-mail", reuniao: "Reunião", outro: "Atendimento" };
 const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
@@ -132,6 +135,10 @@ async function references() {
   reminderForm.elements.prioridade.innerHTML = options(data.prioridades, "media");
   reminderForm.elements.responsavel_id.innerHTML = '<option value="">Não atribuído</option>' + options(data.operadores);
 }
+function openPostpone(id) {
+  postponeReminderId = id; postponeForm.reset();
+  document.querySelector("#postpone-message").hidden = true; postponeDialog.showModal();
+}
 function openReminder(leadId = "", type = "retorno") {
   reminderForm.reset(); reminderForm.elements.lead_id.value = leadId; reminderForm.elements.tipo.value = type; reminderForm.elements.prioridade.value = "media";
   const due = new Date(Date.now() + 24 * 60 * 60 * 1000); due.setMinutes(due.getMinutes() - due.getTimezoneOffset()); reminderForm.elements.lembrar_em.value = due.toISOString().slice(0, 16);
@@ -164,12 +171,19 @@ document.querySelector("#crm-customer-alerts").addEventListener("click", event =
 document.querySelector("#crm-reminders").addEventListener("click", event => {
   const complete = event.target.closest(".complete-reminder"), postpone = event.target.closest(".postpone-reminder"), cancel = event.target.closest(".cancel-reminder-item");
   if (complete) updateReminder(complete.dataset.id, { status: "concluido" }).catch(error => show(error.message));
-  if (postpone) {
-    const motivo = prompt("Motivo do adiamento:");
-    if (!motivo || !motivo.trim()) return;
-    updateReminder(postpone.dataset.id, { lembrar_em: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), status: "pendente", motivo_adiamento: motivo.trim() }).catch(error => show(error.message));
-  }
+  if (postpone) openPostpone(postpone.dataset.id);
   if (cancel) updateReminder(cancel.dataset.id, { status: "cancelado" }).catch(error => show(error.message));
+});
+document.querySelector("#close-postpone").addEventListener("click", () => postponeDialog.close());
+document.querySelector("#cancel-postpone").addEventListener("click", () => postponeDialog.close());
+postponeForm.addEventListener("submit", async event => {
+  event.preventDefault(); const motivo = new FormData(postponeForm).get("motivo").trim();
+  if (!motivo) return;
+  const statusBox = document.querySelector("#postpone-message"); statusBox.hidden = false; statusBox.className = "status-message loading"; statusBox.textContent = "Salvando…";
+  try {
+    await updateReminder(postponeReminderId, { lembrar_em: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), status: "pendente", motivo_adiamento: motivo });
+    postponeDialog.close();
+  } catch (error) { statusBox.className = "status-message error"; statusBox.textContent = error.message; }
 });
 reminderForm.addEventListener("submit", async event => {
   event.preventDefault(); const data = Object.fromEntries(new FormData(reminderForm));

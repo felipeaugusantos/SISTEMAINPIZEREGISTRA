@@ -22,6 +22,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.juridico import TIPOS_PRAZO
@@ -388,6 +389,49 @@ def montar_macroetapas(
     ]
 
 
+# Achado médio da Fase 8 (auditoria jurídica, 15/09/2026): o payload bruto
+# do webhook Clicksign (nome/e-mail/CPF/telefone/IP do signatário) ficava
+# salvo sem redação nenhuma em PropostaComercial.dados["clicksign"][
+# "ultimo_evento"] -- dado pessoal do cliente indo parar numa coluna JSON
+# de uso operacional (não uma tabela de evidência com controle de acesso
+# próprio). Caça por nome de chave em qualquer profundidade do payload,
+# em vez de depender do formato exato que o Clicksign manda (schema deles
+# não é modelado neste código, e pode variar por tipo de evento).
+_CAMPOS_SENSIVEIS_WEBHOOK_CLICKSIGN = {
+    "name",
+    "nome",
+    "full_name",
+    "email",
+    "e-mail",
+    "phone",
+    "phone_number",
+    "telefone",
+    "documentation",
+    "cpf",
+    "cnpj",
+    "birthday",
+    "nascimento",
+    "ip",
+    "ip_address",
+    "geolocation",
+    "geo",
+    "address",
+    "endereco",
+    "selfie",
+}
+
+
+def _redigir_payload_webhook(valor: object) -> object:
+    if isinstance(valor, dict):
+        return {
+            chave: "[redigido]" if chave.lower() in _CAMPOS_SENSIVEIS_WEBHOOK_CLICKSIGN else _redigir_payload_webhook(sub)
+            for chave, sub in valor.items()
+        }
+    if isinstance(valor, list):
+        return [_redigir_payload_webhook(item) for item in valor]
+    return valor
+
+
 @router.post("/v1/webhooks/clicksign")
 async def webhook_clicksign(
     request: Request, session: SessionDep, x_clicksign_signature: str | None = Header(default=None)
@@ -477,15 +521,33 @@ async def webhook_clicksign(
                     )
                 ).encode("utf-8")
             ).hexdigest()
-            session.add(
-                AssinaturaPropostaComercial(
-                    organizacao_id=proposta.organizacao_id,
-                    proposta_id=proposta.id,
-                    versao=proposta.versao,
-                    hash_documento=assinatura_hash,
-                    provedor="clicksign",
-                )
-            )
+            # Achado médio da Fase 8 (auditoria jurídica, 15/09/2026): o
+            # check "novo_aceite" acima e este INSERT não são atômicos -- o
+            # Clicksign reenvia o mesmo webhook em retry, e duas entregas
+            # quase simultâneas passavam as duas pelo "aceito_em is None"
+            # e criavam duas linhas de evidência pra mesma versão da
+            # proposta. Mesmo padrão de begin_nested()/IntegrityError já
+            # usado em criar_contratacao_automatica_proposta (PR #48, Fase
+            # 7) sobre a mesma classe de corrida -- a proteção de última
+            # linha é a UniqueConstraint (proposta_id, versao) da migration
+            # d4e5f6a7b8c9.
+            try:
+                async with session.begin_nested():
+                    session.add(
+                        AssinaturaPropostaComercial(
+                            organizacao_id=proposta.organizacao_id,
+                            proposta_id=proposta.id,
+                            versao=proposta.versao,
+                            hash_documento=assinatura_hash,
+                            provedor="clicksign",
+                        )
+                    )
+                    await session.flush()
+            except IntegrityError:
+                # Outra entrega concorrente do mesmo webhook já registrou a
+                # assinatura desta versão -- idempotente por design, não é
+                # erro do operador nem do Clicksign.
+                pass
     clicksign = (proposta.dados or {}).get("clicksign") or {}
     event_id = (
         payload.get("event_id") or payload.get("eventId") or (data or {}).get("event_id")
@@ -498,7 +560,7 @@ async def webhook_clicksign(
         **(proposta.dados or {}),
         "clicksign": {
             **clicksign,
-            "ultimo_evento": payload,
+            "ultimo_evento": _redigir_payload_webhook(payload),
             "ultimo_evento_id": str(event_id) if event_id else None,
         },
     }
@@ -1632,17 +1694,27 @@ async def assinar_proposta_portal(proposta_id: int, request: Request, cliente: C
         proposta.status = "aceita"
         proposta.sla_status = "aguardando_pagamento"
         await criar_contratacao_automatica_proposta(session, proposta, "portal")
-        session.add(
-            AssinaturaPropostaComercial(
-                organizacao_id=cliente.organizacao_id,
-                proposta_id=proposta.id,
-                versao=proposta.versao,
-                hash_documento=assinatura_hash,
-                cliente_id=cliente.id,
-                ip_hash=ip_hash,
-                provedor="portal",
-            )
-        )
+        # Achado médio da Fase 8 (mesma corrida do webhook Clicksign, ver
+        # comentário em webhook_clicksign): um duplo clique no botão de
+        # assinar no portal passava duas requisições quase simultâneas pelo
+        # "public_aceito_em is None". Proteção de última linha é a
+        # UniqueConstraint (proposta_id, versao) da migration d4e5f6a7b8c9.
+        try:
+            async with session.begin_nested():
+                session.add(
+                    AssinaturaPropostaComercial(
+                        organizacao_id=cliente.organizacao_id,
+                        proposta_id=proposta.id,
+                        versao=proposta.versao,
+                        hash_documento=assinatura_hash,
+                        cliente_id=cliente.id,
+                        ip_hash=ip_hash,
+                        provedor="portal",
+                    )
+                )
+                await session.flush()
+        except IntegrityError:
+            pass
     _auditar_cliente(session, cliente, request, "assinar_proposta", f"proposta:{proposta.id}")
     await session.commit()
     return {

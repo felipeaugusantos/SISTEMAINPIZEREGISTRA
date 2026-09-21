@@ -1180,18 +1180,33 @@ async def confirmar_codigo_proposta(
             )
         ).encode("utf-8")
     ).hexdigest()
-    session.add(
-        AssinaturaPropostaComercial(
-            organizacao_id=proposta.organizacao_id,
-            proposta_id=proposta.id,
-            versao=proposta.versao,
-            hash_documento=assinatura_hash,
-            ip_hash=proposta.public_aceito_ip_hash,
-            provedor="link_publico",
-            segundo_fator_canal="email",
-            segundo_fator_confirmado_em=agora,
-        )
-    )
+    # Achado médio da Fase 8 (auditoria jurídica, 15/09/2026): o gate
+    # "public_aceito_em is not None" lá em cima e este INSERT não são
+    # atômicos -- duas submissões quase simultâneas do mesmo código de
+    # confirmação (ex.: duplo clique, ou o cliente reenvia o formulário)
+    # passavam as duas pelo "is not None" e criavam duas linhas de
+    # evidência pra mesma versão da proposta. Mesmo padrão de
+    # begin_nested()/IntegrityError já usado em
+    # criar_contratacao_automatica_proposta (PR #48, Fase 7) pra essa
+    # mesma classe de corrida -- proteção de última linha é a
+    # UniqueConstraint (proposta_id, versao) da migration d4e5f6a7b8c9.
+    try:
+        async with session.begin_nested():
+            session.add(
+                AssinaturaPropostaComercial(
+                    organizacao_id=proposta.organizacao_id,
+                    proposta_id=proposta.id,
+                    versao=proposta.versao,
+                    hash_documento=assinatura_hash,
+                    ip_hash=proposta.public_aceito_ip_hash,
+                    provedor="link_publico",
+                    segundo_fator_canal="email",
+                    segundo_fator_confirmado_em=agora,
+                )
+            )
+            await session.flush()
+    except IntegrityError:
+        pass
     session.add(
         EventoAuditoria(
             organizacao_id=proposta.organizacao_id,

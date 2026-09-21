@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException, Response
+from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 from app.api.portal_cliente import (
@@ -276,6 +277,34 @@ def test_assinar_proposta_portal_sem_validade_definida_nao_e_bloqueada() -> None
     assert proposta.status == "aceita"
 
 
+def test_assinar_proposta_portal_absorve_conflito_de_assinatura_concorrente(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Achado médio da Fase 8 (auditoria jurídica, 15/09/2026): um duplo
+    # clique no botão de assinar no portal passa duas requisições quase
+    # simultâneas pelo "public_aceito_em is None". A segunda deve absorver
+    # o IntegrityError (UniqueConstraint proposta_id+versao da migration
+    # d4e5f6a7b8c9) em vez de devolver 500.
+    proposta = _proposta_para_assinatura(validade_em=date(2099, 12, 31))
+    session = FakeSession([FakeResult(scalar=proposta)])
+    chamadas_flush = {"n": 0}
+    flush_original = session.flush
+
+    async def _flush_com_conflito_na_terceira_chamada() -> None:
+        chamadas_flush["n"] += 1
+        if chamadas_flush["n"] <= 2:
+            await flush_original()
+            return
+        raise IntegrityError("insert", {}, Exception("duplicate key value violates unique constraint"))
+
+    session.flush = _flush_com_conflito_na_terceira_chamada
+
+    resultado = asyncio.run(assinar_proposta_portal(1, _request(), _cliente(), session))
+
+    assert resultado["ok"] is True
+    assert proposta.status == "aceita"
+    assinaturas = [obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial)]
+    assert assinaturas == []
+
+
 # --- Fase 6 do plano proposta-financeiro (03/09/2026): paridade do webhook Clicksign ---
 
 
@@ -361,6 +390,77 @@ def test_webhook_clicksign_nao_duplica_assinatura_em_segundo_evento_do_mesmo_env
     asyncio.run(webhook_clicksign(_webhook_request(corpo), session, _assinatura_webhook(corpo)))
     assinaturas = [obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial)]
     assert assinaturas == []
+
+
+def test_webhook_clicksign_absorve_conflito_de_assinatura_concorrente(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Achado médio da Fase 8 (auditoria jurídica, 15/09/2026): o Clicksign
+    # reenvia o mesmo webhook em retry -- duas entregas quase simultâneas
+    # passam as duas pelo "aceito_em is None" e tentam inserir duas linhas
+    # de evidência pra mesma versão da proposta. A segunda deve absorver o
+    # IntegrityError (proteção de última linha é a UniqueConstraint
+    # proposta_id+versao da migration d4e5f6a7b8c9) em vez de devolver 500.
+    _configurar_segredo_webhook(monkeypatch)
+    proposta = _proposta_para_assinatura(id=7, status="enviada", dados={"clicksign": {"envelope_id": "env-123"}})
+    session = FakeSession(
+        [
+            FakeResult(scalar=proposta),  # busca por envelope_id
+            FakeResult(scalar=None),  # contratação existente? não
+        ]
+    )
+    chamadas_flush = {"n": 0}
+    flush_original = session.flush
+
+    async def _flush_com_conflito_na_terceira_chamada() -> None:
+        # criar_contratacao_automatica_proposta já faz 2 flush() (lançamento
+        # + fim do bloco) antes do flush da assinatura em webhook_clicksign.
+        chamadas_flush["n"] += 1
+        if chamadas_flush["n"] <= 2:
+            await flush_original()
+            return
+        raise IntegrityError("insert", {}, Exception("duplicate key value violates unique constraint"))
+
+    session.flush = _flush_com_conflito_na_terceira_chamada
+    corpo = {"envelope_id": "env-123", "event_id": "evt-1", "status": "document_closed"}
+
+    resultado = asyncio.run(webhook_clicksign(_webhook_request(corpo), session, _assinatura_webhook(corpo)))
+
+    assert resultado == {"ok": True, "proposta_id": 7}
+    assert proposta.status == "aceita"
+    # A savepoint (begin_nested) descarta só a assinatura em conflito --
+    # nada quebra e o restante da requisição continua idempotente.
+    assinaturas = [obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial)]
+    assert assinaturas == []
+
+
+def test_webhook_clicksign_redige_dados_pessoais_do_payload_bruto(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Achado médio da Fase 8 (auditoria jurídica, 15/09/2026): o payload
+    # bruto do webhook (nome/e-mail/CPF/telefone/IP do signatário) ficava
+    # salvo sem redação em PropostaComercial.dados["clicksign"]["ultimo_evento"].
+    _configurar_segredo_webhook(monkeypatch)
+    proposta = _proposta_para_assinatura(id=7, status="enviada", dados={"clicksign": {"envelope_id": "env-123"}})
+    session = FakeSession(
+        [
+            FakeResult(scalar=proposta),
+            FakeResult(scalar=None),
+        ]
+    )
+    corpo = {
+        "envelope_id": "env-123",
+        "event_id": "evt-1",
+        "status": "document_closed",
+        "data": {
+            "signers": [{"name": "Fulano de Tal", "email": "fulano@example.com", "documentation": "12345678900"}],
+        },
+    }
+    asyncio.run(webhook_clicksign(_webhook_request(corpo), session, _assinatura_webhook(corpo)))
+    salvo = proposta.dados["clicksign"]["ultimo_evento"]
+    signatario = salvo["data"]["signers"][0]
+    assert signatario["name"] == "[redigido]"
+    assert signatario["email"] == "[redigido]"
+    assert signatario["documentation"] == "[redigido]"
+    # Chaves não sensíveis (status/ids) continuam legíveis para diagnóstico.
+    assert salvo["status"] == "document_closed"
+    assert salvo["envelope_id"] == "env-123"
 
 
 def test_webhook_clicksign_proposta_nao_encontrada_e_ignorado(monkeypatch: pytest.MonkeyPatch) -> None:

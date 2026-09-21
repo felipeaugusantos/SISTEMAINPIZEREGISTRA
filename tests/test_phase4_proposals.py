@@ -760,6 +760,58 @@ def test_confirmar_codigo_proposta_gera_contratacao_automatica() -> None:
     assert len(contratacoes) == 1
 
 
+def test_confirmar_codigo_proposta_absorve_conflito_de_assinatura_concorrente() -> None:
+    # Achado médio da Fase 8 (auditoria jurídica, 15/09/2026): o gate
+    # "public_aceito_em is not None" no início da função e o INSERT da
+    # assinatura não são atômicos -- um duplo clique/reenvio do formulário
+    # de confirmação passa duas requisições quase simultâneas pelo mesmo
+    # caminho. A segunda deve absorver o IntegrityError (UniqueConstraint
+    # proposta_id+versao da migration d4e5f6a7b8c9) em vez de devolver 500.
+    import app.api.leads_propostas as leads_modulo
+
+    async def _avancar_fake(*_args: object, **_kwargs: object) -> bool:
+        return True
+
+    original = leads_modulo.avancar_fase_lead
+    leads_modulo.avancar_fase_lead = _avancar_fake
+    try:
+        proposta = _proposta_com_token(
+            validade_em=None,
+            codigo_confirmacao_hash=hash_token("123456"),
+            codigo_confirmacao_expira_em=datetime.now(UTC) + timedelta(minutes=10),
+            codigo_confirmacao_tentativas=0,
+        )
+        session = FakeSession(
+            [
+                FakeResult(scalar=proposta),
+                FakeResult(scalar=None),
+                FakeResult(scalar=None),
+            ]
+        )
+        chamadas_flush = {"n": 0}
+        flush_original = session.flush
+
+        async def _flush_com_conflito_na_terceira_chamada() -> None:
+            chamadas_flush["n"] += 1
+            if chamadas_flush["n"] <= 2:
+                await flush_original()
+                return
+            raise IntegrityError("insert", {}, Exception("duplicate key value violates unique constraint"))
+
+        session.flush = _flush_com_conflito_na_terceira_chamada
+        asyncio.run(
+            leads_modulo.confirmar_codigo_proposta(
+                "token-qualquer", _request_post("/propostas/x/confirmar"), session, "123456"
+            )
+        )
+    finally:
+        leads_modulo.avancar_fase_lead = original
+
+    assinaturas = [obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial)]
+    assert assinaturas == []
+    assert proposta.status == "aceita"
+
+
 def test_atualizar_status_proposta_aceita_gera_contratacao_automatica() -> None:
     proposta = _proposta(id=1, status="enviada", honorarios=1500, taxa_gru=355)
     session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=None), FakeResult(scalar=None)])

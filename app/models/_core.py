@@ -1160,6 +1160,7 @@ class AssinaturaPropostaComercial(Base):
     """Evidência imutável do aceite/assinatura eletrônica da proposta."""
 
     __tablename__ = "assinaturas_propostas_comerciais"
+    __table_args__ = (UniqueConstraint("proposta_id", "versao", name="uq_assinatura_proposta_versao"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)

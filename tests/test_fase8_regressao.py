@@ -170,6 +170,32 @@ def test_flag_json_nao_expoe_nenhuma_chave_proibida() -> None:
     assert chaves.isdisjoint(CHAVES_PROIBIDAS_EM_RESPOSTA)
 
 
+def test_migration_de_dados_redige_clicksign_ja_persistido() -> None:
+    """Achado do review do Codex na PR #98: a redação do payload bruto do
+    webhook Clicksign (_redigir_payload_webhook em app/api/portal_cliente.py)
+    só se aplica a eventos processados após o deploy. A migration de dados
+    e1f2a3b4c5d6 varre PropostaComercial.dados["clicksign"]["ultimo_evento"]
+    já persistido e aplica a mesma redação -- aqui garantimos que a lógica
+    duplicada na migration (que não pode importar app/, ver convenção das
+    outras migrations) continua igual à da API."""
+    import importlib.util
+
+    from app.api.portal_cliente import _redigir_payload_webhook as redigir_da_api
+
+    caminho = RAIZ / "migrations" / "versions" / "e1f2a3b4c5d6_redige_clicksign_ja_persistido.py"
+    spec = importlib.util.spec_from_file_location("migracao_redige_clicksign", caminho)
+    assert spec and spec.loader
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+
+    payload = {
+        "status": "document_closed",
+        "envelope_id": "env-123",
+        "data": {"signers": [{"name": "Fulano de Tal", "email": "fulano@example.com", "cpf": "12345678900"}]},
+    }
+    assert modulo._redigir_payload_webhook(payload) == redigir_da_api(payload)
+
+
 def test_listar_problemas_nao_expoe_caminho_do_anexo() -> None:
     """anexo_caminho (path físico em disco/S3) nunca pode vazar pra fora
     -- só metadados (nome, tipo, tamanho) são retornados. Ver também

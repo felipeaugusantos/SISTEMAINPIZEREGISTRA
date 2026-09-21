@@ -1809,7 +1809,7 @@ async def listar_prazos_portal(request: Request, cliente: ClientDep, session: Se
     return {"prazos": prazos}
 
 
-@router.get("/v1/portal/documentos/{documento_id}/download")
+@router.get("/v1/portal/documentos/{documento_id}/download", response_model=None)
 async def baixar_documento_portal(
     documento_id: int, request: Request, cliente: ClientDep, session: SessionDep
 ) -> FileResponse | StreamingResponse:

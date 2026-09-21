@@ -18,9 +18,13 @@ function severidadeClasse(item) {
   return { info: "info", aviso: "warn", critico: "danger", critica: "danger" }[item.severidade] || "info";
 }
 
+// Achado do usuário (21/09/2026): "mensagem_portal" (mensagem não lida do
+// cliente) virava "Sistema" aqui -- o rótulo era um binário jurídico/sistema
+// que nunca previa uma terceira fonte.
+const FONTE_LABELS = { juridico: "Jurídico", sistema: "Sistema", mensagem_portal: "Mensagem" };
 function linha(item) {
   const sev = severidadeClasse(item);
-  const fonte = item.fonte === "juridico" ? "Jurídico" : "Sistema";
+  const fonte = FONTE_LABELS[item.fonte] || "Sistema";
   const acaoLabel = item.lida ? "Marcar como não lida" : "Marcar como lida";
   const acaoAlvo = item.lida ? "nao-lida" : "lida";
   return `<li class="${item.lida ? "notif-lida" : ""}">
@@ -32,7 +36,7 @@ function linha(item) {
         <small>${fonte} · ${formatDate(item.criado_em)}${item.lida ? " · Lida" : ""}</small>
       </div>
     </a>
-    <button type="button" class="secondary-button notif-toggle" data-fonte="${item.fonte}" data-id="${item.id}" data-alvo="${acaoAlvo}">${acaoLabel}</button>
+    ${item.fonte === "mensagem_portal" && item.lida ? "" : `<button type="button" class="secondary-button notif-toggle" data-fonte="${item.fonte}" data-id="${item.id}" data-alvo="${acaoAlvo}">${acaoLabel}</button>`}
   </li>`;
 }
 

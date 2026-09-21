@@ -239,9 +239,13 @@ document.querySelector("#flow-period").addEventListener("change", () => {
   loadFlowIndicators().catch(() => {});
 });
 
+// Achado do usuário (21/09/2026): "mensagem_portal" (mensagem não lida do
+// cliente) virava "Sistema" aqui -- o rótulo era um binário jurídico/sistema
+// que nunca previa uma terceira fonte.
+const FONTE_LABELS = { juridico: "Jurídico", sistema: "Sistema", mensagem_portal: "Mensagem" };
 function notifItem(item) {
   const sev = { info: "info", aviso: "warn", critico: "danger", critica: "danger" }[item.severidade] || "info";
-  const fonte = item.fonte === "juridico" ? "Jurídico" : "Sistema";
+  const fonte = FONTE_LABELS[item.fonte] || "Sistema";
   return `<li><a href="${item.url || "#"}" data-fonte="${item.fonte}" data-id="${item.id}" data-url="${item.url || ""}"><span class="notif-dot sev-${sev}" aria-hidden="true"></span><div><strong>${escapeHtml(item.titulo)}</strong><p>${escapeHtml(item.mensagem)}</p><small>${fonte} · ${formatDate(item.criado_em)}</small></div></a></li>`;
 }
 

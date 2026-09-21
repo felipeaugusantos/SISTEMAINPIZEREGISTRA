@@ -21,6 +21,7 @@ from app.models import (
     AvaliacaoRiscoMarca,
     LancamentoFinanceiro,
     Lead,
+    MensagemClientePortal,
     ModeloRegistrabilidade,
     NotificacaoJuridica,
     ParcelaFinanceira,
@@ -423,6 +424,54 @@ async def listar_notificacoes(
                 }
             )
 
+    # Achado do usuário (21/09/2026): mensagem do cliente pelo portal não
+    # gerava nenhum aviso pra equipe além do selo "!" na lista de Leads
+    # (admin-leads.js) -- aqui vira uma fonte a mais da central, derivada
+    # direto de MensagemClientePortal.lida_em (já mantido por
+    # marcar_mensagens_portal_lidas, app/api/portal_cliente.py) em vez de
+    # duplicar estado numa tabela nova. Uma notificação por lead, não por
+    # mensagem, batendo com o pedido ("notificação no lead").
+    if pode_comercial_alertas:
+        filtros_mensagens = [
+            Lead.organizacao_id == organizacao_id,
+            MensagemClientePortal.autor_tipo == "cliente",
+        ]
+        if usuario.perfil != "administrador" and not usuario.superadmin:
+            filtros_mensagens.append(Lead.responsavel_id == usuario.id)
+        linhas_mensagens = await session.execute(
+            select(
+                Lead.id,
+                Lead.nome,
+                Lead.marca,
+                func.count(MensagemClientePortal.id).filter(MensagemClientePortal.lida_em.is_(None)),
+                func.max(MensagemClientePortal.criado_em),
+            )
+            .join(MensagemClientePortal, MensagemClientePortal.lead_id == Lead.id)
+            .where(*filtros_mensagens)
+            .group_by(Lead.id, Lead.nome, Lead.marca)
+            .limit(limite)
+        )
+        for lead_id, nome, marca, pendentes_lead, ultima_em in linhas_mensagens.all():
+            if pendentes_lead == 0 and not todas:
+                continue
+            itens.append(
+                {
+                    "id": lead_id,
+                    "fonte": "mensagem_portal",
+                    "severidade": "info",
+                    "titulo": f"Mensagem de {nome}",
+                    "mensagem": (
+                        f"{pendentes_lead} mensagem{'ns' if pendentes_lead != 1 else ''} não lida(s)"
+                        f" sobre {marca or 'contato geral'}"
+                        if pendentes_lead
+                        else f"Sem mensagens pendentes de {nome}"
+                    ),
+                    "criado_em": ultima_em,
+                    "lida": pendentes_lead == 0,
+                    "url": f"/admin/pesquisas?lead_id={lead_id}",
+                }
+            )
+
     itens.sort(key=lambda x: x["criado_em"] or datetime.min.replace(tzinfo=UTC), reverse=True)
     pendentes = sum(1 for item in itens if not item["lida"])
     return {"total": pendentes, "total_itens": len(itens), "itens": itens}
@@ -459,6 +508,29 @@ async def marcar_notificacao_lida(fonte: str, item_id: int, session: SessionDep,
         if item is None:
             raise HTTPException(404, "Notificação não encontrada")
         item.resolvido_em = agora
+    elif fonte == "mensagem_portal" and usuario.pode("leads.view"):
+        # Aqui item_id é o lead_id (uma notificação por lead, não por
+        # mensagem) -- marca todas as mensagens não lidas do cliente
+        # daquele lead, mesma query de
+        # portal_cliente.marcar_mensagens_portal_lidas.
+        filtros_lead = [Lead.id == item_id, Lead.organizacao_id == organizacao_id]
+        if usuario.perfil != "administrador" and not usuario.superadmin:
+            filtros_lead.append(Lead.responsavel_id == usuario.id)
+        lead_existe = (await session.execute(select(Lead.id).where(*filtros_lead))).scalar_one_or_none()
+        if lead_existe is None:
+            raise HTTPException(404, "Notificação não encontrada")
+        mensagens = (
+            await session.execute(
+                select(MensagemClientePortal).where(
+                    MensagemClientePortal.lead_id == item_id,
+                    MensagemClientePortal.organizacao_id == organizacao_id,
+                    MensagemClientePortal.autor_tipo == "cliente",
+                    MensagemClientePortal.lida_em.is_(None),
+                )
+            )
+        ).scalars().all()
+        for mensagem in mensagens:
+            mensagem.lida_em = agora
     else:
         raise HTTPException(404, "Notificação não encontrada")
     await session.commit()
@@ -543,6 +615,33 @@ async def marcar_todas_notificacoes(
         alertas = (await session.execute(select(AlertaSistema).where(*filtros_sistema))).scalars().all()
         for item in alertas:
             item.resolvido_em = agora if lida else None
+            afetadas += 1
+
+    # "Marcar todas como não lidas" não se aplica a mensagens do portal --
+    # reverter exigiria escolher qual mensagem específica desmarcar entre
+    # várias, ambíguo (mesma razão de marcar_notificacao_nao_lida não
+    # cobrir esta fonte).
+    if pode_comercial_alertas and lida:
+        filtros_mensagens = [
+            Lead.organizacao_id == organizacao_id,
+            MensagemClientePortal.autor_tipo == "cliente",
+            MensagemClientePortal.lida_em.is_(None),
+        ]
+        if usuario.perfil != "administrador" and not usuario.superadmin:
+            filtros_mensagens.append(Lead.responsavel_id == usuario.id)
+        mensagens = (
+            (
+                await session.execute(
+                    select(MensagemClientePortal)
+                    .join(Lead, Lead.id == MensagemClientePortal.lead_id)
+                    .where(*filtros_mensagens)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for mensagem in mensagens:
+            mensagem.lida_em = agora
             afetadas += 1
 
     await session.commit()

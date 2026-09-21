@@ -1008,20 +1008,27 @@
   .lead-crm-form > div { align-items: stretch; flex-direction: column; }
 }
 
+/* Achado do usuário (21/09/2026): a coluna "Arquivo" foi adicionada depois
+   desta tabela ganhar largura fixa por porcentagem (5 colunas somando 100%)
+   -- sem sobrar espaço nenhum pra 6ª coluna, "ARQUIVO" espremia até quebrar
+   letra por letra, e overflow-x:visible não dava nenhuma rolagem pra
+   compensar. Refeito para as 6 colunas reais, com rolagem horizontal de
+   volta como saída de segurança em telas menores. */
 .doc-table-scroll {
   max-width: 100%;
-  overflow-x: visible;
+  overflow-x: auto;
 }
 
 table.lead-docs {
   table-layout: fixed;
 }
 
-table.lead-docs th:nth-child(1) { width: 13%; }
-table.lead-docs th:nth-child(2) { width: 16%; }
-table.lead-docs th:nth-child(3) { width: 20%; }
-table.lead-docs th:nth-child(4) { width: 16%; }
-table.lead-docs th:nth-child(5) { width: 35%; }
+table.lead-docs th:nth-child(1) { width: 11%; }
+table.lead-docs th:nth-child(2) { width: 13%; }
+table.lead-docs th:nth-child(3) { width: 15%; }
+table.lead-docs th:nth-child(4) { width: 13%; }
+table.lead-docs th:nth-child(5) { width: 26%; }
+table.lead-docs th:nth-child(6) { width: 22%; }
 
 table.lead-docs input,
 table.lead-docs select {

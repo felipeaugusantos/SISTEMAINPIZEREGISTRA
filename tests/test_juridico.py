@@ -501,8 +501,88 @@ def test_reconcilia_importacao_historica_e_duplicidade_da_mesma_rpi() -> None:
     assert (historicos, duplicados) == (1, 1)
     assert prazos[0].status == "historico"
     assert prazos[1].status == "duplicado"
+    # Achado médio da Fase 8 (auditoria jurídica, 15/09/2026): esta função
+    # marcava confirmado=True sozinha -- mesmo risco do achado crítico já
+    # corrigido (classificação heurística fechando um prazo sem revisão
+    # humana). Agora fica confirmado=False, sinalizando pra revisão.
+    assert prazos[0].confirmado is False
+    assert prazos[1].confirmado is False
     tipos = {item.tipo for item in session.adicionados if isinstance(item, EventoJuridico)}
     assert tipos == {"prazo_historico", "prazo_duplicado"}
+
+
+def test_reconciliacao_nao_reclassifica_prazo_ja_confirmado_por_humano() -> None:
+    # Achado médio da Fase 8: a detecção de duplicidade não checava se o
+    # prazo já tinha sido confirmado por um humano -- podia reclassificar
+    # como "duplicado" por baixo dos panos um prazo que alguém já revisou.
+    origem = Movimentacao(
+        id=200,
+        processo_id=88,
+        codigo_despacho="IPAS024",
+        descricao="Indeferimento do pedido",
+        data_rpi=date(2020, 3, 24),
+        numero_rpi=2568,
+        fonte_arquivo="marcas2568.xml",
+        chave_origem="origem-c",
+    )
+    origem_repetida = Movimentacao(
+        id=201,
+        processo_id=88,
+        codigo_despacho="IPAS024",
+        descricao="Indeferimento do pedido",
+        data_rpi=date(2020, 3, 24),
+        numero_rpi=2568,
+        fonte_arquivo="marcas2568.xml",
+        chave_origem="origem-d",
+    )
+    prazo_canonico = PrazoJuridico(
+        id=301,
+        organizacao_id=1,
+        processo_monitorado_id=64,
+        movimentacao_origem_id=200,
+        titulo="Revisar recurso",
+        tipo="recurso",
+        origem="motor_rpi",
+        data_base=date(2020, 3, 24),
+        dias_prazo=60,
+        contagem="corridos",
+        vencimento_em=datetime(2020, 5, 23, tzinfo=UTC),
+        status="pendente",
+        prioridade="alta",
+        confirmado=True,
+        confirmado_por_id=5,
+        criado_por="motor-juridico",
+        criado_em=datetime(2026, 8, 14, tzinfo=UTC),
+    )
+    prazo_ja_confirmado = PrazoJuridico(
+        id=302,
+        organizacao_id=1,
+        processo_monitorado_id=64,
+        movimentacao_origem_id=201,
+        titulo="Revisar recurso",
+        tipo="recurso",
+        origem="motor_rpi",
+        data_base=date(2020, 3, 24),
+        dias_prazo=60,
+        contagem="corridos",
+        vencimento_em=datetime(2020, 5, 23, tzinfo=UTC),
+        status="pendente",
+        prioridade="alta",
+        confirmado=True,
+        confirmado_por_id=6,
+        criado_por="motor-juridico",
+        criado_em=datetime(2026, 8, 14, tzinfo=UTC),
+    )
+    session = FakeSession(
+        [FakeResult(itens=[(prazo_canonico, origem), (prazo_ja_confirmado, origem_repetida)]), FakeResult(itens=[])]
+    )
+
+    historicos, duplicados = asyncio.run(_reconciliar_prazos_historicos(session, 1, "motor-juridico"))
+
+    assert (historicos, duplicados) == (0, 0)
+    assert prazo_ja_confirmado.status == "pendente"
+    assert prazo_ja_confirmado.confirmado is True
+    assert not any(isinstance(item, EventoJuridico) for item in session.adicionados)
 
 
 def test_deferimento_de_peticao_nao_e_confundido_com_pedido() -> None:

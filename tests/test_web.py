@@ -593,6 +593,19 @@ def test_crm_abre_contato_usa_a_mesma_tela_do_lead() -> None:
     assert "const crmMessage = " in script
     assert "const message = " not in script
 
+    # Achados do Codex review (PR #96):
+    # 1) salvar atendimento/mover fase dentro do diálogo reaproveitado só
+    #    recarregava a lista oculta de Leads -- Kanban e histórico do CRM
+    #    ficavam desatualizados até um refresh manual.
+    assert 'addEventListener("close", () => {' in script
+    assert "loadKanban().catch" in script
+    assert "loadHistory().catch" in script
+    # 2) #admin-message (onde admin-leads.js escreve confirmações/erros de
+    #    ações do diálogo) estava dentro do bloco oculto -- o operador nunca
+    #    via essas mensagens. Agora fica visível dentro do próprio diálogo.
+    assert '<div id="admin-message" class="status-message lead-dialog-message" role="status"></div>' in page
+    assert page.index('id="admin-message"') < page.index('<div hidden aria-hidden="true">')
+
 
 def test_cards_do_radar_prospeccao_nao_encolhem_alem_do_conteudo() -> None:
     # Achado do usuário (17/09/2026): minmax(0,1fr) deixava as 6 colunas do

@@ -111,6 +111,16 @@ document.addEventListener("click", (evento) => {
 // (só o primeiro da página) -- aqui já existem outros dois antes dele no DOM, então o
 // dele precisa de um handler próprio, feito aqui em vez de tocar admin-leads.js.
 document.querySelector("#close-lead-dialog")?.addEventListener("click", () => document.querySelector("#lead-dialog")?.close());
+// Achado do Codex review (PR #96): salvar atendimento, mover fase etc. dentro
+// do diálogo reaproveitado só recarrega a lista oculta de Leads (admin-leads.js
+// não sabe que existe um Kanban/histórico nesta página) -- o board e a linha do
+// tempo do CRM ficavam desatualizados até um refresh manual. O evento nativo
+// "close" do <dialog> dispara em qualquer forma de fechar (botão × ou Esc),
+// então recarregar ali cobre o caso comum sem precisar tocar admin-leads.js.
+document.querySelector("#lead-dialog")?.addEventListener("close", () => {
+  loadKanban().catch(() => {});
+  loadHistory().catch(() => {});
+});
 function renderHistory(data) {
   crmState.total = data.total; crmState.ultimoHistorico = data; renderMetrics(data);
   document.querySelector("#crm-total").textContent = `${data.total} registro${data.total === 1 ? "" : "s"}`;

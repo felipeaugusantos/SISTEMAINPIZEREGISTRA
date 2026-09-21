@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>CRM — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=66"><link rel="stylesheet" href="/static/ze-brand.css?v=1"><link rel="stylesheet" href="/static/admin-crm.css?v=4"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=7"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=5"><link rel="stylesheet" href="/static/admin-leads.css?v=31">
+  <link rel="stylesheet" href="/static/styles.css?v=66"><link rel="stylesheet" href="/static/ze-brand.css?v=1"><link rel="stylesheet" href="/static/admin-crm.css?v=4"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=7"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=6"><link rel="stylesheet" href="/static/admin-leads.css?v=31">
   <!-- Achado do usuário (21/09/2026): "Abrir contato" precisa abrir exatamente a mesma
        tela do lead que a página de Leads usa -- em vez de duplicar aquela lógica (~2000
        linhas fortemente interligadas entre lista e diálogo), esta página carrega o
        mesmo admin-leads.js e traz uma cópia oculta do HTML que ele espera encontrar
        (filtros, métricas, tabela, paginação) só pra ele não quebrar ao rodar aqui;
        o diálogo do lead (#lead-dialog) em si fica visível/funcional normalmente. -->
-  <script src="/static/admin-shell.js?v=50" defer></script><script src="/static/admin-leads.js?v=71" defer></script><script src="/static/admin-crm.js?v=16" defer></script>
+  <script src="/static/admin-shell.js?v=50" defer></script><script src="/static/admin-leads.js?v=71" defer></script><script src="/static/admin-crm.js?v=17" defer></script>
 </head>
 <body class="admin-body ze-brand-theme" data-admin-section="crm">
   <main class="admin-main crm-main">
@@ -82,6 +82,11 @@
            (lembrete/adiar), então esse ficaria sem o clique funcionando. id próprio +
            handler explícito em admin-crm.js, sem tocar admin-leads.js. -->
       <header><div><p class="eyebrow">Oportunidade</p><h2 id="lead-dialog-title">Lead</h2></div><button id="close-lead-dialog" class="dialog-close" type="button" aria-label="Fechar">×</button></header>
+      <!-- Achado do Codex review (PR #96): admin-leads.js escreve confirmações e erros de
+           ações do diálogo (enviar e-mail, gerar relatório, acesso ao portal) neste
+           elemento via showMessage() -- ficar dentro do bloco oculto deixava o operador
+           sem nenhum retorno visual quando essas ações falhavam ou funcionavam. -->
+      <div id="admin-message" class="status-message lead-dialog-message" role="status"></div>
       <div id="lead-dialog-content" class="lead-dialog-content"></div>
     </div>
   </dialog>
@@ -209,7 +214,6 @@
       <button type="submit">Filtrar</button>
       <button id="clear-lead-filters" type="button">Limpar filtros</button>
     </form>
-    <div id="admin-message" role="status"></div>
     <section id="deletion-requests" hidden>
       <span id="deletion-request-count">0 pendentes</span>
       <div id="deletion-request-list"></div>

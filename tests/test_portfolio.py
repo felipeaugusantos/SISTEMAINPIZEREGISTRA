@@ -231,7 +231,7 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
 
     assert "Pesquisar por procurador" in html
     assert "Cadastrar processo" in html
-    assert "admin-carteira.css?v=13" in html
+    assert "admin-carteira.css?v=14" in html
     assert "admin-carteira.js?v=" in html
     assert "Incluir variações do nome" in html
     assert "titular" in javascript
@@ -261,6 +261,50 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
     assert "Em tramitação" in javascript
     assert "data-metric-filter" in javascript
     assert "function applyMetricFilter" in javascript
+
+
+def test_tela_permite_vincular_processo_ja_monitorado_a_um_lead() -> None:
+    # Achado do usuário (21/09/2026): um processo já vinculado à carteira
+    # (ex.: cadastro manual antes do lead avançar de fase) não tinha como
+    # ser ligado a um lead depois -- só o vínculo automático por
+    # Lead.processo_numero, que também não tinha onde ser editado. O
+    # backend já aceitava lead_id/remover_lead em PATCH /carteira/{id}; só
+    # faltava a tela.
+    page = "app/web/admin-carteira.html"
+    script = "app/web/static/admin-carteira.js"
+    with open(page, encoding="utf-8") as arquivo:
+        html = arquivo.read()
+    with open(script, encoding="utf-8") as arquivo:
+        javascript = arquivo.read()
+
+    assert "admin-carteira.css?v=14" in html
+    assert "data-lead-search" in javascript
+    assert "data-lead-query" in javascript
+    assert "data-vincular-lead-id" in javascript
+    assert "data-unlink-lead" in javascript
+    assert '/v1/admin/leads?busca=' in javascript
+    assert '{ lead_id: Number(button.dataset.vincularLeadId) }' in javascript
+    assert '{ remover_lead: true }' in javascript
+    # Só quem gerencia a carteira vê o controle -- mesmo padrão de
+    # state.canManage já usado pra editar status/procurador.
+    assert "state.canManage" in javascript
+
+    # Achados do Codex review (PR #97):
+    # 1) nome + empresa repetem entre leads do mesmo contato com marcas
+    #    diferentes -- cada resultado precisa mostrar a marca (e o id como
+    #    desempate) pra não vincular ao lead errado.
+    assert "lead.marca" in javascript
+    assert "<small>#${lead.id}</small>" in javascript
+    # 2) portfolio.manage e leads.view são permissões independentes -- uma
+    #    conta com a primeira e sem a segunda via 403 silencioso na busca.
+    assert "state.canBuscarLeads" in javascript
+    assert "data.acoes?.buscar_leads" in javascript
+    assert "acesso a Leads" in javascript
+    # 3) o campo de busca permitia 150 caracteres, mas /v1/admin/leads limita
+    #    busca a 100 -- um texto de 101-150 caracteres batia 422 em vez de
+    #    resultado.
+    assert 'maxlength="100"' in javascript
+    assert 'maxlength="150"' not in javascript
 
 
 def test_tela_expoe_atribuicao_em_lote_na_lista() -> None:
@@ -736,13 +780,21 @@ def test_listar_carteira_informa_quando_usuario_pode_gerenciar() -> None:
     # ("acoes.gerenciar"): a tela esconde o que a API já sabe que vai
     # recusar.
     resultado = asyncio.run(listar_carteira(_fake_session_listar_carteira(), usuario_teste()))
-    assert resultado["acoes"] == {"gerenciar": True}
+    assert resultado["acoes"] == {"gerenciar": True, "buscar_leads": True}
 
 
 def test_listar_carteira_informa_quando_usuario_nao_pode_gerenciar() -> None:
     usuario_comercial = usuario_teste(perfil="comercial", permissoes={"portfolio.view"})
     resultado = asyncio.run(listar_carteira(_fake_session_listar_carteira(), usuario_comercial))
-    assert resultado["acoes"] == {"gerenciar": False}
+    assert resultado["acoes"] == {"gerenciar": False, "buscar_leads": False}
+
+
+def test_listar_carteira_informa_quando_usuario_pode_gerenciar_mas_nao_buscar_leads() -> None:
+    # Achado do Codex review (PR #97): portfolio.manage e leads.view são
+    # permissões independentes -- uma conta pode ter só a primeira.
+    usuario_sem_leads = usuario_teste(perfil="comercial", permissoes={"portfolio.view", "portfolio.manage"})
+    resultado = asyncio.run(listar_carteira(_fake_session_listar_carteira(), usuario_sem_leads))
+    assert resultado["acoes"] == {"gerenciar": True, "buscar_leads": False}
 
 
 def test_tela_esconde_botoes_de_gerenciamento_para_quem_so_tem_view() -> None:

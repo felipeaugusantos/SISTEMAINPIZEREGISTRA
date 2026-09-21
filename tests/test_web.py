@@ -569,7 +569,7 @@ def test_crm_abre_contato_usa_a_mesma_tela_do_lead() -> None:
     page = (web_dir / "admin-crm.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-crm.js").read_text(encoding="utf-8")
 
-    assert '/static/admin-leads.js?v=71" defer' in page
+    assert '/static/admin-leads.js?v=72" defer' in page
     assert '/static/admin-leads.css?v=31"' in page
     # O diálogo do lead de verdade (não uma cópia reduzida) fica visível.
     assert '<dialog id="lead-dialog" class="lead-dialog">' in page
@@ -605,6 +605,22 @@ def test_crm_abre_contato_usa_a_mesma_tela_do_lead() -> None:
     #    via essas mensagens. Agora fica visível dentro do próprio diálogo.
     assert '<div id="admin-message" class="status-message lead-dialog-message" role="status"></div>' in page
     assert page.index('id="admin-message"') < page.index('<div hidden aria-hidden="true">')
+
+
+def test_lead_permite_vincular_processo_direto_do_aviso() -> None:
+    # Achado do usuário (21/09/2026): o aviso "processo não vinculado" só
+    # mandava o operador pra tela de Processos monitorados -- de dentro da
+    # ficha do lead não tinha como vincular. Agora dá pra digitar o número
+    # do processo (já cadastrado na carteira) direto no aviso e vincular.
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    assert "data-vincular-processo" in script
+    assert "data-processo-numero" in script
+    assert '/v1/admin/carteira?busca=${encodeURIComponent(numero)}' in script
+    assert "{ lead_id: Number(form.dataset.leadId) }" in script
+    # Sem o processo já cadastrado na carteira, o aviso orienta a cadastrar
+    # lá primeiro em vez de falhar silenciosamente.
+    assert "Cadastre-o lá primeiro" in script
 
 
 def test_cards_do_radar_prospeccao_nao_encolhem_alem_do_conteudo() -> None:

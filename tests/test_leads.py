@@ -1422,7 +1422,7 @@ def test_enviar_arquivo_documento_lead_nao_rebaixa_status_ja_validado(
 ) -> None:
     monkeypatch.setenv("STORAGE_LOCAL_ROOT", str(tmp_path))
     documento_existente = DocumentoLead(
-        id=3, organizacao_id=1, lead_id=9, tipo="procuracao", status="validado", obrigatorio=True
+        id=3, organizacao_id=1, lead_id=9, tipo="procuracao", status="validado", obrigatorio=True, versao=1
     )
     _sessao_admin(FakeResult(scalar=9), FakeResult(scalar=documento_existente), FakeResult(itens=[]))
 

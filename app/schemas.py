@@ -276,6 +276,7 @@ class LeadResponse(BaseModel):
     risco_mais_alto_pontuacao: int | None = None
     relatorios_completos_gerados: int = 0
     mensagens_portal_pendentes: int = 0
+    processo_vinculado_pendente: bool = False
     pesquisas: list["PesquisaLeadResumo"] = Field(default_factory=list)
     criado_em: datetime
     atualizado_em: datetime

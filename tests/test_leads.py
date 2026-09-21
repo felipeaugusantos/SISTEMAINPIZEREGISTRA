@@ -28,6 +28,7 @@ from app.models import (
     EventoAuditoria,
     Lead,
     PesquisaMarca,
+    ProcessoMonitorado,
     PropostaComercial,
     QualificacaoIALead,
     RespostaEmailLead,
@@ -424,6 +425,107 @@ def test_admin_lista_com_credenciais() -> None:
     assert corpo["por_status"]["novo"] == 1
 
 
+def test_lista_avisa_processo_nao_vinculado_quando_fase_avancou_sem_processo() -> None:
+    # Achado do usuário (21/09/2026): a fase do funil comercial (Protocolo
+    # INPI / Processo no INPI) é avançada manualmente pelo operador e nunca
+    # exige um ProcessoMonitorado real vinculado -- então o painel interno
+    # pode mostrar "Processo no INPI" enquanto a Jornada do Cliente no
+    # portal continua travada em Onboarding, sem nenhum aviso pra ninguém.
+    lead = Lead(
+        nome="Gustavo",
+        email="gustavo@example.com",
+        telefone="11999998888",
+        marca="Tactical Cloud",
+        origem="processo",
+        tipo_interesse=None,
+        status=StatusLead.NOVO,
+        fase="processo_inpi",
+    )
+    lead.id = 1
+    lead.criado_em = datetime.now(UTC)
+    lead.atualizado_em = datetime.now(UTC)
+
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(scalar=1),
+        FakeResult(scalar=1),
+        FakeResult(itens=[lead]),
+        FakeResult(itens=[(StatusLead.NOVO, 1)]),
+        FakeResult(scalar=0),
+        FakeResult(itens=[]),  # nenhum ProcessoMonitorado vinculado a este lead
+        FakeResult(itens=[]),  # mensagens do portal
+        FakeResult(itens=[]),  # pesquisas do lead
+    )
+    app.dependency_overrides[obter_usuario_atual] = auth_override()
+    resposta = TestClient(app).get("/v1/admin/leads")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["itens"][0]["processo_vinculado_pendente"] is True
+
+
+def test_lista_nao_avisa_quando_processo_ja_esta_vinculado() -> None:
+    lead = Lead(
+        nome="Gustavo",
+        email="gustavo@example.com",
+        telefone="11999998888",
+        marca="Tactical Cloud",
+        origem="processo",
+        tipo_interesse=None,
+        status=StatusLead.NOVO,
+        fase="processo_inpi",
+    )
+    lead.id = 1
+    lead.criado_em = datetime.now(UTC)
+    lead.atualizado_em = datetime.now(UTC)
+
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(scalar=1),
+        FakeResult(scalar=1),
+        FakeResult(itens=[lead]),
+        FakeResult(itens=[(StatusLead.NOVO, 1)]),
+        FakeResult(scalar=0),
+        FakeResult(itens=[lead.id]),  # ProcessoMonitorado.lead_id vinculado
+        FakeResult(itens=[]),  # mensagens do portal
+        FakeResult(itens=[]),  # pesquisas do lead
+    )
+    app.dependency_overrides[obter_usuario_atual] = auth_override()
+    resposta = TestClient(app).get("/v1/admin/leads")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["itens"][0]["processo_vinculado_pendente"] is False
+
+
+def test_lista_nao_avisa_leads_antes_do_protocolo_mesmo_sem_processo() -> None:
+    lead = Lead(
+        nome="Ainda em contato",
+        email="contato@example.com",
+        telefone="11999998888",
+        marca="ACME",
+        origem="processo",
+        tipo_interesse=None,
+        status=StatusLead.NOVO,
+        fase="qualificado",
+    )
+    lead.id = 1
+    lead.criado_em = datetime.now(UTC)
+    lead.atualizado_em = datetime.now(UTC)
+
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(scalar=1),
+        FakeResult(scalar=1),
+        FakeResult(itens=[lead]),
+        FakeResult(itens=[(StatusLead.NOVO, 1)]),
+        FakeResult(scalar=0),
+        # Sem consulta de ProcessoMonitorado: a fase não exige processo vinculado.
+        FakeResult(itens=[]),  # mensagens do portal
+        FakeResult(itens=[]),  # pesquisas do lead
+    )
+    app.dependency_overrides[obter_usuario_atual] = auth_override()
+    resposta = TestClient(app).get("/v1/admin/leads")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["itens"][0]["processo_vinculado_pendente"] is False
+
+
 def test_resumo_crm_apresenta_prioridades_comerciais() -> None:
     app.dependency_overrides[get_session] = sessao_override(
         FakeResult(itens=[(2, 1, 3)]),
@@ -583,6 +685,62 @@ def test_leads_kanban_etapa_sem_sla_nunca_fica_atrasada() -> None:
     cartao = resposta.json()["cards"][0]
     assert cartao["sla_horas"] is None
     assert cartao["atrasado"] is False
+
+
+def test_kanban_avisa_processo_nao_vinculado_na_fase_processo_inpi() -> None:
+    lead = Lead(
+        id=4,
+        organizacao_id=1,
+        nome="Gustavo",
+        email="gustavo@example.com",
+        telefone="11999990003",
+        marca="Tactical Cloud",
+        origem="processo",
+        status=StatusLead.NOVO,
+        fase="processo_inpi",
+        responsavel_id=None,
+        proxima_acao_em=None,
+        aceite_marketing=False,
+    )
+    lead.atualizado_em = datetime.now(UTC)
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(itens=[lead]),
+        FakeResult(itens=[]),  # nenhum ProcessoMonitorado vinculado
+    )
+    app.dependency_overrides[obter_usuario_atual] = auth_override()
+
+    resposta = TestClient(app).get("/v1/admin/leads-kanban")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["cards"][0]["processo_vinculado_pendente"] is True
+
+
+def test_kanban_nao_avisa_quando_processo_ja_esta_vinculado() -> None:
+    lead = Lead(
+        id=5,
+        organizacao_id=1,
+        nome="Gustavo",
+        email="gustavo@example.com",
+        telefone="11999990004",
+        marca="Tactical Cloud",
+        origem="processo",
+        status=StatusLead.NOVO,
+        fase="processo_inpi",
+        responsavel_id=None,
+        proxima_acao_em=None,
+        aceite_marketing=False,
+    )
+    lead.atualizado_em = datetime.now(UTC)
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(itens=[lead]),
+        FakeResult(itens=[lead.id]),  # ProcessoMonitorado.lead_id vinculado
+    )
+    app.dependency_overrides[obter_usuario_atual] = auth_override()
+
+    resposta = TestClient(app).get("/v1/admin/leads-kanban")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["cards"][0]["processo_vinculado_pendente"] is False
 
 
 def test_distribuir_leads_round_robin_entre_atendentes_elegiveis() -> None:
@@ -845,6 +1003,37 @@ def test_admin_abre_contato_com_historico_de_pesquisas() -> None:
     assert corpo["nome"] == "Enzo"
     assert corpo["total_pesquisas"] == 1
     assert corpo["ultima_pesquisa"]["id"] == pesquisa.id
+    # Lead ainda em "contato_inicial" -- a fase não exige processo vinculado,
+    # então nenhuma consulta extra de ProcessoMonitorado é feita nem o aviso aparece.
+    assert corpo["processo_vinculado_pendente"] is False
+
+
+def test_detalhe_avisa_processo_nao_vinculado_na_fase_protocolo_inpi() -> None:
+    lead = Lead(
+        organizacao_id=1,
+        nome="Gustavo",
+        email="gustavo@empresa.com.br",
+        telefone="16999998888",
+        marca="Tactical Cloud",
+        origem="processo",
+        status=StatusLead.NOVO,
+        fase="protocolo_inpi",
+    )
+    lead.id = 23
+    lead.criado_em = datetime(2026, 9, 17, tzinfo=UTC)
+    lead.atualizado_em = lead.criado_em
+
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(scalar=lead),
+        FakeResult(itens=[]),  # pesquisas do lead
+        FakeResult(itens=[]),  # nenhum ProcessoMonitorado vinculado
+    )
+    app.dependency_overrides[obter_usuario_atual] = auth_override()
+
+    resposta = TestClient(app).get(f"/v1/admin/leads/{lead.id}")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["processo_vinculado_pendente"] is True
     assert corpo["pesquisas"][0]["marca"] == "MARCA MAIS RECENTE"
 
 

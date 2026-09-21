@@ -835,7 +835,10 @@ function faseMini(lead) {
     return `<span class="fm-dot ${cls}" title="${escapeHtml(FASE_LABELS[f] || f)}"></span>`;
   }).join("");
   const label = ETAPA_KANBAN_LABELS[etapaKanbanLead(lead)] || FASE_LABELS[lead.fase] || "Contato inicial";
-  return `<div class="fase-mini" title="Etapa do lead: ${escapeHtml(label)}"><span class="fase-mini-dots">${dots}</span><span class="fase-mini-label">${escapeHtml(label)}</span></div>`;
+  const aviso = lead.processo_vinculado_pendente
+    ? `<span class="fase-mini-aviso" title="A fase avançou no CRM, mas nenhum processo do INPI está vinculado a este lead ainda — o portal do cliente não reflete esse avanço até vincular em Processos monitorados.">⚠ Processo não vinculado</span>`
+    : "";
+  return `<div class="fase-mini" title="Etapa do lead: ${escapeHtml(label)}"><span class="fase-mini-dots">${dots}</span><span class="fase-mini-label">${escapeHtml(label)}</span></div>${aviso}`;
 }
 
 const DOC_LABELS = { procuracao: "Procuração", gru: "GRU", protocolo: "Protocolo", oposicao: "Oposição", certificado: "Certificado" };

@@ -66,6 +66,18 @@ if [ "$AMBIENTE_EFETIVO" != "production" ]; then
     exit 1
 fi
 
+echo "==> garantindo que o clamav esteja no ar (varredura de upload, ver achado baixo da Fase 9)"
+# Achado baixo da auditoria do Portal do Cliente (Fase 9, 21/09/2026):
+# CLAMAV_ENABLED passou a ser "true" em producao (compose.production.yaml),
+# mas o servico clamav nunca fazia parte da lista padrao de servicos deste
+# script (SERVICOS = api worker migrate rpi-sync) nem nenhum outro servico
+# depende dele -- em producao ele nunca tinha sido iniciado, o que deixaria
+# TODO upload recusado (malware_scan.py e fail-closed). Subir aqui, sempre,
+# independente de quais $SERVICOS foram pedidos -- nao bloqueia em health
+# (evita atrasar/derrubar o resto do deploy se o primeiro boot do clamav
+# demorar os ate 5 minutos documentados em compose.yaml).
+$COMPOSE up -d clamav
+
 echo "==> build: $SERVICOS"
 GIT_SHA="$(git rev-parse HEAD)"
 for servico in $SERVICOS; do

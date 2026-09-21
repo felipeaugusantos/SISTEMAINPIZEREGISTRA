@@ -764,6 +764,9 @@ def test_baixar_documento_portal_encontra_arquivo_salvo_localmente(
     resultado = asyncio.run(baixar_documento_portal(3, _request(), cliente, session))
 
     assert Path(resultado.path) == caminho_real
+    # Achado do usuário (21/09/2026): sem a extensão no filename, o sistema
+    # operacional não sabia com o que abrir o arquivo baixado.
+    assert resultado.filename == "procuracao.pdf"
 
 
 def test_baixar_documento_portal_sem_arquivo_retorna_404() -> None:

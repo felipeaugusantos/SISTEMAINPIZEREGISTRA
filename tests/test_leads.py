@@ -1762,6 +1762,9 @@ def test_baixar_arquivo_documento_lead_serve_arquivo_existente(
 
     assert resposta.status_code == 200
     assert resposta.content == b"conteudo-real"
+    # Achado do usuário (21/09/2026): sem a extensão no filename, o sistema
+    # operacional não sabia com o que abrir o arquivo baixado.
+    assert 'filename="procuracao-9.pdf"' in resposta.headers["content-disposition"]
 
 
 def test_baixar_arquivo_documento_lead_nega_caminho_fora_da_raiz(

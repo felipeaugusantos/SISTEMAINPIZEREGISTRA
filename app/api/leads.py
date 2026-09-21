@@ -2924,10 +2924,17 @@ async def baixar_arquivo_documento_lead(
         conteudo = caminho.read_bytes()
     _auditar(session, usuario, request, "baixar_documento", f"lead:{lead_id}:{tipo}", {})
     await session.commit()
+    # Achado do usuário (21/09/2026): o filename do Content-Disposition não
+    # tinha extensão nenhuma -- o navegador salvava "protocolo-23" sem
+    # sufixo, e o sistema operacional não sabia com o que abrir o arquivo.
+    # A extensão original sobrevive no nome salvo em disco/S3 (ver "nome" em
+    # enviar_arquivo_documento_lead), então é só reaproveitar o sufixo dali.
+    extensao = Path(documento.caminho).suffix
+    nome_arquivo = f"{tipo}-{lead_id}{extensao}"
     return StreamingResponse(
         iter([conteudo]),
         media_type=documento.content_type or "application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{tipo}-{lead_id}"'},
+        headers={"Content-Disposition": f'attachment; filename="{nome_arquivo}"'},
     )
 
 

@@ -1834,12 +1834,17 @@ async def baixar_documento_portal(
             conteudo = read_bytes(documento.caminho)
         except (StorageError, OSError) as exc:
             raise HTTPException(status_code=404, detail="Documento não encontrado") from exc
+        # Achado do usuário (21/09/2026): o filename do Content-Disposition
+        # não tinha extensão -- o navegador salvava "procuracao" sem sufixo
+        # e o sistema não sabia com o que abrir. A extensão original
+        # sobrevive no nome salvo (ver "nome" em enviar_arquivo_documento_lead).
+        nome_arquivo = f"{documento.tipo}{Path(documento.caminho).suffix}"
         _auditar_cliente(session, cliente, request, "baixar_documento", f"documento:{documento.id}")
         await session.commit()
         return StreamingResponse(
             iter([conteudo]),
             media_type=documento.content_type or "application/octet-stream",
-            headers={"Content-Disposition": f'attachment; filename="{documento.tipo}"'},
+            headers={"Content-Disposition": f'attachment; filename="{nome_arquivo}"'},
         )
     caminho = Path(documento.caminho).resolve()
     base = (
@@ -1852,7 +1857,7 @@ async def baixar_documento_portal(
     return FileResponse(
         caminho,
         media_type=documento.content_type or "application/octet-stream",
-        filename=documento.tipo,
+        filename=f"{documento.tipo}{caminho.suffix}",
     )
 
 

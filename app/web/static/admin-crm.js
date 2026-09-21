@@ -7,6 +7,7 @@ const reminderForm = document.querySelector("#reminder-form");
 const postponeDialog = document.querySelector("#postpone-dialog");
 const postponeForm = document.querySelector("#postpone-form");
 let postponeReminderId = null;
+const contactDialog = document.querySelector("#contact-dialog");
 const message = document.querySelector("#crm-message");
 const channels = { telefone: "Telefone", whatsapp: "WhatsApp", email: "E-mail", reuniao: "Reunião", outro: "Atendimento" };
 const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
@@ -68,7 +69,7 @@ function renderKanban(data) {
       .filter(card => card.etapa === etapa.id)
       .sort((a, b) => new Date(a.entrou_etapa_em) - new Date(b.entrou_etapa_em));
     const atrasados = cards.filter(card => card.atrasado).length;
-    return `<section class="crm-kanban-column" data-etapa="${esc(etapa.id)}"><header><h3>${esc(etapa.label)}</h3><span class="crm-kanban-column-badges">${atrasados ? `<strong class="crm-kanban-atrasados" title="${atrasados} card(s) fora do SLA">${atrasados}</strong>` : ""}<strong>${cards.length}</strong></span></header><div class="crm-kanban-dropzone" data-etapa="${esc(etapa.id)}">${cards.length ? cards.map(card => `<article class="crm-kanban-card-item${card.atrasado ? " atrasado" : ""}" draggable="${crmState.canManage}" data-lead-id="${card.id}">${card.atrasado ? `<span class="crm-kanban-sla-badge">⚠ Fora do SLA · ${tempoDecorrido(card.entrou_etapa_em)}</span>` : ""}${card.processo_vinculado_pendente ? processoNaoVinculadoBadge() : ""}<div><strong>${esc(card.nome)}</strong>${card.empresa ? `<small>${esc(card.empresa)}</small>` : ""}</div><span>${esc(card.marca || "Interesse geral")}</span><small>${esc(card.responsavel || "Não atribuído")}</small>${card.proxima_acao_em ? `<time>Próxima ação: ${dateTime.format(new Date(card.proxima_acao_em))}</time>` : `<time class="kanban-no-action">Sem próxima ação</time>`}<a href="/admin/pesquisas?lead_id=${card.id}">Abrir contato</a></article>`).join("") : `<p class="crm-kanban-empty">Nenhuma oportunidade</p>`}</div></section>`;
+    return `<section class="crm-kanban-column" data-etapa="${esc(etapa.id)}"><header><h3>${esc(etapa.label)}</h3><span class="crm-kanban-column-badges">${atrasados ? `<strong class="crm-kanban-atrasados" title="${atrasados} card(s) fora do SLA">${atrasados}</strong>` : ""}<strong>${cards.length}</strong></span></header><div class="crm-kanban-dropzone" data-etapa="${esc(etapa.id)}">${cards.length ? cards.map(card => `<article class="crm-kanban-card-item${card.atrasado ? " atrasado" : ""}" draggable="${crmState.canManage}" data-lead-id="${card.id}">${card.atrasado ? `<span class="crm-kanban-sla-badge">⚠ Fora do SLA · ${tempoDecorrido(card.entrou_etapa_em)}</span>` : ""}${card.processo_vinculado_pendente ? processoNaoVinculadoBadge() : ""}<div><strong>${esc(card.nome)}</strong>${card.empresa ? `<small>${esc(card.empresa)}</small>` : ""}</div><span>${esc(card.marca || "Interesse geral")}</span><small>${esc(card.responsavel || "Não atribuído")}</small>${card.proxima_acao_em ? `<time>Próxima ação: ${dateTime.format(new Date(card.proxima_acao_em))}</time>` : `<time class="kanban-no-action">Sem próxima ação</time>`}<a href="/admin/pesquisas?lead_id=${card.id}" data-open-contact="${card.id}">Abrir contato</a></article>`).join("") : `<p class="crm-kanban-empty">Nenhuma oportunidade</p>`}</div></section>`;
   }).join("");
   const semResponsavel = kanbanState.cards.filter(card => !card.responsavel).length;
   const botaoDistribuir = document.querySelector("#crm-kanban-distribuir");
@@ -91,11 +92,58 @@ function renderKanban(data) {
   });
 }
 async function loadKanban() { renderKanban(await api("/v1/admin/leads-kanban")); }
+
+// Achado do usuário (21/09/2026): "Abrir contato" no Kanban/histórico do CRM
+// levava pra página de Leads inteira (troca de tela, recarrega a lista
+// inteira lá) só pra ver e-mail/telefone. Este modal mostra o contato sem
+// sair do CRM; "Abrir ficha completa" continua levando pra tela de Leads
+// pra quem precisa editar atendimento, documentos etc.
+const CRM_FASE_LABELS = {
+  contato_inicial: "Contato inicial",
+  qualificado: "Qualificado",
+  relatorio_enviado: "Relatório enviado",
+  proposta_enviada: "Proposta enviada",
+  proposta_aceita: "Proposta aceita",
+  aguardando_pagamento: "Aguardando pagamento",
+  pagamento_confirmado: "Pagamento confirmado",
+  ganho: "Ganho",
+  protocolo_inpi: "Protocolo INPI",
+  processo_inpi: "Processo no INPI",
+};
+async function openContact(id) {
+  document.querySelector("#contact-dialog-title").textContent = "Carregando…";
+  document.querySelector("#contact-dialog-body").innerHTML = "";
+  contactDialog.showModal();
+  let lead;
+  try { lead = await api(`/v1/admin/leads/${id}`); }
+  catch { document.querySelector("#contact-dialog-body").innerHTML = `<p class="status-message error">Não foi possível carregar o contato.</p>`; return; }
+  const digits = (lead.telefone || "").replace(/\D/g, "");
+  document.querySelector("#contact-dialog-title").textContent = lead.nome;
+  document.querySelector("#contact-dialog-body").innerHTML = `
+    ${lead.processo_vinculado_pendente ? `<p class="lead-processo-aviso">⚠ A fase avançou no CRM (${esc(CRM_FASE_LABELS[lead.fase] || lead.fase)}), mas nenhum processo do INPI está vinculado a este lead ainda — o portal do cliente não reflete esse avanço até vincular em Processos monitorados.</p>` : ""}
+    <div class="crm-contact-summary">
+      <div><span>Empresa</span><strong>${esc(lead.empresa || "Não informada")}</strong></div>
+      <div><span>E-mail</span><a href="mailto:${esc(lead.email)}">${esc(lead.email)}</a></div>
+      <div><span>Telefone</span><a href="tel:${esc(lead.telefone)}">${esc(lead.telefone)}</a>${digits ? ` <a class="secondary-button" href="https://wa.me/${digits}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div>
+      <div><span>CPF/CNPJ</span><strong>${esc(lead.documento || "Não informado")}</strong></div>
+      <div><span>Marca</span><strong>${esc(lead.marca || "Interesse geral")}</strong></div>
+      <div><span>Etapa</span><strong>${esc(CRM_FASE_LABELS[lead.fase] || lead.fase)}</strong></div>
+    </div>
+    <footer><a class="primary-button" href="/admin/pesquisas?lead_id=${lead.id}">Abrir ficha completa</a></footer>`;
+}
+document.querySelector("#close-contact").addEventListener("click", () => contactDialog.close());
+document.addEventListener("click", (evento) => {
+  const gatilho = evento.target.closest("[data-open-contact]");
+  if (!gatilho || !gatilho.dataset.openContact) return;
+  if (evento.button !== 0 || evento.ctrlKey || evento.metaKey || evento.shiftKey) return;
+  evento.preventDefault();
+  openContact(gatilho.dataset.openContact);
+});
 function renderHistory(data) {
   crmState.total = data.total; crmState.ultimoHistorico = data; renderMetrics(data);
   document.querySelector("#crm-total").textContent = `${data.total} registro${data.total === 1 ? "" : "s"}`;
   const target = document.querySelector("#crm-history");
-  target.innerHTML = data.itens.length ? data.itens.map(item => `<li class="crm-entry"><span class="crm-history-client"><strong>${esc(item.cliente)}</strong><small>${esc(item.empresa || item.marca || "Cliente sem empresa")}</small></span><time datetime="${esc(item.criado_em)}">${dateTime.format(new Date(item.criado_em))}</time><span class="crm-history-observation">${esc(item.observacao || item.resultado || "Sem observação")}</span><span class="crm-history-next">${item.proximo_contato ? dateTime.format(new Date(item.proximo_contato)) : "Sem próximo contato"}</span><a href="/admin/pesquisas?lead_id=${item.lead_id}">Abrir</a></li>`).join("") : `<li class="crm-empty"><strong>Nenhum atendimento foi encontrado.</strong><p>Revise nome, documento, telefone, status ou período informado.</p><a class="primary-button" href="/admin/pesquisas">Ir para Leads</a></li>`;
+  target.innerHTML = data.itens.length ? data.itens.map(item => `<li class="crm-entry"><span class="crm-history-client"><strong>${esc(item.cliente)}</strong><small>${esc(item.empresa || item.marca || "Cliente sem empresa")}</small></span><time datetime="${esc(item.criado_em)}">${dateTime.format(new Date(item.criado_em))}</time><span class="crm-history-observation">${esc(item.observacao || item.resultado || "Sem observação")}</span><span class="crm-history-next">${item.proximo_contato ? dateTime.format(new Date(item.proximo_contato)) : "Sem próximo contato"}</span><a href="/admin/pesquisas?lead_id=${item.lead_id}" data-open-contact="${item.lead_id}">Abrir</a></li>`).join("") : `<li class="crm-empty"><strong>Nenhum atendimento foi encontrado.</strong><p>Revise nome, documento, telefone, status ou período informado.</p><a class="primary-button" href="/admin/pesquisas">Ir para Leads</a></li>`;
   const page = Math.floor(crmState.offset / crmState.limit) + 1;
   document.querySelector("#crm-page").textContent = `Página ${page}`;
   document.querySelector("#crm-prev").disabled = crmState.offset === 0;

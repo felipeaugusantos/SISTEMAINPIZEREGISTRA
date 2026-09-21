@@ -1899,6 +1899,22 @@ async def atualizar_item_checklist(
     item.concluido = dados.concluido
     item.concluido_em = datetime.now(UTC) if dados.concluido else None
     item.concluido_por = usuario.ator if dados.concluido else None
+    # Achado médio da Fase 8 (auditoria jurídica, 15/09/2026): aplicar o
+    # checklist padrão já gera EventoJuridico ("checklist_padrao"), mas
+    # marcar/desmarcar um item individual como concluído não deixava
+    # nenhuma trilha -- quem concluiu um item do checklist de um prazo
+    # crítico não ficava registrado em lugar nenhum além dos próprios
+    # campos concluido_em/concluido_por do item.
+    prazo = await session.get(PrazoJuridico, item.prazo_id)
+    if prazo is not None:
+        _evento(
+            session,
+            usuario,
+            prazo.processo_monitorado_id,
+            "checklist_item_concluido" if dados.concluido else "checklist_item_reaberto",
+            f"Item do checklist {'concluído' if dados.concluido else 'reaberto'}: {item.descricao}",
+            prazo.id,
+        )
     await session.commit()
     return _serializar_item_checklist(item)
 
@@ -1906,6 +1922,18 @@ async def atualizar_item_checklist(
 @router.delete("/checklist/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remover_item_checklist(item_id: int, session: SessionDep, usuario: ManageDep) -> None:
     item = await _obter_item_checklist(session, usuario, item_id)
+    # Mesmo achado do PATCH acima -- remover um item do checklist também
+    # não deixava trilha nenhuma.
+    prazo = await session.get(PrazoJuridico, item.prazo_id)
+    if prazo is not None:
+        _evento(
+            session,
+            usuario,
+            prazo.processo_monitorado_id,
+            "checklist_item_removido",
+            f"Item do checklist removido: {item.descricao}",
+            prazo.id,
+        )
     await session.delete(item)
     await session.commit()
 

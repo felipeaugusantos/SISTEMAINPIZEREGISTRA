@@ -53,6 +53,7 @@ from app.api.juridico import (
     painel,
     receber_encaminhamento,
     registrar_entrega,
+    remover_item_checklist,
 )
 from app.models import (
     DocumentoEntregaJuridico,
@@ -706,13 +707,15 @@ def test_checklist_tipo_desconhecido_usa_generico() -> None:
 def test_marcar_item_registra_autor_e_data() -> None:
     item = SimpleNamespace(
         id=5,
+        prazo_id=9,
         descricao="Protocolar no INPI",
         concluido=False,
         ordem=1,
         concluido_em=None,
         concluido_por=None,
     )
-    session = FakeSession([FakeResult(scalar=item)])
+    prazo = SimpleNamespace(id=9, processo_monitorado_id=3)
+    session = FakeSession([FakeResult(scalar=item)], objetos_get=[prazo])
     usuario = usuario_teste()
     resultado = asyncio.run(atualizar_item_checklist(5, ChecklistItemUpdate(concluido=True), session, usuario))
     assert resultado["concluido"] is True
@@ -723,17 +726,49 @@ def test_marcar_item_registra_autor_e_data() -> None:
 def test_desmarcar_item_limpa_autor_e_data() -> None:
     item = SimpleNamespace(
         id=5,
+        prazo_id=9,
         descricao="Protocolar no INPI",
         concluido=True,
         ordem=1,
         concluido_em=object(),
         concluido_por="alguem",
     )
-    session = FakeSession([FakeResult(scalar=item)])
+    prazo = SimpleNamespace(id=9, processo_monitorado_id=3)
+    session = FakeSession([FakeResult(scalar=item)], objetos_get=[prazo])
     resultado = asyncio.run(atualizar_item_checklist(5, ChecklistItemUpdate(concluido=False), session, usuario_teste()))
     assert resultado["concluido"] is False
     assert item.concluido_em is None
     assert item.concluido_por is None
+
+
+def test_marcar_item_checklist_gera_evento_de_auditoria() -> None:
+    # Achado médio da Fase 8 (auditoria jurídica, 15/09/2026): concluir ou
+    # reabrir um item do checklist não deixava trilha nenhuma em
+    # EventoJuridico, diferente de aplicar o checklist padrão (que já
+    # registra "checklist_padrao").
+    item = SimpleNamespace(
+        id=5, prazo_id=9, descricao="Protocolar no INPI", concluido=False, ordem=1,
+        concluido_em=None, concluido_por=None,
+    )
+    prazo = SimpleNamespace(id=9, processo_monitorado_id=3)
+    session = FakeSession([FakeResult(scalar=item)], objetos_get=[prazo])
+    asyncio.run(atualizar_item_checklist(5, ChecklistItemUpdate(concluido=True), session, usuario_teste()))
+    eventos = [obj for obj in session.adicionados if isinstance(obj, EventoJuridico)]
+    assert len(eventos) == 1
+    assert eventos[0].tipo == "checklist_item_concluido"
+    assert eventos[0].prazo_id == 9
+    assert eventos[0].processo_monitorado_id == 3
+
+
+def test_remover_item_checklist_gera_evento_de_auditoria() -> None:
+    item = SimpleNamespace(id=5, prazo_id=9, descricao="Protocolar no INPI")
+    prazo = SimpleNamespace(id=9, processo_monitorado_id=3)
+    session = FakeSession([FakeResult(scalar=item)], objetos_get=[prazo])
+    asyncio.run(remover_item_checklist(5, session, usuario_teste()))
+    eventos = [obj for obj in session.adicionados if isinstance(obj, EventoJuridico)]
+    assert len(eventos) == 1
+    assert eventos[0].tipo == "checklist_item_removido"
+    assert item in session.deletados
 
 
 # --- Achado 5.3 da auditoria (01/09/2026): dupla conferência e evidência de conclusão ---

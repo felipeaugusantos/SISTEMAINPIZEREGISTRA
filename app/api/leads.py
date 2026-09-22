@@ -610,14 +610,15 @@ async def criar_lead(
             # PRÉ-EXISTENTE (nome/telefone reais já cadastrados) -- só o que
             # o próprio remetente acabou de enviar nesta chamada, senão
             # basta saber o e-mail de alguém pra descobrir o nome/telefone
-            # verdadeiro que já estava no CRM.
+            # verdadeiro que já estava no CRM. Achado P1 do review do Codex
+            # (PR #105): id/criado_em também ficam de fora -- ecoar o id
+            # ou a data real de criação de um registro pré-existente já
+            # confirma "esse e-mail já era lead" e revela desde quando.
             return LeadPublicoResponse(
-                id=existente.id,
                 nome=dados.nome,
                 email=dados.email.lower(),
                 telefone=dados.telefone,
                 marca=dados.marca,
-                criado_em=existente.criado_em,
             )
         # Achado H7/P1: oportunidade DESCARTADA que reaparece pelo formulário
         # público é reaberta (o cliente voltou a manifestar interesse) em vez
@@ -660,14 +661,13 @@ async def criar_lead(
         # Aqui os campos já foram sobrescritos com dados.* acima, então
         # coincidem com o que o remetente enviou -- ainda assim construído
         # explicitamente a partir de "dados" (nunca de "existente"), pelo
-        # mesmo motivo do bloco CONVERTIDO logo acima.
+        # mesmo motivo do bloco CONVERTIDO logo acima. id/criado_em também
+        # ficam de fora (achado P1 do review do Codex, PR #105).
         return LeadPublicoResponse(
-            id=existente.id,
             nome=dados.nome,
             email=dados.email.lower(),
             telefone=dados.telefone,
             marca=dados.marca,
-            criado_em=existente.criado_em,
         )
 
     lead = Lead(

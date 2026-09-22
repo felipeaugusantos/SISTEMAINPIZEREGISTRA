@@ -132,7 +132,10 @@ def test_upsert_publico_mesma_marca_atualiza_lead_existente() -> None:
     app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
     resposta = TestClient(app).post("/v1/leads", json=_payload(marca="acme"))
     assert resposta.status_code == 201
-    assert resposta.json()["id"] == 7
+    # Achado P1 do review do Codex (PR #105): id de um lead pré-existente
+    # não é mais devolvido -- funcionaria como oráculo confirmando que
+    # esse e-mail/telefone já era lead na organização.
+    assert resposta.json()["id"] is None
     assert lead.marca == "acme"
 
 
@@ -167,7 +170,7 @@ def test_upsert_publico_marca_vazia_atualiza_lead_existente() -> None:
     del payload["marca"]
     resposta = TestClient(app).post("/v1/leads", json=payload)
     assert resposta.status_code == 201
-    assert resposta.json()["id"] == 7
+    assert resposta.json()["id"] is None
     assert lead.marca == "ACME"
 
 
@@ -310,7 +313,11 @@ def test_upsert_publico_telefone_com_mascara_diferente_reconhece_o_mesmo_lead() 
     )
 
     assert resposta.status_code == 201
-    assert resposta.json()["id"] == lead.id
+    # id do lead pré-existente não é mais devolvido (achado P1 do review do
+    # Codex, PR #105) -- a prova de que o dedup por telefone casou com o
+    # MESMO lead é não ter criado um Lead novo na sessão.
+    assert not any(isinstance(item, Lead) for item in session.adicionados)
+    assert lead.email == "outro@example.com"
 
 
 async def _sem_envio(*_a: object, **_k: object) -> None:

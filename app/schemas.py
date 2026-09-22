@@ -251,16 +251,23 @@ class LeadPublicoResponse(BaseModel):
     lead para receber de volta todo o histórico interno de CRM daquela
     pessoa. Este schema só devolve o que o próprio remetente acabou de
     enviar -- nunca dado que já existia no registro antes desta chamada.
+
+    Achado P1 do review do Codex na PR #105: mesmo sem os campos
+    internos, ecoar o "id" e o "criado_em" REAIS de um registro
+    pré-existente já funciona como oráculo -- confirma que aquele
+    e-mail/telefone já era lead na organização e revela desde quando.
+    Por isso id/criado_em são opcionais e só vêm preenchidos quando o
+    lead foi criado NESTA chamada (nunca ao casar com um já existente).
     """
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: int | None = None
     nome: str
     email: str
     telefone: str
     marca: str
-    criado_em: datetime
+    criado_em: datetime | None = None
 
 
 class LeadResponse(BaseModel):

@@ -81,7 +81,10 @@ def test_lead_convertido_reenviando_o_formulario_nao_tem_dados_sobrescritos() ->
 
     assert resposta.status_code == 201
     corpo = resposta.json()
-    assert corpo["id"] == 7
+    # id do lead pré-existente não é mais devolvido (achado P1 do review
+    # do Codex, PR #105) -- funcionaria como oráculo confirmando que esse
+    # e-mail/telefone já era lead (convertido) na organização.
+    assert corpo["id"] is None
     assert lead.nome == "Fulano de Tal", "dados do negócio já ganho não devem ser sobrescritos"
     assert lead.telefone == "11999998888"
     assert lead.status == StatusLead.CONVERTIDO

@@ -1,4 +1,5 @@
 import shutil
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -13,6 +14,26 @@ BASE_RPI = "https://revistas.inpi.gov.br/txt"
 _HTTP_TRANSITORIOS = frozenset({500, 502, 503, 504})
 _TENTATIVAS_DOWNLOAD = 5
 
+# Achado do usuário (22/09/2026): revistas.inpi.gov.br fica atrás de uma
+# FortiGate (WAF/proxy) que serve um certificado assinado por uma CA
+# autoassinada da própria Fortinet, nunca substituída por um certificado
+# público válido -- não é interceptação de rede (confirmado batendo o
+# mesmo certificado a partir de duas redes independentes, VPS e uma
+# rede doméstica; se fosse MITM local, cada rede veria um certificado
+# diferente). Como é comprovadamente o servidor real de destino, e não
+# um terceiro desconhecido, confiamos nesta CA específica só para este
+# download -- nunca desligamos a verificação de SSL globalmente nem em
+# nenhum outro lugar do sistema. Pinada a CA raiz (validade até
+# 2027-07-08), não o certificado-folha (expira em semanas e é renovado
+# pela mesma FortiGate), para sobreviver às renovações.
+_INPI_CA_EXTRA = Path(__file__).parent / "inpi_fortinet_ca.pem"
+
+
+def _contexto_ssl_rpi() -> ssl.SSLContext:
+    contexto = ssl.create_default_context()
+    contexto.load_verify_locations(cafile=str(_INPI_CA_EXTRA))
+    return contexto
+
 
 def nome_zip(numero_rpi: int, tipo: TipoProcesso) -> str:
     prefixo = "RM" if tipo is TipoProcesso.MARCA else "P"
@@ -22,10 +43,11 @@ def nome_zip(numero_rpi: int, tipo: TipoProcesso) -> str:
 def _baixar_zip_atomico(url: str, arquivo_zip: Path) -> None:
     arquivo_temporario = arquivo_zip.with_suffix(f"{arquivo_zip.suffix}.part")
     requisicao = urllib.request.Request(url, headers={"User-Agent": "INPI-API/0.1"})
+    contexto_ssl = _contexto_ssl_rpi()
     try:
         for tentativa in range(_TENTATIVAS_DOWNLOAD):
             try:
-                with urllib.request.urlopen(requisicao, timeout=120) as resposta:
+                with urllib.request.urlopen(requisicao, timeout=120, context=contexto_ssl) as resposta:
                     with arquivo_temporario.open("wb") as destino:
                         shutil.copyfileobj(resposta, destino)
                 if not zipfile.is_zipfile(arquivo_temporario):

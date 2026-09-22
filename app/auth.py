@@ -202,6 +202,15 @@ async def obter_usuario_atual(
         "/v1/auth/mfa/iniciar",
         "/v1/auth/mfa/confirmar",
         "/configurar-mfa",
+        # Achado do usuário (22/09/2026): um operador novo com senha
+        # provisória (alterar_senha=True) E perfil que exige MFA
+        # (mfa_obrigatorio=True, mfa_ativo=False) ficava em impasse -- o
+        # gate acima libera /v1/auth/trocar-senha, mas este gate não,
+        # então a troca de senha (pré-requisito pra sequer chegar em
+        # /configurar-mfa) era bloqueada com "Configuração de MFA
+        # obrigatória" antes de rodar. Trocar a senha tem que vir antes
+        # de exigir MFA, nunca o contrário.
+        "/v1/auth/trocar-senha",
     }
     mfa_obrigatorio = auth.superadmin or auth.perfil in PERFIS_MFA_OBRIGATORIO
     if mfa_obrigatorio and not auth.mfa_ativo and request.url.path not in liberados_mfa:

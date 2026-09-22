@@ -4,6 +4,8 @@ from pathlib import Path
 
 import asyncpg
 
+from app.rpi.locking import adquirir_lock_sincronizacao_bloqueante, liberar_lock_sincronizacao
+
 
 def ler_classes_marcas(
     arquivo: Path,
@@ -29,13 +31,6 @@ def ler_classes_marcas(
             yield numero, str(int(codigo)), edicao, status
 
 
-def _quantidade(resultado: str) -> int:
-    try:
-        return int(resultado.rsplit(" ", 1)[-1])
-    except (ValueError, IndexError):
-        return 0
-
-
 async def importar_classes_marcas(
     database_url: str,
     arquivo: Path,
@@ -44,6 +39,11 @@ async def importar_classes_marcas(
     progresso: Callable[[int], None] | None = None,
 ) -> int:
     dsn = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    # Achado do Codex (PR #109): sem a constraint única, o UPDATE+INSERT
+    # dentro da mesma WITH só coordena as CTEs de um único statement, não
+    # serializa sessões concorrentes -- mesmo lock que app/badepi/titulares.py
+    # já usa pra ficar serializado com a sincronização automática da RPI.
+    lock = await adquirir_lock_sincronizacao_bloqueante(database_url)
     conexao = await asyncpg.connect(dsn=dsn)
     processados = 0
     try:
@@ -72,6 +72,7 @@ async def importar_classes_marcas(
                 progresso(processados)
     finally:
         await conexao.close()
+        await liberar_lock_sincronizacao(lock)
     return processados
 
 
@@ -85,20 +86,48 @@ async def _importar_lote(
             records=lote,
             columns=("numero", "codigo", "edicao", "status"),
         )
-        resultado = await conexao.execute(
+        # Mesmo achado do app/rpi/bulk_importer.py: a constraint
+        # uq_classificacoes_marca_processo_sistema_codigo não existe hoje em
+        # produção (mesmo incidente de restore de 16/09/2026). O ON CONFLICT
+        # DO UPDATE vira um UPDATE+INSERT explícito na mesma WITH (mesmo
+        # snapshot, sem corrida entre as duas etapas); o SELECT final soma as
+        # duas contagens pra manter o retorno de "quantidade processada".
+        total = await conexao.fetchval(
             """
-            INSERT INTO classificacoes_marca (processo_id, sistema, codigo, edicao, status)
-            SELECT DISTINCT ON (p.id, c.codigo)
-                p.id, 'nice', c.codigo, nullif(c.edicao, '0'), c.status
-            FROM badepi_classes_lote c
-            JOIN processos p ON p.numero_normalizado =
-                upper(regexp_replace(c.numero, '[^A-Za-z0-9]', '', 'g'))
-            WHERE p.tipo = 'marca'
-            ORDER BY p.id, c.codigo
-            ON CONFLICT (processo_id, sistema, codigo) DO UPDATE SET
-                edicao = coalesce(classificacoes_marca.edicao, excluded.edicao),
-                status = coalesce(classificacoes_marca.status, excluded.status)
+            WITH origem_dedup AS (
+                SELECT DISTINCT ON (p.id, c.codigo)
+                    p.id AS processo_id, 'nice' AS sistema, c.codigo,
+                    nullif(c.edicao, '0') AS edicao, c.status
+                FROM badepi_classes_lote c
+                JOIN processos p ON p.numero_normalizado =
+                    upper(regexp_replace(c.numero, '[^A-Za-z0-9]', '', 'g'))
+                WHERE p.tipo = 'marca'
+                ORDER BY p.id, c.codigo
+            ),
+            atualizadas AS (
+                UPDATE classificacoes_marca AS existente
+                SET edicao = coalesce(existente.edicao, od.edicao),
+                    status = coalesce(existente.status, od.status)
+                FROM origem_dedup AS od
+                WHERE existente.processo_id = od.processo_id
+                  AND existente.sistema = od.sistema
+                  AND existente.codigo = od.codigo
+                RETURNING existente.processo_id, existente.sistema, existente.codigo
+            ),
+            inseridas AS (
+                INSERT INTO classificacoes_marca (processo_id, sistema, codigo, edicao, status)
+                SELECT od.processo_id, od.sistema, od.codigo, od.edicao, od.status
+                FROM origem_dedup AS od
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM atualizadas AS a
+                    WHERE a.processo_id = od.processo_id
+                      AND a.sistema = od.sistema
+                      AND a.codigo = od.codigo
+                )
+                RETURNING processo_id
+            )
+            SELECT (SELECT count(*) FROM atualizadas) + (SELECT count(*) FROM inseridas)
             """
         )
         await conexao.execute("TRUNCATE badepi_classes_lote")
-    return _quantidade(resultado)
+    return total or 0

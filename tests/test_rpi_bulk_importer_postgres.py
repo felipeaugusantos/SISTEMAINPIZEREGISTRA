@@ -7,7 +7,7 @@ import pytest
 
 from app.models import TipoProcesso
 from app.rpi.bulk_importer import _criar_tabelas_temporarias, _importar_lote
-from app.rpi.types import RegistroRpi, TitularRpi
+from app.rpi.types import ClassificacaoMarcaRpi, RegistroRpi, TitularRpi
 
 ADMIN_DSN = os.getenv("TEST_ADMIN_DATABASE_URL", "postgresql://inpi:inpi@localhost:5432/inpi")
 
@@ -122,6 +122,82 @@ async def test_importar_vincula_processo_a_um_unico_titular_mesmo_com_grupo_dupl
             registro.numero,
         )
         assert [linha["titular_id"] for linha in vinculos] == [id_canonico]
+    finally:
+        await transacao.rollback()
+        await conexao.close()
+
+
+async def test_importar_classificacao_nao_falha_sem_constraint_e_atualiza_existente() -> None:
+    """Achado 22/09/2026 (produção): depois de destravar o INSERT de
+    titulares, a sincronização da RPI continuava travando -- desta vez no
+    INSERT de classificacoes_marca, pelo mesmo motivo: a constraint
+    uq_classificacoes_marca_processo_sistema_codigo também não existe em
+    produção desde o incidente de 16/09/2026 (393 grupos duplicados
+    pendentes). Como o ON CONFLICT original fazia DO UPDATE (não só DO
+    NOTHING), a troca virou um UPDATE+INSERT dentro da mesma WITH. Este
+    teste cobre os dois caminhos: uma classificação nova (deve ser
+    inserida) e uma já existente com dado antigo (deve ser atualizada,
+    preservando o valor antigo quando o novo vem vazio, igual o
+    coalesce original)."""
+    conexao = await _conectar()
+    transacao = conexao.transaction()
+    await transacao.start()
+    try:
+        await conexao.execute(
+            "ALTER TABLE classificacoes_marca "
+            "DROP CONSTRAINT IF EXISTS uq_classificacoes_marca_processo_sistema_codigo"
+        )
+
+        sufixo = uuid4().hex[:10]
+        numero = f"94{sufixo[:6]}"
+        processo_id = await conexao.fetchval(
+            """
+            INSERT INTO processos (numero, numero_normalizado, tipo, fonte)
+            VALUES ($1, $2, 'marca', 'teste')
+            RETURNING id
+            """,
+            numero,
+            numero.upper(),
+        )
+        await conexao.execute(
+            "INSERT INTO classificacoes_marca (processo_id, sistema, codigo, especificacao) "
+            "VALUES ($1, 'nice', '25', 'Especificação antiga')",
+            processo_id,
+        )
+
+        await _criar_tabelas_temporarias(conexao)
+        registro = RegistroRpi(
+            numero=numero,
+            tipo=TipoProcesso.MARCA,
+            titulo="Marca Teste",
+            data_deposito=date(2026, 1, 1),
+            situacao=None,
+            numero_rpi=2907,
+            data_rpi=date(2026, 9, 22),
+            fonte_arquivo="rpi2907.zip",
+            titulares=(),
+            movimentacoes=(),
+            classificacoes=(
+                ClassificacaoMarcaRpi(sistema="nice", codigo="25", edicao="11"),
+                ClassificacaoMarcaRpi(sistema="nice", codigo="18", edicao="11"),
+            ),
+        )
+
+        await _importar_lote(conexao, [registro])
+
+        classe_25 = await conexao.fetchrow(
+            "SELECT edicao, especificacao FROM classificacoes_marca "
+            "WHERE processo_id = $1 AND sistema = 'nice' AND codigo = '25'",
+            processo_id,
+        )
+        assert classe_25["edicao"] == "11"
+        assert classe_25["especificacao"] == "Especificação antiga"
+
+        classe_18 = await conexao.fetchval(
+            "SELECT id FROM classificacoes_marca WHERE processo_id = $1 AND sistema = 'nice' AND codigo = '18'",
+            processo_id,
+        )
+        assert classe_18 is not None
     finally:
         await transacao.rollback()
         await conexao.close()

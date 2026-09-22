@@ -14,6 +14,17 @@ from app.trademarks.viena import buscar_anterioridades_viena
 router = APIRouter(prefix="/v1/admin/figurativa", tags=["busca figurativa"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 OperadorDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
+# Achado médio da Fase 11 (auditoria da busca figurativa, 22/09/2026): as
+# duas rotas abaixo registram uma decisão técnica/legal (confirmar ou
+# descartar uma anterioridade figurativa) ou decidem se um novo modelo de
+# similaridade pode ser publicado -- exigiam só leads.view, a mesma
+# permissão ampla que qualquer perfil comercial tem. Os módulos irmãos que
+# fazem o mesmo tipo de julgamento (app/api/fase2.py = Validação,
+# app/api/fase3.py = Risco) exigem validation.review/risk.review pra
+# escrever; aqui alinhado ao mesmo padrão (benchmark é decisão de ciclo de
+# vida de modelo, mais perto de learning.manage).
+ValidacaoDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("validation.review"))]
+AprendizadoDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("learning.manage"))]
 
 
 class BenchmarkEntrada(BaseModel):
@@ -33,9 +44,19 @@ async def benchmark_figurativo(
     dados: BenchmarkEntrada,
     request: Request,
     session: SessionDep,
-    operador: OperadorDep,
+    operador: AprendizadoDep,
 ) -> dict:
-    metricas = avaliar_benchmark(dados.casos)
+    # Achado baixo da Fase 11 (22/09/2026): casos com "relevantes"/
+    # "retornados" em formato inesperado (ex.: itens não-hasheáveis) faziam
+    # avaliar_benchmark estourar TypeError não tratado -- 500 cru em vez de
+    # uma mensagem clara de validação.
+    try:
+        metricas = avaliar_benchmark(dados.casos)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Casos de benchmark com formato inválido -- 'relevantes' e 'retornados' devem ser listas de identificadores.",
+        ) from exc
     gate = avaliar_gate_regressao(metricas, dados.baseline, dados.tolerancia)
     session.add(
         EventoAuditoria(
@@ -59,7 +80,7 @@ async def validar_resultado_figurativo(
     dados: ValidacaoHumanaEntrada,
     request: Request,
     session: SessionDep,
-    operador: OperadorDep,
+    operador: ValidacaoDep,
 ) -> dict:
     session.add(
         EventoAuditoria(

@@ -99,6 +99,28 @@ class LancamentoCreate(BaseModel):
     observacoes: str | None = Field(default=None, max_length=4000)
 
 
+class LancamentoLoteItem(BaseModel):
+    descricao: str = Field(min_length=3, max_length=240)
+    documento: str | None = Field(default=None, max_length=80)
+    # Pedido do usuário (22/09/2026): grade estilo Excel para lançar várias
+    # contas de uma vez -- sem coluna de competência na grade (pra ela caber
+    # numa tela), sempre infere do primeiro vencimento quando omitida (mesmo
+    # comportamento da importação de planilha).
+    competencia: date | None = None
+    valor_total: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    primeiro_vencimento: date
+    quantidade_parcelas: int = Field(default=1, ge=1, le=120)
+    empresa_id: int | None = None
+    categoria_id: int | None = None
+    forma_pagamento_id: int | None = None
+    observacoes: str | None = Field(default=None, max_length=4000)
+
+
+class LancamentoLote(BaseModel):
+    tipo: Literal["pagar", "receber"]
+    itens: list[LancamentoLoteItem] = Field(min_length=1, max_length=50)
+
+
 class EmpresaFinanceiraCreate(BaseModel):
     nome: str = Field(min_length=2, max_length=200)
     documento: str | None = Field(default=None, max_length=18)
@@ -1089,23 +1111,30 @@ async def obter_dre(
     }
 
 
-@router.post("/lancamentos", status_code=201)
-async def criar_lancamento(dados: LancamentoCreate, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
-    await _validar_referencias(
-        session, usuario, dados.tipo, dados.empresa_id, dados.categoria_id, dados.conta_contabil_id
-    )
+async def _criar_lancamento_individual(
+    session: AsyncSession,
+    usuario: UsuarioAutenticado,
+    tipo: str,
+    dados: LancamentoCreate | LancamentoLoteItem,
+    competencia: date,
+    conta_contabil_id: int | None = None,
+) -> LancamentoFinanceiro:
+    """Núcleo de criação de um lançamento (validação + parcelas), compartilhado
+    entre o formulário único (/lancamentos) e a grade em lote
+    (/lancamentos/lote, pedido do usuário 22/09/2026)."""
+    await _validar_referencias(session, usuario, tipo, dados.empresa_id, dados.categoria_id, conta_contabil_id)
     forma = await _forma_pagamento(session, usuario, dados.forma_pagamento_id)
     _validar_parcelamento(forma, dados.quantidade_parcelas)
     lancamento = LancamentoFinanceiro(
         organizacao_id=usuario.organizacao_id,
         empresa_id=dados.empresa_id,
         categoria_id=dados.categoria_id,
-        conta_contabil_id=dados.conta_contabil_id,
+        conta_contabil_id=conta_contabil_id,
         forma_pagamento_id=dados.forma_pagamento_id,
-        tipo=dados.tipo,
+        tipo=tipo,
         descricao=dados.descricao.strip(),
         documento=(dados.documento or "").strip() or None,
-        competencia=dados.competencia,
+        competencia=competencia,
         valor_total=dados.valor_total,
         observacoes=(dados.observacoes or "").strip() or None,
         criado_por_id=usuario.id,
@@ -1124,6 +1153,14 @@ async def criar_lancamento(dados: LancamentoCreate, request: Request, session: S
                 valor_pago=Decimal(0),
             )
         )
+    return lancamento
+
+
+@router.post("/lancamentos", status_code=201)
+async def criar_lancamento(dados: LancamentoCreate, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
+    lancamento = await _criar_lancamento_individual(
+        session, usuario, dados.tipo, dados, dados.competencia, dados.conta_contabil_id
+    )
     _registrar_historico(
         session,
         usuario,
@@ -1268,6 +1305,51 @@ async def editar_lancamento(
     )
     await session.commit()
     return {"id": lancamento.id, "status": "atualizado"}
+
+
+@router.post("/lancamentos/lote", status_code=201)
+async def criar_lancamentos_lote(
+    dados: LancamentoLote, request: Request, session: SessionDep, usuario: ManageDep
+) -> dict:
+    """Grade estilo Excel (pedido do usuário 22/09/2026): cria vários
+    lançamentos de uma vez a partir de linhas digitadas na própria tela,
+    tolerante a erro por linha (mesmo padrão de importar_lancamentos)."""
+    criados: list[int] = []
+    erros: list[str] = []
+    for indice, item in enumerate(dados.itens, start=1):
+        competencia = item.competencia or item.primeiro_vencimento.replace(day=1)
+        try:
+            lancamento = await _criar_lancamento_individual(session, usuario, dados.tipo, item, competencia)
+        except HTTPException as erro:
+            erros.append(f"Linha {indice}: {erro.detail}")
+            continue
+        _registrar_historico(
+            session,
+            usuario,
+            lancamento.id,
+            "criacao",
+            "Lançamento criado via grade em lote",
+            {"tipo": dados.tipo, "valor": str(item.valor_total), "parcelas": item.quantidade_parcelas},
+        )
+        criados.append(lancamento.id)
+
+    resultado = {
+        "total_linhas": len(dados.itens),
+        "criados": len(criados),
+        "erros": len(erros),
+        "exemplos_erros": erros[:20],
+        "ids": criados,
+    }
+    _auditar(
+        session,
+        request,
+        usuario,
+        "criar_lote_lanc",
+        "lancamento-financeiro:lote",
+        {"tipo": dados.tipo, "criados": len(criados), "erros": len(erros)},
+    )
+    await session.commit()
+    return resultado
 
 
 # Pedido do usuário (22/09/2026): importar lançamentos avulsos (contas a

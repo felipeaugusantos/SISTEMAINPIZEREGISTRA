@@ -308,6 +308,141 @@ function createAssistenteWidget() {
 }
 createAssistenteWidget();
 
+// Calculadora simples -- widget flutuante restrito ao módulo financeiro
+// (pedido do usuário, 22/09/2026): aritmética básica, sem chamada nenhuma
+// ao backend, pra ajudar o operador a conferir valores antes de lançar
+// uma conta. Fica ao lado do lançador do Zezinho (bottom-right).
+function createCalculadoraWidget() {
+  if (document.body.dataset.adminSection !== "finance") return;
+
+  const lancador = document.createElement("button");
+  lancador.type = "button";
+  lancador.className = "calculadora-widget-launcher";
+  lancador.setAttribute("aria-label", "Abrir calculadora");
+  lancador.textContent = "=";
+
+  const painel = document.createElement("section");
+  painel.className = "calculadora-widget-panel";
+  painel.hidden = true;
+  painel.innerHTML = `
+    <header class="calculadora-widget-header">
+      <strong>Calculadora</strong>
+      <button type="button" data-widget-fechar aria-label="Fechar">×</button>
+    </header>
+    <div class="calculadora-widget-display" id="calculadora-widget-display">0</div>
+    <div class="calculadora-widget-grid">
+      <button type="button" data-acao="limpar" class="calculadora-op">C</button>
+      <button type="button" data-acao="apagar" class="calculadora-op">⌫</button>
+      <button type="button" data-acao="porcento" class="calculadora-op">%</button>
+      <button type="button" data-operador="/" class="calculadora-op">÷</button>
+      <button type="button" data-digito="7">7</button>
+      <button type="button" data-digito="8">8</button>
+      <button type="button" data-digito="9">9</button>
+      <button type="button" data-operador="*" class="calculadora-op">×</button>
+      <button type="button" data-digito="4">4</button>
+      <button type="button" data-digito="5">5</button>
+      <button type="button" data-digito="6">6</button>
+      <button type="button" data-operador="-" class="calculadora-op">−</button>
+      <button type="button" data-digito="1">1</button>
+      <button type="button" data-digito="2">2</button>
+      <button type="button" data-digito="3">3</button>
+      <button type="button" data-operador="+" class="calculadora-op">+</button>
+      <button type="button" data-digito="0" class="calculadora-zero">0</button>
+      <button type="button" data-digito=",">,</button>
+      <button type="button" data-acao="igual" class="calculadora-igual">=</button>
+    </div>
+  `;
+
+  document.body.append(lancador, painel);
+
+  const visor = painel.querySelector("#calculadora-widget-display");
+  let aberto = false;
+  let atual = "0";
+  let acumulado = null;
+  let operadorPendente = null;
+  let reiniciarVisor = false;
+
+  function atualizarVisor() {
+    visor.textContent = atual.replace(".", ",");
+  }
+
+  function calcular(a, operador, b) {
+    switch (operador) {
+      case "+": return a + b;
+      case "-": return a - b;
+      case "*": return a * b;
+      case "/": return b === 0 ? NaN : a / b;
+      default: return b;
+    }
+  }
+
+  function alternarPainel(mostrar) {
+    aberto = mostrar ?? !aberto;
+    painel.hidden = !aberto;
+  }
+
+  lancador.addEventListener("click", () => alternarPainel());
+  painel.querySelector("[data-widget-fechar]").addEventListener("click", () => alternarPainel(false));
+
+  painel.querySelector(".calculadora-widget-grid").addEventListener("click", event => {
+    const botao = event.target.closest("button");
+    if (!botao) return;
+    const { digito, operador, acao } = botao.dataset;
+
+    if (digito !== undefined) {
+      if (digito === "," && atual.includes(".")) return;
+      if (reiniciarVisor || atual === "0") {
+        atual = digito === "," ? "0." : digito === "0" ? "0" : digito;
+        reiniciarVisor = false;
+      } else {
+        atual += digito === "," ? "." : digito;
+      }
+      atualizarVisor();
+      return;
+    }
+
+    if (operador) {
+      if (acumulado !== null && operadorPendente && !reiniciarVisor) {
+        atual = String(calcular(acumulado, operadorPendente, Number(atual.replace(",", "."))));
+      }
+      acumulado = Number(atual.replace(",", "."));
+      operadorPendente = operador;
+      reiniciarVisor = true;
+      return;
+    }
+
+    if (acao === "limpar") {
+      atual = "0";
+      acumulado = null;
+      operadorPendente = null;
+      reiniciarVisor = false;
+      atualizarVisor();
+      return;
+    }
+    if (acao === "apagar") {
+      atual = atual.length > 1 ? atual.slice(0, -1) : "0";
+      atualizarVisor();
+      return;
+    }
+    if (acao === "porcento") {
+      atual = String(Number(atual.replace(",", ".")) / 100);
+      atualizarVisor();
+      return;
+    }
+    if (acao === "igual") {
+      if (operadorPendente !== null && acumulado !== null) {
+        const resultado = calcular(acumulado, operadorPendente, Number(atual.replace(",", ".")));
+        atual = Number.isFinite(resultado) ? String(Math.round(resultado * 100) / 100) : "Erro";
+      }
+      acumulado = null;
+      operadorPendente = null;
+      reiniciarVisor = true;
+      atualizarVisor();
+    }
+  });
+}
+createCalculadoraWidget();
+
 originalFetch("/v1/auth/me").then(async response => {
   if (!response.ok) { location.href = "/login"; return; }
   const user = await response.json();

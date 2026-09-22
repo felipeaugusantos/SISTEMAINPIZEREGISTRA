@@ -4,6 +4,8 @@ from pathlib import Path
 
 import asyncpg
 
+from app.rpi.locking import adquirir_lock_sincronizacao_bloqueante, liberar_lock_sincronizacao
+
 
 def ler_classes_marcas(
     arquivo: Path,
@@ -37,6 +39,11 @@ async def importar_classes_marcas(
     progresso: Callable[[int], None] | None = None,
 ) -> int:
     dsn = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    # Achado do Codex (PR #109): sem a constraint única, o UPDATE+INSERT
+    # dentro da mesma WITH só coordena as CTEs de um único statement, não
+    # serializa sessões concorrentes -- mesmo lock que app/badepi/titulares.py
+    # já usa pra ficar serializado com a sincronização automática da RPI.
+    lock = await adquirir_lock_sincronizacao_bloqueante(database_url)
     conexao = await asyncpg.connect(dsn=dsn)
     processados = 0
     try:
@@ -65,6 +72,7 @@ async def importar_classes_marcas(
                 progresso(processados)
     finally:
         await conexao.close()
+        await liberar_lock_sincronizacao(lock)
     return processados
 
 

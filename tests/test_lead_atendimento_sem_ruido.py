@@ -86,16 +86,18 @@ def test_salvar_atendimento_sem_mudanca_nao_cria_contato_automatico() -> None:
 
 def test_descartar_lead_com_motivo_cria_contato_por_mudanca_de_status() -> None:
     """Mudança real de status ainda deve continuar registrando o
-    atendimento automático (mesmo padrão de
-    test_audit_hipotese4_descarte_sem_motivo.py: aberta=False depois do
-    descarte, então só sobra a query de cadências automáticas + o refetch
-    final)."""
+    atendimento automático. Diferente de
+    test_audit_hipotese4_descarte_sem_motivo.py (que não envia
+    registrar_contato e por isso nunca entra nesse bloco), aqui o bloco de
+    criação do ContatoLead roda de verdade e busca a pesquisa mais recente
+    do lead antes do refetch final."""
     lead_refetch = _lead_aberto(status=StatusLead.DESCARTADO)
     try:
         resposta, session = _patch(
             {"status": "descartado", "motivo_perda": "sem_resposta"},
             resultados=[
                 FakeResult(itens=[]),  # aplicar_cadencias_automaticas
+                FakeResult(scalar=None),  # pesquisa mais recente do lead (nenhuma)
                 FakeResult(scalar=lead_refetch),  # refetch final
             ],
         )

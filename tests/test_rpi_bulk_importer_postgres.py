@@ -153,10 +153,11 @@ async def test_importar_classificacao_nao_falha_sem_constraint_e_atualiza_existe
         processo_id = await conexao.fetchval(
             """
             INSERT INTO processos (numero, numero_normalizado, tipo, fonte)
-            VALUES ($1, upper($1), 'marca', 'teste')
+            VALUES ($1, $2, 'marca', 'teste')
             RETURNING id
             """,
             numero,
+            numero.upper(),
         )
         await conexao.execute(
             "INSERT INTO classificacoes_marca (processo_id, sistema, codigo, especificacao) "

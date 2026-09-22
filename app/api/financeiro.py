@@ -59,6 +59,11 @@ LogDep = Annotated[UsuarioAutenticado, Depends(exigir_acesso_log_financeiro)]
 class CategoriaCreate(BaseModel):
     nome: str = Field(min_length=2, max_length=120)
     tipo: Literal["pagar", "receber", "ambos"] = "ambos"
+    # Pedido do usuário (22/09/2026): subcategoria. Ignorado (sobrescrito
+    # pelo tipo do pai) quando categoria_pai_id é informado -- ver
+    # _salvar_categoria.
+    categoria_pai_id: int | None = Field(default=None, ge=1)
+    ativo: bool = True
 
 
 class PlanoContasCreate(BaseModel):
@@ -491,7 +496,9 @@ async def referencias(
     )
     return {
         "empresas": [{"id": x.id, "nome": x.nome} for x in empresas],
-        "categorias": [{"id": x.id, "nome": x.nome, "tipo": x.tipo} for x in categorias],
+        "categorias": [
+            {"id": x.id, "nome": x.nome, "tipo": x.tipo, "categoria_pai_id": x.categoria_pai_id} for x in categorias
+        ],
         "formas_pagamento": [
             {
                 "id": x.id,
@@ -764,32 +771,150 @@ async def editar_retribuicao(
     return {"id": item.id, "status": "atualizada"}
 
 
-@router.post("/categorias", status_code=201)
-async def criar_categoria(dados: CategoriaCreate, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
-    existente = (
+@router.get("/categorias")
+async def listar_categorias(session: SessionDep, usuario: ViewDep) -> dict:
+    categorias = (
+        (
+            await session.execute(
+                select(CategoriaFinanceira)
+                .where(CategoriaFinanceira.organizacao_id == usuario.organizacao_id)
+                .order_by(CategoriaFinanceira.ativo.desc(), CategoriaFinanceira.nome)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "itens": [
+            {
+                "id": x.id,
+                "nome": x.nome,
+                "tipo": x.tipo,
+                "categoria_pai_id": x.categoria_pai_id,
+                "ativo": x.ativo,
+                "criado_em": x.criado_em,
+            }
+            for x in categorias
+        ]
+    }
+
+
+async def _categoria_pai(
+    session: AsyncSession, usuario: UsuarioAutenticado, categoria_pai_id: int | None
+) -> CategoriaFinanceira | None:
+    if not categoria_pai_id:
+        return None
+    pai = (
         await session.execute(
-            select(CategoriaFinanceira.id).where(
+            select(CategoriaFinanceira).where(
+                CategoriaFinanceira.id == categoria_pai_id,
                 CategoriaFinanceira.organizacao_id == usuario.organizacao_id,
-                func.lower(CategoriaFinanceira.nome) == dados.nome.strip().lower(),
-                CategoriaFinanceira.tipo == dados.tipo,
             )
         )
     ).scalar_one_or_none()
-    if existente:
+    if pai is None:
+        raise HTTPException(404, "Categoria pai não encontrada")
+    # Pedido do usuário (22/09/2026): profundidade limitada a 1 nível --
+    # uma subcategoria não pode, por sua vez, ter subcategorias.
+    if pai.categoria_pai_id is not None:
+        raise HTTPException(422, "Não é possível criar uma subcategoria de outra subcategoria")
+    return pai
+
+
+async def _salvar_categoria(
+    dados: CategoriaCreate,
+    request: Request,
+    session: AsyncSession,
+    usuario: UsuarioAutenticado,
+    categoria: CategoriaFinanceira | None = None,
+) -> CategoriaFinanceira:
+    nome = dados.nome.strip()
+    pai = await _categoria_pai(session, usuario, dados.categoria_pai_id)
+    if pai is not None and categoria is not None and pai.id == categoria.id:
+        raise HTTPException(422, "Uma categoria não pode ser subcategoria de si mesma")
+    if pai is not None and categoria is not None:
+        tem_filhas = (
+            await session.execute(
+                select(exists().where(CategoriaFinanceira.categoria_pai_id == categoria.id))
+            )
+        ).scalar_one()
+        if tem_filhas:
+            raise HTTPException(422, "Esta categoria já tem subcategorias -- não pode virar subcategoria de outra")
+    # Subcategoria sempre herda o tipo do pai, pra não ficar incoerente com
+    # ele em telas que filtram categoria por tipo (pagar/receber).
+    tipo = pai.tipo if pai else dados.tipo
+    duplicada = (
+        await session.execute(
+            select(CategoriaFinanceira.id).where(
+                CategoriaFinanceira.organizacao_id == usuario.organizacao_id,
+                func.lower(CategoriaFinanceira.nome) == nome.lower(),
+                CategoriaFinanceira.tipo == tipo,
+                *([CategoriaFinanceira.id != categoria.id] if categoria else []),
+            )
+        )
+    ).scalar_one_or_none()
+    if duplicada:
         raise HTTPException(409, "Categoria já cadastrada")
-    categoria = CategoriaFinanceira(organizacao_id=usuario.organizacao_id, nome=dados.nome.strip(), tipo=dados.tipo)
-    session.add(categoria)
+    if categoria is not None and not dados.ativo:
+        tem_filhas_ativas = (
+            await session.execute(
+                select(
+                    exists().where(
+                        CategoriaFinanceira.categoria_pai_id == categoria.id,
+                        CategoriaFinanceira.ativo.is_(True),
+                    )
+                )
+            )
+        ).scalar_one()
+        if tem_filhas_ativas:
+            raise HTTPException(409, "Desative as subcategorias antes de desativar esta categoria")
+    if categoria is None:
+        categoria = CategoriaFinanceira(organizacao_id=usuario.organizacao_id)
+        session.add(categoria)
+    categoria.nome = nome
+    categoria.tipo = tipo
+    categoria.categoria_pai_id = pai.id if pai else None
+    categoria.ativo = dados.ativo
     await session.flush()
     _auditar(
         session,
         request,
         usuario,
-        "criar_categoria",
+        "salvar_categoria",
         f"categoria-financeira:{categoria.id}",
-        {"nome": categoria.nome, "tipo": categoria.tipo},
+        {"nome": nome, "tipo": tipo, "categoria_pai_id": categoria.categoria_pai_id, "ativo": dados.ativo},
     )
     await session.commit()
-    return {"id": categoria.id, "nome": categoria.nome, "tipo": categoria.tipo}
+    return categoria
+
+
+@router.post("/categorias", status_code=201)
+async def criar_categoria(dados: CategoriaCreate, request: Request, session: SessionDep, usuario: ManageDep) -> dict:
+    categoria = await _salvar_categoria(dados, request, session, usuario)
+    return {
+        "id": categoria.id,
+        "nome": categoria.nome,
+        "tipo": categoria.tipo,
+        "categoria_pai_id": categoria.categoria_pai_id,
+    }
+
+
+@router.put("/categorias/{categoria_id}")
+async def editar_categoria(
+    categoria_id: int, dados: CategoriaCreate, request: Request, session: SessionDep, usuario: ManageDep
+) -> dict:
+    categoria = (
+        await session.execute(
+            select(CategoriaFinanceira).where(
+                CategoriaFinanceira.id == categoria_id,
+                CategoriaFinanceira.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if categoria is None:
+        raise HTTPException(404, "Categoria não encontrada")
+    await _salvar_categoria(dados, request, session, usuario, categoria)
+    return {"id": categoria.id, "status": "atualizada"}
 
 
 # --- Achado FASE7-13/14 da auditoria (04/09/2026): plano de contas gerencial

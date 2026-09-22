@@ -1,4 +1,4 @@
-const crmState = { offset: 0, limit: 50, total: 0, references: null, canManage: false, ultimoHistorico: null, atendimento: null };
+const crmState = { offset: 0, limit: 10, total: 0, references: null, canManage: false, ultimoHistorico: null, atendimento: null };
 const kanbanState = { etapas: [], cards: [] };
 const form = document.querySelector("#crm-filter");
 const reminderFilter = document.querySelector("#crm-reminder-filter");
@@ -121,11 +121,25 @@ document.querySelector("#lead-dialog")?.addEventListener("close", () => {
   loadKanban().catch(() => {});
   loadHistory().catch(() => {});
 });
+function agruparHistoricoPorCliente(itens) {
+  const grupos = [];
+  const indicePorLead = new Map();
+  for (const item of itens) {
+    if (!indicePorLead.has(item.lead_id)) {
+      indicePorLead.set(item.lead_id, grupos.length);
+      grupos.push({ lead_id: item.lead_id, cliente: item.cliente, empresa: item.empresa || item.marca, itens: [] });
+    }
+    grupos[indicePorLead.get(item.lead_id)].itens.push(item);
+  }
+  return grupos;
+}
 function renderHistory(data) {
   crmState.total = data.total; crmState.ultimoHistorico = data; renderMetrics(data);
   document.querySelector("#crm-total").textContent = `${data.total} registro${data.total === 1 ? "" : "s"}`;
   const target = document.querySelector("#crm-history");
-  target.innerHTML = data.itens.length ? data.itens.map(item => `<li class="crm-entry"><span class="crm-history-client"><strong>${esc(item.cliente)}</strong><small>${esc(item.empresa || item.marca || "Cliente sem empresa")}</small></span><time datetime="${esc(item.criado_em)}">${dateTime.format(new Date(item.criado_em))}</time><span class="crm-history-observation">${esc(item.observacao || item.resultado || "Sem observação")}</span><span class="crm-history-next">${item.proximo_contato ? dateTime.format(new Date(item.proximo_contato)) : "Sem próximo contato"}</span><a href="/admin/pesquisas?lead_id=${item.lead_id}" data-open-contact="${item.lead_id}">Abrir</a></li>`).join("") : `<li class="crm-empty"><strong>Nenhum atendimento foi encontrado.</strong><p>Revise nome, documento, telefone, status ou período informado.</p><a class="primary-button" href="/admin/pesquisas">Ir para Leads</a></li>`;
+  target.innerHTML = data.itens.length
+    ? agruparHistoricoPorCliente(data.itens).map(grupo => `<li class="crm-client-group"><header class="crm-client-group-header"><span><strong>${esc(grupo.cliente)}</strong><small>${esc(grupo.empresa || "Cliente sem empresa")}</small></span><a href="/admin/pesquisas?lead_id=${grupo.lead_id}" data-open-contact="${grupo.lead_id}">Abrir</a></header><ol class="crm-client-group-items">${grupo.itens.map(item => `<li class="crm-entry"><time datetime="${esc(item.criado_em)}">${dateTime.format(new Date(item.criado_em))}</time><span class="crm-history-observation">${esc(item.observacao || item.resultado || "Sem observação")}</span><span class="crm-history-next">${item.proximo_contato ? dateTime.format(new Date(item.proximo_contato)) : "Sem próximo contato"}</span></li>`).join("")}</ol></li>`).join("")
+    : `<li class="crm-empty"><strong>Nenhum atendimento foi encontrado.</strong><p>Revise nome, documento, telefone, status ou período informado.</p><a class="primary-button" href="/admin/pesquisas">Ir para Leads</a></li>`;
   const page = Math.floor(crmState.offset / crmState.limit) + 1;
   document.querySelector("#crm-page").textContent = `Página ${page}`;
   document.querySelector("#crm-prev").disabled = crmState.offset === 0;

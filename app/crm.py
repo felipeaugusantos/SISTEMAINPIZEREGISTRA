@@ -2,7 +2,7 @@ import re
 import unicodedata
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,6 +18,7 @@ from app.models import (
     HistoricoFaseLead,
     Lead,
     LembreteCRM,
+    Organizacao,
     PoliticaCRM,
     ProcessoMonitorado,
     PropostaComercial,
@@ -241,6 +242,85 @@ async def gerar_lembretes_sla_primeiro_atendimento(session: AsyncSession) -> int
             if inserido is not None:
                 criados += 1
     return criados
+
+
+async def gerar_lembretes_reengajamento_inatividade(
+    session: AsyncSession,
+) -> tuple[int, dict[int, list[Lead]]]:
+    """Cria um LembreteCRM "Oportunidade parada" para todo lead sem próxima
+    ação definida (ou vencida). Idempotente por semana ISO -- no máximo um
+    lembrete novo por lead por semana, mesmo rodando de hora em hora
+    (job crm.reengajamento_inatividade). Extraída de app/worker.py pra ficar
+    testável isoladamente, mesmo padrão de gerar_lembretes_sla_primeiro_atendimento.
+
+    Achado do usuário (23/09/2026): a idempotência por semana evitava
+    duplicar o lembrete DESTA semana, mas nunca cancelava o de semanas
+    anteriores -- um lead parado há N semanas acumulava N lembretes
+    "pendente" (1101 lembretes para só 310 leads parados de verdade,
+    distorcendo o total de "vencidos" na tela de lembretes do CRM). Agora
+    mantém só o lembrete desta semana ativo por lead, cancelando os
+    anteriores da mesma automação.
+
+    Devolve (quantidade criada, leads atrasados agrupados por responsável --
+    usado pelo chamador para notificar por e-mail)."""
+    agora = datetime.now(UTC)
+    semana = agora.strftime("%G-W%V")
+    leads = (
+        await session.execute(
+            select(Lead)
+            .join(Organizacao, Organizacao.id == Lead.organizacao_id)
+            .where(
+                Organizacao.status != "suspensa",
+                Lead.status.notin_([StatusLead.CONVERTIDO, StatusLead.DESCARTADO]),
+                Lead.arquivado_em.is_(None),
+                or_(Lead.proxima_acao_em.is_(None), Lead.proxima_acao_em < agora),
+            )
+        )
+    ).scalars()
+    criados = 0
+    atrasados_por_responsavel: dict[int, list[Lead]] = {}
+    for lead in leads:
+        inserido = (
+            await session.execute(
+                pg_insert(LembreteCRM)
+                .values(
+                    organizacao_id=lead.organizacao_id,
+                    lead_id=lead.id,
+                    responsavel_id=lead.responsavel_id,
+                    tipo="retorno",
+                    prioridade="alta",
+                    titulo="Oportunidade parada — retomar contato",
+                    descricao=(
+                        "Sem próxima ação definida ou o prazo já venceu. "
+                        "Verifique o andamento e planeje o próximo passo."
+                    ),
+                    lembrar_em=agora,
+                    status="pendente",
+                    criado_por="Automação (reengajamento por inatividade)",
+                    criado_por_id=None,
+                    idempotency_key=f"reengajamento:{lead.id}:{semana}",
+                )
+                .on_conflict_do_nothing(constraint="uq_lembrete_crm_idempotencia")
+                .returning(LembreteCRM.id)
+            )
+        ).scalar_one_or_none()
+        await session.execute(
+            update(LembreteCRM)
+            .where(
+                LembreteCRM.lead_id == lead.id,
+                LembreteCRM.organizacao_id == lead.organizacao_id,
+                LembreteCRM.tipo == "retorno",
+                LembreteCRM.status == "pendente",
+                LembreteCRM.criado_por == "Automação (reengajamento por inatividade)",
+                LembreteCRM.idempotency_key != f"reengajamento:{lead.id}:{semana}",
+            )
+            .values(status="cancelado")
+        )
+        if inserido is not None:
+            criados += 1
+            if lead.responsavel_id is not None:
+                atrasados_por_responsavel.setdefault(lead.responsavel_id, []).append(lead)
+    return criados, atrasados_por_responsavel
 
 
 # Faixas de decaimento por tempo sem interação (item 32 da auditoria completa

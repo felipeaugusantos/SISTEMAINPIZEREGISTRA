@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>CRM — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=67"><link rel="stylesheet" href="/static/ze-brand.css?v=1"><link rel="stylesheet" href="/static/admin-crm.css?v=4"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=8"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=6"><link rel="stylesheet" href="/static/admin-leads.css?v=31">
+  <link rel="stylesheet" href="/static/styles.css?v=67"><link rel="stylesheet" href="/static/ze-brand.css?v=1"><link rel="stylesheet" href="/static/admin-crm.css?v=4"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=8"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=7"><link rel="stylesheet" href="/static/admin-leads.css?v=31">
   <!-- Achado do usuário (21/09/2026): "Abrir contato" precisa abrir exatamente a mesma
        tela do lead que a página de Leads usa -- em vez de duplicar aquela lógica (~2000
        linhas fortemente interligadas entre lista e diálogo), esta página carrega o
        mesmo admin-leads.js e traz uma cópia oculta do HTML que ele espera encontrar
        (filtros, métricas, tabela, paginação) só pra ele não quebrar ao rodar aqui;
        o diálogo do lead (#lead-dialog) em si fica visível/funcional normalmente. -->
-  <script src="/static/admin-shell.js?v=51" defer></script><script src="/static/admin-leads.js?v=72" defer></script><script src="/static/admin-crm.js?v=18" defer></script>
+  <script src="/static/admin-shell.js?v=51" defer></script><script src="/static/admin-leads.js?v=72" defer></script><script src="/static/admin-crm.js?v=19" defer></script>
 </head>
 <body class="admin-body ze-brand-theme" data-admin-section="crm">
   <main class="admin-main crm-main">
@@ -30,6 +30,7 @@
       </form>
       <div id="crm-customer-alerts"></div>
       <div id="crm-reminders" class="crm-reminders"></div>
+      <nav class="crm-pagination" aria-label="Paginação dos lembretes"><button id="crm-reminders-prev" class="secondary-button" type="button">Anterior</button><span id="crm-reminders-page">Página 1</span><button id="crm-reminders-next" class="secondary-button" type="button">Próxima</button></nav>
     </section>
     <section class="crm-card crm-kanban-card">
       <header class="crm-kanban-header"><div><p class="eyebrow">PIPELINE COMERCIAL</p><h2>Oportunidades</h2><p>Arraste os cartões para acompanhar cada etapa do atendimento.</p></div><div class="crm-kanban-header-actions"><button id="crm-kanban-distribuir" class="secondary-button" type="button" hidden>Distribuir sem responsável</button><button id="crm-kanban-refresh" class="secondary-button" type="button">Atualizar</button></div></header>

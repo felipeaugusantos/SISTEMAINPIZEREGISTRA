@@ -124,6 +124,7 @@ def test_listar_lembretes_expoe_alertas_prazos_e_cadastros_antigos() -> None:
     lembrete.responsavel = None
     lembrete.criado_em = agora
     app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(scalar=1),  # total_itens (paginação, achado do usuário 23/09/2026)
         FakeResult(itens=[lembrete]),
         FakeResult(itens=[(1, 2, 3)]),
         FakeResult(scalar=1),
@@ -147,6 +148,60 @@ def test_listar_lembretes_expoe_alertas_prazos_e_cadastros_antigos() -> None:
     assert corpo["itens"][0]["titulo"] == "Retornar proposta"
     assert corpo["itens"][0]["vencido"] is True
     assert corpo["cadastros_para_atualizar"][0]["lead_id"] == lead.id
+    assert corpo["total"] == 1
+    assert corpo["tem_mais"] is False
+
+
+def test_listar_lembretes_pagina_com_deslocamento_e_limite() -> None:
+    """Achado do usuário (23/09/2026): "Pendências da equipe" tinha rolagem
+    interna mostrando tudo de uma vez -- vira paginação real (deslocamento/
+    limite), mesmo padrão do histórico de atendimento."""
+    lead = Lead(
+        id=22,
+        organizacao_id=1,
+        nome="Cliente CRM",
+        email="cliente@empresa.com.br",
+        telefone="11999998888",
+        empresa="Empresa CRM",
+        marca="ACME",
+        origem="relatorio",
+        status=StatusLead.EM_CONTATO,
+    )
+    lembrete = LembreteCRM(
+        id=8,
+        organizacao_id=1,
+        lead_id=lead.id,
+        tipo="retorno",
+        prioridade="media",
+        titulo="Item da segunda página",
+        lembrar_em=datetime(2026, 8, 12, tzinfo=UTC),
+        status="pendente",
+        criado_por="operador@teste.local",
+    )
+    lembrete.lead = lead
+    lembrete.responsavel = None
+    lembrete.criado_em = datetime(2026, 8, 11, tzinfo=UTC)
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(scalar=6),  # total_itens: 6 lembretes no total
+        FakeResult(itens=[lembrete]),  # só 1 item devolvido nesta página
+        FakeResult(itens=[(1, 0, 6)]),
+        FakeResult(scalar=0),
+        FakeResult(itens=[]),
+    )
+    usuario = usuario_teste("operador", {"crm.view", "crm.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).get("/v1/admin/crm/lembretes?deslocamento=4&limite=4")
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["total"] == 6
+    assert corpo["deslocamento"] == 4
+    assert corpo["limite"] == 4
+    assert corpo["tem_mais"] is True  # 4 + 1 = 5 < 6
+    assert len(corpo["itens"]) == 1
 
 
 def test_criar_lembrete_vincula_cliente_e_audita() -> None:

@@ -1,4 +1,4 @@
-const crmState = { offset: 0, limit: 10, total: 0, references: null, canManage: false, ultimoHistorico: null, atendimento: null };
+const crmState = { offset: 0, limit: 10, total: 0, references: null, canManage: false, ultimoHistorico: null, atendimento: null, remindersOffset: 0, remindersLimit: 4, remindersTotal: 0 };
 const kanbanState = { etapas: [], cards: [] };
 const form = document.querySelector("#crm-filter");
 const reminderFilter = document.querySelector("#crm-reminder-filter");
@@ -154,6 +154,8 @@ async function loadAtendimentoStats() {
 function reminderParams() {
   const query = new URLSearchParams(new FormData(reminderFilter));
   [...query].forEach(([key, value]) => { if (!value) query.delete(key); });
+  query.set("limite", crmState.remindersLimit);
+  query.set("deslocamento", crmState.remindersOffset);
   return query;
 }
 function renderReminderMetrics(metrics) {
@@ -164,11 +166,24 @@ function renderCustomerAlerts(items) {
   target.innerHTML = items.length ? `<details class="crm-customer-alert"><summary>${items.length} cadastro${items.length === 1 ? "" : "s"} sem atualização há mais de 90 dias</summary><div>${items.map(item => `<article><span><strong>${esc(item.cliente)}</strong><small>${esc(item.empresa || "Empresa não informada")} · última atualização ${dateTime.format(new Date(item.atualizado_em))}</small></span><button class="secondary-button create-update-reminder" type="button" data-lead-id="${item.lead_id}">Criar alerta</button></article>`).join("")}</div></details>` : "";
 }
 function renderReminders(data) {
-  crmState.canManage = data.acoes.gerenciar; renderReminderMetrics(data.metricas); renderCustomerAlerts(data.cadastros_para_atualizar);
+  crmState.canManage = data.acoes.gerenciar; crmState.remindersTotal = data.total; renderReminderMetrics(data.metricas); renderCustomerAlerts(data.cadastros_para_atualizar);
   document.querySelector("#new-reminder").hidden = !crmState.canManage;
   document.querySelector("#crm-reminders").innerHTML = data.itens.length ? data.itens.map(item => `<article class="crm-reminder ${item.vencido ? "overdue" : ""} priority-${esc(item.prioridade)}"><div><span class="crm-reminder-type">${esc(item.tipo_nome)}</span><h3>${esc(item.titulo)}</h3><p>${esc(item.cliente)}${item.empresa ? ` · ${esc(item.empresa)}` : ""}</p>${item.descricao ? `<small>${esc(item.descricao)}</small>` : ""}${item.motivo_adiamento ? `<small class="crm-reminder-motivo">Adiado: ${esc(item.motivo_adiamento)}</small>` : ""}</div><div class="crm-reminder-due"><span>${item.vencido ? "Vencido" : "Alerta"}</span><strong>${dateTime.format(new Date(item.lembrar_em))}</strong><small>${esc(item.responsavel || "Não atribuído")} · prioridade ${esc(item.prioridade)}</small></div>${crmState.canManage && item.status === "pendente" ? `<div class="crm-reminder-actions"><button class="primary-button complete-reminder" data-id="${item.id}" type="button">Concluir</button><button class="secondary-button postpone-reminder" data-id="${item.id}" type="button">Adiar 1 dia</button><button class="text-button cancel-reminder-item" data-id="${item.id}" type="button">Cancelar</button></div>` : `<span class="crm-reminder-state">${esc(item.status)}</span>`}</article>`).join("") : `<div class="crm-empty"><strong>Nenhum lembrete neste filtro.</strong><p>Crie alertas para que retornos e tarefas não dependam da memória da equipe.</p></div>`;
+  const page = Math.floor(crmState.remindersOffset / crmState.remindersLimit) + 1;
+  document.querySelector("#crm-reminders-page").textContent = `Página ${page}`;
+  document.querySelector("#crm-reminders-prev").disabled = crmState.remindersOffset === 0;
+  document.querySelector("#crm-reminders-next").disabled = !data.tem_mais;
 }
-async function loadReminders() { renderReminders(await api(`/v1/admin/crm/lembretes?${reminderParams()}`)); }
+async function loadReminders() {
+  let data = await api(`/v1/admin/crm/lembretes?${reminderParams()}`);
+  // Concluir/cancelar o único item de uma página deixaria a página vazia --
+  // volta uma página automaticamente em vez de mostrar "nenhum lembrete".
+  if (!data.itens.length && crmState.remindersOffset > 0 && data.total > 0) {
+    crmState.remindersOffset = Math.max(0, crmState.remindersOffset - crmState.remindersLimit);
+    data = await api(`/v1/admin/crm/lembretes?${reminderParams()}`);
+  }
+  renderReminders(data);
+}
 
 async function references() {
   const data = await api("/v1/admin/crm/referencias"); crmState.references = data;
@@ -195,7 +210,9 @@ function openReminder(leadId = "", type = "retorno") {
 async function updateReminder(id, payload) { await api(`/v1/admin/crm/lembretes/${id}`, { method: "PATCH", body: JSON.stringify(payload) }); await loadReminders(); }
 
 form.addEventListener("submit", event => { event.preventDefault(); crmState.offset = 0; loadHistory().catch(error => show(error.message)); });
-reminderFilter.addEventListener("submit", event => { event.preventDefault(); loadReminders().catch(error => show(error.message)); });
+reminderFilter.addEventListener("submit", event => { event.preventDefault(); crmState.remindersOffset = 0; loadReminders().catch(error => show(error.message)); });
+document.querySelector("#crm-reminders-prev").addEventListener("click", () => { crmState.remindersOffset = Math.max(0, crmState.remindersOffset - crmState.remindersLimit); loadReminders().catch(error => show(error.message)); });
+document.querySelector("#crm-reminders-next").addEventListener("click", () => { if (crmState.remindersOffset + crmState.remindersLimit < crmState.remindersTotal) { crmState.remindersOffset += crmState.remindersLimit; loadReminders().catch(error => show(error.message)); } });
 document.querySelector("#crm-clear").addEventListener("click", () => { form.reset(); crmState.offset = 0; loadHistory().catch(error => show(error.message)); });
 document.querySelector("#crm-prev").addEventListener("click", () => { crmState.offset = Math.max(0, crmState.offset - crmState.limit); loadHistory().catch(error => show(error.message)); });
 document.querySelector("#crm-next").addEventListener("click", () => { if (crmState.offset + crmState.limit < crmState.total) { crmState.offset += crmState.limit; loadHistory().catch(error => show(error.message)); } });

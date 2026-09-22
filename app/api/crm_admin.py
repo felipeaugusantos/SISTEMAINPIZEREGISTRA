@@ -378,6 +378,7 @@ async def listar_lembretes(
     responsavel_id: int | None = Query(default=None, ge=1),
     tipo: str | None = Query(default=None, max_length=40),
     limite: int = Query(default=100, ge=1, le=200),
+    deslocamento: int = Query(default=0, ge=0),
 ) -> dict:
     agora = datetime.now(UTC)
     em_7_dias = agora + timedelta(days=7)
@@ -388,10 +389,20 @@ async def listar_lembretes(
         filtros.append(LembreteCRM.responsavel_id == responsavel_id)
     if tipo:
         filtros.append(LembreteCRM.tipo == tipo)
+    # Pedido do usuário (23/09/2026): "Pendências da equipe" tinha rolagem
+    # interna mostrando tudo de uma vez -- vira paginação de verdade (mesmo
+    # padrão de deslocamento/limite do histórico de atendimento).
+    total_itens = (
+        await session.execute(select(func.count()).select_from(LembreteCRM).where(*filtros))
+    ).scalar_one()
     itens = (
         (
             await session.execute(
-                select(LembreteCRM).where(*filtros).order_by(LembreteCRM.lembrar_em, LembreteCRM.id).limit(limite)
+                select(LembreteCRM)
+                .where(*filtros)
+                .order_by(LembreteCRM.lembrar_em, LembreteCRM.id)
+                .offset(deslocamento)
+                .limit(limite)
             )
         )
         .scalars()
@@ -435,6 +446,10 @@ async def listar_lembretes(
             "pendentes": int(metricas[2] or 0),
             "cadastros_para_atualizar": int(total_cadastros or 0),
         },
+        "total": int(total_itens or 0),
+        "deslocamento": deslocamento,
+        "limite": limite,
+        "tem_mais": deslocamento + len(itens) < int(total_itens or 0),
         "itens": [_serializar_lembrete(item) for item in itens],
         "alertas_atraso": [
             {

@@ -20,6 +20,8 @@ Isolados e determinísticos: usam FakeSession (tests/conftest.py), sem
 tocar banco real. Não substituem nem alteram nenhum teste existente.
 """
 
+from datetime import UTC, datetime
+
 from fastapi.testclient import TestClient
 
 from app.database import get_session
@@ -40,6 +42,10 @@ def _lead_existente(**kwargs: object) -> Lead:
         "marca": "ACME",
         "origem": "resultados",
         "status": StatusLead.QUALIFICADO,
+        # LeadPublicoResponse (Fase 12) exige criado_em -- em produção o
+        # servidor sempre preenche via server_default, mas o objeto Lead
+        # construído a mão nos testes precisa do valor explícito.
+        "criado_em": datetime.now(UTC),
     }
     base.update(kwargs)
     return Lead(**base)
@@ -75,7 +81,10 @@ def test_lead_convertido_reenviando_o_formulario_nao_tem_dados_sobrescritos() ->
 
     assert resposta.status_code == 201
     corpo = resposta.json()
-    assert corpo["id"] == 7
+    # id do lead pré-existente não é mais devolvido (achado P1 do review
+    # do Codex, PR #105) -- funcionaria como oráculo confirmando que esse
+    # e-mail/telefone já era lead (convertido) na organização.
+    assert corpo["id"] is None
     assert lead.nome == "Fulano de Tal", "dados do negócio já ganho não devem ser sobrescritos"
     assert lead.telefone == "11999998888"
     assert lead.status == StatusLead.CONVERTIDO

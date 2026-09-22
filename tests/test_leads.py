@@ -118,6 +118,10 @@ def _lead_existente(**kwargs: object) -> Lead:
         "marca": "ACME",
         "origem": "resultados",
         "status": StatusLead.QUALIFICADO,
+        # LeadPublicoResponse (Fase 12) exige criado_em -- em produção o
+        # servidor sempre preenche via server_default, mas o objeto Lead
+        # construído a mão nos testes precisa do valor explícito.
+        "criado_em": datetime.now(UTC),
     }
     base.update(kwargs)
     return Lead(**base)
@@ -128,7 +132,10 @@ def test_upsert_publico_mesma_marca_atualiza_lead_existente() -> None:
     app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
     resposta = TestClient(app).post("/v1/leads", json=_payload(marca="acme"))
     assert resposta.status_code == 201
-    assert resposta.json()["id"] == 7
+    # Achado P1 do review do Codex (PR #105): id de um lead pré-existente
+    # não é mais devolvido -- funcionaria como oráculo confirmando que
+    # esse e-mail/telefone já era lead na organização.
+    assert resposta.json()["id"] is None
     assert lead.marca == "acme"
 
 
@@ -144,13 +151,16 @@ def test_upsert_publico_nao_sobrescreve_a_origem_original_do_lead() -> None:
     assert lead.origem == "resultados"
 
 
-def test_upsert_publico_mascara_documento_mesmo_atualizando_no_lugar() -> None:
+def test_upsert_publico_nao_expoe_documento_do_lead_existente() -> None:
     # Vazamento pré-existente descoberto ao mexer nesta função: o reenvio do
     # formulário público devolvia o documento (CPF/CNPJ) do lead em claro.
+    # Achado crítico da Fase 12 (22/09/2026) foi além da máscara: a resposta
+    # pública (LeadPublicoResponse) não tem mais NENHUM campo do registro
+    # pré-existente, então "documento" nem aparece mais no corpo.
     lead = _lead_existente()
     app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
     resposta = TestClient(app).post("/v1/leads", json=_payload(marca="acme"))
-    assert resposta.json()["documento"] == "***8900"
+    assert "documento" not in resposta.json()
 
 
 def test_upsert_publico_marca_vazia_atualiza_lead_existente() -> None:
@@ -160,7 +170,7 @@ def test_upsert_publico_marca_vazia_atualiza_lead_existente() -> None:
     del payload["marca"]
     resposta = TestClient(app).post("/v1/leads", json=payload)
     assert resposta.status_code == 201
-    assert resposta.json()["id"] == 7
+    assert resposta.json()["id"] is None
     assert lead.marca == "ACME"
 
 
@@ -180,13 +190,24 @@ def test_upsert_publico_marca_diferente_cria_novo_lead_e_preserva_o_antigo() -> 
 
 def test_upsert_publico_marca_diferente_herda_documento_e_empresa_do_contato() -> None:
     lead = _lead_existente()
-    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+    sessao = FakeSession([FakeResult(scalar=lead), FakeResult(scalar=None)])
+
+    async def _override() -> object:
+        yield sessao
+
+    app.dependency_overrides[get_session] = _override
     resposta = TestClient(app).post("/v1/leads", json=_payload(marca="Outra Marca Ltda"))
-    corpo = resposta.json()
     # documento é PII sensível (CPF/CNPJ) que o formulário público nunca coletou
-    # nesta submissão -- não pode vazar em claro na resposta anônima.
-    assert corpo["documento"] == "***8900"
-    assert corpo["empresa"] == "Fulano Comércio"
+    # nesta submissão -- continua herdado no registro interno (continuidade de
+    # CRM pro mesmo contato), mas achado crítico da Fase 12 (22/09/2026): a
+    # resposta pública não pode devolver isso em claro pra quem só sabe o
+    # e-mail de alguém, então LeadPublicoResponse nem tem esses campos.
+    corpo = resposta.json()
+    assert "documento" not in corpo
+    assert "empresa" not in corpo
+    novo_lead = next(obj for obj in sessao.adicionados if isinstance(obj, Lead) and obj is not lead)
+    assert novo_lead.documento == "12345678900"
+    assert novo_lead.empresa == "Fulano Comércio"
 
 
 # --- Achado L13 do plano Leads/CRM (03/09/2026): consentimento estruturado ---
@@ -292,7 +313,11 @@ def test_upsert_publico_telefone_com_mascara_diferente_reconhece_o_mesmo_lead() 
     )
 
     assert resposta.status_code == 201
-    assert resposta.json()["id"] == lead.id
+    # id do lead pré-existente não é mais devolvido (achado P1 do review do
+    # Codex, PR #105) -- a prova de que o dedup por telefone casou com o
+    # MESMO lead é não ter criado um Lead novo na sessão.
+    assert not any(isinstance(item, Lead) for item in session.adicionados)
+    assert lead.email == "outro@example.com"
 
 
 async def _sem_envio(*_a: object, **_k: object) -> None:
@@ -547,10 +572,19 @@ def test_lead_publico_nasce_com_proxima_acao_padrao() -> None:
     # Achado da auditoria do CRM: todo lead do formulário público nascia com
     # proxima_acao_em nulo. Agora sempre recebe um fallback (sem bloquear o
     # formulário do site com 422 quando a organização não configurou política).
-    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=None), FakeResult(scalar=None))
+    # proxima_acao_em é dado interno de CRM -- não faz mais parte da
+    # resposta pública (achado crítico da Fase 12, 22/09/2026), então este
+    # teste passou a inspecionar o Lead gravado na FakeSession.
+    sessao = FakeSession([FakeResult(scalar=None), FakeResult(scalar=None)])
+
+    async def _override() -> object:
+        yield sessao
+
+    app.dependency_overrides[get_session] = _override
     resposta = TestClient(app).post("/v1/leads", json=_payload())
     assert resposta.status_code == 201
-    assert resposta.json()["proxima_acao_em"] is not None
+    lead = next(obj for obj in sessao.adicionados if isinstance(obj, Lead))
+    assert lead.proxima_acao_em is not None
 
 
 def test_mover_kanban_bloqueia_oportunidade_aberta_sem_proxima_acao() -> None:

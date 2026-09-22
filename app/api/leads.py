@@ -90,6 +90,7 @@ from app.schemas import (
     LeadCreate,
     LeadDetalheResponse,
     LeadListResponse,
+    LeadPublicoResponse,
     LeadResponse,
     LeadStatusUpdate,
     PesquisaLeadResumo,
@@ -545,7 +546,7 @@ async def _garantir_proxima_acao_padrao(session: AsyncSession, lead: Lead) -> No
 
 @router.post(
     "/v1/leads",
-    response_model=LeadResponse,
+    response_model=LeadPublicoResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(limitar_leads)],
 )
@@ -553,7 +554,7 @@ async def criar_lead(
     dados: LeadCreate,
     session: SessionDep,
     organizacao: OrganizacaoPublicaDep,
-) -> LeadResponse:
+) -> LeadPublicoResponse:
     if dados.website:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Envio inválido")
 
@@ -605,10 +606,20 @@ async def criar_lead(
                 payload={"motivo": "oportunidade_ja_convertida", "email": dados.email.lower()},
             )
             await session.commit()
-            await session.refresh(existente)
-            resposta = LeadResponse.model_validate(existente)
-            resposta.documento = _mascarar_documento(resposta.documento)
-            return resposta
+            # Achado crítico da Fase 12: nunca devolver campos do registro
+            # PRÉ-EXISTENTE (nome/telefone reais já cadastrados) -- só o que
+            # o próprio remetente acabou de enviar nesta chamada, senão
+            # basta saber o e-mail de alguém pra descobrir o nome/telefone
+            # verdadeiro que já estava no CRM. Achado P1 do review do Codex
+            # (PR #105): id/criado_em também ficam de fora -- ecoar o id
+            # ou a data real de criação de um registro pré-existente já
+            # confirma "esse e-mail já era lead" e revela desde quando.
+            return LeadPublicoResponse(
+                nome=dados.nome,
+                email=dados.email.lower(),
+                telefone=dados.telefone,
+                marca=dados.marca,
+            )
         # Achado H7/P1: oportunidade DESCARTADA que reaparece pelo formulário
         # público é reaberta (o cliente voltou a manifestar interesse) em vez
         # de continuar descartada para sempre com os dados silenciosamente
@@ -647,10 +658,17 @@ async def criar_lead(
         if existente.status not in (StatusLead.CONVERTIDO, StatusLead.DESCARTADO):
             await _garantir_proxima_acao_padrao(session, existente)
         await session.commit()
-        await session.refresh(existente)
-        resposta = LeadResponse.model_validate(existente)
-        resposta.documento = _mascarar_documento(resposta.documento)
-        return resposta
+        # Aqui os campos já foram sobrescritos com dados.* acima, então
+        # coincidem com o que o remetente enviou -- ainda assim construído
+        # explicitamente a partir de "dados" (nunca de "existente"), pelo
+        # mesmo motivo do bloco CONVERTIDO logo acima. id/criado_em também
+        # ficam de fora (achado P1 do review do Codex, PR #105).
+        return LeadPublicoResponse(
+            nome=dados.nome,
+            email=dados.email.lower(),
+            telefone=dados.telefone,
+            marca=dados.marca,
+        )
 
     lead = Lead(
         organizacao_id=organizacao.id,
@@ -682,9 +700,10 @@ async def criar_lead(
         # de um lead novo chegando pelo formulário genérico de captação.
         await enviar_alerta_novo_lead(lead.nome, lead.email, lead.telefone, lead.marca, lead.origem)
     await enfileirar_qualificacao_ia_se_ativa(session, lead)
-    resposta = LeadResponse.model_validate(lead)
-    resposta.documento = _mascarar_documento(resposta.documento)
-    return resposta
+    # Lead recém-criado -- os campos já são exatamente o que veio em
+    # "dados", então model_validate direto é seguro aqui (diferente dos
+    # dois ramos acima, que casam com um lead PRÉ-EXISTENTE).
+    return LeadPublicoResponse.model_validate(lead)
 
 
 COLUNAS_NOME_LEAD = ("nome", "cliente", "contato")

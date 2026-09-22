@@ -12,8 +12,8 @@ from fastapi.testclient import TestClient
 
 from app.database import get_session
 from app.main import app
-from app.models import PoliticaCRM
-from tests.conftest import FakeResult, sessao_override
+from app.models import Lead, PoliticaCRM
+from tests.conftest import FakeResult, FakeSession
 
 
 def _payload(**overrides: object) -> dict[str, object]:
@@ -46,21 +46,26 @@ def test_lead_publico_sem_politica_configurada_fica_sem_responsavel_mas_com_prox
     """
     # 1ª query: consulta_existente (nenhum lead com esse e-mail/telefone).
     # 2ª query: obter_politica_crm (nenhuma política cadastrada -> None).
-    app.dependency_overrides[get_session] = sessao_override(
-        FakeResult(scalar=None),
-        FakeResult(scalar=None),
-    )
+    sessao = FakeSession([FakeResult(scalar=None), FakeResult(scalar=None)])
+
+    async def _override() -> object:
+        yield sessao
+
+    app.dependency_overrides[get_session] = _override
     antes = datetime.now(UTC)
 
     resposta = TestClient(app).post("/v1/leads", json=_payload())
 
     assert resposta.status_code == 201
-    corpo = resposta.json()
-    assert corpo["responsavel_id"] is None, "Lead público deveria ficar sem responsável (achado confirmado)"
-    assert corpo["proxima_acao_em"] is not None, "Lead público NÃO deveria ficar sem próxima ação (fallback de 2 dias)"
-    proxima_acao = datetime.fromisoformat(corpo["proxima_acao_em"].replace("Z", "+00:00"))
+    # Achado crítico da Fase 12 (22/09/2026): a resposta pública de POST
+    # /v1/leads não expõe mais responsavel_id/proxima_acao_em (dados
+    # internos de CRM) -- este teste passa a inspecionar o Lead gravado na
+    # FakeSession em vez do corpo da resposta.
+    lead = next(obj for obj in sessao.adicionados if isinstance(obj, Lead))
+    assert lead.responsavel_id is None, "Lead público deveria ficar sem responsável (achado confirmado)"
+    assert lead.proxima_acao_em is not None, "Lead público NÃO deveria ficar sem próxima ação (fallback de 2 dias)"
     depois = datetime.now(UTC)
-    assert antes + timedelta(days=2) <= proxima_acao <= depois + timedelta(days=2, minutes=1)
+    assert antes + timedelta(days=2) <= lead.proxima_acao_em <= depois + timedelta(days=2, minutes=1)
 
 
 def test_lead_publico_nao_aplica_atribuir_ao_operador_mesmo_com_politica_ligada() -> None:
@@ -85,15 +90,18 @@ def test_lead_publico_nao_aplica_atribuir_ao_operador_mesmo_com_politica_ligada(
         ultimo_responsavel_distribuido_id=None,
         horas_sla_primeiro_atendimento=None,
     )
-    app.dependency_overrides[get_session] = sessao_override(
-        FakeResult(scalar=None),
-        FakeResult(scalar=politica),
-    )
+    sessao = FakeSession([FakeResult(scalar=None), FakeResult(scalar=politica)])
+
+    async def _override() -> object:
+        yield sessao
+
+    app.dependency_overrides[get_session] = _override
 
     resposta = TestClient(app).post("/v1/leads", json=_payload(email="hipotese1.atribuir@example.com"))
 
     assert resposta.status_code == 201
-    assert resposta.json()["responsavel_id"] is None
+    lead = next(obj for obj in sessao.adicionados if isinstance(obj, Lead))
+    assert lead.responsavel_id is None
 
 
 def test_lead_publico_com_distribuicao_automatica_ativa_recebe_responsavel() -> None:
@@ -116,15 +124,23 @@ def test_lead_publico_com_distribuicao_automatica_ativa_recebe_responsavel() -> 
         ultimo_responsavel_distribuido_id=None,
         horas_sla_primeiro_atendimento=None,
     )
-    app.dependency_overrides[get_session] = sessao_override(
-        FakeResult(scalar=None),
-        FakeResult(scalar=politica),
-        FakeResult(itens=[9]),
-        FakeResult(itens=[]),  # achado do usuário (16/09/2026): carga atual por responsavel
+    sessao = FakeSession(
+        [
+            FakeResult(scalar=None),
+            FakeResult(scalar=politica),
+            FakeResult(itens=[9]),
+            FakeResult(itens=[]),  # achado do usuário (16/09/2026): carga atual por responsavel
+        ]
     )
+
+    async def _override() -> object:
+        yield sessao
+
+    app.dependency_overrides[get_session] = _override
 
     resposta = TestClient(app).post("/v1/leads", json=_payload(email="hipotese1.distribuicao@example.com"))
 
     assert resposta.status_code == 201
-    assert resposta.json()["responsavel_id"] == 9
+    lead = next(obj for obj in sessao.adicionados if isinstance(obj, Lead))
+    assert lead.responsavel_id == 9
     assert politica.ultimo_responsavel_distribuido_id == 9

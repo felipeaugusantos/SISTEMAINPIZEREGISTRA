@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>Financeiro — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=66"><link rel="stylesheet" href="/static/admin-financeiro.css?v=11">
-  <script src="/static/admin-shell.js?v=50" defer></script><script src="/static/admin-financeiro.js?v=11" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=66"><link rel="stylesheet" href="/static/admin-financeiro.css?v=12">
+  <script src="/static/admin-shell.js?v=50" defer></script><script src="/static/admin-financeiro.js?v=12" defer></script>
 </head>
 <body class="admin-body" data-admin-section="finance">
   <main class="admin-main finance-main">
     <section class="finance-hero">
       <div><p class="eyebrow">GESTÃO OPERACIONAL</p><h1 id="finance-title">Financeiro</h1><p id="finance-description">Controle contas a pagar e receber, vencimentos e baixas. Este módulo não substitui a contabilidade fiscal.</p></div>
-      <div class="hero-actions"><a id="finance-back" class="secondary-button" href="/admin/financeiro" hidden>← Voltar ao painel</a><a id="finance-export" class="secondary-button" href="/v1/admin/financeiro/exportar.csv">Exportar CSV</a><button id="new-company" class="secondary-button" type="button">Cadastrar empresa</button><button id="new-category" class="secondary-button" type="button">Nova categoria</button><button id="new-entry" class="primary-button" type="button">Novo lançamento</button></div>
+      <div class="hero-actions"><a id="finance-back" class="secondary-button" href="/admin/financeiro" hidden>← Voltar ao painel</a><a id="finance-export" class="secondary-button" href="/v1/admin/financeiro/exportar.csv">Exportar CSV</a><button id="new-company" class="secondary-button" type="button">Cadastrar empresa</button><button id="new-category" class="secondary-button" type="button">Nova categoria</button><button id="import-entries" class="secondary-button" type="button" hidden>Importar planilha</button><button id="new-entry" class="primary-button" type="button">Novo lançamento</button></div>
     </section>
     <nav class="finance-tabs" aria-label="Áreas do financeiro"><a href="/admin/financeiro" data-finance-tab="overview">Visão geral</a><a href="/admin/financeiro/contas-a-pagar" data-finance-tab="pagar">Contas a pagar</a><a href="/admin/financeiro/contas-a-receber" data-finance-tab="receber">Contas a receber</a><a href="/admin/financeiro/categorias">Categorias</a><a href="/admin/financeiro/formas-pagamento">Formas de pagamento</a><a href="/admin/financeiro/plano-contas">Plano de contas &amp; DRE</a><a href="/admin/financeiro/lucratividade">Lucratividade</a><a href="/admin/financeiro/comissoes">Comissões</a><a href="/admin/financeiro/conciliacao">Conciliação</a><a href="/admin/financeiro/nfse">NFS-e</a></nav>
     <div id="finance-message" class="status-message" hidden role="status" aria-live="polite"></div>
@@ -79,5 +79,14 @@
     <header><div><p class="eyebrow">TRILHA FINANCEIRA</p><h2>Histórico do lançamento</h2></div><button type="button" data-close="history-dialog" aria-label="Fechar">×</button></header>
     <div id="finance-history" class="finance-history"></div>
     <footer><button class="secondary-button" type="button" data-close="history-dialog">Fechar</button></footer>
+  </form></dialog>
+
+  <dialog id="import-dialog" class="finance-dialog compact"><form id="import-form">
+    <header><div><p class="eyebrow">IMPORTAÇÃO EM LOTE</p><h2 id="import-title">Importar lançamentos</h2></div><button type="button" data-close="import-dialog" aria-label="Fechar">×</button></header>
+    <p class="finance-dialog-help">Baixe o modelo, preencha uma linha por lançamento e envie o arquivo (CSV ou XLSX, até 5 MB). Linhas com erro são reportadas e não interrompem o restante da importação.</p>
+    <p><a id="import-template-link" href="/v1/admin/financeiro/lancamentos/modelo-importacao.csv" download>Baixar modelo (CSV)</a></p>
+    <label><span>Arquivo</span><input name="arquivo" type="file" accept=".csv,.xlsx,.xlsm" required></label>
+    <div id="import-result" class="finance-import-result" hidden></div>
+    <footer><button class="secondary-button" type="button" data-close="import-dialog">Cancelar</button><button id="import-submit" class="primary-button" type="submit">Importar</button></footer>
   </form></dialog>
 </body></html>

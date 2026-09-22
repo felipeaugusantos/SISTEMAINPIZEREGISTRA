@@ -2,10 +2,10 @@ import calendar
 import csv
 import io
 from datetime import UTC, date, datetime, timedelta
-from decimal import ROUND_DOWN, Decimal
+from decimal import ROUND_DOWN, Decimal, InvalidOperation
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import exists, func, or_, select
@@ -14,8 +14,10 @@ from sqlalchemy.orm import selectinload
 
 from app.api.leads_propostas import sincronizar_pagamento_proposta_por_id
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
-from app.crm import normalizar_empresa, registrar_evento_operacional
+from app.crm import normalizar_empresa, obter_ou_criar_empresa, registrar_evento_operacional
 from app.database import get_session
+from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
+from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import (
     CategoriaFinanceira,
     ComissaoFinanceira,
@@ -1266,6 +1268,290 @@ async def editar_lancamento(
     )
     await session.commit()
     return {"id": lancamento.id, "status": "atualizado"}
+
+
+# Pedido do usuário (22/09/2026): importar lançamentos avulsos (contas a
+# pagar/receber) de uma planilha. Fragmentos procurados dentro do nome
+# normalizado da coluna (casamento por conteúdo, não exato), mesmo padrão de
+# app/api/carteira.py::COLUNAS_*.
+COLUNAS_DESCRICAO_LANCTO = ("descricao", "historico")
+COLUNAS_VALOR_LANCTO = ("valor",)
+COLUNAS_VENCIMENTO_LANCTO = ("vencimento",)
+COLUNAS_COMPETENCIA_LANCTO = ("competencia",)
+COLUNAS_PARCELAS_LANCTO = ("parcela",)
+COLUNAS_EMPRESA_LANCTO = ("empresa", "cliente", "fornecedor", "razaosocial")
+COLUNAS_CATEGORIA_LANCTO = ("categoria",)
+COLUNAS_FORMA_LANCTO = ("forma", "pagamento")
+COLUNAS_DOCUMENTO_LANCTO = ("documento", "nota", "nf")
+COLUNAS_OBS_LANCTO = ("observ", "obs", "notas")
+
+
+def _parse_valor_planilha(texto: str | None) -> Decimal | None:
+    if not texto:
+        return None
+    limpo = texto.strip().replace("R$", "").replace(" ", "")
+    if not limpo:
+        return None
+    if "," in limpo and "." in limpo:
+        limpo = limpo.replace(".", "").replace(",", ".")
+    elif "," in limpo:
+        limpo = limpo.replace(",", ".")
+    try:
+        valor = Decimal(limpo)
+    except InvalidOperation:
+        return None
+    return valor if valor > 0 else None
+
+
+def _parse_data_planilha(texto: str | None) -> date | None:
+    if not texto:
+        return None
+    limpo = texto.strip()
+    for formato in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(limpo, formato).date()
+        except ValueError:
+            continue
+    return None
+
+
+@router.get("/lancamentos/modelo-importacao.csv")
+async def modelo_importacao_lancamentos(
+    _usuario: ViewDep, tipo: Literal["pagar", "receber"] | None = None
+) -> StreamingResponse:
+    arquivo = io.StringIO()
+    writer = csv.writer(arquivo, delimiter=";")
+    writer.writerow(
+        [
+            "Descrição",
+            "Valor",
+            "Vencimento",
+            "Competência",
+            "Parcelas",
+            "Empresa",
+            "Categoria",
+            "Forma de pagamento",
+            "Documento",
+            "Observações",
+        ]
+    )
+    empresa_exemplo = "Fornecedor Exemplo Ltda" if tipo == "pagar" else "Cliente Exemplo Ltda"
+    descricao_exemplo = "Aluguel do escritório" if tipo != "receber" else "Honorários de acompanhamento"
+    writer.writerow(
+        [descricao_exemplo, "1500,00", "05/10/2026", "", "1", empresa_exemplo, "", "Pix", "", ""]
+    )
+    return StreamingResponse(
+        iter(("﻿" + arquivo.getvalue(),)),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="modelo-importacao-lancamentos.csv"'},
+    )
+
+
+@router.post("/lancamentos/importar", status_code=201)
+async def importar_lancamentos(
+    request: Request,
+    session: SessionDep,
+    usuario: ManageDep,
+    arquivo: Annotated[UploadFile, File()],
+    tipo: Annotated[Literal["pagar", "receber"], Form()],
+) -> dict:
+    """Importa lançamentos avulsos (contas a pagar/receber) de uma planilha CSV/XLSX.
+
+    Colunas reconhecidas (cabeçalho, sem acento/maiúsculas): descricao e valor
+    (obrigatórias), vencimento (obrigatória), competencia, parcelas, empresa,
+    categoria, forma_pagamento, documento, observacoes (opcionais). Linhas com
+    erro são reportadas mas não interrompem a importação do restante -- mesmo
+    padrão tolerante de app.api.carteira::importar_carteira.
+    """
+    conteudo = await arquivo.read()
+    if not conteudo:
+        raise HTTPException(400, "Arquivo vazio.")
+    if len(conteudo) > TAMANHO_MAXIMO_IMPORTACAO:
+        raise HTTPException(413, "Arquivo muito grande (máximo 5 MB).")
+    await escanear_upload_ou_rejeitar(conteudo)
+    registros = ler_planilha(conteudo, arquivo.filename or "")
+    if not registros:
+        raise HTTPException(
+            400,
+            "Planilha vazia ou sem cabeçalho reconhecível. Inclua as colunas 'descricao', 'valor' e 'vencimento'.",
+        )
+
+    categorias = {
+        categoria.nome.strip().lower(): categoria
+        for categoria in (
+            await session.execute(
+                select(CategoriaFinanceira).where(
+                    CategoriaFinanceira.organizacao_id == usuario.organizacao_id,
+                    CategoriaFinanceira.ativo.is_(True),
+                    or_(CategoriaFinanceira.tipo == tipo, CategoriaFinanceira.tipo == "ambos"),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+    formas = {
+        forma.nome.strip().lower(): forma
+        for forma in (
+            await session.execute(
+                select(FormaPagamentoFinanceira).where(
+                    FormaPagamentoFinanceira.organizacao_id == usuario.organizacao_id,
+                    FormaPagamentoFinanceira.ativo.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+
+    criados = 0
+    avisos: list[str] = []
+    erros: list[str] = []
+    empresas_cache: dict[str, int | None] = {}
+    for indice, registro in enumerate(registros, start=2):  # linha 1 é o cabeçalho
+        descricao = valor_coluna(registro, COLUNAS_DESCRICAO_LANCTO)
+        if not descricao:
+            erros.append(f"Linha {indice}: descrição vazia.")
+            continue
+
+        valor_texto = valor_coluna(registro, COLUNAS_VALOR_LANCTO)
+        valor_total = _parse_valor_planilha(valor_texto)
+        if valor_total is None:
+            erros.append(f"Linha {indice}: valor inválido ou vazio ('{valor_texto or ''}').")
+            continue
+
+        vencimento_texto = valor_coluna(registro, COLUNAS_VENCIMENTO_LANCTO)
+        primeiro_vencimento = _parse_data_planilha(vencimento_texto)
+        if primeiro_vencimento is None:
+            erros.append(
+                f"Linha {indice}: vencimento inválido ou vazio ('{vencimento_texto or ''}'). Use dd/mm/aaaa."
+            )
+            continue
+        competencia = _parse_data_planilha(valor_coluna(registro, COLUNAS_COMPETENCIA_LANCTO))
+        if competencia is None:
+            competencia = primeiro_vencimento.replace(day=1)
+
+        parcelas_texto = valor_coluna(registro, COLUNAS_PARCELAS_LANCTO)
+        quantidade_parcelas = 1
+        if parcelas_texto:
+            try:
+                quantidade_parcelas = int(parcelas_texto)
+            except ValueError:
+                erros.append(f"Linha {indice}: quantidade de parcelas inválida ('{parcelas_texto}').")
+                continue
+        if not 1 <= quantidade_parcelas <= 120:
+            erros.append(f"Linha {indice}: quantidade de parcelas fora do intervalo permitido (1 a 120).")
+            continue
+
+        empresa_id = None
+        empresa_nome = valor_coluna(registro, COLUNAS_EMPRESA_LANCTO)
+        if empresa_nome:
+            if empresa_nome not in empresas_cache:
+                if tipo == "pagar":
+                    empresa = await obter_ou_criar_empresa(session, usuario.organizacao_id, empresa_nome)
+                    empresas_cache[empresa_nome] = empresa.id if empresa else None
+                else:
+                    encontrada = (
+                        await session.execute(
+                            select(EmpresaCRM.id).where(
+                                EmpresaCRM.organizacao_id == usuario.organizacao_id,
+                                func.lower(EmpresaCRM.nome) == empresa_nome.lower(),
+                                _empresa_cliente(usuario),
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    empresas_cache[empresa_nome] = encontrada
+                    if encontrada is None:
+                        avisos.append(
+                            f"Linha {indice}: empresa '{empresa_nome}' não é cliente elegível -- "
+                            "lançamento criado sem vínculo."
+                        )
+            empresa_id = empresas_cache[empresa_nome]
+
+        categoria_id = None
+        categoria_nome = valor_coluna(registro, COLUNAS_CATEGORIA_LANCTO)
+        if categoria_nome:
+            categoria = categorias.get(categoria_nome.strip().lower())
+            if categoria:
+                categoria_id = categoria.id
+            else:
+                avisos.append(f"Linha {indice}: categoria '{categoria_nome}' não encontrada -- criado sem categoria.")
+
+        forma = None
+        forma_nome = valor_coluna(registro, COLUNAS_FORMA_LANCTO)
+        if forma_nome:
+            forma = formas.get(forma_nome.strip().lower())
+            if not forma:
+                avisos.append(
+                    f"Linha {indice}: forma de pagamento '{forma_nome}' não encontrada -- criado sem forma definida."
+                )
+
+        try:
+            _validar_parcelamento(forma, quantidade_parcelas)
+        except HTTPException as erro:
+            erros.append(f"Linha {indice}: {erro.detail}")
+            continue
+
+        lancamento = LancamentoFinanceiro(
+            organizacao_id=usuario.organizacao_id,
+            empresa_id=empresa_id,
+            categoria_id=categoria_id,
+            forma_pagamento_id=forma.id if forma else None,
+            tipo=tipo,
+            descricao=descricao[:240],
+            documento=(valor_coluna(registro, COLUNAS_DOCUMENTO_LANCTO) or "")[:80] or None,
+            competencia=competencia,
+            valor_total=valor_total,
+            observacoes=(valor_coluna(registro, COLUNAS_OBS_LANCTO) or "")[:4000] or None,
+            criado_por_id=usuario.id,
+            criado_por=usuario.ator,
+        )
+        session.add(lancamento)
+        await session.flush()
+        for parcela_indice, valor in enumerate(_parcelar(valor_total, quantidade_parcelas)):
+            session.add(
+                ParcelaFinanceira(
+                    organizacao_id=usuario.organizacao_id,
+                    lancamento_id=lancamento.id,
+                    numero=parcela_indice + 1,
+                    vencimento=_mes_seguinte(primeiro_vencimento, parcela_indice),
+                    valor=valor,
+                    valor_pago=Decimal(0),
+                )
+            )
+        _registrar_historico(
+            session,
+            usuario,
+            lancamento.id,
+            "criacao",
+            "Lançamento criado via importação de planilha",
+            {
+                "tipo": tipo,
+                "valor": str(valor_total),
+                "parcelas": quantidade_parcelas,
+                "arquivo": arquivo.filename,
+            },
+        )
+        criados += 1
+
+    resultado = {
+        "total_linhas": len(registros),
+        "criados": criados,
+        "erros": len(erros),
+        "avisos": len(avisos),
+        "exemplos_erros": erros[:20],
+        "exemplos_avisos": avisos[:20],
+    }
+    _auditar(
+        session,
+        request,
+        usuario,
+        "importar_lancamento",
+        f"lancamento-financeiro:importacao:{arquivo.filename}",
+        {k: v for k, v in resultado.items() if not k.startswith("exemplos")},
+    )
+    await session.commit()
+    return resultado
 
 
 async def _parcela(session: AsyncSession, usuario: UsuarioAutenticado, parcela_id: int) -> ParcelaFinanceira:

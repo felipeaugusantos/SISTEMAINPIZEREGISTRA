@@ -16,6 +16,7 @@ from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
 from app.models import (
+    CategoriaFinanceira,
     ComissaoFinanceira,
     FormaPagamentoFinanceira,
     LancamentoFinanceiro,
@@ -50,7 +51,7 @@ def test_pagina_financeira_e_protegida_por_permissao() -> None:
         assert "Controle contas a pagar e receber" in response.text
         assert "Novo lançamento" in response.text
         assert "admin-financeiro.css?v=11" in response.text
-        assert "admin-financeiro.js?v=10" in response.text
+        assert "admin-financeiro.js?v=11" in response.text
     finally:
         app.dependency_overrides.pop(obter_usuario_atual, None)
 
@@ -706,3 +707,135 @@ def test_pagar_comissao_pendente_com_sucesso() -> None:
     assert resposta.status_code == 200
     assert comissao.status == "paga"
     assert comissao.pago_em == date.today()
+
+
+# --- Pedido do usuário (22/09/2026): categorias e subcategorias
+# financeiras. ---
+
+
+def test_listar_categorias_retorna_hierarquia() -> None:
+    raiz = CategoriaFinanceira(id=1, organizacao_id=1, nome="Aluguel", tipo="pagar", ativo=True)
+    filha = CategoriaFinanceira(id=2, organizacao_id=1, nome="Aluguel - sede", tipo="pagar", categoria_pai_id=1, ativo=True)
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[raiz, filha]))
+    usuario = usuario_teste("administrador", {"finance.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).get("/v1/admin/financeiro/categorias")
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 200
+    itens = resposta.json()["itens"]
+    assert [x["nome"] for x in itens] == ["Aluguel", "Aluguel - sede"]
+    assert itens[1]["categoria_pai_id"] == 1
+
+
+def test_criar_categoria_raiz_com_sucesso() -> None:
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=None))
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/categorias",
+            json={"nome": "Honorários", "tipo": "receber"},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 201
+    corpo = resposta.json()
+    assert corpo["nome"] == "Honorários"
+    assert corpo["categoria_pai_id"] is None
+
+
+def test_criar_subcategoria_herda_tipo_do_pai() -> None:
+    pai = CategoriaFinanceira(id=1, organizacao_id=1, nome="Aluguel", tipo="pagar", ativo=True)
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(scalar=pai),
+        FakeResult(scalar=None),
+    )
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/categorias",
+            json={"nome": "Aluguel - sede", "tipo": "receber", "categoria_pai_id": 1},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 201
+    assert resposta.json()["tipo"] == "pagar"
+
+
+def test_criar_subcategoria_de_subcategoria_retorna_422() -> None:
+    avo_ja_e_sub = CategoriaFinanceira(id=2, organizacao_id=1, nome="Aluguel - sede", tipo="pagar", categoria_pai_id=1)
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=avo_ja_e_sub))
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/categorias",
+            json={"nome": "Sub-sub", "categoria_pai_id": 2},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 422
+    assert "subcategoria de outra subcategoria" in resposta.json()["detail"]
+
+
+def test_criar_categoria_duplicada_retorna_409() -> None:
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=1))
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/categorias",
+            json={"nome": "Aluguel", "tipo": "pagar"},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 409
+
+
+def test_desativar_categoria_com_subcategorias_ativas_retorna_409() -> None:
+    categoria = CategoriaFinanceira(id=1, organizacao_id=1, nome="Aluguel", tipo="pagar", ativo=True)
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(scalar=categoria),
+        FakeResult(scalar=None),
+        FakeResult(scalar=True),
+    )
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).put(
+            "/v1/admin/financeiro/categorias/1",
+            json={"nome": "Aluguel", "tipo": "pagar", "ativo": False},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 409
+    assert "Desative as subcategorias" in resposta.json()["detail"]
+
+
+def test_editar_categoria_inexistente_retorna_404() -> None:
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=None))
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).put(
+            "/v1/admin/financeiro/categorias/999",
+            json={"nome": "Aluguel", "tipo": "pagar"},
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 404

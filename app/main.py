@@ -402,6 +402,15 @@ async def painel_formas_pagamento() -> FileResponse:
 
 
 @app.get(
+    "/admin/financeiro/categorias",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("finance.view"))],
+)
+async def painel_categorias_financeiras() -> FileResponse:
+    return FileResponse(web_dir / "admin-financeiro-categorias.html")
+
+
+@app.get(
     "/admin/financeiro/retribuicoes",
     include_in_schema=False,
     dependencies=[Depends(exigir_permissao("finance.view"))],

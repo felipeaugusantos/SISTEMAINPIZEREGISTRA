@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+  <title>Categorias — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=66"><link rel="stylesheet" href="/static/admin-financeiro.css?v=11">
+  <script src="/static/admin-shell.js?v=50" defer></script><script src="/static/admin-financeiro-categorias.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="finance">
+  <main class="admin-main finance-main">
+    <section class="finance-hero">
+      <div><p class="eyebrow">CONFIGURAÇÃO FINANCEIRA</p><h1>Categorias</h1><p>Organize lançamentos por categoria e subcategoria, separadas por a pagar/a receber.</p></div>
+      <div class="hero-actions"><a class="secondary-button" href="/admin/financeiro">← Voltar ao painel</a><button id="new-category" class="primary-button" type="button">Nova categoria</button></div>
+    </section>
+    <nav class="finance-tabs" aria-label="Áreas do financeiro"><a href="/admin/financeiro">Visão geral</a><a href="/admin/financeiro/contas-a-pagar">Contas a pagar</a><a href="/admin/financeiro/contas-a-receber">Contas a receber</a><a class="active" href="/admin/financeiro/categorias" aria-current="page">Categorias</a><a href="/admin/financeiro/formas-pagamento">Formas de pagamento</a><a href="/admin/financeiro/plano-contas">Plano de contas &amp; DRE</a><a href="/admin/financeiro/lucratividade">Lucratividade</a><a href="/admin/financeiro/comissoes">Comissões</a><a href="/admin/financeiro/conciliacao">Conciliação</a><a href="/admin/financeiro/nfse">NFS-e</a></nav>
+    <div id="category-message" class="status-message" hidden role="status" aria-live="polite"></div>
+    <section id="category-metrics" class="finance-metrics compact"></section>
+    <section class="finance-card">
+      <header class="finance-list-heading"><div><p class="eyebrow">CADASTRO</p><h2>Categorias e subcategorias</h2><p>Categorias inativas são preservadas no histórico, mas não aparecem em novos lançamentos. Desative as subcategorias antes de desativar a categoria pai.</p></div><strong id="category-count">0 registros</strong></header>
+      <div id="category-list" class="payment-method-list"></div>
+    </section>
+  </main>
+  <dialog id="category-dialog" class="finance-dialog compact"><form id="category-form">
+    <header><div><p class="eyebrow">CATEGORIA</p><h2 id="category-title">Nova categoria</h2></div><button type="button" data-close="category-dialog" aria-label="Fechar">×</button></header>
+    <input name="id" type="hidden">
+    <label><span>Categoria pai (opcional)</span><select name="categoria_pai_id"><option value="">Nenhuma — categoria raiz</option></select><small>Uma subcategoria herda o tipo (a pagar/a receber) da categoria pai.</small></label>
+    <label><span>Nome</span><input name="nome" minlength="2" maxlength="120" placeholder="Ex.: Aluguel" required></label>
+    <label id="category-type-field"><span>Tipo</span><select name="tipo"><option value="ambos">Pagar e receber</option><option value="pagar">Somente a pagar</option><option value="receber">Somente a receber</option></select></label>
+    <label class="finance-check"><input name="ativo" type="checkbox" checked><span>Categoria ativa</span></label>
+    <footer><button class="secondary-button" type="button" data-close="category-dialog">Cancelar</button><button class="primary-button" type="submit">Salvar categoria</button></footer>
+  </form></dialog>
+</body></html>

@@ -39,6 +39,11 @@ class CategoriaFinanceira(Base):
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
     nome: Mapped[str] = mapped_column(String(120), index=True)
     tipo: Mapped[str] = mapped_column(String(12), default="ambos", index=True)
+    # Pedido do usuário (22/09/2026): subcategoria -- None é categoria raiz.
+    # Profundidade limitada a 1 nível, validado em app/api/financeiro.py.
+    categoria_pai_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categorias_financeiras.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

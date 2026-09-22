@@ -27,6 +27,22 @@ function showMessage(text, kind = "success") {
   message.textContent = readableError(text, kind === "error" ? "Não foi possível carregar os processos monitorados." : "Operação concluída.");
   message.className = `status-message ${kind}`;
 }
+// Achado P1 do review do Codex na PR #102 (Fase 10, 22/09/2026): a checagem
+// de conflito de interesse passou a rodar também em vincular-lote,
+// vincular-procurador e na importação, mas só o cadastro manual exibia o
+// alerta -- os outros três fluxos descartavam alertas_conflito_interesse em
+// silêncio. Helper único reaproveitado pelos quatro pontos de vínculo.
+function conflitoAlertaTexto(alerta) {
+  return alerta.tipo === "titular_outro_cliente"
+    ? `"${alerta.nome_encontrado}" é titular de um processo já monitorado para ${alerta.empresa_nome || "outro cliente"}`
+    : `"${alerta.nome_encontrado}" já é cliente cadastrado (${alerta.empresa_nome})`;
+}
+function showMessageComAlertasConflito(baseHtml, alertas) {
+  if (!alertas || !alertas.length) { message.hidden = false; message.className = "status-message success"; message.innerHTML = baseHtml; return; }
+  const itens = alertas.map(alerta => `<li>${escapeHtml(conflitoAlertaTexto(alerta))}</li>`).join("");
+  message.hidden = false; message.className = "status-message warning";
+  message.innerHTML = `${baseHtml} Possível conflito de interesse encontrado — confira antes de prosseguir:<ul>${itens}</ul>`;
+}
 async function api(url, options = {}) {
   options.headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   const response = await fetch(url, options); const data = await response.json().catch(() => ({}));
@@ -277,12 +293,12 @@ document.querySelector("#select-page").addEventListener("change", event => {
 });
 document.querySelector("#link-selected").addEventListener("click", async () => {
   if (!state.selected.size) { showMessage("Selecione ao menos um processo disponível.", "error"); return; }
-  try { const result = await api("/v1/admin/carteira/vincular-lote", { method: "POST", body: JSON.stringify({ processo_ids: [...state.selected], ...payloadContext("#attorney-company", "#attorney-owner") }) }); showMessage(`${result.vinculados} processo(s) vinculado(s); ${result.ja_vinculados} já estavam na carteira.`); document.querySelector("#attorney-form").requestSubmit(); await loadPortfolio(); }
+  try { const result = await api("/v1/admin/carteira/vincular-lote", { method: "POST", body: JSON.stringify({ processo_ids: [...state.selected], ...payloadContext("#attorney-company", "#attorney-owner") }) }); showMessageComAlertasConflito(`${result.vinculados} processo(s) vinculado(s); ${result.ja_vinculados} já estavam na carteira.`, result.alertas_conflito_interesse); document.querySelector("#attorney-form").requestSubmit(); await loadPortfolio(); }
   catch (error) { showMessage(error.message, "error"); }
 });
 document.querySelector("#link-all").addEventListener("click", async () => {
   if (!state.attorney || !confirm(`Vincular até ${state.attorney.total_processos} processo(s) encontrados?`)) return;
-  try { const result = await api("/v1/admin/carteira/vincular-procurador", { method: "POST", body: JSON.stringify({ procurador: state.attorney.procurador, modo: state.attorney.modo, ...payloadContext("#attorney-company", "#attorney-owner") }) }); showMessage(`${result.vinculados} processo(s) incluído(s); ${result.ja_vinculados} já estavam monitorados.`); document.querySelector("#attorney-form").requestSubmit(); await loadPortfolio(); }
+  try { const result = await api("/v1/admin/carteira/vincular-procurador", { method: "POST", body: JSON.stringify({ procurador: state.attorney.procurador, modo: state.attorney.modo, ...payloadContext("#attorney-company", "#attorney-owner") }) }); showMessageComAlertasConflito(`${result.vinculados} processo(s) incluído(s); ${result.ja_vinculados} já estavam monitorados.`, result.alertas_conflito_interesse); document.querySelector("#attorney-form").requestSubmit(); await loadPortfolio(); }
   catch (error) { showMessage(error.message, "error"); }
 });
 
@@ -295,17 +311,12 @@ document.querySelector("#manual-form").addEventListener("submit", async event =>
   try {
     const result = await api("/v1/admin/carteira/manual", { method: "POST", body: JSON.stringify({ ...values, responsavel_id: Number(values.responsavel_id) || null, empresa_nome: values.empresa_nome || null, observacoes: values.observacoes || null }) });
     if (result.status === "pendente") showMessage(result.mensagem || `Processo ${result.numero} aguardando publicação na RPI.`);
-    else if (result.alertas_conflito_interesse && result.alertas_conflito_interesse.length) {
-      // Achado FASE-A da auditoria do CRM (05/09/2026): alerta nao bloqueante --
-      // o vinculo ja foi criado, isto so avisa o operador para ele conferir.
-      const itens = result.alertas_conflito_interesse.map(a => {
-        const rotulo = a.tipo === "titular_outro_cliente" ? `"${a.nome_encontrado}" é titular de um processo já monitorado para ${a.empresa_nome || "outro cliente"}` : `"${a.nome_encontrado}" já é cliente cadastrado (${a.empresa_nome})`;
-        return `<li>${escapeHtml(rotulo)}</li>`;
-      }).join("");
-      message.hidden = false; message.className = "status-message warning";
-      message.innerHTML = `<strong>Processo ${escapeHtml(result.numero)} adicionado à carteira.</strong> Possível conflito de interesse encontrado — confira antes de prosseguir:<ul>${itens}</ul>`;
-    }
-    else showMessage(result.vinculados ? `Processo ${result.numero} adicionado à carteira.` : `Processo ${result.numero} já estava na carteira.`);
+    // Achado FASE-A da auditoria do CRM (05/09/2026): alerta nao bloqueante --
+    // o vinculo ja foi criado, isto so avisa o operador para ele conferir.
+    else showMessageComAlertasConflito(
+      `<strong>Processo ${escapeHtml(result.numero)} ${result.vinculados ? "adicionado à carteira" : "já estava na carteira"}.</strong>`,
+      result.alertas_conflito_interesse
+    );
     dialog.close(); form.reset(); await Promise.all([loadPortfolio(), loadPreCadastros()]);
   }
   catch (error) { showMessage(error.message, "error"); }
@@ -555,8 +566,12 @@ document.querySelector("#import-form").addEventListener("submit", async event =>
     const response = await fetch("/v1/admin/carteira/importar", { method: "POST", body });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.detail || `Falha na importação (${response.status})`);
+    // Achado P1 do review do Codex na PR #102 (Fase 10, 22/09/2026): a
+    // importação passou a checar conflito de interesse, mas o alerta era
+    // descartado em silêncio -- só os contadores apareciam.
+    const alertasConflito = data.alertas_conflito_interesse || [];
     importResult.hidden = false;
-    importResult.className = "import-result success";
+    importResult.className = `import-result ${alertasConflito.length ? "warning" : "success"}`;
     const naoEncontrados = data.exemplos_nao_encontrados || [];
     // Números inteiros do backend + números de processo passados por escapeHtml.
     importResult.innerHTML =
@@ -566,6 +581,9 @@ document.querySelector("#import-form").addEventListener("submit", async event =>
       `<li>${data.sem_numero} linha(s) sem número</li></ul>` +
       (naoEncontrados.length
         ? `<small>Não encontrados: ${naoEncontrados.map(escapeHtml).join(", ")}${data.nao_encontrados > naoEncontrados.length ? "…" : ""}</small>`
+        : "") +
+      (alertasConflito.length
+        ? `<small><strong>Possível conflito de interesse — confira antes de prosseguir:</strong><ul>${alertasConflito.map(a => `<li>${escapeHtml(conflitoAlertaTexto(a))}</li>`).join("")}</ul></small>`
         : "");
     await loadPortfolio();
   } catch (error) {

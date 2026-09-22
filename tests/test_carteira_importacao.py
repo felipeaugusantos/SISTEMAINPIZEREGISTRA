@@ -127,7 +127,10 @@ def test_importar_carteira_aplica_checagem_de_conflito_de_interesse(monkeypatch:
             FakeResult(itens=[processo]),  # Processo.numero_normalizado.in_(...)
             FakeResult(itens=[]),  # ja_monitorados
             FakeResult(itens=[(301, "Marca Concorrente Ltda")]),  # titulares dos processos vinculados nesta importação
-            FakeResult(itens=[("Marca Concorrente Ltda", 77, "Outro Cliente", 301)]),  # conflito: titulares
+            # processo_id=999 (outro processo, já monitorado antes desta importação) --
+            # não pode ser o 301 que acabamos de vincular agora, senão é auto-match
+            # (achado P2 do review do Codex), não um conflito de verdade.
+            FakeResult(itens=[("Marca Concorrente Ltda", 77, "Outro Cliente", 999)]),  # conflito: titulares
             FakeResult(itens=[]),  # conflito: empresas
         ]
     )
@@ -157,9 +160,60 @@ def test_importar_carteira_aplica_checagem_de_conflito_de_interesse(monkeypatch:
             "nome_encontrado": "Marca Concorrente Ltda",
             "empresa_id": 77,
             "empresa_nome": "Outro Cliente",
-            "processo_id": 301,
+            "processo_id": 999,
         }
     ]
+
+
+def test_importar_carteira_filtra_conflito_com_a_propria_linha_importada(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Achado P2 do review do Codex na PR #102 (Fase 10, 22/09/2026): sem
+    # empresa_id_atual (não dá pra usar um valor único -- cada linha da
+    # planilha pode ter uma empresa diferente), a empresa recém-criada pela
+    # própria importação aparecia como "conflito" contra si mesma.
+    from app.crm import normalizar_empresa
+
+    async def _sem_virus(_conteudo: bytes) -> None:
+        return None
+
+    monkeypatch.setattr(modulo_carteira, "escanear_upload_ou_rejeitar", _sem_virus)
+
+    processo = Processo(
+        id=301, numero="900123456", numero_normalizado="900123456", tipo=TipoProcesso.MARCA, titulo="Marca X"
+    )
+    nome_normalizado = normalizar_empresa("Nova Empresa Ltda")
+    session = FakeSession(
+        [
+            FakeResult(itens=[processo]),  # Processo.numero_normalizado.in_(...)
+            FakeResult(itens=[]),  # ja_monitorados
+            FakeResult(scalar=None),  # obter_ou_criar_empresa: ainda não existe
+            FakeResult(itens=[]),  # titulares dos processos vinculados nesta importação
+            FakeResult(itens=[]),  # verificar_conflito_interesse: titulares
+            # A própria empresa que acabamos de criar (flush já deu id=1 na
+            # FakeSession) volta na consulta de "empresas já cliente".
+            FakeResult(itens=[(1, "Nova Empresa Ltda", nome_normalizado)]),
+        ]
+    )
+    usuario = usuario_teste()
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/admin/carteira/importar",
+            "headers": [],
+            "client": ("127.0.0.1", 12345),
+            "scheme": "http",
+            "server": ("testserver", 80),
+        }
+    )
+
+    resultado = asyncio.run(
+        importar_carteira(
+            request, session, usuario, _ArquivoFake(b"numero,empresa\n900123456,Nova Empresa Ltda\n"), responsavel_id=None
+        )
+    )
+
+    assert resultado["vinculados"] == 1
+    assert resultado["alertas_conflito_interesse"] == []
 
 
 def test_importar_carteira_rejeita_arquivo_infectado(monkeypatch: pytest.MonkeyPatch) -> None:

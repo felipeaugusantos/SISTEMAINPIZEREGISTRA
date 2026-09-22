@@ -21,6 +21,7 @@
 .import-result{margin-top:4px;padding:14px 16px;border-radius:12px;border:1px solid #dce2dc;background:#fbfcf9;font-size:.84rem}
 .import-result.success{border-color:#bfe0cb;background:#eef7f1}
 .import-result.error{border-color:#e6c4bc;background:#fbeee9;color:#8c2d1d}
+.import-result.warning{border-color:#e6cf8f;background:#fbf4dd;color:#6b5610}
 .import-result strong{display:block;margin-bottom:6px}
 .import-result ul{margin:0;padding-left:18px}
 .import-result li{margin-bottom:3px;color:#5c6b62}

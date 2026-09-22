@@ -1610,6 +1610,18 @@ async def importar_carteira(
             ).all()
         )
         alertas_conflito = await verificar_conflito_interesse(session, usuario.organizacao_id, nomes_a_checar)
+        # Achado P2 do review do Codex na PR #102 (Fase 10, 22/09/2026): sem
+        # empresa_id_atual (aqui não dá pra usar um valor único -- cada linha
+        # da planilha pode ter uma empresa diferente), verificar_conflito_interesse
+        # aponta como "conflito" a própria empresa/processo que esta MESMA
+        # importação acabou de criar/vincular (já commitado na sessão via
+        # flush, então já aparece nas consultas). Filtra esses auto-achados.
+        empresas_desta_importacao = {empresa_id for empresa_id in empresas_cache.values() if empresa_id}
+        alertas_conflito = [
+            achado
+            for achado in alertas_conflito
+            if achado["empresa_id"] not in empresas_desta_importacao and achado["processo_id"] not in processados
+        ]
         if alertas_conflito:
             _auditar(
                 session,

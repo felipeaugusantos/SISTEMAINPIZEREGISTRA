@@ -50,8 +50,8 @@ def test_pagina_financeira_e_protegida_por_permissao() -> None:
         assert response.status_code == 200
         assert "Controle contas a pagar e receber" in response.text
         assert "Novo lançamento" in response.text
-        assert "admin-financeiro.css?v=11" in response.text
-        assert "admin-financeiro.js?v=11" in response.text
+        assert "admin-financeiro.css?v=12" in response.text
+        assert "admin-financeiro.js?v=12" in response.text
     finally:
         app.dependency_overrides.pop(obter_usuario_atual, None)
 

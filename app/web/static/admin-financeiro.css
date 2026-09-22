@@ -212,3 +212,7 @@
 .mt-12{margin-top:12px}
 .mt-14{margin-top:14px}
 .processo-detalhe{color:var(--muted);font-size:.82rem}
+.finance-import-result{max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:.8rem}
+.finance-import-result strong{display:block;margin-bottom:6px}
+.finance-import-result ul{margin:4px 0 8px;padding-left:18px;color:var(--muted)}
+.finance-import-result li{margin-bottom:2px}

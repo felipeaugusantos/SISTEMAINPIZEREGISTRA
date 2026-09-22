@@ -11,7 +11,11 @@ from app.api.juridico import executar_motor_organizacao
 from app.api.versoes_sistema import lembrar_atualizacoes_pendentes
 from app.cadencia_email import processar_envios_cadencia_pendentes
 from app.cli.sincronizar_alto_renome import sincronizar as sincronizar_alto_renome
-from app.crm import gerar_lembretes_sla_primeiro_atendimento, reconciliar_automacoes_fluxo_contratacao
+from app.crm import (
+    gerar_lembretes_reengajamento_inatividade,
+    gerar_lembretes_sla_primeiro_atendimento,
+    reconciliar_automacoes_fluxo_contratacao,
+)
 from app.database import session_factory
 from app.emailing import enviar_alerta_atividades_atrasadas
 from app.feature_flags import avaliar_circuito_flags
@@ -25,14 +29,12 @@ from app.imap_polling import verificar_respostas_email
 from app.models import (
     AlertaSistema,
     Lead,
-    LembreteCRM,
     Movimentacao,
     Organizacao,
     Processo,
     ProcessoHeartbeat,
     ProcessoMonitorado,
     RenovacaoFinanceira,
-    StatusLead,
     UsuarioOperacoes,
 )
 from app.queueing import (
@@ -144,54 +146,11 @@ async def processar(tipo: str, payload: dict) -> None:
             # (app/crm.py::aplicar_politica_oportunidade) só é aplicada quando
             # alguém mexe no lead -- sozinho, um lead esquecido continua esquecido
             # para sempre. Este job varre periodicamente e cria um lembrete para
-            # o operador retomar contato. Idempotente por semana ISO: no máximo
-            # um lembrete de reengajamento por lead por semana, mesmo rodando de
-            # hora em hora.
-            agora = datetime.now(UTC)
-            semana = agora.strftime("%G-W%V")
-            leads = (
-                await session.execute(
-                    select(Lead)
-                    .join(Organizacao, Organizacao.id == Lead.organizacao_id)
-                    .where(
-                        Organizacao.status != "suspensa",
-                        Lead.status.notin_([StatusLead.CONVERTIDO, StatusLead.DESCARTADO]),
-                        Lead.arquivado_em.is_(None),
-                        or_(Lead.proxima_acao_em.is_(None), Lead.proxima_acao_em < agora),
-                    )
-                )
-            ).scalars()
-            criados = 0
-            atrasados_por_responsavel: dict[int, list[Lead]] = {}
-            for lead in leads:
-                inserido = (
-                    await session.execute(
-                        pg_insert(LembreteCRM)
-                        .values(
-                            organizacao_id=lead.organizacao_id,
-                            lead_id=lead.id,
-                            responsavel_id=lead.responsavel_id,
-                            tipo="retorno",
-                            prioridade="alta",
-                            titulo="Oportunidade parada — retomar contato",
-                            descricao=(
-                                "Sem próxima ação definida ou o prazo já venceu. "
-                                "Verifique o andamento e planeje o próximo passo."
-                            ),
-                            lembrar_em=agora,
-                            status="pendente",
-                            criado_por="Automação (reengajamento por inatividade)",
-                            criado_por_id=None,
-                            idempotency_key=f"reengajamento:{lead.id}:{semana}",
-                        )
-                        .on_conflict_do_nothing(constraint="uq_lembrete_crm_idempotencia")
-                        .returning(LembreteCRM.id)
-                    )
-                ).scalar_one_or_none()
-                if inserido is not None:
-                    criados += 1
-                    if lead.responsavel_id is not None:
-                        atrasados_por_responsavel.setdefault(lead.responsavel_id, []).append(lead)
+            # o operador retomar contato. Lógica em
+            # app.crm.gerar_lembretes_reengajamento_inatividade (testável
+            # isoladamente, mesmo padrão de gerar_lembretes_sla_primeiro_atendimento).
+            semana = datetime.now(UTC).strftime("%G-W%V")
+            criados, atrasados_por_responsavel = await gerar_lembretes_reengajamento_inatividade(session)
             # Achado P2 da auditoria de Leads: nenhuma notificação ativa avisava
             # o responsável de uma atividade atrasada -- só aparecia se ele
             # entrasse no sistema. Um e-mail por responsável, no máximo uma vez

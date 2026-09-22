@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -404,28 +405,66 @@ async def _vincular_ids(
     await _validar_responsavel(session, usuario, dados.responsavel_id)
     novos = processos_existentes - ja_vinculados
     leads_por_processo = await _leads_por_numero_processo(session, usuario.organizacao_id, novos)
-    for processo_id in novos:
-        session.add(
-            ProcessoMonitorado(
-                organizacao_id=usuario.organizacao_id,
-                processo_id=processo_id,
-                empresa_id=empresa.id if empresa else None,
-                responsavel_id=dados.responsavel_id,
-                lead_id=leads_por_processo.get(processo_id),
-                status="ativo",
-                origem=origem,
-                procurador_origem=procurador_origem,
-                observacoes=dados.observacoes,
-                vinculado_por=usuario.ator,
-            )
+    # Achado médio da Fase 10 (auditoria da carteira, 22/09/2026): a checagem
+    # de conflito de interesse (verificar_conflito_interesse, Fase A do CRM)
+    # só rodava no cadastro manual de UM processo -- vincular em lote e
+    # "vincular todos do procurador" (até 5000 de uma vez) inseriam direto,
+    # sem nenhum alerta, mesmo a lógica já existindo pronta para reuso.
+    # Centralizado aqui, que é o ponto comum aos três fluxos de vínculo.
+    nomes_a_checar: list[str | None] = [dados.empresa_nome, getattr(dados, "titular", None)]
+    if novos:
+        nomes_a_checar.extend(
+            nome
+            for _processo_id, nome in (
+                await session.execute(
+                    select(processo_titulares.c.processo_id, Titular.nome)
+                    .join(Titular, Titular.id == processo_titulares.c.titular_id)
+                    .where(processo_titulares.c.processo_id.in_(novos))
+                )
+            ).all()
         )
+    alertas_conflito = await verificar_conflito_interesse(
+        session, usuario.organizacao_id, nomes_a_checar, empresa_id_atual=empresa.id if empresa else None
+    )
+    # Achado médio da Fase 10: "checa depois insere" sem tratamento de
+    # corrida -- duplo clique ou duas requisições concorrentes vinculando o
+    # mesmo processo colidiam com a UniqueConstraint (uq_processo_monitorado_
+    # org_processo) e estouravam 500 cru em vez da mensagem amigável que o
+    # caminho não concorrente já produz. Mesmo padrão begin_nested()/
+    # IntegrityError já usado em app/api/leads_propostas.py (PR #48).
+    vinculados_ids: list[int] = []
+    colisoes_concorrentes = 0
+    for processo_id in novos:
+        try:
+            async with session.begin_nested():
+                session.add(
+                    ProcessoMonitorado(
+                        organizacao_id=usuario.organizacao_id,
+                        processo_id=processo_id,
+                        empresa_id=empresa.id if empresa else None,
+                        responsavel_id=dados.responsavel_id,
+                        lead_id=leads_por_processo.get(processo_id),
+                        status="ativo",
+                        origem=origem,
+                        procurador_origem=procurador_origem,
+                        observacoes=dados.observacoes,
+                        vinculado_por=usuario.ator,
+                    )
+                )
+                await session.flush()
+            vinculados_ids.append(processo_id)
+        except IntegrityError:
+            colisoes_concorrentes += 1
     resultado = {
         "encontrados": len(ids),
-        "vinculados": len(novos),
-        "ja_vinculados": len(ja_vinculados),
+        "vinculados": len(vinculados_ids),
+        "ja_vinculados": len(ja_vinculados) + colisoes_concorrentes,
         "nao_encontrados": len(set(ids) - processos_existentes),
         "empresa": empresa.nome if empresa else None,
+        "alertas_conflito_interesse": alertas_conflito,
     }
+    if alertas_conflito:
+        _auditar(session, request, usuario, "alerta_conflito", f"carteira:{origem}", {"achados": alertas_conflito})
     _auditar(
         session,
         request,
@@ -1337,25 +1376,12 @@ async def cadastrar_manual(
 
     # Achado FASE-A da auditoria do CRM (05/09/2026): checagem NAO BLOQUEANTE
     # de conflito de interesse antes de vincular o processo a um cliente --
-    # o operador ve o aviso mas a vinculacao sempre prossegue; a auditoria
-    # abaixo registra que o alerta foi levantado no momento da acao.
-    empresa_alvo = await _empresa(session, usuario, dados.empresa_id, dados.empresa_nome)
-    nomes_a_checar = [dados.titular, dados.empresa_nome, *(titular.nome for titular in processo.titulares)]
-    alertas_conflito = await verificar_conflito_interesse(
-        session, usuario.organizacao_id, nomes_a_checar, empresa_id_atual=empresa_alvo.id if empresa_alvo else None
-    )
-    if alertas_conflito:
-        _auditar(
-            session,
-            request,
-            usuario,
-            "alerta_conflito",
-            f"processo:{processo.id}",
-            {"achados": alertas_conflito},
-        )
-
+    # o operador ve o aviso mas a vinculacao sempre prossegue. Centralizada
+    # em _vincular_ids (achado médio da Fase 10, 22/09/2026) pra valer
+    # também nos fluxos de vínculo em lote/procurador/importação, não só
+    # aqui no cadastro manual -- dados.titular é considerado via getattr lá.
     resultado = await _vincular_ids(session, request, usuario, [processo.id], dados_vinculo, origem="manual")
-    return {**resultado, "numero": processo.numero, "status": "vinculado", "alertas_conflito_interesse": alertas_conflito}
+    return {**resultado, "numero": processo.numero, "status": "vinculado"}
 
 
 @router.get("/pre-cadastros")
@@ -1536,21 +1562,63 @@ async def importar_carteira(
         if empresa_nome and empresa_nome not in empresas_cache:
             empresa = await obter_ou_criar_empresa(session, usuario.organizacao_id, empresa_nome)
             empresas_cache[empresa_nome] = empresa.id if empresa else None
-        session.add(
-            ProcessoMonitorado(
-                organizacao_id=usuario.organizacao_id,
-                processo_id=processo.id,
-                empresa_id=empresas_cache.get(empresa_nome) if empresa_nome else None,
-                responsavel_id=responsavel_id,
-                status="ativo",
-                origem="importacao",
-                procurador_origem=valor_coluna(registro, COLUNAS_PROCURADOR),
-                observacoes=valor_coluna(registro, COLUNAS_OBS),
-                vinculado_por=usuario.ator,
-            )
-        )
+        # Achado médio da Fase 10 (auditoria da carteira, 22/09/2026): "checa
+        # depois insere" sem tratamento de corrida -- duas importações da
+        # mesma planilha em paralelo (ou uma importação concorrente com um
+        # vínculo manual do mesmo processo) colidiam com a UniqueConstraint
+        # e estouravam 500 cru no meio do loop, sem processar o resto do
+        # arquivo. Mesmo padrão begin_nested()/IntegrityError de _vincular_ids.
+        try:
+            async with session.begin_nested():
+                session.add(
+                    ProcessoMonitorado(
+                        organizacao_id=usuario.organizacao_id,
+                        processo_id=processo.id,
+                        empresa_id=empresas_cache.get(empresa_nome) if empresa_nome else None,
+                        responsavel_id=responsavel_id,
+                        status="ativo",
+                        origem="importacao",
+                        procurador_origem=valor_coluna(registro, COLUNAS_PROCURADOR),
+                        observacoes=valor_coluna(registro, COLUNAS_OBS),
+                        vinculado_por=usuario.ator,
+                    )
+                )
+                await session.flush()
+        except IntegrityError:
+            ja_vinculados += 1
+            processados.add(processo.id)
+            continue
         processados.add(processo.id)
         vinculados += 1
+
+    # Achado médio da Fase 10: mesma checagem não-bloqueante de conflito de
+    # interesse de _vincular_ids, aplicada aqui uma única vez pro lote
+    # inteiro (em vez de uma chamada por linha, que com até 5000 linhas
+    # seria caro) -- reúne titulares dos processos efetivamente vinculados
+    # + nomes de empresa distintos da planilha.
+    alertas_conflito: list[dict] = []
+    if processados:
+        nomes_a_checar = [*empresas_cache.keys()]
+        nomes_a_checar.extend(
+            nome
+            for _processo_id, nome in (
+                await session.execute(
+                    select(processo_titulares.c.processo_id, Titular.nome)
+                    .join(Titular, Titular.id == processo_titulares.c.titular_id)
+                    .where(processo_titulares.c.processo_id.in_(processados))
+                )
+            ).all()
+        )
+        alertas_conflito = await verificar_conflito_interesse(session, usuario.organizacao_id, nomes_a_checar)
+        if alertas_conflito:
+            _auditar(
+                session,
+                request,
+                usuario,
+                "alerta_conflito",
+                f"carteira:importacao:{arquivo.filename}",
+                {"achados": alertas_conflito},
+            )
 
     resultado = {
         "total_linhas": len(registros),
@@ -1560,6 +1628,7 @@ async def importar_carteira(
         "sem_numero": sem_numero,
         "empresas_associadas": len([v for v in empresas_cache.values() if v]),
         "exemplos_nao_encontrados": nao_encontrados[:20],
+        "alertas_conflito_interesse": alertas_conflito,
     }
     _auditar(
         session,

@@ -13,6 +13,12 @@ from fastapi import HTTPException
 from openpyxl import load_workbook
 
 TAMANHO_MAXIMO_IMPORTACAO = 5_000_000
+# Achado baixo da auditoria da carteira de processos (Fase 10, 22/09/2026):
+# só havia limite de tamanho de arquivo, não de linhas -- um CSV compacto de
+# 5MB pode ter centenas de milhares de linhas, cada uma virando consulta(s)
+# e insert num único request síncrono, sem paginação. Mesma ordem de
+# grandeza do limite explícito de vincular-lote/atribuir-lote (max_length).
+LINHAS_MAXIMAS_IMPORTACAO = 5000
 
 
 def chave_coluna(texto: str) -> str:
@@ -54,6 +60,10 @@ def ler_planilha(conteudo: bytes, filename: str) -> list[dict[str, str]]:
     linhas = [linha for linha in linhas if any(linha)]
     if len(linhas) < 2:
         return []
+    if len(linhas) - 1 > LINHAS_MAXIMAS_IMPORTACAO:
+        raise HTTPException(
+            413, f"Planilha com {len(linhas) - 1} linhas -- o máximo por importação é {LINHAS_MAXIMAS_IMPORTACAO}."
+        )
     cabecalho = [chave_coluna(coluna) for coluna in linhas[0]]
     return [{cabecalho[i]: (linha[i] if i < len(linha) else "") for i in range(len(cabecalho))} for linha in linhas[1:]]
 

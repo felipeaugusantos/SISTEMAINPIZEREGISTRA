@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 from app.api.carteira import (
@@ -9,6 +10,7 @@ from app.api.carteira import (
     AtualizacaoLote,
     AtualizacaoMonitoramento,
     CadastroManual,
+    VinculoLote,
     _filtro_procurador,
     _grupo_situacao_valor,
     _normalizar_busca,
@@ -24,6 +26,7 @@ from app.api.carteira import (
     exportar_carteira,
     listar_carteira,
     obter_status_sincronizacao_rpi,
+    vincular_lote,
 )
 from app.models import (
     EmpresaCRM,
@@ -125,10 +128,12 @@ def test_cadastro_manual_vincula_processo_sem_duplicar_dados_rpi() -> None:
     session = FakeSession(
         [
             FakeResult(scalar=processo),
+            FakeResult(itens=[101]),  # _vincular_ids: processos_existentes
+            FakeResult(itens=[]),  # _vincular_ids: ja_vinculados
+            FakeResult(itens=[]),  # _leads_por_numero_processo
+            FakeResult(itens=[]),  # titulares dos processos recem-vinculados
             FakeResult(itens=[]),  # verificar_conflito_interesse: titulares de outros clientes
             FakeResult(itens=[]),  # verificar_conflito_interesse: empresas ja cliente
-            FakeResult(itens=[101]),
-            FakeResult(itens=[]),
         ]
     )
     usuario = usuario_teste()
@@ -166,11 +171,12 @@ def test_cadastro_manual_liga_processo_ao_lead_quando_numero_bate() -> None:
     session = FakeSession(
         [
             FakeResult(scalar=processo),
+            FakeResult(itens=[101]),  # _vincular_ids: processos_existentes
+            FakeResult(itens=[]),  # _vincular_ids: ja_vinculados
+            FakeResult(itens=[(101, 7)]),  # _leads_por_numero_processo
+            FakeResult(itens=[]),  # titulares dos processos recem-vinculados
             FakeResult(itens=[]),  # verificar_conflito_interesse: titulares de outros clientes
             FakeResult(itens=[]),  # verificar_conflito_interesse: empresas ja cliente
-            FakeResult(itens=[101]),
-            FakeResult(itens=[]),
-            FakeResult(itens=[(101, 7)]),
         ]
     )
     usuario = usuario_teste()
@@ -200,10 +206,12 @@ def test_cadastro_manual_informa_quando_processo_ja_esta_vinculado() -> None:
     session = FakeSession(
         [
             FakeResult(scalar=processo),
+            FakeResult(itens=[101]),  # _vincular_ids: processos_existentes
+            FakeResult(itens=[101]),  # _vincular_ids: ja_vinculados
+            # novos fica vazio -- nem _leads_por_numero_processo nem a busca
+            # de titulares por processo consultam o banco (early-return).
             FakeResult(itens=[]),  # verificar_conflito_interesse: titulares de outros clientes
             FakeResult(itens=[]),  # verificar_conflito_interesse: empresas ja cliente
-            FakeResult(itens=[101]),
-            FakeResult(itens=[101]),
         ]
     )
 
@@ -219,6 +227,88 @@ def test_cadastro_manual_informa_quando_processo_ja_esta_vinculado() -> None:
     assert resultado["vinculados"] == 0
     assert resultado["ja_vinculados"] == 1
     assert not any(isinstance(item, ProcessoMonitorado) for item in session.adicionados)
+
+
+# --- Achados médios da auditoria da carteira (Fase 10, 22/09/2026):
+# verificar_conflito_interesse só rodava no cadastro manual de UM processo,
+# não nos vínculos em lote/procurador/importação; e o "checa depois insere"
+# de _vincular_ids não tratava corrida concorrente (IntegrityError virava
+# 500 cru). ---
+
+
+def test_vincular_lote_aplica_checagem_de_conflito_de_interesse() -> None:
+    processo_a = Processo(id=201, numero="900111222", numero_normalizado="900111222", tipo=TipoProcesso.MARCA)
+    processo_b = Processo(id=202, numero="900333444", numero_normalizado="900333444", tipo=TipoProcesso.MARCA)
+    session = FakeSession(
+        [
+            FakeResult(itens=[201, 202]),  # processos_existentes
+            FakeResult(itens=[]),  # ja_vinculados
+            FakeResult(itens=[]),  # _leads_por_numero_processo
+            FakeResult(itens=[(201, "Marca Concorrente Ltda")]),  # titulares dos novos processos
+            FakeResult(itens=[("Marca Concorrente Ltda", 55, "Cliente Já Monitorado", 999)]),  # conflito: titular
+            FakeResult(itens=[]),  # conflito: empresas
+        ]
+    )
+    usuario = usuario_teste()
+
+    resultado = asyncio.run(
+        vincular_lote(
+            VinculoLote(processo_ids=[processo_a.id, processo_b.id]),
+            _request(),
+            session,
+            usuario,
+        )
+    )
+
+    assert resultado["vinculados"] == 2
+    assert resultado["alertas_conflito_interesse"] == [
+        {
+            "tipo": "titular_outro_cliente",
+            "nome_encontrado": "Marca Concorrente Ltda",
+            "empresa_id": 55,
+            "empresa_nome": "Cliente Já Monitorado",
+            "processo_id": 999,
+        }
+    ]
+    assert any(
+        isinstance(item, EventoAuditoria) and item.acao == "alerta_conflito" for item in session.adicionados
+    )
+
+
+def test_vincular_lote_absorve_colisao_concorrente_sem_quebrar_o_lote(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeSession(
+        [
+            FakeResult(itens=[301, 302]),  # processos_existentes
+            FakeResult(itens=[]),  # ja_vinculados
+            FakeResult(itens=[]),  # _leads_por_numero_processo
+            FakeResult(itens=[]),  # titulares dos novos processos
+            FakeResult(itens=[]),  # conflito: titulares
+            FakeResult(itens=[]),  # conflito: empresas
+        ]
+    )
+
+    chamadas = {"n": 0}
+    flush_original = session.flush
+
+    async def flush_com_colisao_na_primeira() -> None:
+        chamadas["n"] += 1
+        if chamadas["n"] == 1:
+            raise IntegrityError("insert", {}, Exception("duplicate key"))
+        await flush_original()
+
+    monkeypatch.setattr(session, "flush", flush_com_colisao_na_primeira)
+
+    resultado = asyncio.run(
+        vincular_lote(VinculoLote(processo_ids=[301, 302]), _request(), session, usuario_teste())
+    )
+
+    # Um dos dois esbarra na UniqueConstraint (corrida simulada) e vira
+    # "já vinculado" em vez de estourar 500 -- o outro segue vinculado
+    # normalmente, sem perder o resto do lote.
+    assert resultado["vinculados"] == 1
+    assert resultado["ja_vinculados"] == 1
+    monitorados = [item for item in session.adicionados if isinstance(item, ProcessoMonitorado)]
+    assert len(monitorados) == 1
 
 
 def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:

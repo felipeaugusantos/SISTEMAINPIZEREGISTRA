@@ -1,19 +1,23 @@
+import asyncio
 import io
 
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
+from starlette.requests import Request
 
 import app.api.carteira as modulo_carteira
-from app.api.carteira import COLUNAS_EMPRESA, COLUNAS_NUMERO, COLUNAS_OBS, _numero_processo
+from app.api.carteira import COLUNAS_EMPRESA, COLUNAS_NUMERO, COLUNAS_OBS, _numero_processo, importar_carteira
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
+from app.importacao_planilha import LINHAS_MAXIMAS_IMPORTACAO
 from app.importacao_planilha import chave_coluna as _chave_coluna
 from app.importacao_planilha import ler_planilha as _ler_planilha
 from app.importacao_planilha import valor_coluna as _valor
 from app.main import app
-from tests.conftest import FakeSession, auth_override, usuario_teste
+from app.models import Processo, TipoProcesso
+from tests.conftest import FakeResult, FakeSession, auth_override, usuario_teste
 
 
 def test_numero_processo_tolera_cabecalhos_variados() -> None:
@@ -70,9 +74,92 @@ def test_planilha_so_com_cabecalho_retorna_vazio() -> None:
     assert _ler_planilha(b"numero,empresa\n", "x.csv") == []
 
 
+def test_planilha_acima_do_limite_de_linhas_e_rejeitada() -> None:
+    # Achado baixo da auditoria da carteira (Fase 10, 22/09/2026): só havia
+    # limite de tamanho de arquivo (5MB), não de linhas -- um CSV compacto
+    # pode ter centenas de milhares de linhas processadas num único request
+    # síncrono, sem paginação.
+    conteudo = "numero\n" + "\n".join(f"90012345{i}" for i in range(LINHAS_MAXIMAS_IMPORTACAO + 1))
+    with pytest.raises(HTTPException) as exc_info:
+        _ler_planilha(conteudo.encode("utf-8"), "carteira.csv")
+    assert exc_info.value.status_code == 413
+
+
+def test_planilha_no_limite_de_linhas_e_aceita() -> None:
+    conteudo = "numero\n" + "\n".join(f"90012345{i}" for i in range(LINHAS_MAXIMAS_IMPORTACAO))
+    registros = _ler_planilha(conteudo.encode("utf-8"), "carteira.csv")
+    assert len(registros) == LINHAS_MAXIMAS_IMPORTACAO
+
+
 def test_valor_ignora_colunas_desconhecidas() -> None:
     registro = {"numero": "900", "coluna_estranha": "lixo"}
     assert _valor(registro, COLUNAS_EMPRESA) is None
+
+
+class _ArquivoFake:
+    """Dublê mínimo de UploadFile -- só o que importar_carteira lê de fato
+    (read() assíncrono, filename)."""
+
+    def __init__(self, conteudo: bytes, filename: str = "carteira.csv") -> None:
+        self.filename = filename
+        self._conteudo = conteudo
+
+    async def read(self, _tamanho: int | None = None) -> bytes:
+        return self._conteudo
+
+
+# --- Achado médio da auditoria da carteira (Fase 10, 22/09/2026):
+# verificar_conflito_interesse não rodava na importação de planilha, e o
+# "checa depois insere" não tratava corrida concorrente. ---
+
+
+def test_importar_carteira_aplica_checagem_de_conflito_de_interesse(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _sem_virus(_conteudo: bytes) -> None:
+        return None
+
+    monkeypatch.setattr(modulo_carteira, "escanear_upload_ou_rejeitar", _sem_virus)
+
+    processo = Processo(
+        id=301, numero="900123456", numero_normalizado="900123456", tipo=TipoProcesso.MARCA, titulo="Marca X"
+    )
+    session = FakeSession(
+        [
+            FakeResult(itens=[processo]),  # Processo.numero_normalizado.in_(...)
+            FakeResult(itens=[]),  # ja_monitorados
+            FakeResult(itens=[(301, "Marca Concorrente Ltda")]),  # titulares dos processos vinculados nesta importação
+            FakeResult(itens=[("Marca Concorrente Ltda", 77, "Outro Cliente", 301)]),  # conflito: titulares
+            FakeResult(itens=[]),  # conflito: empresas
+        ]
+    )
+    usuario = usuario_teste()
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/admin/carteira/importar",
+            "headers": [],
+            "client": ("127.0.0.1", 12345),
+            "scheme": "http",
+            "server": ("testserver", 80),
+        }
+    )
+
+    resultado = asyncio.run(
+        importar_carteira(
+            request, session, usuario, _ArquivoFake(b"numero\n900123456\n"), responsavel_id=None
+        )
+    )
+
+    assert resultado["vinculados"] == 1
+    assert resultado["alertas_conflito_interesse"] == [
+        {
+            "tipo": "titular_outro_cliente",
+            "nome_encontrado": "Marca Concorrente Ltda",
+            "empresa_id": 77,
+            "empresa_nome": "Outro Cliente",
+            "processo_id": 301,
+        }
+    ]
 
 
 def test_importar_carteira_rejeita_arquivo_infectado(monkeypatch: pytest.MonkeyPatch) -> None:

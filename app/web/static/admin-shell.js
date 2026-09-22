@@ -421,6 +421,9 @@ function createCalculadoraWidget() {
     }
     if (acao === "apagar") {
       atual = atual.length > 1 ? atual.slice(0, -1) : "0";
+      // Apagar um resultado negativo (ex.: "-2") pode deixar só o sinal --
+      // "-" sozinho quebraria Number(atual) na próxima operação.
+      if (atual === "-") atual = "0";
       atualizarVisor();
       return;
     }

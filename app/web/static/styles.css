@@ -5625,6 +5625,95 @@ h1,h2,h3,h4,h5 { font-family:var(--font-display); font-weight:var(--fw-semibold)
 }
 .assistente-widget-form button:disabled { opacity: 0.6; cursor: not-allowed; }
 
+/* Calculadora simples -- widget flutuante do módulo financeiro (pedido do
+   usuário, 22/09/2026), injetado por admin-shell.js. Fica ao lado do
+   lançador do Zezinho (mesmo bottom, right deslocado). */
+.calculadora-widget-launcher {
+  position: fixed;
+  right: 94px;
+  bottom: 22px;
+  z-index: 90;
+  width: 60px;
+  height: 60px;
+  border-radius: 999px;
+  border: 3px solid #fffef9;
+  background: #152a21;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+  box-shadow: 0 10px 28px rgba(21, 42, 33, 0.35);
+  transition: transform 160ms ease;
+}
+.calculadora-widget-launcher:hover { transform: translateY(-2px); }
+
+.calculadora-widget-panel {
+  position: fixed;
+  right: 22px;
+  bottom: 90px;
+  z-index: 91;
+  width: min(280px, calc(100vw - 44px));
+  background: #fffef9;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 18px 48px rgba(21, 42, 33, 0.22);
+  overflow: hidden;
+}
+.calculadora-widget-panel[hidden] { display: none; }
+
+.calculadora-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #152a21;
+  color: #fff;
+}
+.calculadora-widget-header strong { font-size: 0.9rem; }
+.calculadora-widget-header button {
+  border: 0;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 4px;
+}
+
+.calculadora-widget-display {
+  padding: 16px;
+  text-align: right;
+  font-size: 1.7rem;
+  font-weight: 700;
+  background: #f1efe4;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.calculadora-widget-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--line);
+}
+.calculadora-widget-grid button {
+  border: 0;
+  background: #fffef9;
+  padding: 16px 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.calculadora-widget-grid button:hover { background: #f1efe4; }
+.calculadora-widget-grid button.calculadora-op { background: #ece8d8; }
+.calculadora-widget-grid button.calculadora-op:hover { background: #e2ddc8; }
+.calculadora-widget-grid button.calculadora-igual { background: #0f6b46; color: #fff; grid-row: span 1; }
+.calculadora-widget-grid button.calculadora-igual:hover { background: #0c5738; }
+.calculadora-widget-grid button.calculadora-zero { grid-column: span 1; }
+
 @media (max-width:720px) {
   .updates-heading { align-items:stretch; }
   .updates-current { min-width:0; }

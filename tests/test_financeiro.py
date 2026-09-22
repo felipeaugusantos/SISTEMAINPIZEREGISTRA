@@ -50,8 +50,8 @@ def test_pagina_financeira_e_protegida_por_permissao() -> None:
         assert response.status_code == 200
         assert "Controle contas a pagar e receber" in response.text
         assert "Novo lançamento" in response.text
-        assert "admin-financeiro.css?v=12" in response.text
-        assert "admin-financeiro.js?v=12" in response.text
+        assert "admin-financeiro.css?v=13" in response.text
+        assert "admin-financeiro.js?v=13" in response.text
     finally:
         app.dependency_overrides.pop(obter_usuario_atual, None)
 
@@ -839,3 +839,93 @@ def test_editar_categoria_inexistente_retorna_404() -> None:
     finally:
         app.dependency_overrides.clear()
     assert resposta.status_code == 404
+
+
+# --- Pedido do usuário (22/09/2026): grade estilo Excel para lançar
+# vários lançamentos de uma vez (POST /lancamentos/lote). ---
+
+
+def test_criar_lancamentos_em_lote_com_sucesso() -> None:
+    app.dependency_overrides[get_session] = sessao_override()
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    payload = {
+        "tipo": "pagar",
+        "itens": [
+            {"descricao": "Aluguel", "valor_total": 100, "primeiro_vencimento": "2026-10-05", "quantidade_parcelas": 1},
+            {"descricao": "Luz", "valor_total": 200, "primeiro_vencimento": "2026-10-10", "quantidade_parcelas": 1},
+        ],
+    }
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/lancamentos/lote",
+            json=payload,
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 201
+    corpo = resposta.json()
+    assert corpo["total_linhas"] == 2
+    assert corpo["criados"] == 2
+    assert corpo["erros"] == 0
+    assert len(corpo["ids"]) == 2
+
+
+def test_criar_lancamentos_em_lote_reporta_linha_com_parcelamento_invalido() -> None:
+    forma = FormaPagamentoFinanceira(
+        id=5, organizacao_id=1, nome="Boleto", tipo="boleto", permite_parcelamento=False, maximo_parcelas=1, ativo=True
+    )
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=forma))
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    payload = {
+        "tipo": "pagar",
+        "itens": [
+            {
+                "descricao": "Compra parcelada",
+                "valor_total": 300,
+                "primeiro_vencimento": "2026-10-05",
+                "quantidade_parcelas": 3,
+                "forma_pagamento_id": 5,
+            },
+        ],
+    }
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/lancamentos/lote",
+            json=payload,
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 201
+    corpo = resposta.json()
+    assert corpo["criados"] == 0
+    assert corpo["erros"] == 1
+    assert "no máximo 1" in corpo["exemplos_erros"][0]
+
+
+def test_criar_lancamentos_em_lote_infere_competencia_do_vencimento() -> None:
+    app.dependency_overrides[get_session] = sessao_override()
+    usuario = usuario_teste("administrador", {"finance.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    payload = {
+        "tipo": "receber",
+        "itens": [
+            {"descricao": "Honorários", "valor_total": 500, "primeiro_vencimento": "2026-11-20", "quantidade_parcelas": 1},
+        ],
+    }
+    try:
+        resposta = TestClient(app).post(
+            "/v1/admin/financeiro/lancamentos/lote",
+            json=payload,
+            headers={"X-CSRF-Token": "csrf-teste"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 201
+    assert resposta.json()["criados"] == 1

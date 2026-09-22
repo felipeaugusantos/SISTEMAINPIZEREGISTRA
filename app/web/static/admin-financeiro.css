@@ -216,3 +216,13 @@
 .finance-import-result strong{display:block;margin-bottom:6px}
 .finance-import-result ul{margin:4px 0 8px;padding-left:18px;color:var(--muted)}
 .finance-import-result li{margin-bottom:2px}
+.finance-dialog.wide{width:min(980px,calc(100vw - 24px))}
+.batch-grid-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+.batch-grid{width:100%;border-collapse:collapse;font-size:.82rem}
+.batch-grid th{text-align:left;padding:8px 6px;background:#f5f4ec;white-space:nowrap;font-size:.72rem;font-weight:800}
+.batch-grid td{padding:4px 6px;border-top:1px solid var(--line)}
+.batch-grid input,.batch-grid select{width:100%;box-sizing:border-box;padding:7px 8px;border:1px solid #cbd4cd;border-radius:8px;font:inherit;font-size:.8rem}
+.batch-grid input[name=descricao]{min-width:160px}
+.batch-grid input[type=number]{min-width:80px}
+.batch-grid select{min-width:110px}
+.batch-remove-row{border:0;background:transparent;color:#a83e2c;font-size:1.1rem;cursor:pointer;padding:2px 6px}

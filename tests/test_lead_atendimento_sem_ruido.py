@@ -50,8 +50,8 @@ def _lead_aberto(**overrides: object) -> Lead:
     return lead
 
 
-def _patch(payload: dict, *, resultados: list[FakeResult]) -> tuple[object, FakeSession]:
-    lead = _lead_aberto()
+def _patch(payload: dict, *, resultados: list[FakeResult], lead_inicial: Lead | None = None) -> tuple[object, FakeSession]:
+    lead = lead_inicial if lead_inicial is not None else _lead_aberto()
     session = FakeSession([FakeResult(scalar=lead), *resultados])
 
     async def _sessao():
@@ -105,3 +105,28 @@ def test_descartar_lead_com_motivo_cria_contato_por_mudanca_de_status() -> None:
     contatos = [x for x in session.adicionados if type(x).__name__ == "ContatoLead"]
     assert len(contatos) == 1
     assert contatos[0].resultado == "Atendimento atualizado"
+
+
+def test_reenviar_proxima_acao_truncada_para_minuto_nao_cria_contato() -> None:
+    """Achado do Codex (PR #112): o <input type="datetime-local"> do
+    formulário só tem precisão de minuto -- reenviar o mesmo horário (sem
+    editar) perde os segundos/microssegundos que datetime.now(UTC) +
+    timedelta normalmente grava (ex.: _garantir_proxima_acao_padrao), e uma
+    comparação por igualdade exata faria parecer que mudou."""
+    proxima_com_segundos = datetime(2026, 10, 1, 9, 30, 45, 123456, tzinfo=UTC)
+    lead_inicial = _lead_aberto(proxima_acao_em=proxima_com_segundos)
+    lead_refetch = _lead_aberto(proxima_acao_em=proxima_com_segundos)
+    try:
+        resposta, session = _patch(
+            {"proxima_acao_em": "2026-10-01T09:30:00+00:00"},
+            resultados=[
+                FakeResult(scalar=None),  # lembrete manual existente (nenhum)
+                FakeResult(scalar=None),  # obter_politica_crm (usa defaults)
+                FakeResult(scalar=lead_refetch),  # refetch final
+            ],
+            lead_inicial=lead_inicial,
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 200
+    assert not any(type(x).__name__ == "ContatoLead" for x in session.adicionados)

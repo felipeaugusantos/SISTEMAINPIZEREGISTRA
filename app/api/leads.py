@@ -1977,11 +1977,20 @@ async def atualizar_status_lead(
             ator_id=usuario.id,
             payload=alteracoes["status"],
         )
+    def _truncar_minuto(valor: datetime | None) -> datetime | None:
+        # Achado do Codex (PR #112): o campo <input type="datetime-local">
+        # do formulário só tem precisão de minuto (toISOString().slice(0,16)
+        # no frontend), então todo reenvio do próprio valor perde segundos e
+        # microssegundos -- comparar com igualdade exata faria a maioria dos
+        # leads (proxima_acao_em nasce de datetime.now(UTC) + timedelta,
+        # com segundos/microssegundos) parecer "mudada" mesmo sem edição.
+        return valor.replace(second=0, microsecond=0) if valor else None
+
     mudou_status = lead.status != status_anterior
     mudou_responsavel = "responsavel_id" in dados.model_fields_set and lead.responsavel_id != responsavel_anterior
-    mudou_proxima_acao = (
-        "proxima_acao_em" in dados.model_fields_set and lead.proxima_acao_em != proxima_acao_anterior
-    )
+    mudou_proxima_acao = "proxima_acao_em" in dados.model_fields_set and _truncar_minuto(
+        lead.proxima_acao_em
+    ) != _truncar_minuto(proxima_acao_anterior)
     if dados.registrar_contato and (mudou_status or mudou_responsavel or mudou_proxima_acao):
         agora = datetime.now(UTC)
         lead.ultimo_contato_em = agora

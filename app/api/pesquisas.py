@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Annotated
 
@@ -276,6 +276,19 @@ def construir_resumo_publico(relatorio: RelatorioMarcaResponse) -> ResumoPublico
     )
 
 
+# Achado médio da Fase 12 (auditoria da Consulta de marcas, 22/09/2026):
+# cada GET recomputava o relatório inteiro do zero (busca trigram completa
+# + matriz de risco + inferência do modelo de aprendizado), mesmo que nada
+# tivesse mudado -- versionar_relatorio só evita GRAVAR uma versão
+# duplicada, nunca evita o custo de CPU/DB de gerar. Com 60 req/min
+# liberadas por IP nesta mesma rota, um único visitante conseguia forçar
+# até 60 recomputações completas por minuto na mesma pesquisa. Mesmo
+# padrão já usado em baixar_relatorio_pdf (abaixo): serve a última versão
+# persistida quando ela é recente o suficiente pra não valer a pena
+# recalcular (dados da RPI não mudam nesse intervalo).
+CACHE_RELATORIO_PUBLICO_SEGUNDOS = 60
+
+
 @router.get(
     "/{pesquisa_id}/relatorio",
     response_model=ResumoPublicoMarcaResponse,
@@ -299,6 +312,18 @@ async def obter_relatorio(
     ).scalar_one_or_none()
     if pesquisa is None:
         raise HTTPException(status_code=404, detail="Relatório não encontrado")
+    versao_recente = (
+        await session.execute(
+            select(VersaoRelatorioMarca)
+            .where(VersaoRelatorioMarca.pesquisa_id == pesquisa.id)
+            .order_by(VersaoRelatorioMarca.numero_versao.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if versao_recente is not None and (
+        datetime.now(UTC) - versao_recente.gerado_em
+    ) < timedelta(seconds=CACHE_RELATORIO_PUBLICO_SEGUNDOS):
+        return construir_resumo_publico(RelatorioMarcaResponse.model_validate(versao_recente.payload))
     return await gerar_resumo_pesquisa(session, pesquisa)
 
 

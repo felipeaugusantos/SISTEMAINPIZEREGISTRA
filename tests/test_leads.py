@@ -118,6 +118,10 @@ def _lead_existente(**kwargs: object) -> Lead:
         "marca": "ACME",
         "origem": "resultados",
         "status": StatusLead.QUALIFICADO,
+        # LeadPublicoResponse (Fase 12) exige criado_em -- em produção o
+        # servidor sempre preenche via server_default, mas o objeto Lead
+        # construído a mão nos testes precisa do valor explícito.
+        "criado_em": datetime.now(UTC),
     }
     base.update(kwargs)
     return Lead(**base)

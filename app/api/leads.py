@@ -1819,6 +1819,18 @@ async def atualizar_status_lead(
     ).scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
+    # Achado do usuário (22/09/2026): o formulário principal de atendimento
+    # sempre envia registrar_contato=true, então todo "Salvar atendimento"
+    # criava uma entrada genérica no histórico (canal "outro", resultado
+    # "Atendimento atualizado"), mesmo sem nenhuma mudança real -- inclusive
+    # quando o operador já tinha acabado de registrar o contato de verdade
+    # pelo "Novo registro" na mesma sessão. Snapshot de antes da mutação, pra
+    # só contar como atendimento quando status/responsável/próxima ação
+    # realmente mudarem (ver mudou_status/mudou_responsavel/mudou_proxima_acao
+    # mais abaixo).
+    status_anterior = lead.status
+    responsavel_anterior = lead.responsavel_id
+    proxima_acao_anterior = lead.proxima_acao_em
     alteracoes: dict[str, object] = {}
     if dados.status is not None and dados.status != lead.status:
         alteracoes["status"] = {"de": lead.status.value, "para": dados.status.value}
@@ -1965,7 +1977,21 @@ async def atualizar_status_lead(
             ator_id=usuario.id,
             payload=alteracoes["status"],
         )
-    if dados.registrar_contato:
+    def _truncar_minuto(valor: datetime | None) -> datetime | None:
+        # Achado do Codex (PR #112): o campo <input type="datetime-local">
+        # do formulário só tem precisão de minuto (toISOString().slice(0,16)
+        # no frontend), então todo reenvio do próprio valor perde segundos e
+        # microssegundos -- comparar com igualdade exata faria a maioria dos
+        # leads (proxima_acao_em nasce de datetime.now(UTC) + timedelta,
+        # com segundos/microssegundos) parecer "mudada" mesmo sem edição.
+        return valor.replace(second=0, microsecond=0) if valor else None
+
+    mudou_status = lead.status != status_anterior
+    mudou_responsavel = "responsavel_id" in dados.model_fields_set and lead.responsavel_id != responsavel_anterior
+    mudou_proxima_acao = "proxima_acao_em" in dados.model_fields_set and _truncar_minuto(
+        lead.proxima_acao_em
+    ) != _truncar_minuto(proxima_acao_anterior)
+    if dados.registrar_contato and (mudou_status or mudou_responsavel or mudou_proxima_acao):
         agora = datetime.now(UTC)
         lead.ultimo_contato_em = agora
         alteracoes["contato_registrado"] = True

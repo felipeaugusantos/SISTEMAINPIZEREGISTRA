@@ -4,6 +4,8 @@ from pathlib import Path
 
 import asyncpg
 
+from app.rpi.locking import adquirir_lock_sincronizacao_bloqueante, liberar_lock_sincronizacao
+
 
 def ler_titulares_marcas(
     arquivo: Path,
@@ -42,6 +44,10 @@ async def importar_titulares_marcas(
 ) -> int:
     """Cria titulares únicos e os associa aos processos de marca em lotes."""
     dsn = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    # Serializa com a sincronização automática da RPI (mesmo lock) -- as duas
+    # escrevem em titulares por NOT EXISTS, que sem a constraint única (achado
+    # do Codex no PR #108) não impede duplicata entre importações concorrentes.
+    lock = await adquirir_lock_sincronizacao_bloqueante(database_url)
     conexao = await asyncpg.connect(dsn=dsn)
     processados = 0
 
@@ -75,6 +81,7 @@ async def importar_titulares_marcas(
                 progresso(processados)
     finally:
         await conexao.close()
+        await liberar_lock_sincronizacao(lock)
 
     return processados
 

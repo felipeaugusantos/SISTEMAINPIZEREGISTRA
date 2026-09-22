@@ -321,11 +321,23 @@ async def _importar_lote(conexao: asyncpg.Connection, lote: list[RegistroRpi]) -
                 records=titulares,
                 columns=("numero", "nome", "pais"),
             )
+            # A constraint uq_titulares_nome_pais não existe hoje em produção
+            # (índice corrompido derrubado num incidente de restore em
+            # 16/09/2026, reconciliação dos 13.836 grupos duplicados ainda
+            # pendente de revisão humana) -- sem ela, o Postgres rejeita
+            # "ON CONFLICT (nome, pais)" com InvalidColumnReferenceError.
+            # NOT EXISTS não depende de constraint nenhuma; a importação da
+            # RPI roda uma execução por vez, então não há corrida real aqui.
             await conexao.execute(
                 """
                 INSERT INTO titulares (nome, pais)
-                SELECT DISTINCT nome, pais FROM rpi_titulares_lote
-                ON CONFLICT (nome, pais) DO NOTHING
+                SELECT DISTINCT origem.nome, origem.pais
+                FROM rpi_titulares_lote AS origem
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM titulares AS existente
+                    WHERE existente.nome = origem.nome
+                      AND existente.pais IS NOT DISTINCT FROM origem.pais
+                )
                 """
             )
             await conexao.execute(

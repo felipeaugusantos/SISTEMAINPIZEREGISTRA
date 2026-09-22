@@ -89,12 +89,21 @@ async def _importar_lote(
             records=lote,
             columns=("numero", "nome", "pais"),
         )
+        # Mesmo achado do app/rpi/bulk_importer.py: a constraint
+        # uq_titulares_nome_pais não existe hoje em produção (índice
+        # corrompido derrubado num incidente de restore em 16/09/2026), então
+        # "ON CONFLICT (nome, pais)" seria rejeitado com
+        # InvalidColumnReferenceError. NOT EXISTS não depende dela.
         await conexao.execute(
             """
             INSERT INTO titulares (nome, pais)
-            SELECT DISTINCT nome, pais
-            FROM badepi_titulares_lote
-            ON CONFLICT (nome, pais) DO NOTHING
+            SELECT DISTINCT origem.nome, origem.pais
+            FROM badepi_titulares_lote AS origem
+            WHERE NOT EXISTS (
+                SELECT 1 FROM titulares AS existente
+                WHERE existente.nome = origem.nome
+                  AND existente.pais IS NOT DISTINCT FROM origem.pais
+            )
             """
         )
         await conexao.execute(

@@ -321,13 +321,31 @@ async def _importar_lote(conexao: asyncpg.Connection, lote: list[RegistroRpi]) -
                 records=titulares,
                 columns=("numero", "nome", "pais"),
             )
+            # A constraint uq_titulares_nome_pais não existe hoje em produção
+            # (índice corrompido derrubado num incidente de restore em
+            # 16/09/2026, reconciliação dos 13.836 grupos duplicados ainda
+            # pendente de revisão humana) -- sem ela, o Postgres rejeita
+            # "ON CONFLICT (nome, pais)" com InvalidColumnReferenceError.
+            # NOT EXISTS não depende de constraint nenhuma; a importação da
+            # RPI roda uma execução por vez, então não há corrida real aqui.
             await conexao.execute(
                 """
                 INSERT INTO titulares (nome, pais)
-                SELECT DISTINCT nome, pais FROM rpi_titulares_lote
-                ON CONFLICT (nome, pais) DO NOTHING
+                SELECT DISTINCT origem.nome, origem.pais
+                FROM rpi_titulares_lote AS origem
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM titulares AS existente
+                    WHERE existente.nome = origem.nome
+                      AND existente.pais IS NOT DISTINCT FROM origem.pais
+                )
                 """
             )
+            # Achado do Codex (PR #108): com os 13.836 grupos duplicados que
+            # ainda existem em titulares, um JOIN direto por (nome, pais)
+            # bate em TODAS as linhas duplicadas do grupo, associando o
+            # processo a cada duplicata. O LATERAL abaixo escolhe sempre o
+            # id canônico (o mais antigo) do grupo, então cada processo fica
+            # ligado a um titular só, mesmo enquanto a duplicata existir.
             await conexao.execute(
                 """
                 INSERT INTO processo_titulares (processo_id, titular_id)
@@ -337,9 +355,14 @@ async def _importar_lote(conexao: asyncpg.Connection, lote: list[RegistroRpi]) -
                   ON processo.numero_normalizado = upper(
                       regexp_replace(origem.numero, '[^A-Za-z0-9]', '', 'g')
                   )
-                JOIN titulares AS titular
-                  ON titular.nome = origem.nome
-                 AND titular.pais IS NOT DISTINCT FROM origem.pais
+                JOIN LATERAL (
+                    SELECT t.id
+                    FROM titulares AS t
+                    WHERE t.nome = origem.nome
+                      AND t.pais IS NOT DISTINCT FROM origem.pais
+                    ORDER BY t.id
+                    LIMIT 1
+                ) AS titular ON true
                 ON CONFLICT DO NOTHING
                 """
             )

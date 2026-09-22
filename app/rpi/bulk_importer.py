@@ -412,30 +412,52 @@ async def _importar_lote(conexao: asyncpg.Connection, lote: list[RegistroRpi]) -
                     "status",
                 ),
             )
+            # Mesmo achado das titulares: uq_classificacoes_marca_processo_
+            # sistema_codigo também não existe hoje em produção (mesmo
+            # incidente de restore de 16/09/2026, 393 grupos duplicados ainda
+            # pendentes de reconciliação). Aqui era UPDATE em cima de
+            # conflito, não só DO NOTHING, então vira um UPDATE+INSERT
+            # explícito dentro de um único statement (CTEs compartilham o
+            # mesmo snapshot, então não há corrida entre as duas etapas).
             await conexao.execute(
                 """
+                WITH origem_dedup AS (
+                    SELECT DISTINCT ON (processo.id, origem.sistema, origem.codigo)
+                        processo.id AS processo_id,
+                        origem.sistema,
+                        origem.codigo,
+                        origem.edicao,
+                        origem.especificacao,
+                        origem.status
+                    FROM rpi_classificacoes_lote AS origem
+                    JOIN processos AS processo
+                      ON processo.numero_normalizado = upper(
+                          regexp_replace(origem.numero, '[^A-Za-z0-9]', '', 'g')
+                      )
+                    ORDER BY processo.id, origem.sistema, origem.codigo
+                ),
+                atualizadas AS (
+                    UPDATE classificacoes_marca AS existente
+                    SET edicao = coalesce(od.edicao, existente.edicao),
+                        especificacao = coalesce(od.especificacao, existente.especificacao),
+                        status = coalesce(od.status, existente.status)
+                    FROM origem_dedup AS od
+                    WHERE existente.processo_id = od.processo_id
+                      AND existente.sistema = od.sistema
+                      AND existente.codigo = od.codigo
+                    RETURNING existente.processo_id, existente.sistema, existente.codigo
+                )
                 INSERT INTO classificacoes_marca (
                     processo_id, sistema, codigo, edicao, especificacao, status
                 )
-                SELECT DISTINCT ON (processo.id, origem.sistema, origem.codigo)
-                    processo.id,
-                    origem.sistema,
-                    origem.codigo,
-                    origem.edicao,
-                    origem.especificacao,
-                    origem.status
-                FROM rpi_classificacoes_lote AS origem
-                JOIN processos AS processo
-                  ON processo.numero_normalizado = upper(
-                      regexp_replace(origem.numero, '[^A-Za-z0-9]', '', 'g')
-                  )
-                ORDER BY processo.id, origem.sistema, origem.codigo
-                ON CONFLICT (processo_id, sistema, codigo) DO UPDATE SET
-                    edicao = coalesce(excluded.edicao, classificacoes_marca.edicao),
-                    especificacao = coalesce(
-                        excluded.especificacao, classificacoes_marca.especificacao
-                    ),
-                    status = coalesce(excluded.status, classificacoes_marca.status)
+                SELECT od.processo_id, od.sistema, od.codigo, od.edicao, od.especificacao, od.status
+                FROM origem_dedup AS od
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM atualizadas AS a
+                    WHERE a.processo_id = od.processo_id
+                      AND a.sistema = od.sistema
+                      AND a.codigo = od.codigo
+                )
                 """
             )
 

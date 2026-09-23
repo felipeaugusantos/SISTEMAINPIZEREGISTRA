@@ -1,10 +1,12 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import UsuarioAutenticado, exigir_permissao
+from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import get_session
+from app.models import EventoAuditoria
+from app.proxy import cliente_ip
 from app.trademarks.visual import assinatura_visual
 from app.trademarks.visual_ranking import calcular_score_visual
 
@@ -16,8 +18,9 @@ OperadorDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view
 @router.post("/validar-imagem")
 async def validar_imagem(
     arquivo: Annotated[UploadFile, File()],
-    _session: SessionDep,
-    _operador: OperadorDep,
+    request: Request,
+    session: SessionDep,
+    operador: OperadorDep,
     limite_mb: Annotated[int, Query(ge=1, le=10)] = 5,
 ) -> dict:
     """Valida a imagem e devolve sua assinatura visual reproduzível.
@@ -51,6 +54,25 @@ async def validar_imagem(
     except Exception:
         pass
     score = calcular_score_visual(1.0, 1.0 if ocr.get("texto") else 0.0)
+    # Achado baixo da Fase 14.1 (auditoria fina da busca figurativa,
+    # 23/09/2026): nenhum upload de imagem deixava rastro -- não dava pra
+    # saber quem validou qual arquivo nem quando. Mesmo padrão de
+    # EventoAuditoria já usado em app/api/figurativa.py.
+    session.add(
+        EventoAuditoria(
+            organizacao_id=operador.organizacao_id,
+            actor_id=operador.id,
+            ator=operador.ator,
+            acao="validar_imagem",
+            recurso="busca_figurativa",
+            resource_type="validacao_visual",
+            sucesso=True,
+            status_http=200,
+            ip_hash=hash_ip(cliente_ip(request)),
+            detalhes={"arquivo": arquivo.filename, "mime_type": arquivo.content_type, "tamanho_bytes": len(conteudo)},
+        )
+    )
+    await session.commit()
     return {
         "arquivo": arquivo.filename,
         "mime_type": arquivo.content_type,

@@ -103,6 +103,7 @@ async def validar_resultado_figurativo(
 
 @router.get("/anterioridades")
 async def anterioridades_figurativas(
+    request: Request,
     session: SessionDep,
     operador: OperadorDep,
     codigos: Annotated[str, Query(min_length=1, max_length=500)],
@@ -114,6 +115,26 @@ async def anterioridades_figurativas(
     if apresentacao and apresentacao not in {"mista", "figurativa"}:
         raise HTTPException(status_code=422, detail="Tipo de apresentação inválido.")
     resultados = await buscar_anterioridades_viena(session, lista, limite, apresentacao)
+    # Achado baixo da Fase 14.1 (auditoria fina da busca figurativa,
+    # 23/09/2026): esta é a rota que qualquer operador comercial usa a toda
+    # hora (busca real por Viena), mas só as rotas administrativas raramente
+    # usadas (/benchmark, /validacoes-humanas) registravam EventoAuditoria --
+    # nenhum rastro de quem pesquisou o quê.
+    session.add(
+        EventoAuditoria(
+            organizacao_id=operador.organizacao_id,
+            actor_id=operador.id,
+            ator=operador.ator,
+            acao="buscar",
+            recurso="busca_figurativa",
+            resource_type="anterioridades_viena",
+            sucesso=True,
+            status_http=200,
+            ip_hash=hash_ip(cliente_ip(request)),
+            detalhes={"codigos": lista, "apresentacao": apresentacao, "total": len(resultados)},
+        )
+    )
+    await session.commit()
     return {
         "codigos": lista,
         "apresentacao": apresentacao,

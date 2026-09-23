@@ -16,6 +16,12 @@ Tabela própria (não reaproveita os campos codigo_confirmacao_* de
 propostas_comerciais, que são do fluxo público sem cliente_id) pra não
 colidir se o mesmo cliente usar os dois fluxos quase ao mesmo tempo, e
 pra também cobrir documentos_lead, que nunca teve esses campos.
+
+recurso_hash (revisão do Codex no PR #120, ainda dentro desta mesma
+migration por nunca ter sido mesclada): amarra o código ao
+conteúdo/versão vigente no momento do pedido, pra um código emitido
+antes de o operador editar a proposta/documento não continuar valendo
+pra uma versão diferente da que o cliente viu.
 """
 
 from collections.abc import Sequence
@@ -40,6 +46,7 @@ def upgrade() -> None:
         sa.Column("cliente_id", sa.BigInteger(), nullable=False),
         sa.Column("recurso_tipo", sa.String(20), nullable=False),
         sa.Column("recurso_id", sa.BigInteger(), nullable=False),
+        sa.Column("recurso_hash", sa.String(64), nullable=False),
         sa.Column("codigo_hash", sa.String(64), nullable=False),
         sa.Column("expira_em", sa.DateTime(timezone=True), nullable=False),
         sa.Column("tentativas", sa.Integer(), nullable=False, server_default="0"),

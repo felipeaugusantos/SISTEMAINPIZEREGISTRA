@@ -15,6 +15,8 @@ from app.api.portal_cliente import (
     ClienteLogin,
     RecuperacaoRedefinicao,
     RecuperacaoSolicitacao,
+    _hash_assinatura_documento,
+    _hash_assinatura_proposta,
     assinar_documento_portal,
     assinar_proposta_portal,
     baixar_documento_portal,
@@ -100,18 +102,22 @@ def _cliente() -> ClientePortal:
 _CODIGO_CONFIRMACAO_TESTE = "123456"
 
 
-def _codigo_confirmacao(recurso_tipo: str, recurso_id: int, *, cliente_id: int = 1) -> CodigoConfirmacaoPortal:
+def _codigo_confirmacao(recurso_tipo: str, recurso: object, *, cliente_id: int = 1) -> CodigoConfirmacaoPortal:
     """Registro de código de confirmação já válido pra assinatura no
     portal (Fase 13.2, 23/09/2026) -- consumido por
     _validar_codigo_confirmacao_portal, chamado antes de
     assinar_proposta_portal/assinar_documento_portal mutarem qualquer
-    coisa."""
+    coisa. recurso_hash calculado com a mesma função de produção (achado
+    do Codex no PR #120), pra não descolar do que o endpoint realmente
+    compara."""
+    hash_fn = _hash_assinatura_proposta if recurso_tipo == "proposta" else _hash_assinatura_documento
     return CodigoConfirmacaoPortal(
         id=1,
         organizacao_id=1,
         cliente_id=cliente_id,
         recurso_tipo=recurso_tipo,
-        recurso_id=recurso_id,
+        recurso_id=recurso.id,
+        recurso_hash=hash_fn(recurso),
         codigo_hash=hash_token(_CODIGO_CONFIRMACAO_TESTE),
         expira_em=datetime(2099, 1, 1, tzinfo=UTC),
         tentativas=0,
@@ -293,7 +299,7 @@ def test_assinar_proposta_portal_ja_aceita_continua_idempotente_mesmo_apos_expir
         public_aceito_em=ja_aceita_em,
         aceito_em=ja_aceita_em,
     )
-    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=_codigo_confirmacao("proposta", 1))])
+    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=_codigo_confirmacao("proposta", proposta))])
     dados = AssinarComCodigoInput(codigo=_CODIGO_CONFIRMACAO_TESTE)
     resultado = asyncio.run(assinar_proposta_portal(1, _request(), dados, _cliente(), session))
     assert resultado["ok"] is True
@@ -302,7 +308,7 @@ def test_assinar_proposta_portal_ja_aceita_continua_idempotente_mesmo_apos_expir
 
 def test_assinar_proposta_portal_dentro_da_validade_prossegue_com_a_assinatura() -> None:
     proposta = _proposta_para_assinatura(validade_em=date(2099, 12, 31))
-    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=_codigo_confirmacao("proposta", 1))])
+    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=_codigo_confirmacao("proposta", proposta))])
     dados = AssinarComCodigoInput(codigo=_CODIGO_CONFIRMACAO_TESTE)
     resultado = asyncio.run(assinar_proposta_portal(1, _request(), dados, _cliente(), session))
     assert resultado["ok"] is True
@@ -317,7 +323,7 @@ def test_assinar_proposta_portal_dentro_da_validade_prossegue_com_a_assinatura()
 
 def test_assinar_proposta_portal_sem_validade_definida_nao_e_bloqueada() -> None:
     proposta = _proposta_para_assinatura(validade_em=None)
-    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=_codigo_confirmacao("proposta", 1))])
+    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=_codigo_confirmacao("proposta", proposta))])
     dados = AssinarComCodigoInput(codigo=_CODIGO_CONFIRMACAO_TESTE)
     resultado = asyncio.run(assinar_proposta_portal(1, _request(), dados, _cliente(), session))
     assert resultado["ok"] is True
@@ -329,7 +335,7 @@ def test_assinar_proposta_portal_rejeita_codigo_incorreto() -> None:
     # 23/09/2026, decisão do usuário): segundo fator por e-mail antes de
     # assinar -- código errado não pode deixar a assinatura passar.
     proposta = _proposta_para_assinatura(validade_em=date(2099, 12, 31))
-    codigo = _codigo_confirmacao("proposta", 1)
+    codigo = _codigo_confirmacao("proposta", proposta)
     session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=codigo)])
     dados = AssinarComCodigoInput(codigo="000000")
     with pytest.raises(HTTPException) as exc_info:
@@ -347,7 +353,7 @@ def test_assinar_proposta_portal_absorve_conflito_de_assinatura_concorrente(monk
     # o IntegrityError (UniqueConstraint proposta_id+versao da migration
     # d4e5f6a7b8c9) em vez de devolver 500.
     proposta = _proposta_para_assinatura(validade_em=date(2099, 12, 31))
-    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=_codigo_confirmacao("proposta", 1))])
+    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=_codigo_confirmacao("proposta", proposta))])
     dados = AssinarComCodigoInput(codigo=_CODIGO_CONFIRMACAO_TESTE)
     chamadas_flush = {"n": 0}
     flush_original = session.flush
@@ -808,7 +814,7 @@ def test_assinar_documento_portal_aceita_quando_pronto() -> None:
         data=date(2026, 9, 1),
         versao=1,
     )
-    session = FakeSession([FakeResult(scalar=documento), FakeResult(scalar=_codigo_confirmacao("documento", 3))])
+    session = FakeSession([FakeResult(scalar=documento), FakeResult(scalar=_codigo_confirmacao("documento", documento))])
     dados = AssinarComCodigoInput(codigo=_CODIGO_CONFIRMACAO_TESTE)
     resultado = asyncio.run(assinar_documento_portal(3, _request(), dados, _cliente(), session))
     assert resultado["ok"] is True
@@ -1546,6 +1552,7 @@ def test_solicitar_codigo_assinatura_proposta_portal_envia_e_persiste(monkeypatc
     assert len(novos_codigos) == 1
     assert novos_codigos[0].recurso_tipo == "proposta"
     assert novos_codigos[0].recurso_id == 1
+    assert novos_codigos[0].recurso_hash == _hash_assinatura_proposta(proposta)
     assert novos_codigos[0].codigo_hash == hash_token(enviados[0][2])
 
 
@@ -1584,13 +1591,29 @@ def test_assinar_proposta_portal_rejeita_sem_codigo_solicitado() -> None:
 
 def test_assinar_proposta_portal_rejeita_codigo_expirado() -> None:
     proposta = _proposta_para_assinatura(validade_em=date(2099, 12, 31))
-    codigo = _codigo_confirmacao("proposta", 1)
+    codigo = _codigo_confirmacao("proposta", proposta)
     codigo.expira_em = datetime(2020, 1, 1, tzinfo=UTC)
     session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=codigo)])
     dados = AssinarComCodigoInput(codigo=_CODIGO_CONFIRMACAO_TESTE)
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(assinar_proposta_portal(1, _request(), dados, _cliente(), session))
     assert exc_info.value.status_code == 400
+    assert proposta.status == "enviada"
+
+
+def test_assinar_proposta_portal_rejeita_quando_proposta_mudou_apos_pedir_codigo() -> None:
+    # Achado do Codex no PR #120: o código é amarrado ao conteúdo vigente
+    # no momento do pedido -- se a proposta mudar antes da confirmação
+    # (ex.: operador edita honorários), o código antigo não pode
+    # continuar valendo pra uma versão diferente da que o cliente viu.
+    proposta = _proposta_para_assinatura(validade_em=date(2099, 12, 31))
+    codigo = _codigo_confirmacao("proposta", proposta)
+    codigo.recurso_hash = "hash-de-uma-versao-anterior-da-proposta"
+    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=codigo)])
+    dados = AssinarComCodigoInput(codigo=_CODIGO_CONFIRMACAO_TESTE)
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(assinar_proposta_portal(1, _request(), dados, _cliente(), session))
+    assert exc_info.value.status_code == 409
     assert proposta.status == "enviada"
 
 

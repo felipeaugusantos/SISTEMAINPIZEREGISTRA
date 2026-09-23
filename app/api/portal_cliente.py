@@ -1730,8 +1730,46 @@ def _gerar_codigo_confirmacao_portal() -> str:
     return f"{secrets.randbelow(1_000_000):06d}"
 
 
+def _hash_assinatura_proposta(proposta: PropostaComercial) -> str:
+    return hashlib.sha256(
+        "|".join(
+            str(valor or "")
+            for valor in (
+                proposta.numero,
+                proposta.versao,
+                proposta.marca,
+                proposta.classes,
+                proposta.escopo,
+                proposta.honorarios,
+                proposta.taxa_gru,
+                proposta.condicoes_pagamento,
+            )
+        ).encode()
+    ).hexdigest()
+
+
+def _hash_assinatura_documento(documento: DocumentoLead) -> str:
+    """Mesmo hash usado como evidência da assinatura -- reaproveitado
+    também como recurso_hash de CodigoConfirmacaoPortal (achado do Codex
+    no PR #120): se o operador editar o documento entre o pedido do
+    código e a confirmação, o hash muda e o código anterior deixa de
+    bater, em vez de continuar valendo pra uma versão diferente da que
+    o cliente viu."""
+    conteudo = (
+        f"{documento.tipo}|{documento.numero or ''}|{documento.data or ''}|"
+        f"{documento.observacoes or ''}|v{documento.versao}"
+    ).encode()
+    return hashlib.sha256(conteudo).hexdigest()
+
+
 async def _solicitar_codigo_confirmacao_portal(
-    session: AsyncSession, request: Request, cliente: ClientePortal, recurso_tipo: str, recurso_id: int, descricao: str
+    session: AsyncSession,
+    request: Request,
+    cliente: ClientePortal,
+    recurso_tipo: str,
+    recurso_id: int,
+    recurso_hash: str,
+    descricao: str,
 ) -> dict:
     """Gera e envia o código de confirmação (síncrono -- se o e-mail não
     sair, o cliente precisa ver isso na tela agora, não descobrir depois
@@ -1756,11 +1794,13 @@ async def _solicitar_codigo_confirmacao_portal(
             cliente_id=cliente.id,
             recurso_tipo=recurso_tipo,
             recurso_id=recurso_id,
+            recurso_hash=recurso_hash,
             codigo_hash=codigo_hash,
             expira_em=expira_em,
         )
         session.add(registro)
     else:
+        registro.recurso_hash = recurso_hash
         registro.codigo_hash = codigo_hash
         registro.expira_em = expira_em
     registro.tentativas = 0
@@ -1776,25 +1816,45 @@ async def _solicitar_codigo_confirmacao_portal(
 
 
 async def _validar_codigo_confirmacao_portal(
-    session: AsyncSession, cliente: ClientePortal, recurso_tipo: str, recurso_id: int, codigo: str
+    session: AsyncSession, cliente: ClientePortal, recurso_tipo: str, recurso_id: int, codigo: str, recurso_hash: str
 ) -> None:
-    """Levanta HTTPException(400) se o código não bater -- chamado no
-    início de assinar_proposta_portal/assinar_documento_portal, antes de
-    qualquer efeito da assinatura. Consome o código (apaga o registro) só
-    quando aceito, pra não permitir reuso."""
+    """Levanta HTTPException se o código não bater -- chamado no início de
+    assinar_proposta_portal/assinar_documento_portal, antes de qualquer
+    efeito da assinatura. Consome o código (apaga o registro) só quando
+    aceito, pra não permitir reuso.
+
+    Dois achados do Codex no PR #120, corrigidos aqui:
+    1. FOR UPDATE trava a linha até o fim da transação -- duas
+       confirmações quase simultâneas do mesmo código (ex.: duplo clique
+       no diálogo, que não desabilita o botão de novo) serializam neste
+       SELECT; a segunda só enxerga o registro depois que a primeira já
+       comitou (e apagou), então recebe "peça um novo código" em vez de
+       conseguir assinar duas vezes -- especialmente importante pra
+       documento, que não tem UniqueConstraint de versão como proposta
+       (AssinaturaDocumentoLead não bloquearia a segunda assinatura).
+    2. recurso_hash compara o conteúdo/versão atual do recurso com o que
+       estava vigente quando o código foi pedido -- se o operador editar
+       a proposta/documento nos 15 minutos de validade, o código emitido
+       pra versão antiga deixa de servir."""
     registro = (
         await session.execute(
-            select(CodigoConfirmacaoPortal).where(
+            select(CodigoConfirmacaoPortal)
+            .where(
                 CodigoConfirmacaoPortal.cliente_id == cliente.id,
                 CodigoConfirmacaoPortal.recurso_tipo == recurso_tipo,
                 CodigoConfirmacaoPortal.recurso_id == recurso_id,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if registro is None or registro.expira_em < datetime.now(UTC):
         raise HTTPException(status_code=400, detail="Peça um novo código para continuar.")
     if registro.tentativas >= CODIGO_CONFIRMACAO_PORTAL_TENTATIVAS_MAXIMAS:
         raise HTTPException(status_code=400, detail="Muitas tentativas com este código. Peça um novo código.")
+    if registro.recurso_hash != recurso_hash:
+        raise HTTPException(
+            status_code=409, detail="O conteúdo mudou desde que o código foi enviado. Peça um novo código."
+        )
     if not secrets.compare_digest(hash_token(codigo.strip()), registro.codigo_hash):
         registro.tentativas += 1
         await session.commit()
@@ -1818,7 +1878,13 @@ async def solicitar_codigo_assinatura_proposta_portal(
     if proposta is None:
         raise HTTPException(status_code=404, detail="Proposta não encontrada")
     return await _solicitar_codigo_confirmacao_portal(
-        session, request, cliente, "proposta", proposta.id, f"Proposta {proposta.numero}"
+        session,
+        request,
+        cliente,
+        "proposta",
+        proposta.id,
+        _hash_assinatura_proposta(proposta),
+        f"Proposta {proposta.numero}",
     )
 
 
@@ -1838,7 +1904,13 @@ async def solicitar_codigo_assinatura_documento_portal(
     if documento is None:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     return await _solicitar_codigo_confirmacao_portal(
-        session, request, cliente, "documento", documento.id, f"Documento {documento.tipo}"
+        session,
+        request,
+        cliente,
+        "documento",
+        documento.id,
+        _hash_assinatura_documento(documento),
+        f"Documento {documento.tipo}",
     )
 
 
@@ -1870,24 +1942,10 @@ async def assinar_proposta_portal(
         raise HTTPException(
             status_code=409, detail="Proposta expirada. Solicite uma nova versão à sua equipe de atendimento."
         )
-    await _validar_codigo_confirmacao_portal(session, cliente, "proposta", proposta.id, dados.codigo)
+    assinatura_hash = _hash_assinatura_proposta(proposta)
+    await _validar_codigo_confirmacao_portal(session, cliente, "proposta", proposta.id, dados.codigo, assinatura_hash)
     agora = datetime.now(UTC)
     ip_hash = hash_ip(request.client.host if request.client else None)
-    assinatura_hash = hashlib.sha256(
-        "|".join(
-            str(valor or "")
-            for valor in (
-                proposta.numero,
-                proposta.versao,
-                proposta.marca,
-                proposta.classes,
-                proposta.escopo,
-                proposta.honorarios,
-                proposta.taxa_gru,
-                proposta.condicoes_pagamento,
-            )
-        ).encode()
-    ).hexdigest()
     if proposta.public_aceito_em is None:
         proposta.public_aceito_em = agora
         proposta.aceito_em = agora
@@ -1962,9 +2020,8 @@ async def assinar_documento_portal(
         raise HTTPException(status_code=409, detail="Documento incompleto; aguarde a equipe preencher os dados")
     if documento.validade_em and documento.validade_em < datetime.now(UTC).date():
         raise HTTPException(status_code=409, detail="Documento expirado; solicite uma nova versão")
-    await _validar_codigo_confirmacao_portal(session, cliente, "documento", documento.id, dados.codigo)
-    conteudo = f"{documento.tipo}|{documento.numero or ''}|{documento.data or ''}|{documento.observacoes or ''}|v{documento.versao}".encode()
-    digest = hashlib.sha256(conteudo).hexdigest()
+    digest = _hash_assinatura_documento(documento)
+    await _validar_codigo_confirmacao_portal(session, cliente, "documento", documento.id, dados.codigo, digest)
     nova_assinatura = not (documento.assinado_em and documento.hash_documento == digest)
     if documento.assinado_em and documento.hash_documento != digest:
         session.add(

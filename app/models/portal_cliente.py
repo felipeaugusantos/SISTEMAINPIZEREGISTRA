@@ -72,7 +72,18 @@ class CodigoConfirmacaoPortal(Base):
     reaproveitar os campos codigo_confirmacao_* de PropostaComercial (que
     são do fluxo público, sem cliente_id) pra não colidir se o mesmo
     cliente usar os dois fluxos quase ao mesmo tempo, e pra também cobrir
-    DocumentoLead, que nunca teve esses campos."""
+    DocumentoLead, que nunca teve esses campos.
+
+    Achados do Codex no PR #120: recurso_hash amarra o código ao
+    conteúdo/versão vigente no momento do pedido -- se o recurso mudar
+    antes da confirmação (proposta ou documento editado pelo operador
+    durante os 15 minutos de validade), o hash não bate mais e o código
+    deixa de servir. A leitura em
+    app.api.portal_cliente._validar_codigo_confirmacao_portal usa
+    SELECT ... FOR UPDATE nesta tabela pra serializar confirmações
+    concorrentes do mesmo código (ex.: duplo clique) -- sem isso, duas
+    submissões quase simultâneas podiam ambas validar o mesmo código
+    antes de qualquer uma apagar o registro."""
 
     __tablename__ = "codigos_confirmacao_portal"
     __table_args__ = (
@@ -84,6 +95,7 @@ class CodigoConfirmacaoPortal(Base):
     cliente_id: Mapped[int] = mapped_column(ForeignKey("clientes_portal.id", ondelete="CASCADE"), index=True)
     recurso_tipo: Mapped[str] = mapped_column(String(20))
     recurso_id: Mapped[int] = mapped_column(BigInteger)
+    recurso_hash: Mapped[str] = mapped_column(String(64))
     codigo_hash: Mapped[str] = mapped_column(String(64))
     expira_em: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     tentativas: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

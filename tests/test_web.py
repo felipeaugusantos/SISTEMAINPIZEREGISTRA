@@ -513,6 +513,24 @@ def test_admin_registrar_aceite_de_proposta_pede_codigo_mfa() -> None:
     assert "autenticador" in script.lower()
 
 
+def test_portal_cliente_diferencia_mensagens_do_cliente_e_da_equipe() -> None:
+    # Achado médio da auditoria fina do Portal do Cliente (Fase 13.4,
+    # 23/09/2026): mensagem do cliente e resposta da equipe apareciam
+    # idênticas na lista -- sem diferenciação visual, diferente do
+    # histórico do admin (admin-leads.js), que já distingue
+    # portal-message-client/portal-message-operator. O envio também não
+    # dava nenhum feedback de sucesso na tela.
+    script = (web_dir / "static" / "portal-cliente.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "portal-cliente.css").read_text(encoding="utf-8")
+
+    assert "item.autor_tipo" in script
+    assert "portal-message-mine" in script
+    assert "portal-message-team" in script
+    assert '.portal-message-mine' in styles
+    assert '.portal-message-team' in styles
+    assert "Mensagem enviada." in script
+
+
 def test_admin_cadastra_logo_do_cliente_para_o_personagem_do_portal() -> None:
     # Mesmo item acima, lado administrativo: a equipe cadastra a logo do
     # cliente na ficha do lead.

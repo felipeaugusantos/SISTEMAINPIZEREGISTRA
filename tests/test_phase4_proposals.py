@@ -37,7 +37,9 @@ from app.models import (
     PropostaComercial,
     StatusLead,
     TipoProcesso,
+    UsuarioOperacoes,
 )
+from app.security_ext import codigo_totp, proteger_segredo
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 
@@ -442,6 +444,29 @@ def test_atualizar_status_proposta_permite_manter_o_mesmo_status() -> None:
     assert resultado["status"] == "aceita"
 
 
+def test_atualizar_status_proposta_resubmissao_do_mesmo_status_nao_exige_mfa_nem_fabrica_evidencia() -> None:
+    # Achado do Codex no PR #121: uma proposta já "aceita" antes desta
+    # funcionalidade existir (sem public_aceito_em nem assinatura) não
+    # pode ganhar essa evidência "totp" de graça só porque alguém sem MFA
+    # reenviou o mesmo status -- ninguém confirmou nada nessa chamada.
+    proposta = _proposta(id=1, status="aceita")
+    assert proposta.public_aceito_em is None
+    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=None)])
+    resultado = asyncio.run(
+        atualizar_status_proposta(
+            1,
+            PropostaStatusInput(status="aceita"),
+            _request_patch("/propostas/1/status"),
+            session,
+            usuario_teste(mfa_ativo=False),
+        )
+    )
+    assert resultado["status"] == "aceita"
+    assert proposta.public_aceito_em is None
+    assinaturas = [obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial)]
+    assert assinaturas == []
+
+
 def test_atualizar_status_proposta_transicao_valida_prossegue() -> None:
     proposta = _proposta(id=1, status="rascunho")
     session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=None)])
@@ -812,16 +837,102 @@ def test_confirmar_codigo_proposta_absorve_conflito_de_assinatura_concorrente() 
     assert proposta.status == "aceita"
 
 
+_SEGREDO_MFA_TESTE = "JBSWY3DPEHPK3PXP"
+
+
+def _operador_com_mfa() -> UsuarioOperacoes:
+    return UsuarioOperacoes(
+        id=1,
+        organizacao_id=1,
+        nome="Admin Teste",
+        usuario="admin",
+        email="admin@teste.local",
+        senha_hash="hash-nao-usado-neste-teste",
+        mfa_ativo=True,
+        mfa_segredo=proteger_segredo(_SEGREDO_MFA_TESTE),
+    )
+
+
+# --- Achado do usuário (23/09/2026): "Registrar aceite" no admin mudava o
+# status da proposta pra "aceita" sem nenhuma prova de que essa pessoa
+# confirmou de verdade -- agora exige o TOTP do próprio operador (mesmo
+# usado no login) e grava a mesma evidência de assinatura do aceite pelo
+# cliente (AssinaturaPropostaComercial, segundo_fator_canal="totp"). ---
+
+
 def test_atualizar_status_proposta_aceita_gera_contratacao_automatica() -> None:
     proposta = _proposta(id=1, status="enviada", honorarios=1500, taxa_gru=355)
-    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=None), FakeResult(scalar=None)])
+    session = FakeSession(
+        [FakeResult(scalar=proposta), FakeResult(scalar=None), FakeResult(scalar=None)],
+        objetos_get=[_operador_com_mfa()],
+    )
     asyncio.run(
         atualizar_status_proposta(
-            1, PropostaStatusInput(status="aceita"), _request_patch("/propostas/1/status"), session, usuario_teste()
+            1,
+            PropostaStatusInput(status="aceita", codigo_mfa=codigo_totp(_SEGREDO_MFA_TESTE)),
+            _request_patch("/propostas/1/status"),
+            session,
+            usuario_teste(mfa_ativo=True),
         )
     )
     contratacoes = [obj for obj in session.adicionados if isinstance(obj, ContratacaoServico)]
     assert len(contratacoes) == 1
+    assinaturas = [obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial)]
+    assert len(assinaturas) == 1
+    assert assinaturas[0].segundo_fator_canal == "totp"
+    assert assinaturas[0].provedor == "admin"
+    assert proposta.public_aceito_em is not None
+
+
+def test_atualizar_status_proposta_aceita_exige_mfa_ativo() -> None:
+    proposta = _proposta(id=1, status="enviada", honorarios=1500, taxa_gru=355)
+    session = FakeSession([FakeResult(scalar=proposta)])
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            atualizar_status_proposta(
+                1,
+                PropostaStatusInput(status="aceita"),
+                _request_patch("/propostas/1/status"),
+                session,
+                usuario_teste(mfa_ativo=False),
+            )
+        )
+    assert exc_info.value.status_code == 422
+    assert proposta.status == "enviada"
+
+
+def test_atualizar_status_proposta_aceita_exige_codigo_mfa() -> None:
+    proposta = _proposta(id=1, status="enviada", honorarios=1500, taxa_gru=355)
+    session = FakeSession([FakeResult(scalar=proposta)])
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            atualizar_status_proposta(
+                1,
+                PropostaStatusInput(status="aceita"),
+                _request_patch("/propostas/1/status"),
+                session,
+                usuario_teste(mfa_ativo=True),
+            )
+        )
+    assert exc_info.value.status_code == 401
+    assert proposta.status == "enviada"
+
+
+def test_atualizar_status_proposta_aceita_rejeita_codigo_mfa_incorreto() -> None:
+    proposta = _proposta(id=1, status="enviada", honorarios=1500, taxa_gru=355)
+    session = FakeSession([FakeResult(scalar=proposta)], objetos_get=[_operador_com_mfa()])
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            atualizar_status_proposta(
+                1,
+                PropostaStatusInput(status="aceita", codigo_mfa="000000"),
+                _request_patch("/propostas/1/status"),
+                session,
+                usuario_teste(mfa_ativo=True),
+            )
+        )
+    assert exc_info.value.status_code == 401
+    assert proposta.status == "enviada"
 
 
 # --- Fase 5 do plano proposta-financeiro (03/09/2026): numeração de versão consistente ---

@@ -459,6 +459,28 @@ def test_portal_cliente_exibe_personagem_com_logo_dinamica_do_cliente() -> None:
     assert ".portal-mascote-logo" in styles
 
 
+def test_portal_cliente_completa_redefinicao_de_senha_pelo_link_do_email() -> None:
+    # Achado crítico da auditoria fina do Portal do Cliente (23/09/2026):
+    # o e-mail de recuperação (app/emailing.py) já mandava
+    # ".../portal#recuperacao=<token>", mas a tela nunca lia esse
+    # fragmento nem tinha formulário de nova senha -- POST
+    # /v1/portal/recuperacao/redefinir existia e funcionava no backend,
+    # mas era inatingível pela UI. O cliente ficava travado, sempre
+    # dependendo do operador gerar novo acesso manualmente.
+    page = (web_dir / "portal-cliente.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "portal-cliente.js").read_text(encoding="utf-8")
+
+    assert 'id="reset-password-form" hidden' in page
+    assert 'id="reset-password-heading" class="portal-card-heading" hidden' in page
+    assert 'name="nova_senha"' in page and 'name="confirmacao"' in page
+    assert "location.hash" in script
+    assert '.get("recuperacao")' in script
+    assert 'api("/v1/portal/recuperacao/redefinir"' in script
+    # Sessão antiga válida não pode pular a redefinição e cair direto no
+    # resumo do atendimento -- o cliente veio aqui pra trocar a senha.
+    assert "if (tokenRecuperacaoPortal) { $(\"#login\").hidden = false; return; }" in script
+
+
 def test_admin_cadastra_logo_do_cliente_para_o_personagem_do_portal() -> None:
     # Mesmo item acima, lado administrativo: a equipe cadastra a logo do
     # cliente na ficha do lead.

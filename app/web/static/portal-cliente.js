@@ -27,6 +27,21 @@ function formatarDataJornada(valor) {
 // num nó abre o drawer (#journey-drawer) com os sub-eventos daquela fase.
 let ultimasJornadas = [];
 let logoClienteUrl = null;
+// Achado crítico da auditoria fina do Portal do Cliente (23/09/2026): o
+// e-mail de recuperação já mandava o link certo (portal_cliente.py),
+// mas a tela nunca lia o token do fragmento nem tinha formulário pra
+// definir a nova senha -- o cliente ficava travado, sempre dependendo do
+// operador gerar novo acesso manualmente.
+const parametrosRecuperacaoPortal = new URLSearchParams(location.hash.replace(/^#/, ""));
+const tokenRecuperacaoPortal = parametrosRecuperacaoPortal.get("recuperacao") || "";
+if (tokenRecuperacaoPortal) {
+  history.replaceState(null, "", "/portal");
+  $("#login-heading").hidden = true;
+  $("#login-form").hidden = true;
+  $(".portal-recovery").hidden = true;
+  $("#reset-password-heading").hidden = false;
+  $("#reset-password-form").hidden = false;
+}
 // Regra de dado nulo do pedido do usuário: uma macroetapa/sub-evento
 // concluído sem data registrada mostra só o badge "Concluída", nunca o
 // texto "data não registrada" (achado de UX do rótulo anterior).
@@ -124,6 +139,10 @@ async function carregarArquivosEnviados() {
   } catch { /* Falha ao listar não deve impedir o restante da tela. */ }
 }
 async function carregar() {
+  // Não checa sessão nem entra no app durante a redefinição de senha --
+  // mesmo com um cookie de sessão antigo ainda válido, o cliente veio
+  // aqui pra trocar a senha, não pra ver o resumo do atendimento.
+  if (tokenRecuperacaoPortal) { $("#login").hidden = false; return; }
   try {
     await api("/v1/portal/me");
     showApp(await api("/v1/portal/resumo"));
@@ -135,6 +154,29 @@ async function carregar() {
 }
 $("#login-form").addEventListener("submit", async (event) => { event.preventDefault(); try { await api("/v1/portal/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.fromEntries(new FormData(event.target))) }); await carregar(); } catch (error) { $("#login-error").textContent = error.message; } });
 $("#recovery-form").addEventListener("submit", async (event) => { event.preventDefault(); const message = $("#recovery-message"); try { await api("/v1/portal/recuperacao/solicitar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.fromEntries(new FormData(event.target))) }); message.textContent = "Se a conta existir, enviaremos as instruções por e-mail."; } catch { message.textContent = "Não foi possível solicitar a recuperação."; } });
+$("#reset-password-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const status = $("#reset-password-message");
+  status.className = "status-message";
+  status.textContent = "";
+  const dados = Object.fromEntries(new FormData(event.target));
+  if (dados.nova_senha !== dados.confirmacao) {
+    status.className = "status-message error";
+    status.textContent = "As senhas não coincidem.";
+    return;
+  }
+  try {
+    await api("/v1/portal/recuperacao/redefinir", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: tokenRecuperacaoPortal, nova_senha: dados.nova_senha }),
+    });
+    event.target.innerHTML = '<p class="status-message success">Senha redefinida com sucesso.</p><a class="secondary-button" href="/portal">Entrar com a nova senha</a>';
+  } catch (error) {
+    status.className = "status-message error";
+    status.textContent = error.message;
+  }
+});
 $("#logout").addEventListener("click", async (event) => { const button = event.currentTarget; button.disabled = true; button.textContent = "Saindo…"; try { await api("/v1/portal/logout", { method: "POST" }); } finally { location.replace("/portal"); } });
 $("#close-journey-drawer").addEventListener("click", () => $("#journey-drawer").close());
 $("#message-form").addEventListener("submit", async (event) => {

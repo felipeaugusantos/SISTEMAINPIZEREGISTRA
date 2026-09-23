@@ -1,16 +1,20 @@
 import asyncio
+from io import BytesIO
 
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from PIL import Image
 from starlette.requests import Request
 
-from app.api.figurativa import BenchmarkEntrada, benchmark_figurativo
+from app.api.figurativa import BenchmarkEntrada, anterioridades_figurativas, benchmark_figurativo
+from app.api.visual import validar_imagem
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
+from app.models import EventoAuditoria
 from app.permissions import permissoes_do_perfil
-from tests.conftest import FakeSession, auth_override, usuario_teste
+from tests.conftest import FakeResult, FakeSession, auth_override, usuario_teste
 
 # --- Achado médio da Fase 11 (auditoria da busca figurativa, 22/09/2026):
 # POST /v1/admin/figurativa/benchmark (decide se um modelo pode ser
@@ -100,3 +104,74 @@ def test_benchmark_com_relevantes_nao_hasheavel_devolve_422() -> None:
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(benchmark_figurativo(dados, _request(), session, usuario))
     assert exc_info.value.status_code == 422
+
+
+# --- Achado baixo da Fase 14.1 (auditoria fina da busca figurativa,
+# 23/09/2026): a rota mais usada no dia a dia (busca real por Viena) e o
+# upload de imagem não deixavam nenhum rastro de quem pesquisou/validou o
+# quê -- só as rotas administrativas raramente usadas (benchmark,
+# validações humanas) registravam EventoAuditoria. ---
+
+
+def test_anterioridades_figurativas_registra_evento_auditoria() -> None:
+    usuario = usuario_teste()
+    linha = ("900000001", "Marca Exemplo", "figurativa", None, ["27.5.1"], 1)
+    session = FakeSession([FakeResult(itens=[linha])])
+
+    resultado = asyncio.run(anterioridades_figurativas(_request(), session, usuario, codigos="27.5.1"))
+
+    assert resultado["total"] == 1
+    evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
+    assert evento.acao == "buscar"
+    assert evento.recurso == "busca_figurativa"
+    assert evento.detalhes == {"codigos": ["27.5.1"], "apresentacao": None, "total": 1}
+    assert session.commits == 1
+
+
+class _ArquivoFalso:
+    def __init__(self, conteudo: bytes) -> None:
+        self.filename = "logo.png"
+        self.content_type = "image/png"
+        self._conteudo = conteudo
+
+    async def read(self) -> bytes:
+        return self._conteudo
+
+
+def _imagem_png() -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (32, 32), color=(10, 20, 30)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def test_validar_imagem_registra_evento_auditoria() -> None:
+    usuario = usuario_teste()
+    session = FakeSession()
+    arquivo = _ArquivoFalso(_imagem_png())
+
+    resultado = asyncio.run(validar_imagem(arquivo, _request(), session, usuario))
+
+    assert resultado["assinatura_visual"]
+    evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
+    assert evento.acao == "validar_imagem"
+    assert evento.recurso == "busca_figurativa"
+    assert evento.detalhes["arquivo"] == "logo.png"
+    # Achado P2 do Codex no PR #126: nome/tipo/tamanho não identificam a
+    # imagem de fato -- o rastro precisa de um identificador estável do
+    # conteúdo (hash), não só dos metadados informados pelo cliente.
+    assert evento.resource_id == evento.detalhes["hash_conteudo"]
+    assert evento.detalhes["assinatura_visual"] == resultado["assinatura_visual"]
+    assert session.commits == 1
+
+
+def test_validar_imagem_invalida_nao_registra_evento_auditoria() -> None:
+    usuario = usuario_teste()
+    session = FakeSession()
+    arquivo = _ArquivoFalso(b"nao e uma imagem")
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(validar_imagem(arquivo, _request(), session, usuario))
+
+    assert exc_info.value.status_code == 422
+    assert session.adicionados == []
+    assert session.commits == 0

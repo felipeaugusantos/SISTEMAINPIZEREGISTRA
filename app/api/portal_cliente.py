@@ -887,6 +887,9 @@ async def redefinir_acesso_portal(
     _auditar_cliente(session, cliente, request, "recuperacao_redefinida", "portal:recuperacao")
     await session.commit()
     response.delete_cookie(SESSION_COOKIE, path="/")
+    # Mesmo achado de logout_cliente (Fase 13.3, 23/09/2026): o cookie CSRF
+    # também precisa ser limpo aqui, não só o de sessão.
+    response.delete_cookie(PORTAL_CSRF_COOKIE, path="/")
     return {"status": "ok", "mensagem": "Acesso redefinido. Faça login novamente."}
 
 
@@ -906,6 +909,12 @@ async def logout_cliente(request: Request, response: Response, cliente: ClientCs
     _auditar_cliente(session, cliente, request, "logout_cliente", "portal:logout")
     await session.commit()
     response.delete_cookie(SESSION_COOKIE, path="/")
+    # Achado baixo da auditoria fina do Portal do Cliente (Fase 13.3,
+    # 23/09/2026): só o cookie de sessão era apagado -- o cookie CSRF
+    # (zr_portal_csrf, legível por JS) ficava órfão no navegador. Não é
+    # explorável sozinho (o hash correspondente na sessão já foi
+    # revogado acima), mas é higiene de sessão incompleta.
+    response.delete_cookie(PORTAL_CSRF_COOKIE, path="/")
     return {"ok": True}
 
 
@@ -952,6 +961,22 @@ async def criar_acesso_cliente(lead_id: int, request: Request, session: SessionD
             True,
             None,
         )
+        # Achado médio da auditoria fina do Portal do Cliente (Fase 13.3,
+        # 23/09/2026): ao reemitir acesso pra um cliente já existente, uma
+        # sessão antiga ficava válida (cookie ainda dentro do prazo de 12h)
+        # mesmo depois da senha trocada -- diferente de
+        # redefinir_acesso_portal (autorredefinição), que já revoga. Mesmo
+        # motivo de gerar senha nova costuma ser suspeita de conta
+        # comprometida; deixar uma sessão antiga viva anularia o propósito.
+        for sessao in (
+            await session.execute(
+                select(SessaoClientePortal).where(
+                    SessaoClientePortal.cliente_id == cliente.id,
+                    SessaoClientePortal.revogada_em.is_(None),
+                )
+            )
+        ).scalars():
+            sessao.revogada_em = datetime.now(UTC)
     _auditar_operador(
         session,
         usuario,

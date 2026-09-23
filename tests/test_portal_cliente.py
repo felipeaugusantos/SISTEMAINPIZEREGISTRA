@@ -24,6 +24,7 @@ from app.api.portal_cliente import (
     baixar_logo_cliente_portal,
     baixar_material_marca_admin,
     baixar_material_marca_portal,
+    criar_acesso_cliente,
     enviar_logo_cliente_admin,
     enviar_material_marca_admin,
     exigir_csrf_portal,
@@ -242,6 +243,31 @@ def test_listar_processos_portal_mostra_varios_processos_do_mesmo_lead() -> None
 # dependências do FastAPI (obter_cliente_portal roda por completo antes
 # de exigir_csrf_portal, que roda por completo antes do corpo de
 # logout_cliente) em vez de sequenciamento manual dentro da função.
+
+
+def test_criar_acesso_cliente_ja_existente_revoga_sessoes_antigas() -> None:
+    # Achado médio da auditoria fina do Portal do Cliente (Fase 13.3,
+    # 23/09/2026): reemitir acesso (nova senha) pra um cliente já
+    # existente trocava a senha mas deixava sessões antigas ainda válidas
+    # -- diferente de redefinir_acesso_portal (autorredefinição), que já
+    # revogava. Motivo comum de gerar senha nova é suspeita de conta
+    # comprometida; uma sessão antiga viva anularia o propósito.
+    lead = Lead(id=9, organizacao_id=1, nome="Empresa Teste", email="empresa@teste.com.br", responsavel_id=1)
+    cliente_existente = _cliente()
+    from app.models import SessaoClientePortal
+
+    sessao_antiga = SessaoClientePortal(
+        id=5, cliente_id=cliente_existente.id, token_hash="hash-antigo", expira_em=datetime(2099, 1, 1, tzinfo=UTC)
+    )
+    session = FakeSession(
+        [FakeResult(scalar=lead), FakeResult(scalar=cliente_existente), FakeResult(itens=[sessao_antiga])]
+    )
+    usuario = usuario_teste(perfil="administrador")
+
+    resultado = asyncio.run(criar_acesso_cliente(9, _request(), session, usuario))
+
+    assert "senha_temporaria" in resultado
+    assert sessao_antiga.revogada_em is not None
 def test_logout_revoga_sessao_e_limpa_cookie() -> None:
     from app.models import SessaoClientePortal
 
@@ -257,7 +283,12 @@ def test_logout_revoga_sessao_e_limpa_cookie() -> None:
     assert resultado == {"ok": True}
     assert sessao.revogada_em is not None
     assert session.commits == 1
-    assert "zr_client_session=" in response.headers["set-cookie"]
+    cookies = response.headers.getlist("set-cookie")
+    assert any("zr_client_session=" in cookie for cookie in cookies)
+    # Achado baixo da auditoria fina do Portal do Cliente (Fase 13.3,
+    # 23/09/2026): o cookie CSRF (zr_portal_csrf) ficava órfão no logout --
+    # só o de sessão era apagado.
+    assert any("zr_portal_csrf=" in cookie for cookie in cookies)
 
 
 # --- Fase 1 do plano proposta-financeiro (03/09/2026): blindar o aceite ---
@@ -1671,6 +1702,35 @@ def test_solicitar_recuperacao_tem_rate_limit() -> None:
         session = FakeSession([FakeResult(scalar=None)])
         asyncio.run(solicitar_recuperacao_portal(dados, _request(), session, background_tasks))
     assert exc_info.value.status_code == 429
+
+
+def test_redefinir_acesso_portal_revoga_sessoes_e_limpa_cookies() -> None:
+    from app.models import RecuperacaoClientePortal, SessaoClientePortal
+
+    cliente = _cliente()
+    registro = RecuperacaoClientePortal(
+        id=1,
+        cliente_id=cliente.id,
+        token_hash=hash_token("token-valido"),
+        expira_em=datetime(2099, 1, 1, tzinfo=UTC),
+    )
+    sessao_antiga = SessaoClientePortal(
+        id=9, cliente_id=cliente.id, token_hash="hash-antigo", expira_em=datetime(2099, 1, 1, tzinfo=UTC)
+    )
+    session = FakeSession([FakeResult(scalar=registro), FakeResult(itens=[sessao_antiga])], objetos_get=[cliente])
+    dados = RecuperacaoRedefinicao(token="token-valido", nova_senha="Senha-Correta-123")
+    response = Response()
+
+    resultado = asyncio.run(redefinir_acesso_portal(dados, _request(), response, session))
+
+    assert resultado["status"] == "ok"
+    assert registro.usado_em is not None
+    assert sessao_antiga.revogada_em is not None
+    cookies = response.headers.getlist("set-cookie")
+    assert any("zr_client_session=" in cookie for cookie in cookies)
+    # Achado baixo da auditoria fina do Portal do Cliente (Fase 13.3,
+    # 23/09/2026): o cookie CSRF ficava órfão aqui também.
+    assert any("zr_portal_csrf=" in cookie for cookie in cookies)
 
 
 def test_redefinir_acesso_portal_tem_rate_limit() -> None:

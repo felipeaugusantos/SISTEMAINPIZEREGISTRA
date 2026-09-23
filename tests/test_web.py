@@ -623,7 +623,7 @@ def test_crm_abre_contato_usa_a_mesma_tela_do_lead() -> None:
     page = (web_dir / "admin-crm.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-crm.js").read_text(encoding="utf-8")
 
-    assert '/static/admin-leads.js?v=72" defer' in page
+    assert '/static/admin-leads.js?v=73" defer' in page
     assert '/static/admin-leads.css?v=31"' in page
     # O diálogo do lead de verdade (não uma cópia reduzida) fica visível.
     assert '<dialog id="lead-dialog" class="lead-dialog">' in page

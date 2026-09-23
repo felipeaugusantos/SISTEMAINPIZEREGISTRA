@@ -53,7 +53,7 @@
    fixo segurando dinamicamente a logo do cliente. Coordenadas da logo em %
    (76.55/28.07/15.15) calculadas sobre a imagem-base de 1254x1254px, onde a
    mão fica vazia -- por isso escalam corretamente com qualquer largura. */
-.portal-mascote { position:relative; width:96px; flex:none; }
+.portal-mascote { position:relative; width:132px; flex:none; }
 .portal-mascote-img { display:block; width:100%; height:auto; }
 .portal-mascote-logo { position:absolute; left:76.55%; top:28.07%; width:15.15%; aspect-ratio:1/1; transform:translate(-50%,-50%); border-radius:50%; object-fit:cover; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.25); }
 @media (max-width:760px) { .portal-mascote { display:none; } }
@@ -72,7 +72,7 @@
 .portal-journey-block + .portal-journey-block { margin-top:26px; }
 .portal-journey { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:0; margin:4px 0 6px; padding:0; list-style:none; }
 .portal-journey li { position:relative; display:grid; justify-items:center; gap:7px; min-width:0; padding:0 6px; text-align:center; color:var(--portal-muted); }
-.portal-journey li::before { content:""; position:absolute; z-index:0; top:15px; right:50%; width:100%; height:2px; background:#dce5df; }
+.portal-journey li::before { content:""; position:absolute; z-index:0; top:20px; right:50%; width:100%; height:2px; background:#dce5df; }
 .portal-journey li:nth-child(5n + 1)::before { display:none; }
 .portal-journey-node { display:grid; justify-items:center; gap:7px; width:100%; padding:0; border:0; background:none; color:inherit; font:inherit; cursor:pointer; }
 .portal-journey-node:hover strong,.portal-journey-node:focus-visible strong { text-decoration:underline; }
@@ -81,7 +81,7 @@
    cabeçalho (app/web/static/portal-cliente.css), só menor; as porcentagens
    de posição da logo são relativas à imagem, então funcionam em qualquer
    tamanho, só o tamanho da logo precisa crescer pra continuar legível. */
-.portal-journey li > .portal-journey-node > .portal-journey-icon { position:relative; z-index:1; width:30px; height:30px; }
+.portal-journey li > .portal-journey-node > .portal-journey-icon { position:relative; z-index:1; width:40px; height:40px; }
 .portal-journey-mascote { display:block; width:100%; height:100%; object-fit:contain; }
 .portal-journey-logo { position:absolute; left:76.55%; top:28.07%; width:34%; aspect-ratio:1/1; transform:translate(-50%,-50%); border-radius:50%; object-fit:cover; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.3); }
 .portal-journey li > .portal-journey-node > span { display:grid; gap:2px; min-width:0; }

@@ -139,6 +139,19 @@
 .portal-codigo-input { width:100%; box-sizing:border-box; min-height:48px; padding:12px 14px; border:1px solid var(--portal-border); border-radius:11px; background:#fff; font:inherit; font-size:1.2rem; letter-spacing:.3em; text-align:center; }
 .portal-codigo-input:focus { outline:none; border-color:var(--portal-primary); box-shadow:0 0 0 3px rgba(0,128,55,.13); }
 .portal-help-text { margin:0 0 20px; color:var(--muted); line-height:1.5; }
+/* Fase 13.5 da auditoria fina do Portal do Cliente (23/09/2026): a tela de
+   login promete "Processos e prazos", mas nada na área logada mostrava
+   isso -- os endpoints já existiam no backend e nunca eram consultados
+   pelo front. Cartões simples, reaproveitando .rpi-progress/.w-pct-N
+   (já globais, vindos de styles.css) pra barra de progresso do processo. */
+.portal-processo { padding:12px 13px; border-radius:10px; background:#f3f6f2; }
+.portal-processo + .portal-processo { margin-top:9px; }
+.portal-processo-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; font-size:.86rem; }
+.portal-processo-head span { color:var(--muted); font-size:.78rem; }
+.portal-processo p { margin:0 0 8px; color:var(--muted); font-size:.84rem; }
+.portal-processo-alerta { display:block; margin-top:6px; color:#7a5a0a; font-size:.78rem; }
+#portal-processos, #portal-prazos { display:grid; gap:9px; }
+#portal-processos > p, #portal-prazos > p { margin:0; padding:11px 13px; border-radius:10px; background:#f1f6f1; color:#315140; }
 /* Achado da validação do Portal do Cliente (17/09/2026): o cliente enviava
    um documento e não via confirmação nem os arquivos já enviados -- o
    endpoint de listagem existia no backend, mas nunca era consultado aqui. */

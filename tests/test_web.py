@@ -531,6 +531,28 @@ def test_portal_cliente_diferencia_mensagens_do_cliente_e_da_equipe() -> None:
     assert "Mensagem enviada." in script
 
 
+def test_portal_cliente_mostra_processos_prazos_e_parcelas() -> None:
+    # Achado médio da auditoria fina do Portal do Cliente (Fase 13.5,
+    # 23/09/2026): a tela de login promete "Processos e prazos", mas os
+    # endpoints GET /v1/portal/processos e GET /v1/portal/prazos já
+    # existiam no backend e nunca eram consultados pela tela logada --
+    # o cliente só via o resumo agregado da jornada. O resumo
+    # (GET /v1/portal/resumo) também já trazia "parcelas", mas isso
+    # nunca aparecia na tela quando o pagamento era parcelado.
+    page = (web_dir / "portal-cliente.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "portal-cliente.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "portal-cliente.css").read_text(encoding="utf-8")
+
+    assert 'id="portal-processos"' in page
+    assert 'id="portal-prazos"' in page
+    assert 'api("/v1/portal/processos")' in script
+    assert 'api("/v1/portal/prazos")' in script
+    assert "carregarProcessos()" in script
+    assert "carregarPrazos()" in script
+    assert "data.parcelas" in script
+    assert ".portal-processo {" in styles
+
+
 def test_admin_cadastra_logo_do_cliente_para_o_personagem_do_portal() -> None:
     # Mesmo item acima, lado administrativo: a equipe cadastra a logo do
     # cliente na ficha do lead.

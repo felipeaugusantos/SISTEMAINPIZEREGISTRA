@@ -103,7 +103,16 @@ function showApp(data) {
   }
   const rows = (items, fields) => items?.length ? `<div class="portal-table">${items.map((item) => `<div class="portal-row">${fields.map((field) => `<span><strong>${esc(field[0])}</strong> ${esc(item[field[1]])}</span>`).join("")}</div>`).join("")}</div>` : "<p>Nenhum registro.</p>";
   ultimasJornadas = data.jornadas || [];
-  $("#summary").innerHTML = `<p><strong>Marca:</strong> ${esc(data.lead.marca)} · <strong>Fase:</strong> ${esc(data.lead.fase)}</p><h3>Jornada do Cliente</h3>${ultimasJornadas.map(macroJornada).join("")}<h3>Propostas</h3>${data.propostas?.map((item) => { const podeAssinar = ["enviada", "visualizada", "aceita"].includes(item.status); const acao = item.status === "aceita" ? "<span>Assinada</span>" : podeAssinar ? `<button class="secondary-button" data-assinar-proposta="${item.id}" type="button">Assinar proposta</button>` : "<span class=\"portal-pending-status\">Aguardando envio</span>"; return `<div class="portal-row"><span><strong>${esc(item.numero)}</strong> · ${esc(item.status)}</span>${acao}</div>`; }).join("") || "<p>Nenhuma proposta.</p>"}<h3>Documentos e GRUs</h3>${data.documentos?.map((item) => `<div class="portal-row"><span><strong>${esc(item.tipo)}</strong> · ${esc(item.status)} · v${esc(item.versao)}</span><span>${item.tem_arquivo ? `<a class="secondary-button" href="/v1/portal/documentos/${item.id}/download" target="_blank" rel="noopener">Baixar</a>` : ""}${item.status !== "assinado" && !item.assinado_em ? `<button class="secondary-button" data-assinar-documento="${item.id}" type="button">Assinar</button>` : "<span>Assinado</span>"}</span></div>`).join("") || "<p>Nenhum documento.</p>"}${rows(data.guias, [["GRU", "numero_gru"], ["Status", "status"], ["Vencimento", "vencimento"]])}<h3>Pagamentos</h3>${rows(data.pagamentos, [["Descrição", "descricao"], ["Status", "status"], ["Valor", "valor_total"]])}`;
+  $("#summary").innerHTML = `<p><strong>Marca:</strong> ${esc(data.lead.marca)} · <strong>Fase:</strong> ${esc(data.lead.fase)}</p><h3>Jornada do Cliente</h3>${ultimasJornadas.map(macroJornada).join("")}<h3>Propostas</h3>${data.propostas?.map((item) => { const podeAssinar = ["enviada", "visualizada", "aceita"].includes(item.status); const acao = item.status === "aceita" ? "<span>Assinada</span>" : podeAssinar ? `<button class="secondary-button" data-assinar-proposta="${item.id}" type="button">Assinar proposta</button>` : "<span class=\"portal-pending-status\">Aguardando envio</span>"; return `<div class="portal-row"><span><strong>${esc(item.numero)}</strong> · ${esc(item.status)}</span>${acao}</div>`; }).join("") || "<p>Nenhuma proposta.</p>"}<h3>Documentos e GRUs</h3>${data.documentos?.map((item) => `<div class="portal-row"><span><strong>${esc(item.tipo)}</strong> · ${esc(item.status)} · v${esc(item.versao)}</span><span>${item.tem_arquivo ? `<a class="secondary-button" href="/v1/portal/documentos/${item.id}/download" target="_blank" rel="noopener">Baixar</a>` : ""}${item.status !== "assinado" && !item.assinado_em ? `<button class="secondary-button" data-assinar-documento="${item.id}" type="button">Assinar</button>` : "<span>Assinado</span>"}</span></div>`).join("") || "<p>Nenhum documento.</p>"}${rows(data.guias, [["GRU", "numero_gru"], ["Status", "status"], ["Vencimento", "vencimento"]])}<h3>Pagamentos</h3>${rows(data.pagamentos, [["Descrição", "descricao"], ["Status", "status"], ["Valor", "valor_total"]])}${
+    // Achado médio da auditoria fina do Portal do Cliente (Fase 13.5,
+    // 23/09/2026): /v1/portal/resumo já devolvia "parcelas" (item 3.4 do
+    // pedido de melhorias), mas a tela nunca usava esse campo -- cliente
+    // com pagamento parcelado só via o valor total do lançamento, sem
+    // saber quais parcelas específicas estavam vencidas/pagas.
+    data.parcelas?.length
+      ? `<h3>Parcelas</h3>${rows(data.parcelas, [["Parcela", "numero"], ["Vencimento", "vencimento"], ["Valor", "valor"], ["Status", "status"]])}`
+      : ""
+  }`;
   $("#summary").querySelectorAll(".portal-journey-node").forEach((botao) => {
     botao.addEventListener("click", () => abrirDrawerJornada(Number(botao.dataset.bloco), Number(botao.dataset.macro)));
   });
@@ -127,6 +136,32 @@ async function carregarMateriaisMarca() {
       ? dados.materiais.map((item) => `<div class="portal-row"><span><strong>${esc(item.nome)}</strong>${item.descricao ? ` · ${esc(item.descricao)}` : ""} · ${formatarTamanho(item.tamanho)}</span><a class="secondary-button" href="/v1/portal/materiais-marca/${item.id}/download" target="_blank" rel="noopener">Baixar</a></div>`).join("")
       : "<p>Nenhum material disponível ainda.</p>";
   } catch { box.innerHTML = "<p>Não foi possível carregar os materiais da marca.</p>"; }
+}
+// Achado médio da auditoria fina do Portal do Cliente (Fase 13.5,
+// 23/09/2026): a tela de login promete "✓ Processos e prazos", mas os
+// endpoints já existiam no backend (GET /v1/portal/processos, /prazos --
+// achado 5.4 da Fase 9) e nunca foram ligados a nenhuma tela; o cliente só
+// via o resumo agregado da jornada, sem lista de prazos jurídicos
+// específicos nem tabela de processos detalhada.
+async function carregarProcessos() {
+  const box = $("#portal-processos");
+  if (!box) return;
+  try {
+    const dados = await api("/v1/portal/processos");
+    box.innerHTML = dados.processos?.length
+      ? dados.processos.map((item) => `<div class="portal-processo"><div class="portal-processo-head"><strong>${esc(item.numero)}</strong><span>${esc(item.etapa)}</span></div><p>${esc(item.titulo)}</p><div class="rpi-progress"><i class="w-pct-${item.percentual}"></i></div>${item.alerta ? `<small class="portal-processo-alerta">⚠ ${esc(item.alerta)}</small>` : ""}</div>`).join("")
+      : "<p>Nenhum processo vinculado ainda.</p>";
+  } catch { box.innerHTML = "<p>Não foi possível carregar os processos.</p>"; }
+}
+async function carregarPrazos() {
+  const box = $("#portal-prazos");
+  if (!box) return;
+  try {
+    const dados = await api("/v1/portal/prazos");
+    box.innerHTML = dados.prazos?.length
+      ? dados.prazos.map((item) => `<div class="portal-row"><span><strong>${esc(item.tipo_descricao)}</strong> · ${esc(item.titulo)}</span><span>${esc(item.status)}${item.vencimento_em ? ` · vence ${formatarDataJornada(item.vencimento_em)}` : ""}</span></div>`).join("")
+      : "<p>Nenhum prazo em aberto.</p>";
+  } catch { box.innerHTML = "<p>Não foi possível carregar os prazos.</p>"; }
 }
 async function carregarArquivosEnviados() {
   const box = $("#sent-files");
@@ -159,6 +194,8 @@ async function carregar() {
     }).join("") || "<p>Nenhuma mensagem.</p>";
     await carregarArquivosEnviados();
     await carregarMateriaisMarca();
+    await carregarProcessos();
+    await carregarPrazos();
   } catch { $("#login").hidden = false; }
 }
 $("#login-form").addEventListener("submit", async (event) => { event.preventDefault(); try { await api("/v1/portal/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.fromEntries(new FormData(event.target))) }); await carregar(); } catch (error) { $("#login-error").textContent = error.message; } });

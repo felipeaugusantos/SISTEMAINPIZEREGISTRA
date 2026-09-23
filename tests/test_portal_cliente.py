@@ -38,6 +38,7 @@ from app.api.portal_cliente import (
     logout_cliente,
     montar_jornada_registro,
     montar_macroetapas,
+    obter_cliente_portal,
     progresso_processo,
     redefinir_acesso_portal,
     remover_logo_cliente_admin,
@@ -268,6 +269,72 @@ def test_criar_acesso_cliente_ja_existente_revoga_sessoes_antigas() -> None:
 
     assert "senha_temporaria" in resultado
     assert sessao_antiga.revogada_em is not None
+    # Achado P1 do Codex no PR #122: o marcador de geração de senha é o
+    # que fecha a corrida de verdade -- ver test_obter_cliente_portal_*.
+    assert cliente_existente.senha_alterada_em is not None
+
+
+def _request_com_sessao_portal(token: str = "token-de-sessao-teste") -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/v1/portal/me",
+            "headers": [(b"cookie", f"zr_client_session={token}".encode())],
+            "client": ("127.0.0.1", 12345),
+            "scheme": "http",
+            "server": ("testserver", 80),
+        }
+    )
+
+
+def test_obter_cliente_portal_aceita_sessao_com_marcador_atual() -> None:
+    from app.models import SessaoClientePortal
+
+    agora = datetime(2026, 9, 23, 12, 0, tzinfo=UTC)
+    cliente = _cliente()
+    cliente.senha_alterada_em = agora
+    sessao = SessaoClientePortal(
+        id=1,
+        cliente_id=cliente.id,
+        token_hash=hash_token("token-de-sessao-teste"),
+        expira_em=datetime(2099, 1, 1, tzinfo=UTC),
+        senha_versao_no_login=agora,
+    )
+    session = FakeSession([FakeResult(scalar=sessao), FakeResult(scalar=cliente)])
+
+    resultado = asyncio.run(obter_cliente_portal(_request_com_sessao_portal(), session))
+
+    assert resultado is cliente
+
+
+def test_obter_cliente_portal_rejeita_sessao_de_antes_da_troca_de_senha() -> None:
+    # Achado P1 do Codex no PR #122 (Fase 13.3, 23/09/2026): revogar
+    # sessões ativas (marcar revogada_em) no instante da troca de senha é
+    # uma corrida -- um login concorrente com a senha antiga pode validar
+    # antes da troca e só comitar a sessão depois do SELECT de revogação
+    # já ter tirado o retrato. O marcador de geração (senha_versao_no_login
+    # vs. cliente.senha_alterada_em) fecha a corrida de vez: é conferido em
+    # toda requisição, não só no instante da troca.
+    from app.models import SessaoClientePortal
+
+    cliente = _cliente()
+    cliente.senha_alterada_em = datetime(2026, 9, 23, 12, 0, tzinfo=UTC)
+    sessao_de_antes_da_troca = SessaoClientePortal(
+        id=1,
+        cliente_id=cliente.id,
+        token_hash=hash_token("token-de-sessao-teste"),
+        expira_em=datetime(2099, 1, 1, tzinfo=UTC),
+        senha_versao_no_login=None,
+        revogada_em=None,
+    )
+    session = FakeSession([FakeResult(scalar=sessao_de_antes_da_troca), FakeResult(scalar=cliente)])
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(obter_cliente_portal(_request_com_sessao_portal(), session))
+    assert exc_info.value.status_code == 401
+
+
 def test_logout_revoga_sessao_e_limpa_cookie() -> None:
     from app.models import SessaoClientePortal
 
@@ -753,6 +820,9 @@ def test_login_cliente_com_sucesso_zera_tentativas_e_gera_par_csrf() -> None:
     assert cliente.bloqueado_ate is None
     sessao_criada = session.adicionados[0]
     assert sessao_criada.csrf_hash is not None
+    # Achado P1 do Codex no PR #122 (Fase 13.3, 23/09/2026): a sessão
+    # guarda o marcador de geração de senha vigente no login.
+    assert sessao_criada.senha_versao_no_login == cliente.senha_alterada_em
     cookies = response.headers.getlist("set-cookie")
     assert any("zr_client_session=" in cookie and "HttpOnly" in cookie for cookie in cookies)
     assert any("zr_portal_csrf=" in cookie and "HttpOnly" not in cookie for cookie in cookies)

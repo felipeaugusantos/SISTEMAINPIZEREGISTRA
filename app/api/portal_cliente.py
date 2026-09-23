@@ -662,6 +662,14 @@ async def obter_cliente_portal(request: Request, session: SessionDep) -> Cliente
     )
     if cliente is None:
         raise HTTPException(status_code=401, detail="Sessão do cliente inválida")
+    # Achado P1 do Codex no PR #122 (Fase 13.3, 23/09/2026): revogar
+    # sessões ativas no momento da troca de senha é uma corrida (login
+    # concorrente com a senha antiga pode validar antes da troca e só
+    # comitar a sessão depois). Este marcador de geração fecha a corrida
+    # de vez -- comparado a cada requisição, não só no instante da troca --
+    # então não importa qual transação comitou primeiro.
+    if sessao.senha_versao_no_login != cliente.senha_alterada_em:
+        raise HTTPException(status_code=401, detail="Sessão do cliente inválida")
     # Cada requisição do portal cria uma nova sessão de banco. Reaplique o
     # tenant resolvido pelo cookie antes de qualquer auditoria protegida por RLS.
     await aplicar_contexto_tenant(session, cliente.organizacao_id)
@@ -805,6 +813,9 @@ async def login_cliente(dados: ClienteLogin, request: Request, response: Respons
             token_hash=hash_token(token),
             csrf_hash=hash_token(csrf),
             expira_em=datetime.now(UTC) + timedelta(hours=12),
+            # Marcador de geração de senha (achado P1 do Codex no PR #122,
+            # Fase 13.3) -- ver ClientePortal.senha_alterada_em.
+            senha_versao_no_login=cliente.senha_alterada_em,
         )
     )
     cliente.tentativas_falhas = 0
@@ -874,6 +885,10 @@ async def redefinir_acesso_portal(
         raise HTTPException(status_code=400, detail="Conta indisponível")
     await aplicar_contexto_tenant(session, cliente.organizacao_id)
     cliente.senha_hash = hash_senha(dados.nova_senha)
+    # Marcador de geração de senha (achado P1 do Codex no PR #122, Fase
+    # 13.3) -- é o que fecha de verdade a corrida com um login concorrente
+    # usando a senha antiga, não o SELECT-e-revogar abaixo sozinho.
+    cliente.senha_alterada_em = datetime.now(UTC)
     registro.usado_em = datetime.now(UTC)
     for sessao in (
         await session.execute(
@@ -935,6 +950,7 @@ async def criar_acesso_cliente(lead_id: int, request: Request, session: SessionD
     if lead.responsavel_id != usuario.id and usuario.perfil != "administrador" and not usuario.superadmin:
         raise HTTPException(status_code=403, detail="Somente o responsável pelo atendimento pode gerar este acesso")
     senha_temporaria = secrets.token_urlsafe(10)
+    agora = datetime.now(UTC)
     cliente = (
         await session.execute(
             select(ClientePortal).where(
@@ -950,6 +966,7 @@ async def criar_acesso_cliente(lead_id: int, request: Request, session: SessionD
             nome=lead.nome,
             email=lead.email.lower(),
             senha_hash=hash_senha(senha_temporaria),
+            senha_alterada_em=agora,
             criado_por=usuario.id,
         )
         session.add(cliente)
@@ -968,6 +985,11 @@ async def criar_acesso_cliente(lead_id: int, request: Request, session: SessionD
         # redefinir_acesso_portal (autorredefinição), que já revoga. Mesmo
         # motivo de gerar senha nova costuma ser suspeita de conta
         # comprometida; deixar uma sessão antiga viva anularia o propósito.
+        # senha_alterada_em (achado P1 do Codex no PR #122) é o que fecha a
+        # corrida de verdade -- o SELECT-e-revogar abaixo é só o registro
+        # explícito de quais sessões foram cortadas, não protege sozinho
+        # contra um login concorrente que comita depois deste SELECT.
+        cliente.senha_alterada_em = agora
         for sessao in (
             await session.execute(
                 select(SessaoClientePortal).where(
@@ -976,7 +998,7 @@ async def criar_acesso_cliente(lead_id: int, request: Request, session: SessionD
                 )
             )
         ).scalars():
-            sessao.revogada_em = datetime.now(UTC)
+            sessao.revogada_em = agora
     _auditar_operador(
         session,
         usuario,

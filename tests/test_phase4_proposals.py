@@ -444,6 +444,29 @@ def test_atualizar_status_proposta_permite_manter_o_mesmo_status() -> None:
     assert resultado["status"] == "aceita"
 
 
+def test_atualizar_status_proposta_resubmissao_do_mesmo_status_nao_exige_mfa_nem_fabrica_evidencia() -> None:
+    # Achado do Codex no PR #121: uma proposta já "aceita" antes desta
+    # funcionalidade existir (sem public_aceito_em nem assinatura) não
+    # pode ganhar essa evidência "totp" de graça só porque alguém sem MFA
+    # reenviou o mesmo status -- ninguém confirmou nada nessa chamada.
+    proposta = _proposta(id=1, status="aceita")
+    assert proposta.public_aceito_em is None
+    session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=None)])
+    resultado = asyncio.run(
+        atualizar_status_proposta(
+            1,
+            PropostaStatusInput(status="aceita"),
+            _request_patch("/propostas/1/status"),
+            session,
+            usuario_teste(mfa_ativo=False),
+        )
+    )
+    assert resultado["status"] == "aceita"
+    assert proposta.public_aceito_em is None
+    assinaturas = [obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial)]
+    assert assinaturas == []
+
+
 def test_atualizar_status_proposta_transicao_valida_prossegue() -> None:
     proposta = _proposta(id=1, status="rascunho")
     session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=None)])

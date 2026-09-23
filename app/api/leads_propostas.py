@@ -386,7 +386,16 @@ async def atualizar_status_proposta(
         )
     if dados.status == "cancelada" and not (dados.motivo and dados.motivo.strip()):
         raise HTTPException(status_code=422, detail="Informe o motivo do cancelamento")
-    if dados.status == "aceita" and dados.status != proposta.status:
+    # Achado do Codex no PR #121: só é uma confirmação de verdade quando o
+    # status realmente MUDA pra "aceita" agora -- um PATCH idempotente
+    # (status já era "aceita", ex.: proposta legada de antes desta
+    # funcionalidade) pulava o gate de MFA (linha abaixo) mas o bloco de
+    # evidência mais adiante ainda fabricava public_aceito_em e uma
+    # AssinaturaPropostaComercial com segundo_fator_canal="totp", sem
+    # nenhum código ter sido validado. nova_aceitacao trava os dois no
+    # mesmo critério.
+    nova_aceitacao = dados.status == "aceita" and dados.status != proposta.status
+    if nova_aceitacao:
         # "Registrar aceite" manual precisa de prova de que foi essa pessoa,
         # autenticada, que confirmou o aceite -- mesmo TOTP que o operador já
         # usa pra logar (achado do usuário, 23/09/2026).
@@ -425,47 +434,49 @@ async def atualizar_status_proposta(
     elif dados.status == "aceita":
         proposta.aceito_em = agora
         proposta.sla_status = "aguardando_pagamento"
+        await criar_contratacao_automatica_proposta(session, proposta, "admin")
         # Mesmo fluxo de evidência do aceite pelo cliente (link público/
         # portal): grava public_aceito_em/IP e uma AssinaturaPropostaComercial,
         # só que com segundo_fator_canal="totp" (código do operador, não
         # e-mail do cliente) -- sem isso, um aceite "manual" ficava
-        # indistinguível de uma mudança de status qualquer.
-        if proposta.public_aceito_em is None:
+        # indistinguível de uma mudança de status qualquer. Só roda numa
+        # aceitação nova de verdade (nova_aceitacao) -- é o que garante que
+        # o MFA acima foi mesmo checado antes desta evidência ser criada.
+        if nova_aceitacao and proposta.public_aceito_em is None:
             proposta.public_aceito_em = agora
             proposta.public_aceito_ip_hash = hash_ip(cliente_ip(request))
-        await criar_contratacao_automatica_proposta(session, proposta, "admin")
-        assinatura_hash = hashlib.sha256(
-            "|".join(
-                str(valor or "")
-                for valor in (
-                    proposta.numero,
-                    proposta.versao,
-                    proposta.marca,
-                    proposta.classes,
-                    proposta.escopo,
-                    proposta.honorarios,
-                    proposta.taxa_gru,
-                    proposta.condicoes_pagamento,
-                )
-            ).encode("utf-8")
-        ).hexdigest()
-        try:
-            async with session.begin_nested():
-                session.add(
-                    AssinaturaPropostaComercial(
-                        organizacao_id=proposta.organizacao_id,
-                        proposta_id=proposta.id,
-                        versao=proposta.versao,
-                        hash_documento=assinatura_hash,
-                        ip_hash=proposta.public_aceito_ip_hash,
-                        provedor="admin",
-                        segundo_fator_canal="totp",
-                        segundo_fator_confirmado_em=agora,
+            assinatura_hash = hashlib.sha256(
+                "|".join(
+                    str(valor or "")
+                    for valor in (
+                        proposta.numero,
+                        proposta.versao,
+                        proposta.marca,
+                        proposta.classes,
+                        proposta.escopo,
+                        proposta.honorarios,
+                        proposta.taxa_gru,
+                        proposta.condicoes_pagamento,
                     )
-                )
-                await session.flush()
-        except IntegrityError:
-            pass
+                ).encode("utf-8")
+            ).hexdigest()
+            try:
+                async with session.begin_nested():
+                    session.add(
+                        AssinaturaPropostaComercial(
+                            organizacao_id=proposta.organizacao_id,
+                            proposta_id=proposta.id,
+                            versao=proposta.versao,
+                            hash_documento=assinatura_hash,
+                            ip_hash=proposta.public_aceito_ip_hash,
+                            provedor="admin",
+                            segundo_fator_canal="totp",
+                            segundo_fator_confirmado_em=agora,
+                        )
+                    )
+                    await session.flush()
+            except IntegrityError:
+                pass
         lead = (
             await session.execute(
                 select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id)

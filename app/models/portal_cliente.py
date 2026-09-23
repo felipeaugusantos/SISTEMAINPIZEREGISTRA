@@ -27,6 +27,18 @@ class ClientePortal(Base):
     nome: Mapped[str] = mapped_column(String(150))
     email: Mapped[str] = mapped_column(String(254), index=True)
     senha_hash: Mapped[str] = mapped_column(Text)
+    # Achado P1 do Codex no PR #122 (Fase 13.3 da auditoria fina, 23/09/2026):
+    # revogar sessões ativas (marcar revogada_em) ao trocar a senha é uma
+    # corrida -- um login concorrente com a senha antiga pode validar antes
+    # da troca e só criar/comitar a sessão depois do SELECT de revogação já
+    # ter tirado o retrato, escapando da revogação. senha_alterada_em vira
+    # um marcador de geração: toda SessaoClientePortal guarda o valor vigente
+    # no momento em que validou a senha (ver SessaoClientePortal.
+    # senha_versao_no_login); obter_cliente_portal invalida qualquer sessão
+    # cujo marcador não bate com o valor atual, então a corrida se resolve
+    # sozinha na próxima requisição autenticada, independente de qual
+    # transação comitou primeiro.
+    senha_alterada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     bloqueado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     bloqueado_motivo: Mapped[str | None] = mapped_column(String(300), nullable=True)
@@ -59,6 +71,12 @@ class SessaoClientePortal(Base):
     # como CSRF inválido em app/api/portal_cliente.py::exigir_csrf_portal
     # (força um novo login, que já gera o par).
     csrf_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Marcador de geração de senha (ver ClientePortal.senha_alterada_em,
+    # Fase 13.3/Codex, 23/09/2026) -- guarda o senha_alterada_em vigente no
+    # instante em que este login validou a senha. Nullable porque sessões
+    # criadas antes desta migration não têm o par (tratadas como válidas
+    # enquanto o cliente nunca trocar a senha por um caminho rastreado).
+    senha_versao_no_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expira_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     revogada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

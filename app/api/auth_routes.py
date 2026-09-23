@@ -163,22 +163,45 @@ async def login(
         )
     ).scalar_one_or_none()
     agora = datetime.now(UTC)
-    valido = usuario is not None and usuario.ativo and verificar_senha(usuario.senha_hash, dados.senha)
+    # Achado do usuário (23/09/2026): a mensagem "Código MFA inválido ou
+    # ausente" aparecia até com senha certa, na primeira etapa normal do
+    # login em duas etapas (o campo de código só existe na tela depois da
+    # senha ser aceita) -- parecia um erro de senha, e cada envio nessa
+    # etapa normal ainda contava como tentativa falha pro bloqueio de 5
+    # tentativas, penalizando quem usa MFA mais rápido que quem não usa.
+    senha_valida = usuario is not None and usuario.ativo and verificar_senha(usuario.senha_hash, dados.senha)
+    valido = senha_valida
     segredo_mfa = None
+    codigo_mfa_informado = bool((dados.codigo_mfa or "").strip())
+    aguardando_mfa = False
     if valido and usuario.mfa_ativo:
-        codigo = dados.codigo_mfa or ""
-        segredo_mfa = revelar_segredo(usuario.mfa_segredo or "")
-        valido = validar_totp(segredo_mfa, codigo)
-        if not valido and hash_token(codigo.upper()) in (usuario.codigos_recuperacao or []):
-            usuario.codigos_recuperacao = [
-                item for item in usuario.codigos_recuperacao if item != hash_token(codigo.upper())
-            ]
-            valido = True
-        if valido and usuario.mfa_segredo_versao != versao_chave_atual():
-            usuario.mfa_segredo = proteger_segredo(segredo_mfa)
-            usuario.mfa_segredo_versao = versao_chave_atual()
+        if not codigo_mfa_informado:
+            valido = False
+            aguardando_mfa = True
+        else:
+            codigo = dados.codigo_mfa or ""
+            segredo_mfa = revelar_segredo(usuario.mfa_segredo or "")
+            valido = validar_totp(segredo_mfa, codigo)
+            if not valido and hash_token(codigo.upper()) in (usuario.codigos_recuperacao or []):
+                usuario.codigos_recuperacao = [
+                    item for item in usuario.codigos_recuperacao if item != hash_token(codigo.upper())
+                ]
+                valido = True
+            if valido and usuario.mfa_segredo_versao != versao_chave_atual():
+                usuario.mfa_segredo = proteger_segredo(segredo_mfa)
+                usuario.mfa_segredo_versao = versao_chave_atual()
     if usuario is not None and usuario.bloqueado_ate and usuario.bloqueado_ate > agora:
         valido = False
+        aguardando_mfa = False
+    if aguardando_mfa:
+        # Senha certa, só falta o código -- etapa normal do fluxo, não uma
+        # tentativa errada: não penaliza o bloqueio nem audita como falha.
+        request.state.auth_user = None
+        await aplicar_contexto_tenant(
+            session,
+            usuario.organizacao_id if usuario else get_settings().default_organization_id,
+        )
+        raise HTTPException(status_code=401, detail="Informe o código do seu autenticador")
     if not valido:
         bloqueou = False
         if usuario is not None:
@@ -201,7 +224,7 @@ async def login(
             {"motivo": "excesso_tentativas" if bloqueou else "credenciais_invalidas"},
         )
         await session.commit()
-        detalhe = "Código MFA inválido ou ausente" if usuario and usuario.mfa_ativo else "Usuário ou senha inválidos"
+        detalhe = "Código MFA inválido" if usuario and usuario.mfa_ativo and senha_valida else "Usuário ou senha inválidos"
         raise HTTPException(status_code=401, detail=detalhe)
     usuario.tentativas_falhas = 0
     usuario.bloqueado_ate = None

@@ -101,6 +101,12 @@ class FakeSession:
             return self._resultados.pop(0).scalar_one_or_none()
         return None
 
+    def in_transaction(self) -> bool:
+        # Usado por app.tenancy.aplicar_contexto_tenant pra decidir se manda
+        # o SET LOCAL de RLS -- FakeSession nunca abre transação real, então
+        # sempre False (o código só seta session.info nesse caso).
+        return False
+
     def add(self, obj: Any) -> None:
         self.adicionados.append(obj)
 

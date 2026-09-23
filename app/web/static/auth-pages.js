@@ -84,11 +84,18 @@ login?.addEventListener("submit", async event => {
       : await enviar("/v1/auth/login", dados);
     location.href = resposta.destino;
   } catch (erro) {
+    // Achado do usuário (23/09/2026): com senha certa, a primeira etapa do
+    // login em duas etapas mostrava "Código MFA inválido ou ausente" como
+    // se fosse um erro de senha -- na verdade é só o próximo passo
+    // esperado (o campo de código nem existia na tela ainda), então tem
+    // estilo neutro em vez de vermelho.
+    const pedindoCodigo = !socialMfa && erro.message === "Informe o código do seu autenticador";
     msg.textContent = erro.message;
-    msg.className = "status-message error";
-    if (!socialMfa && erro.message === "Código MFA inválido ou ausente") {
+    msg.className = pedindoCodigo ? "status-message loading" : "status-message error";
+    if (!socialMfa && (pedindoCodigo || erro.message === "Código MFA inválido")) {
       const campoMfa = document.querySelector("#mfa-field");
       campoMfa.hidden = false;
+      login.elements.codigo_mfa.required = true;
       login.elements.codigo_mfa.focus();
     }
   }

@@ -554,6 +554,19 @@ def test_portal_cliente_mostra_processos_prazos_e_parcelas() -> None:
     assert ".portal-processo {" in styles
 
 
+def test_portal_cliente_so_mostra_assinar_documento_quando_pronto() -> None:
+    # Achado baixo da Fase 13.6 (23/09/2026): o botão "Assinar" aparecia
+    # pra qualquer documento não assinado, mesmo um recém-criado ainda
+    # "pendente" sem número/data -- o cliente clicava, pedia o código por
+    # e-mail e só então descobria (409) que o documento não estava pronto.
+    # A tela passa a usar o campo "pronto_para_assinar" que o backend já
+    # calcula (mesma validação de assinar_documento_portal).
+    script = (web_dir / "static" / "portal-cliente.js").read_text(encoding="utf-8")
+
+    assert "item.pronto_para_assinar" in script
+    assert "Aguardando equipe" in script
+
+
 def test_admin_cadastra_logo_do_cliente_para_o_personagem_do_portal() -> None:
     # Mesmo item acima, lado administrativo: a equipe cadastra a logo do
     # cliente na ficha do lead.

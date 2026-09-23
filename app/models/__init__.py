@@ -98,7 +98,6 @@ from app.models.portal_cliente import ClientePortal as ClientePortal
 from app.models.portal_cliente import CodigoConfirmacaoPortal as CodigoConfirmacaoPortal
 from app.models.portal_cliente import MaterialMarcaCliente as MaterialMarcaCliente
 from app.models.portal_cliente import MensagemClientePortal as MensagemClientePortal
-from app.models.portal_cliente import NotificacaoClientePortal as NotificacaoClientePortal
 from app.models.portal_cliente import RecuperacaoClientePortal as RecuperacaoClientePortal
 from app.models.portal_cliente import SessaoClientePortal as SessaoClientePortal
 from app.models.portfolio_pi import AtivoPartePI as AtivoPartePI

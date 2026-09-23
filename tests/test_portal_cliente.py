@@ -16,6 +16,7 @@ from app.api.portal_cliente import (
     ClienteLogin,
     RecuperacaoRedefinicao,
     RecuperacaoSolicitacao,
+    _documento_portal_pronto_para_assinar,
     _hash_assinatura_documento,
     _hash_assinatura_proposta,
     _serializar_parcela_portal,
@@ -1681,6 +1682,51 @@ def test_solicitar_codigo_assinatura_documento_portal_nao_encontrado() -> None:
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(solicitar_codigo_assinatura_documento_portal(3, _request(), _cliente(), session))
     assert exc_info.value.status_code == 404
+
+
+def test_solicitar_codigo_assinatura_documento_portal_bloqueia_documento_nao_pronto() -> None:
+    # Achado baixo da Fase 13.6 (23/09/2026): o botão "Assinar" aparecia na
+    # tela pra qualquer documento não assinado, inclusive um recém-criado
+    # ainda "pendente" e sem número/data -- o cliente só descobria que não
+    # dava pra assinar depois de pedir o código por e-mail (gastando o
+    # limite de 1 pedido/minuto à toa). Agora bloqueia antes de mandar o
+    # código, com a mesma validação usada em assinar_documento_portal.
+    documento = DocumentoLead(
+        id=3, organizacao_id=1, lead_id=9, tipo="procuracao", status="pendente", numero=None, data=None
+    )
+    session = FakeSession([FakeResult(scalar=documento)])
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(solicitar_codigo_assinatura_documento_portal(3, _request(), _cliente(), session))
+    assert exc_info.value.status_code == 409
+    assert "pronto" in exc_info.value.detail.lower()
+
+
+def test_documento_portal_pronto_para_assinar_reflete_a_mesma_validacao() -> None:
+    # A mesma checagem exposta como booleano em /v1/portal/resumo
+    # (campo "pronto_para_assinar") pra decidir se o front mostra o botão.
+    pendente = DocumentoLead(
+        id=1, organizacao_id=1, lead_id=9, tipo="procuracao", status="pendente", numero=None, data=None
+    )
+    incompleto = DocumentoLead(
+        id=2, organizacao_id=1, lead_id=9, tipo="procuracao", status="recebido", numero=None, data=date(2026, 9, 1)
+    )
+    expirado = DocumentoLead(
+        id=3,
+        organizacao_id=1,
+        lead_id=9,
+        tipo="procuracao",
+        status="recebido",
+        numero="123",
+        data=date(2020, 1, 1),
+        validade_em=date(2020, 6, 1),
+    )
+    pronto = DocumentoLead(
+        id=4, organizacao_id=1, lead_id=9, tipo="procuracao", status="recebido", numero="123", data=date(2026, 9, 1)
+    )
+    assert _documento_portal_pronto_para_assinar(pendente) is False
+    assert _documento_portal_pronto_para_assinar(incompleto) is False
+    assert _documento_portal_pronto_para_assinar(expirado) is False
+    assert _documento_portal_pronto_para_assinar(pronto) is True
 
 
 def test_assinar_proposta_portal_rejeita_sem_codigo_solicitado() -> None:

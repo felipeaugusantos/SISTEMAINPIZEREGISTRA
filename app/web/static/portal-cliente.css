@@ -20,15 +20,19 @@
    cores) numa silhueta branca praticamente ilegível -- parecia um
    "negativo" quebrado, não um efeito intencional. Revisão do Codex no PR
    #118: só remover o filtro deixa o texto "Zé Registra" (quase preto)
-   sem contraste nenhum sobre o verde escuro do painel. Fundo branco em
-   cartão resolve os dois problemas mantendo as cores reais da logo. */
-.portal-brand-panel img { width:min(230px,70%); height:auto; margin-bottom:56px; background:#fff; border-radius:14px; padding:16px 20px; box-shadow:0 6px 18px rgba(0,0,0,.18); box-sizing:border-box; }
+   sem contraste nenhum sobre o verde escuro do painel. Um cartão branco
+   resolvia o contraste mas mudava pixels demais (por causa do blur do
+   box-shadow) e estourava a tolerância de 5% do snapshot visual do E2E
+   -- glow branco sutil ao redor do desenho (drop-shadow, que segue o
+   alfa da imagem, não um retângulo) resolve o contraste com uma área de
+   diferença bem menor, concentrada só nas bordas do personagem/texto. */
+.portal-brand-panel img { width:min(230px,70%); height:auto; margin-bottom:56px; filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 2px #fff) drop-shadow(0 0 2px #fff); }
 /* Achado do usuário (17/09/2026): a logo aqui reaproveita tenant-branding.js
    (mesma logo cadastrada no painel interno), que aplica a classe
    .brand-avatar compartilhada -- essa classe tem estilo de avatar circular
    pequeno (borda, fundo, object-fit:cover) pensado pro navbar, incompatível
    com a logo grande deste painel. Neutraliza só o que não se aplica aqui. */
-.portal-brand-panel img.brand-avatar { border:none; border-radius:0; background:none; object-fit:contain; flex:initial; padding:0; box-shadow:none; }
+.portal-brand-panel img.brand-avatar { border:none; border-radius:0; background:none; object-fit:contain; flex:initial; filter:none; }
 .portal-brand-panel .eyebrow { color:#bce6cc; }
 .portal-brand-panel h1 { max-width:460px; margin:12px 0 18px; font-family:Georgia,serif; font-size:clamp(2.3rem,5vw,4.4rem); line-height:1.03; font-weight:500; letter-spacing:-.04em; }
 .portal-brand-panel > p:not(.eyebrow) { max-width:440px; color:#e5f4e9; font-size:1.05rem; line-height:1.65; }

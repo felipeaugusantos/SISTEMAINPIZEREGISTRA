@@ -42,6 +42,15 @@ def _request(ip: str = "10.0.0.1") -> Request:
     )
 
 
+def _sessao(usuario: UsuarioOperacoes) -> FakeSession:
+    sessao = FakeSession([FakeResult(scalar=usuario)])
+    # _auditar() lê session.info diretamente (sem hasattr) pra achar a
+    # organização do evento de auditoria; sessão real ganha isso de
+    # aplicar_contexto_tenant, aqui precisa vir pronto.
+    sessao.info = {"organizacao_id": usuario.organizacao_id}
+    return sessao
+
+
 def _usuario(**overrides: object) -> UsuarioOperacoes:
     base = dict(
         id=1,
@@ -72,7 +81,7 @@ def test_senha_errada_sem_mfa_mostra_mensagem_generica() -> None:
     usuario = _usuario(mfa_ativo=False)
     dados = LoginInput(identificador="operador", senha="senha-errada")
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(login(dados, _request(), Response(), FakeSession([FakeResult(scalar=usuario)])))
+        asyncio.run(login(dados, _request(), Response(), _sessao(usuario)))
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Usuário ou senha inválidos"
     assert usuario.tentativas_falhas == 1
@@ -83,7 +92,7 @@ def test_senha_certa_mfa_ativo_sem_codigo_pede_codigo_sem_penalizar() -> None:
     usuario = _usuario(mfa_ativo=True, mfa_segredo=proteger_segredo(segredo))
     dados = LoginInput(identificador="operador", senha="Senha-Correta-123")
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(login(dados, _request(), Response(), FakeSession([FakeResult(scalar=usuario)])))
+        asyncio.run(login(dados, _request(), Response(), _sessao(usuario)))
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Informe o código do seu autenticador"
     # Achado principal: essa etapa esperada do fluxo não pode contar como
@@ -97,7 +106,7 @@ def test_senha_certa_mfa_ativo_codigo_errado_mostra_mensagem_especifica() -> Non
     usuario = _usuario(mfa_ativo=True, mfa_segredo=proteger_segredo(segredo))
     dados = LoginInput(identificador="operador", senha="Senha-Correta-123", codigo_mfa="000000")
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(login(dados, _request(), Response(), FakeSession([FakeResult(scalar=usuario)])))
+        asyncio.run(login(dados, _request(), Response(), _sessao(usuario)))
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Código MFA inválido"
     assert usuario.tentativas_falhas == 1
@@ -108,7 +117,7 @@ def test_senha_errada_mesmo_com_mfa_ativo_nao_mostra_mensagem_de_mfa() -> None:
     usuario = _usuario(mfa_ativo=True, mfa_segredo=proteger_segredo(segredo))
     dados = LoginInput(identificador="operador", senha="senha-errada")
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(login(dados, _request(), Response(), FakeSession([FakeResult(scalar=usuario)])))
+        asyncio.run(login(dados, _request(), Response(), _sessao(usuario)))
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Usuário ou senha inválidos"
     assert usuario.tentativas_falhas == 1
@@ -118,6 +127,6 @@ def test_senha_certa_mfa_ativo_codigo_correto_autentica() -> None:
     segredo = "JBSWY3DPEHPK3PXP"
     usuario = _usuario(mfa_ativo=True, mfa_segredo=proteger_segredo(segredo))
     dados = LoginInput(identificador="operador", senha="Senha-Correta-123", codigo_mfa=codigo_totp(segredo))
-    resultado = asyncio.run(login(dados, _request(), Response(), FakeSession([FakeResult(scalar=usuario)])))
+    resultado = asyncio.run(login(dados, _request(), Response(), _sessao(usuario)))
     assert resultado["usuario"]["id"] == usuario.id
     assert usuario.tentativas_falhas == 0

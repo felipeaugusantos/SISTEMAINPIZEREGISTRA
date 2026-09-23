@@ -1204,6 +1204,13 @@ class AssinaturaDocumentoLead(Base):
     ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     assinado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     provedor: Mapped[str] = mapped_column(String(30), default="interno")
+    # Achado do Codex no PR #120 (Fase 13.2 da auditoria fina do Portal do
+    # Cliente, 23/09/2026): mesma evidência de segundo fator já registrada
+    # em AssinaturaPropostaComercial -- sem isso, uma assinatura de
+    # documento pelo portal (que agora exige código por e-mail) fica
+    # indistinguível de uma sem verificação nenhuma em auditoria.
+    segundo_fator_canal: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    segundo_fator_confirmado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ContatoLead(Base):

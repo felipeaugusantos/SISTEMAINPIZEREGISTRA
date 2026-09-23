@@ -64,6 +64,44 @@ class SessaoClientePortal(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class CodigoConfirmacaoPortal(Base):
+    """Segundo fator pra assinar proposta/documento pelo portal do cliente
+    (Fase 13.2 da auditoria fina, 23/09/2026, decisão do usuário: mesmo
+    padrão de dupla validação por e-mail já usado no aceite público de
+    proposta -- ver app.api.leads_propostas). Tabela própria em vez de
+    reaproveitar os campos codigo_confirmacao_* de PropostaComercial (que
+    são do fluxo público, sem cliente_id) pra não colidir se o mesmo
+    cliente usar os dois fluxos quase ao mesmo tempo, e pra também cobrir
+    DocumentoLead, que nunca teve esses campos.
+
+    Achados do Codex no PR #120: recurso_hash amarra o código ao
+    conteúdo/versão vigente no momento do pedido -- se o recurso mudar
+    antes da confirmação (proposta ou documento editado pelo operador
+    durante os 15 minutos de validade), o hash não bate mais e o código
+    deixa de servir. A leitura em
+    app.api.portal_cliente._validar_codigo_confirmacao_portal usa
+    SELECT ... FOR UPDATE nesta tabela pra serializar confirmações
+    concorrentes do mesmo código (ex.: duplo clique) -- sem isso, duas
+    submissões quase simultâneas podiam ambas validar o mesmo código
+    antes de qualquer uma apagar o registro."""
+
+    __tablename__ = "codigos_confirmacao_portal"
+    __table_args__ = (
+        UniqueConstraint("cliente_id", "recurso_tipo", "recurso_id", name="uq_codigo_confirmacao_portal_recurso"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    cliente_id: Mapped[int] = mapped_column(ForeignKey("clientes_portal.id", ondelete="CASCADE"), index=True)
+    recurso_tipo: Mapped[str] = mapped_column(String(20))
+    recurso_id: Mapped[int] = mapped_column(BigInteger)
+    recurso_hash: Mapped[str] = mapped_column(String(64))
+    codigo_hash: Mapped[str] = mapped_column(String(64))
+    expira_em: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    tentativas: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    enviado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class RecuperacaoClientePortal(Base):
     """Token de recuperação de acesso de cliente, de uso único e curto."""
 

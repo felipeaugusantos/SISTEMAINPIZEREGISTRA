@@ -32,13 +32,14 @@ from app.api.leads_propostas import criar_contratacao_automatica_proposta
 from app.auth import exigir_permissao, hash_ip, hash_senha, hash_token, verificar_senha
 from app.clicksign import configuracao as configuracao_clicksign
 from app.database import get_session
-from app.emailing import enviar_recuperacao_portal
+from app.emailing import enviar_codigo_confirmacao_portal, enviar_recuperacao_portal
 from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import (
     ArquivoClientePortal,
     AssinaturaDocumentoLead,
     AssinaturaPropostaComercial,
     ClientePortal,
+    CodigoConfirmacaoPortal,
     DocumentoLead,
     EventoAuditoria,
     FaseLead,
@@ -80,6 +81,24 @@ _limitar_login_portal = RateLimiter(limite=10, janela_segundos=60, escopo="porta
 # tinha nenhum rate limit (diferente de app.api.auth_routes.limitar_recuperacao),
 # permitindo mail-bombing de um cliente-alvo em escala. Mesmo limite do admin.
 _limitar_recuperacao_portal = RateLimiter(limite=5, janela_segundos=300, escopo="portal-recuperacao")
+# Achado médio da auditoria fina do Portal do Cliente (Fase 13.2,
+# 23/09/2026): mensagens e uploads eram as únicas mutações autenticadas
+# do portal sem nenhum limite de tentativas/frequência (diferente de
+# login e recuperação, que já tinham) -- uma credencial comprometida
+# podia encher o histórico de mensagens do CRM ou disparar uploads de
+# até 15 MB repetidamente, cada um passando pelo scan do clamav, sem
+# nenhuma trava. Mesma janela dos outros limites do arquivo.
+_limitar_mensagem_portal = RateLimiter(limite=20, janela_segundos=60, escopo="portal-mensagem")
+_limitar_upload_portal = RateLimiter(limite=10, janela_segundos=60, escopo="portal-upload")
+# Achado médio da auditoria fina do Portal do Cliente (Fase 13.2,
+# 23/09/2026, decisão do usuário): assinar proposta/documento no portal
+# dependia só da sessão (12h) + CSRF, sem reconfirmação no momento da
+# assinatura -- diferente do fluxo público de aceite, que já exige um
+# código de 6 dígitos por e-mail (app.api.leads_propostas). Mesmo padrão
+# aqui, mesmos limites/janelas do fluxo público.
+CODIGO_CONFIRMACAO_PORTAL_MINUTOS = 15
+CODIGO_CONFIRMACAO_PORTAL_TENTATIVAS_MAXIMAS = 5
+_limitar_codigo_confirmacao_portal = RateLimiter(limite=1, janela_segundos=60, escopo="portal-codigo-confirmacao")
 
 
 async def _enviar_recuperacao_portal_com_log(email: str, nome: str, token: str, cliente_id: int) -> None:
@@ -611,6 +630,10 @@ class RecuperacaoRedefinicao(BaseModel):
     nova_senha: str = Field(min_length=8, max_length=200)
 
 
+class AssinarComCodigoInput(BaseModel):
+    codigo: str = Field(min_length=6, max_length=6)
+
+
 async def obter_cliente_portal(request: Request, session: SessionDep) -> ClientePortal:
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
@@ -643,8 +666,10 @@ async def obter_cliente_portal(request: Request, session: SessionDep) -> Cliente
     # tenant resolvido pelo cookie antes de qualquer auditoria protegida por RLS.
     await aplicar_contexto_tenant(session, cliente.organizacao_id)
     # Guardado pra exigir_csrf_portal conferir sem precisar reconsultar a
-    # sessão (ver achado médio da Fase 9: portal não exigia CSRF).
+    # sessão (ver achado médio da Fase 9: portal não exigia CSRF), e pro
+    # logout reaproveitar sem uma segunda query (Fase 13.2, 23/09/2026).
     request.state.portal_csrf_hash = sessao.csrf_hash
+    request.state.portal_sessao = sessao
     return cliente
 
 
@@ -866,26 +891,20 @@ async def redefinir_acesso_portal(
 
 
 @router.post("/v1/portal/logout")
-async def logout_cliente(request: Request, response: Response, session: SessionDep) -> dict:
-    token = request.cookies.get(SESSION_COOKIE)
-    if token:
-        sessao = (
-            await session.execute(
-                select(SessaoClientePortal).where(SessaoClientePortal.token_hash == hash_token(token))
-            )
-        ).scalar_one_or_none()
-        if sessao:
-            cliente = await session.get(ClientePortal, sessao.cliente_id)
-            if cliente is not None:
-                # Aplicar o tenant executa um SELECT set_config. Se a sessão
-                # for alterada antes, o autoflush tenta fazer o UPDATE ainda
-                # no contexto de bootstrap (somente leitura) e o RLS devolve
-                # zero linhas, causando StaleDataError. Resolva e aplique o
-                # tenant primeiro; só então revogue a sessão.
-                await aplicar_contexto_tenant(session, cliente.organizacao_id)
-                sessao.revogada_em = datetime.now(UTC)
-                _auditar_cliente(session, cliente, request, "logout_cliente", "portal:logout")
-                await session.commit()
+async def logout_cliente(request: Request, response: Response, cliente: ClientCsrfDep, session: SessionDep) -> dict:
+    """Achado baixo da auditoria fina do Portal do Cliente (Fase 13.2,
+    23/09/2026): era a única mutação do arquivo sem exigir CSRF -- o
+    cookie de sessão é enviado automaticamente pelo navegador, então um
+    site malicioso podia forjar este POST e derrubar a sessão do cliente
+    sem interação nenhuma. ClientCsrfDep já resolve sessão/cliente e
+    confere o token double-submit antes de chegar aqui; a sessão
+    resolvida fica em request.state.portal_sessao (ver obter_cliente_portal),
+    sem precisar reconsultar."""
+    sessao = request.state.portal_sessao
+    # aplicar_contexto_tenant já rodou dentro de ClientCsrfDep -> ClientDep.
+    sessao.revogada_em = datetime.now(UTC)
+    _auditar_cliente(session, cliente, request, "logout_cliente", "portal:logout")
+    await session.commit()
     response.delete_cookie(SESSION_COOKIE, path="/")
     return {"ok": True}
 
@@ -1707,8 +1726,198 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
     }
 
 
+def _gerar_codigo_confirmacao_portal() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _hash_assinatura_proposta(proposta: PropostaComercial) -> str:
+    return hashlib.sha256(
+        "|".join(
+            str(valor or "")
+            for valor in (
+                proposta.numero,
+                proposta.versao,
+                proposta.marca,
+                proposta.classes,
+                proposta.escopo,
+                proposta.honorarios,
+                proposta.taxa_gru,
+                proposta.condicoes_pagamento,
+            )
+        ).encode()
+    ).hexdigest()
+
+
+def _hash_assinatura_documento(documento: DocumentoLead) -> str:
+    """Mesmo hash usado como evidência da assinatura -- reaproveitado
+    também como recurso_hash de CodigoConfirmacaoPortal (achado do Codex
+    no PR #120): se o operador editar o documento entre o pedido do
+    código e a confirmação, o hash muda e o código anterior deixa de
+    bater, em vez de continuar valendo pra uma versão diferente da que
+    o cliente viu."""
+    conteudo = (
+        f"{documento.tipo}|{documento.numero or ''}|{documento.data or ''}|"
+        f"{documento.observacoes or ''}|v{documento.versao}"
+    ).encode()
+    return hashlib.sha256(conteudo).hexdigest()
+
+
+async def _solicitar_codigo_confirmacao_portal(
+    session: AsyncSession,
+    request: Request,
+    cliente: ClientePortal,
+    recurso_tipo: str,
+    recurso_id: int,
+    recurso_hash: str,
+    descricao: str,
+) -> dict:
+    """Gera e envia o código de confirmação (síncrono -- se o e-mail não
+    sair, o cliente precisa ver isso na tela agora, não descobrir depois
+    que "confirmou" um código que nunca chegou. Mesmo raciocínio do fluxo
+    público, ver app.api.leads_propostas.solicitar_codigo_proposta)."""
+    _limitar_codigo_confirmacao_portal.aplicar(f"cliente:{cliente.id}:{recurso_tipo}:{recurso_id}")
+    codigo = _gerar_codigo_confirmacao_portal()
+    codigo_hash = hash_token(codigo)
+    expira_em = datetime.now(UTC) + timedelta(minutes=CODIGO_CONFIRMACAO_PORTAL_MINUTOS)
+    registro = (
+        await session.execute(
+            select(CodigoConfirmacaoPortal).where(
+                CodigoConfirmacaoPortal.cliente_id == cliente.id,
+                CodigoConfirmacaoPortal.recurso_tipo == recurso_tipo,
+                CodigoConfirmacaoPortal.recurso_id == recurso_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if registro is None:
+        registro = CodigoConfirmacaoPortal(
+            organizacao_id=cliente.organizacao_id,
+            cliente_id=cliente.id,
+            recurso_tipo=recurso_tipo,
+            recurso_id=recurso_id,
+            recurso_hash=recurso_hash,
+            codigo_hash=codigo_hash,
+            expira_em=expira_em,
+        )
+        session.add(registro)
+    else:
+        registro.recurso_hash = recurso_hash
+        registro.codigo_hash = codigo_hash
+        registro.expira_em = expira_em
+    registro.tentativas = 0
+    registro.enviado_em = datetime.now(UTC)
+    _auditar_cliente(session, cliente, request, "codigo_confirmacao_solicitado", f"{recurso_tipo}:{recurso_id}")
+    await session.commit()
+    try:
+        await enviar_codigo_confirmacao_portal(cliente.email, cliente.nome, codigo, descricao)
+    except Exception as exc:
+        logger.exception("Falha ao enviar código de confirmação do portal do cliente %s", cliente.id)
+        raise HTTPException(status_code=502, detail="Não foi possível enviar o código. Tente novamente.") from exc
+    return {"status": "ok", "mensagem": "Enviamos um código de confirmação para o seu e-mail cadastrado."}
+
+
+async def _validar_codigo_confirmacao_portal(
+    session: AsyncSession, cliente: ClientePortal, recurso_tipo: str, recurso_id: int, codigo: str, recurso_hash: str
+) -> None:
+    """Levanta HTTPException se o código não bater -- chamado no início de
+    assinar_proposta_portal/assinar_documento_portal, antes de qualquer
+    efeito da assinatura. Consome o código (apaga o registro) só quando
+    aceito, pra não permitir reuso.
+
+    Dois achados do Codex no PR #120, corrigidos aqui:
+    1. FOR UPDATE trava a linha até o fim da transação -- duas
+       confirmações quase simultâneas do mesmo código (ex.: duplo clique
+       no diálogo, que não desabilita o botão de novo) serializam neste
+       SELECT; a segunda só enxerga o registro depois que a primeira já
+       comitou (e apagou), então recebe "peça um novo código" em vez de
+       conseguir assinar duas vezes -- especialmente importante pra
+       documento, que não tem UniqueConstraint de versão como proposta
+       (AssinaturaDocumentoLead não bloquearia a segunda assinatura).
+    2. recurso_hash compara o conteúdo/versão atual do recurso com o que
+       estava vigente quando o código foi pedido -- se o operador editar
+       a proposta/documento nos 15 minutos de validade, o código emitido
+       pra versão antiga deixa de servir."""
+    registro = (
+        await session.execute(
+            select(CodigoConfirmacaoPortal)
+            .where(
+                CodigoConfirmacaoPortal.cliente_id == cliente.id,
+                CodigoConfirmacaoPortal.recurso_tipo == recurso_tipo,
+                CodigoConfirmacaoPortal.recurso_id == recurso_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if registro is None or registro.expira_em < datetime.now(UTC):
+        raise HTTPException(status_code=400, detail="Peça um novo código para continuar.")
+    if registro.tentativas >= CODIGO_CONFIRMACAO_PORTAL_TENTATIVAS_MAXIMAS:
+        raise HTTPException(status_code=400, detail="Muitas tentativas com este código. Peça um novo código.")
+    if registro.recurso_hash != recurso_hash:
+        raise HTTPException(
+            status_code=409, detail="O conteúdo mudou desde que o código foi enviado. Peça um novo código."
+        )
+    if not secrets.compare_digest(hash_token(codigo.strip()), registro.codigo_hash):
+        registro.tentativas += 1
+        await session.commit()
+        raise HTTPException(status_code=400, detail="Código incorreto. Confira seu e-mail e tente de novo.")
+    await session.delete(registro)
+
+
+@router.post("/v1/portal/propostas/{proposta_id}/assinar/codigo")
+async def solicitar_codigo_assinatura_proposta_portal(
+    proposta_id: int, request: Request, cliente: ClientCsrfDep, session: SessionDep
+) -> dict:
+    proposta = (
+        await session.execute(
+            select(PropostaComercial).where(
+                PropostaComercial.id == proposta_id,
+                PropostaComercial.lead_id == cliente.lead_id,
+                PropostaComercial.organizacao_id == cliente.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if proposta is None:
+        raise HTTPException(status_code=404, detail="Proposta não encontrada")
+    return await _solicitar_codigo_confirmacao_portal(
+        session,
+        request,
+        cliente,
+        "proposta",
+        proposta.id,
+        _hash_assinatura_proposta(proposta),
+        f"Proposta {proposta.numero}",
+    )
+
+
+@router.post("/v1/portal/documentos/{documento_id}/assinar/codigo")
+async def solicitar_codigo_assinatura_documento_portal(
+    documento_id: int, request: Request, cliente: ClientCsrfDep, session: SessionDep
+) -> dict:
+    documento = (
+        await session.execute(
+            select(DocumentoLead).where(
+                DocumentoLead.id == documento_id,
+                DocumentoLead.lead_id == cliente.lead_id,
+                DocumentoLead.organizacao_id == cliente.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if documento is None:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    return await _solicitar_codigo_confirmacao_portal(
+        session,
+        request,
+        cliente,
+        "documento",
+        documento.id,
+        _hash_assinatura_documento(documento),
+        f"Documento {documento.tipo}",
+    )
+
+
 @router.post("/v1/portal/propostas/{proposta_id}/assinar")
-async def assinar_proposta_portal(proposta_id: int, request: Request, cliente: ClientCsrfDep, session: SessionDep) -> dict:
+async def assinar_proposta_portal(
+    proposta_id: int, request: Request, dados: AssinarComCodigoInput, cliente: ClientCsrfDep, session: SessionDep
+) -> dict:
     proposta = (
         await session.execute(
             select(PropostaComercial).where(
@@ -1733,23 +1942,10 @@ async def assinar_proposta_portal(proposta_id: int, request: Request, cliente: C
         raise HTTPException(
             status_code=409, detail="Proposta expirada. Solicite uma nova versão à sua equipe de atendimento."
         )
+    assinatura_hash = _hash_assinatura_proposta(proposta)
+    await _validar_codigo_confirmacao_portal(session, cliente, "proposta", proposta.id, dados.codigo, assinatura_hash)
     agora = datetime.now(UTC)
     ip_hash = hash_ip(request.client.host if request.client else None)
-    assinatura_hash = hashlib.sha256(
-        "|".join(
-            str(valor or "")
-            for valor in (
-                proposta.numero,
-                proposta.versao,
-                proposta.marca,
-                proposta.classes,
-                proposta.escopo,
-                proposta.honorarios,
-                proposta.taxa_gru,
-                proposta.condicoes_pagamento,
-            )
-        ).encode()
-    ).hexdigest()
     if proposta.public_aceito_em is None:
         proposta.public_aceito_em = agora
         proposta.aceito_em = agora
@@ -1773,6 +1969,13 @@ async def assinar_proposta_portal(proposta_id: int, request: Request, cliente: C
                         cliente_id=cliente.id,
                         ip_hash=ip_hash,
                         provedor="portal",
+                        # Achado do Codex no PR #120: esta assinatura já passou
+                        # por _validar_codigo_confirmacao_portal acima -- mesma
+                        # evidência de segundo fator do aceite público
+                        # (leads_propostas.py), senão a assinatura no portal
+                        # fica indistinguível de uma sem verificação em auditoria.
+                        segundo_fator_canal="email",
+                        segundo_fator_confirmado_em=agora,
                     )
                 )
                 await session.flush()
@@ -1791,7 +1994,7 @@ async def assinar_proposta_portal(proposta_id: int, request: Request, cliente: C
 
 @router.post("/v1/portal/documentos/{documento_id}/assinar")
 async def assinar_documento_portal(
-    documento_id: int, request: Request, cliente: ClientCsrfDep, session: SessionDep
+    documento_id: int, request: Request, dados: AssinarComCodigoInput, cliente: ClientCsrfDep, session: SessionDep
 ) -> dict:
     documento = (
         await session.execute(
@@ -1817,8 +2020,8 @@ async def assinar_documento_portal(
         raise HTTPException(status_code=409, detail="Documento incompleto; aguarde a equipe preencher os dados")
     if documento.validade_em and documento.validade_em < datetime.now(UTC).date():
         raise HTTPException(status_code=409, detail="Documento expirado; solicite uma nova versão")
-    conteudo = f"{documento.tipo}|{documento.numero or ''}|{documento.data or ''}|{documento.observacoes or ''}|v{documento.versao}".encode()
-    digest = hashlib.sha256(conteudo).hexdigest()
+    digest = _hash_assinatura_documento(documento)
+    await _validar_codigo_confirmacao_portal(session, cliente, "documento", documento.id, dados.codigo, digest)
     nova_assinatura = not (documento.assinado_em and documento.hash_documento == digest)
     if documento.assinado_em and documento.hash_documento != digest:
         session.add(
@@ -1853,6 +2056,10 @@ async def assinar_documento_portal(
                 versao=documento.versao,
                 hash_documento=digest,
                 ip_hash=documento.assinado_ip_hash,
+                # Mesma evidência de segundo fator de AssinaturaPropostaComercial
+                # -- esta assinatura já passou por _validar_codigo_confirmacao_portal.
+                segundo_fator_canal="email",
+                segundo_fator_confirmado_em=documento.assinado_em,
             )
         )
     _auditar_cliente(session, cliente, request, "assinar_documento", f"documento:{documento.id}")
@@ -2045,6 +2252,7 @@ async def portal_mensagens(request: Request, cliente: ClientDep, session: Sessio
 async def enviar_mensagem_portal(
     dados: MensagemInput, request: Request, cliente: ClientCsrfDep, session: SessionDep
 ) -> dict:
+    _limitar_mensagem_portal.aplicar(f"cliente:{cliente.id}")
     item = MensagemClientePortal(
         organizacao_id=cliente.organizacao_id,
         lead_id=cliente.lead_id,
@@ -2061,6 +2269,7 @@ async def enviar_mensagem_portal(
 async def enviar_arquivo_portal(
     request: Request, cliente: ClientCsrfDep, session: SessionDep, arquivo: UploadFile = File(...)
 ) -> dict:
+    _limitar_upload_portal.aplicar(f"cliente:{cliente.id}")
     if arquivo.size and arquivo.size > 15 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
     nome = f"{secrets.token_hex(12)}-{Path(arquivo.filename or 'arquivo').name}"

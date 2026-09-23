@@ -125,6 +125,12 @@
 .portal-action-form textarea { width:100%; min-height:90px; box-sizing:border-box; resize:vertical; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; }
 .portal-action-form input[type=file] { width:100%; box-sizing:border-box; padding:11px; border:1px dashed #b9cbbd; border-radius:10px; background:#f8faf7; }
 .portal-action-form button { justify-self:start; }
+/* Achado médio da auditoria fina do Portal do Cliente (Fase 13.2,
+   23/09/2026): campo de código de confirmação de 6 dígitos no diálogo de
+   assinatura -- mesmo tratamento visual dos inputs do login (borda,
+   padding), com destaque tipográfico pro código em si. */
+.portal-codigo-input { width:100%; box-sizing:border-box; min-height:48px; padding:12px 14px; border:1px solid var(--portal-border); border-radius:11px; background:#fff; font:inherit; font-size:1.2rem; letter-spacing:.3em; text-align:center; }
+.portal-codigo-input:focus { outline:none; border-color:var(--portal-primary); box-shadow:0 0 0 3px rgba(0,128,55,.13); }
 .portal-help-text { margin:0 0 20px; color:var(--muted); line-height:1.5; }
 /* Achado da validação do Portal do Cliente (17/09/2026): o cliente enviava
    um documento e não via confirmação nem os arquivos já enviados -- o

@@ -214,5 +214,81 @@ $("#file-form").addEventListener("submit", async (event) => {
     button.disabled = false;
   }
 });
-$("#summary").addEventListener("click", async (event) => { const proposta = event.target.closest("[data-assinar-proposta]"); const documento = event.target.closest("[data-assinar-documento]"); if (!proposta && !documento) return; const tipo = proposta ? "propostas" : "documentos"; const id = (proposta || documento).dataset[proposta ? "assinarProposta" : "assinarDocumento"]; const original = event.target.textContent; event.target.disabled = true; event.target.textContent = "Processando…"; try { await api(`/v1/portal/${tipo}/${id}/assinar`, { method: "POST" }); await carregar(); } catch (error) { event.target.disabled = false; event.target.textContent = original; const aviso = document.createElement("small"); aviso.className = "portal-action-error"; aviso.textContent = error.message; event.target.after(aviso); setTimeout(() => aviso.remove(), 5000); } });
+// Achado médio da auditoria fina do Portal do Cliente (Fase 13.2,
+// 23/09/2026, decisão do usuário): assinar dependia só da sessão (12h) +
+// CSRF -- computador compartilhado com sessão aberta permitia qualquer
+// pessoa presente assinar em nome do cliente. Agora pede um código de 6
+// dígitos por e-mail antes de confirmar (mesmo padrão do aceite
+// público), num diálogo dedicado (#assinar-codigo-dialog) em vez de
+// assinar direto no clique.
+let pendenteAssinatura = null;
+function mostrarErroBotao(botao, mensagem) {
+  const aviso = document.createElement("small");
+  aviso.className = "portal-action-error";
+  aviso.textContent = mensagem;
+  botao.after(aviso);
+  setTimeout(() => aviso.remove(), 5000);
+}
+$("#summary").addEventListener("click", async (event) => {
+  const proposta = event.target.closest("[data-assinar-proposta]");
+  const documento = event.target.closest("[data-assinar-documento]");
+  if (!proposta && !documento) return;
+  const botao = event.target;
+  const tipo = proposta ? "propostas" : "documentos";
+  const id = (proposta || documento).dataset[proposta ? "assinarProposta" : "assinarDocumento"];
+  const original = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = "Enviando código…";
+  try {
+    await api(`/v1/portal/${tipo}/${id}/assinar/codigo`, { method: "POST" });
+    pendenteAssinatura = { tipo, id, botao, original };
+    const form = $("#assinar-codigo-form");
+    form.reset();
+    $("#assinar-codigo-status").textContent = "";
+    $("#assinar-codigo-status").className = "status-message";
+    $("#assinar-codigo-dialog").showModal();
+    form.elements.codigo.focus();
+  } catch (error) {
+    botao.disabled = false;
+    botao.textContent = original;
+    mostrarErroBotao(botao, error.message);
+  }
+});
+$("#assinar-codigo-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!pendenteAssinatura) return;
+  const { tipo, id } = pendenteAssinatura;
+  const status = $("#assinar-codigo-status");
+  const codigo = new FormData(event.target).get("codigo");
+  status.className = "status-message";
+  status.textContent = "";
+  try {
+    await api(`/v1/portal/${tipo}/${id}/assinar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codigo }),
+    });
+    pendenteAssinatura = null;
+    $("#assinar-codigo-dialog").close();
+    await carregar();
+  } catch (error) {
+    // Código errado: o diálogo continua aberto pro cliente tentar de
+    // novo, sem precisar pedir outro código -- o botão "Assinar" da
+    // página de baixo só volta ao normal quando o diálogo realmente
+    // fechar (evento "close", cobre X e Esc).
+    status.className = "status-message error";
+    status.textContent = error.message;
+  }
+});
+$("#close-assinar-codigo-dialog").addEventListener("click", () => $("#assinar-codigo-dialog").close());
+// O evento "close" nativo do <dialog> cobre todo jeito de fechar (botão
+// ×, tecla Esc) -- sem isso, fechar com Esc deixava o botão "Assinar"
+// travado em "Enviando código…" até recarregar a página.
+$("#assinar-codigo-dialog").addEventListener("close", () => {
+  if (pendenteAssinatura) {
+    pendenteAssinatura.botao.disabled = false;
+    pendenteAssinatura.botao.textContent = pendenteAssinatura.original;
+    pendenteAssinatura = null;
+  }
+});
 carregar();

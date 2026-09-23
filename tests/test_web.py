@@ -550,6 +550,7 @@ def test_portal_cliente_mostra_processos_prazos_e_parcelas() -> None:
     assert "carregarProcessos()" in script
     assert "carregarPrazos()" in script
     assert "data.parcelas" in script
+    assert "descricao_lancamento" in script
     assert ".portal-processo {" in styles
 
 

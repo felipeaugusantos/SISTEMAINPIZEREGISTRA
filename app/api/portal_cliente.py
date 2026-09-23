@@ -3,7 +3,7 @@ import hmac
 import json
 import logging
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
@@ -208,6 +208,26 @@ def progresso_processo(situacao_normalizada: str | None) -> dict:
         "etapa": info["etapa"],
         "alerta": info["alerta"],
         "resultado": info.get("resultado", "ativo"),
+    }
+
+
+def _serializar_parcela_portal(parcela: ParcelaFinanceira, descricoes_lancamento: dict[int, str]) -> dict:
+    """Serializa uma parcela pro /v1/portal/resumo. Achado P1 da revisão da
+    Fase 13.5 (Codex): a coluna persistida fica "aberta" mesmo depois de
+    vencida -- igual ao financeiro (app/api/financeiro.py::_serializar), o
+    "atrasada" é derivado comparando o vencimento com hoje, não lido do
+    banco. Achado P2: sem a descrição do lançamento associado, o cliente
+    não conseguia saber a qual proposta/cobrança cada parcela pertencia."""
+    return {
+        "id": parcela.id,
+        "lancamento_id": parcela.lancamento_id,
+        "descricao_lancamento": descricoes_lancamento.get(parcela.lancamento_id),
+        "numero": parcela.numero,
+        "vencimento": parcela.vencimento,
+        "valor": parcela.valor,
+        "valor_pago": parcela.valor_pago,
+        "status": "atrasada" if parcela.status == "aberta" and parcela.vencimento < date.today() else parcela.status,
+        "pago_em": parcela.pago_em,
     }
 
 
@@ -1681,6 +1701,7 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
         .scalars()
         .all()
     )
+    _lancamentos_por_id = {p.id: p.descricao for p in pagamentos}
     processos_monitorados = await _processos_monitorados_do_lead(session, lead.id, cliente.organizacao_id)
     processos = [
         {
@@ -1757,19 +1778,7 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
             }
             for p in pagamentos
         ],
-        "parcelas": [
-            {
-                "id": p.id,
-                "lancamento_id": p.lancamento_id,
-                "numero": p.numero,
-                "vencimento": p.vencimento,
-                "valor": p.valor,
-                "valor_pago": p.valor_pago,
-                "status": p.status,
-                "pago_em": p.pago_em,
-            }
-            for p in parcelas
-        ],
+        "parcelas": [_serializar_parcela_portal(p, _lancamentos_por_id) for p in parcelas],
     }
 
 

@@ -110,7 +110,7 @@ function showApp(data) {
     // com pagamento parcelado só via o valor total do lançamento, sem
     // saber quais parcelas específicas estavam vencidas/pagas.
     data.parcelas?.length
-      ? `<h3>Parcelas</h3>${rows(data.parcelas, [["Parcela", "numero"], ["Vencimento", "vencimento"], ["Valor", "valor"], ["Status", "status"]])}`
+      ? `<h3>Parcelas</h3>${rows(data.parcelas, [["Lançamento", "descricao_lancamento"], ["Parcela", "numero"], ["Vencimento", "vencimento"], ["Valor", "valor"], ["Status", "status"]])}`
       : ""
   }`;
   $("#summary").querySelectorAll(".portal-journey-node").forEach((botao) => {

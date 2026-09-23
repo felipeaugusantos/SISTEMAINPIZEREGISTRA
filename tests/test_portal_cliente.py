@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from app.api.portal_cliente import (
     RecuperacaoSolicitacao,
     _hash_assinatura_documento,
     _hash_assinatura_proposta,
+    _serializar_parcela_portal,
     assinar_documento_portal,
     assinar_proposta_portal,
     baixar_documento_portal,
@@ -60,6 +62,7 @@ from app.models import (
     Lead,
     MaterialMarcaCliente,
     Organizacao,
+    ParcelaFinanceira,
     PrazoJuridico,
     Processo,
     ProcessoMonitorado,
@@ -1801,6 +1804,36 @@ def test_redefinir_acesso_portal_revoga_sessoes_e_limpa_cookies() -> None:
     # Achado baixo da auditoria fina do Portal do Cliente (Fase 13.3,
     # 23/09/2026): o cookie CSRF ficava órfão aqui também.
     assert any("zr_portal_csrf=" in cookie for cookie in cookies)
+
+
+def test_serializar_parcela_portal_deriva_atrasada_e_descricao_lancamento() -> None:
+    # Achados P1/P2 da revisão do Codex na Fase 13.5 (23/09/2026): a
+    # parcela persistida fica "aberta" mesmo vencida (o efetivo "atrasada"
+    # é derivado, igual app.api.financeiro._serializar) e o cliente
+    # precisa saber a qual lançamento/proposta cada parcela pertence.
+    parcela_vencida = ParcelaFinanceira(
+        id=1, lancamento_id=10, numero=1, vencimento=date(2020, 1, 1), valor=Decimal("500"),
+        valor_pago=Decimal("0"), status="aberta", pago_em=None,
+    )
+    parcela_paga = ParcelaFinanceira(
+        id=2, lancamento_id=10, numero=2, vencimento=date(2020, 1, 1), valor=Decimal("500"),
+        valor_pago=Decimal("500"), status="paga", pago_em=date(2020, 1, 5),
+    )
+    parcela_futura = ParcelaFinanceira(
+        id=3, lancamento_id=11, numero=1, vencimento=date(2099, 1, 1), valor=Decimal("300"),
+        valor_pago=Decimal("0"), status="aberta", pago_em=None,
+    )
+    descricoes = {10: "Honorários — proposta PROP-1", 11: "GRU de depósito"}
+
+    assert _serializar_parcela_portal(parcela_vencida, descricoes) == {
+        "id": 1, "lancamento_id": 10, "descricao_lancamento": "Honorários — proposta PROP-1",
+        "numero": 1, "vencimento": date(2020, 1, 1), "valor": Decimal("500"), "valor_pago": Decimal("0"),
+        "status": "atrasada", "pago_em": None,
+    }
+    assert _serializar_parcela_portal(parcela_paga, descricoes)["status"] == "paga"
+    assert _serializar_parcela_portal(parcela_futura, descricoes)["status"] == "aberta"
+    assert _serializar_parcela_portal(parcela_futura, descricoes)["descricao_lancamento"] == "GRU de depósito"
+    assert _serializar_parcela_portal(parcela_vencida, {})["descricao_lancamento"] is None
 
 
 def test_redefinir_acesso_portal_tem_rate_limit() -> None:

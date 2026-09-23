@@ -147,7 +147,16 @@ async function carregar() {
     await api("/v1/portal/me");
     showApp(await api("/v1/portal/resumo"));
     const mensagens = await api("/v1/portal/mensagens");
-    $("#messages").innerHTML = mensagens.mensagens.map((item) => `<p><small>${new Date(item.criado_em).toLocaleString("pt-BR")}</small><br>${esc(item.mensagem)}</p>`).join("") || "<p>Nenhuma mensagem.</p>";
+    // Achado médio da auditoria fina do Portal do Cliente (Fase 13.4,
+    // 23/09/2026): as mensagens do cliente e as respostas da equipe
+    // apareciam idênticas, sem nenhuma diferenciação visual -- numa
+    // conversa com várias trocas, não dava pra saber o que era de quem.
+    // Mesma distinção já usada no histórico do admin (admin-leads.js),
+    // com os rótulos e o lado invertidos pro ponto de vista do cliente.
+    $("#messages").innerHTML = mensagens.mensagens.map((item) => {
+      const doCliente = item.autor_tipo === "cliente";
+      return `<p class="${doCliente ? "portal-message-mine" : "portal-message-team"}"><small>${doCliente ? "Você" : "Equipe"} · ${new Date(item.criado_em).toLocaleString("pt-BR")}</small><br>${esc(item.mensagem)}</p>`;
+    }).join("") || "<p>Nenhuma mensagem.</p>";
     await carregarArquivosEnviados();
     await carregarMateriaisMarca();
   } catch { $("#login").hidden = false; }
@@ -188,6 +197,12 @@ $("#message-form").addEventListener("submit", async (event) => {
     await api("/v1/portal/mensagens", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.fromEntries(new FormData(event.target))) });
     event.target.reset();
     await carregar();
+    // Achado médio da auditoria fina do Portal do Cliente (Fase 13.4,
+    // 23/09/2026): o envio não dava nenhum feedback de sucesso -- o
+    // cliente só percebia que funcionou porque a mensagem reaparecia na
+    // lista depois do carregar() recarregar tudo.
+    status.className = "status-message success";
+    status.textContent = "Mensagem enviada.";
   } catch (error) {
     status.className = "status-message error";
     status.textContent = error.message;

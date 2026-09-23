@@ -549,6 +549,9 @@ def test_portal_cliente_mostra_processos_prazos_e_parcelas() -> None:
     assert 'api("/v1/portal/prazos")' in script
     assert "carregarProcessos()" in script
     assert "carregarPrazos()" in script
+    assert "data.parcelas" in script
+    assert "descricao_lancamento" in script
+    assert ".portal-processo {" in styles
 
 
 def test_portal_cliente_so_mostra_assinar_documento_quando_pronto() -> None:
@@ -562,9 +565,6 @@ def test_portal_cliente_so_mostra_assinar_documento_quando_pronto() -> None:
 
     assert "item.pronto_para_assinar" in script
     assert "Aguardando equipe" in script
-    assert "data.parcelas" in script
-    assert "descricao_lancamento" in script
-    assert ".portal-processo {" in styles
 
 
 def test_admin_cadastra_logo_do_cliente_para_o_personagem_do_portal() -> None:

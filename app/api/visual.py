@@ -1,3 +1,4 @@
+import hashlib
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -54,10 +55,17 @@ async def validar_imagem(
     except Exception:
         pass
     score = calcular_score_visual(1.0, 1.0 if ocr.get("texto") else 0.0)
+    assinatura_hex = "".join(map(str, assinatura))
     # Achado baixo da Fase 14.1 (auditoria fina da busca figurativa,
     # 23/09/2026): nenhum upload de imagem deixava rastro -- não dava pra
     # saber quem validou qual arquivo nem quando. Mesmo padrão de
     # EventoAuditoria já usado em app/api/figurativa.py.
+    # Achado P2 do Codex no PR #126: nome/tipo/tamanho não identificam a
+    # imagem de fato -- dois uploads distintos com o mesmo nome (ou sem
+    # nome) ficavam indistinguíveis no rastro. O hash do conteúdo do
+    # arquivo é um identificador estável e independente do nome informado
+    # pelo cliente.
+    hash_conteudo = hashlib.sha256(conteudo).hexdigest()
     session.add(
         EventoAuditoria(
             organizacao_id=operador.organizacao_id,
@@ -66,10 +74,17 @@ async def validar_imagem(
             acao="validar_imagem",
             recurso="busca_figurativa",
             resource_type="validacao_visual",
+            resource_id=hash_conteudo,
             sucesso=True,
             status_http=200,
             ip_hash=hash_ip(cliente_ip(request)),
-            detalhes={"arquivo": arquivo.filename, "mime_type": arquivo.content_type, "tamanho_bytes": len(conteudo)},
+            detalhes={
+                "arquivo": arquivo.filename,
+                "mime_type": arquivo.content_type,
+                "tamanho_bytes": len(conteudo),
+                "hash_conteudo": hash_conteudo,
+                "assinatura_visual": assinatura_hex,
+            },
         )
     )
     await session.commit()
@@ -77,7 +92,7 @@ async def validar_imagem(
         "arquivo": arquivo.filename,
         "mime_type": arquivo.content_type,
         "pixels": 256,
-        "assinatura_visual": "".join(map(str, assinatura)),
+        "assinatura_visual": assinatura_hex,
         "ocr": {
             "status": "pendente",
             "motivo": "OCR será executado na etapa de processamento textual.",

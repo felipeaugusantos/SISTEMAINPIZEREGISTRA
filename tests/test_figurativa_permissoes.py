@@ -156,6 +156,11 @@ def test_validar_imagem_registra_evento_auditoria() -> None:
     assert evento.acao == "validar_imagem"
     assert evento.recurso == "busca_figurativa"
     assert evento.detalhes["arquivo"] == "logo.png"
+    # Achado P2 do Codex no PR #126: nome/tipo/tamanho não identificam a
+    # imagem de fato -- o rastro precisa de um identificador estável do
+    # conteúdo (hash), não só dos metadados informados pelo cliente.
+    assert evento.resource_id == evento.detalhes["hash_conteudo"]
+    assert evento.detalhes["assinatura_visual"] == resultado["assinatura_visual"]
     assert session.commits == 1
 
 

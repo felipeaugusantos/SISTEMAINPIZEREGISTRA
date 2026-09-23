@@ -15,7 +15,12 @@
 .portal-main { width:min(1120px,calc(100% - 40px)); margin:0 auto; padding:32px 0 56px; }
 .portal-login-shell { min-height:calc(100vh - 88px); display:grid; grid-template-columns:minmax(0,1.05fr) minmax(380px,.95fr); align-items:center; gap:0; overflow:hidden; border:1px solid rgba(34,74,51,.14); border-radius:28px; background:rgba(255,255,252,.82); box-shadow:0 24px 70px rgba(31,65,43,.12); }
 .portal-brand-panel { align-self:stretch; display:flex; flex-direction:column; justify-content:center; padding:clamp(38px,7vw,88px); background:linear-gradient(145deg,var(--portal-forest),var(--portal-primary-deep) 60%,var(--portal-primary)); color:#fff; }
-.portal-brand-panel img { width:min(230px,70%); height:auto; margin-bottom:56px; filter:brightness(0) invert(1); }
+/* Achado do usuário (22/09/2026): o filter:brightness(0) invert(1) daqui
+   virava a logo padrão (personagem ilustrado, com detalhes de rosto e
+   cores) numa silhueta branca praticamente ilegível -- parecia um
+   "negativo" quebrado, não um efeito intencional. A logo já tem fundo
+   transparente, então aparece bem com as cores reais, sem filtro. */
+.portal-brand-panel img { width:min(230px,70%); height:auto; margin-bottom:56px; }
 /* Achado do usuário (17/09/2026): a logo aqui reaproveita tenant-branding.js
    (mesma logo cadastrada no painel interno), que aplica a classe
    .brand-avatar compartilhada -- essa classe tem estilo de avatar circular

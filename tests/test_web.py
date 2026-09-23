@@ -481,6 +481,25 @@ def test_portal_cliente_completa_redefinicao_de_senha_pelo_link_do_email() -> No
     assert "if (tokenRecuperacaoPortal) { $(\"#login\").hidden = false; return; }" in script
 
 
+def test_portal_cliente_exige_codigo_de_confirmacao_para_assinar() -> None:
+    # Achado médio da auditoria fina do Portal do Cliente (Fase 13.2,
+    # 23/09/2026, decisão do usuário): assinar proposta/documento no
+    # portal dependia só da sessão (12h) + CSRF, sem reconfirmação no
+    # momento da assinatura -- risco real em computador compartilhado
+    # com sessão ainda aberta. Passa a exigir um código de 6 dígitos por
+    # e-mail antes de confirmar, mesmo padrão do aceite público de
+    # proposta (app.api.leads_propostas).
+    page = (web_dir / "portal-cliente.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "portal-cliente.js").read_text(encoding="utf-8")
+
+    assert 'id="assinar-codigo-dialog"' in page
+    assert 'id="assinar-codigo-form"' in page
+    assert 'name="codigo"' in page
+    assert "/assinar/codigo" in script
+    assert "`/v1/portal/${tipo}/${id}/assinar/codigo`" in script
+    assert "pendenteAssinatura" in script
+
+
 def test_admin_cadastra_logo_do_cliente_para_o_personagem_do_portal() -> None:
     # Mesmo item acima, lado administrativo: a equipe cadastra a logo do
     # cliente na ficha do lead.

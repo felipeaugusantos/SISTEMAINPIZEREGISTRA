@@ -296,6 +296,40 @@ async def enviar_recuperacao_portal(destinatario: str, nome: str, token: str) ->
         raise
 
 
+async def enviar_codigo_confirmacao_portal(destinatario: str, nome: str, codigo: str, descricao: str) -> None:
+    """Segundo fator pra assinar proposta/documento pelo portal do cliente
+    (Fase 13.2 da auditoria fina, 23/09/2026, decisão do usuário: mesmo
+    padrão de dupla validação por e-mail do aceite público de proposta --
+    ver enviar_codigo_confirmacao_proposta) -- propaga a exceção em vez de
+    engolir a falha: se o código não sair, o cliente precisa ver isso na
+    tela em vez de ficar esperando um e-mail que nunca chega."""
+    settings = get_settings()
+    if not settings.email_enabled:
+        raise RuntimeError("Envio de e-mail não está habilitado nesta instalação")
+    mensagem = EmailMessage()
+    mensagem["Subject"] = f"Código de confirmação — {descricao}"
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = destinatario
+    mensagem.set_content(
+        f"Olá, {nome or 'cliente'}.\n\n"
+        f"Use o código abaixo para confirmar a assinatura de {descricao} no portal:\n\n"
+        f"{codigo}\n\n"
+        "O código vale por 15 minutos. Se você não solicitou esta assinatura, ignore esta mensagem."
+    )
+    ultimo_erro: Exception | None = None
+    for tentativa in range(1, max(1, settings.smtp_max_attempts) + 1):
+        try:
+            await asyncio.to_thread(_enviar_smtp, mensagem, settings)
+            return
+        except Exception as exc:
+            ultimo_erro = exc
+            if tentativa < settings.smtp_max_attempts:
+                await asyncio.sleep(min(2 ** (tentativa - 1), 4))
+    if ultimo_erro is not None:
+        await _registrar_email_rejeitado("codigo_confirmacao_portal", ultimo_erro)
+        raise ultimo_erro
+
+
 async def enviar_alerta_novo_lead(nome: str, email: str, telefone: str, marca: str, origem: str) -> None:
     """Avisa a equipe de atendimento por e-mail quando um novo lead chega sem
     responsável (achado P0 da auditoria de Leads, 03/09/2026: o formulário

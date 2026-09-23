@@ -47,6 +47,7 @@ from app.api.portal_cliente import (
 from app.auth import hash_senha, hash_token
 from app.models import (
     ArquivoClientePortal,
+    AssinaturaDocumentoLead,
     AssinaturaPropostaComercial,
     ClientePortal,
     CodigoConfirmacaoPortal,
@@ -306,6 +307,12 @@ def test_assinar_proposta_portal_dentro_da_validade_prossegue_com_a_assinatura()
     resultado = asyncio.run(assinar_proposta_portal(1, _request(), dados, _cliente(), session))
     assert resultado["ok"] is True
     assert proposta.status == "aceita"
+    # Achado do Codex no PR #120: a assinatura no portal já passou pelo
+    # código de confirmação -- precisa registrar essa evidência, senão
+    # fica indistinguível de uma assinatura sem segundo fator na auditoria.
+    assinatura = next(obj for obj in session.adicionados if isinstance(obj, AssinaturaPropostaComercial))
+    assert assinatura.segundo_fator_canal == "email"
+    assert assinatura.segundo_fator_confirmado_em is not None
 
 
 def test_assinar_proposta_portal_sem_validade_definida_nao_e_bloqueada() -> None:
@@ -806,6 +813,11 @@ def test_assinar_documento_portal_aceita_quando_pronto() -> None:
     resultado = asyncio.run(assinar_documento_portal(3, _request(), dados, _cliente(), session))
     assert resultado["ok"] is True
     assert documento.assinado_em is not None
+    # Achado do Codex no PR #120: mesma evidência de segundo fator de
+    # AssinaturaPropostaComercial, agora também em AssinaturaDocumentoLead.
+    assinatura = next(obj for obj in session.adicionados if isinstance(obj, AssinaturaDocumentoLead))
+    assert assinatura.segundo_fator_canal == "email"
+    assert assinatura.segundo_fator_confirmado_em is not None
 
 
 # --- Achado da validação do Portal do Cliente (17/09/2026): documentos

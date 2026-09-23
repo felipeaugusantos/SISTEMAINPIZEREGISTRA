@@ -1911,6 +1911,13 @@ async def assinar_proposta_portal(
                         cliente_id=cliente.id,
                         ip_hash=ip_hash,
                         provedor="portal",
+                        # Achado do Codex no PR #120: esta assinatura já passou
+                        # por _validar_codigo_confirmacao_portal acima -- mesma
+                        # evidência de segundo fator do aceite público
+                        # (leads_propostas.py), senão a assinatura no portal
+                        # fica indistinguível de uma sem verificação em auditoria.
+                        segundo_fator_canal="email",
+                        segundo_fator_confirmado_em=agora,
                     )
                 )
                 await session.flush()
@@ -1992,6 +1999,10 @@ async def assinar_documento_portal(
                 versao=documento.versao,
                 hash_documento=digest,
                 ip_hash=documento.assinado_ip_hash,
+                # Mesma evidência de segundo fator de AssinaturaPropostaComercial
+                # -- esta assinatura já passou por _validar_codigo_confirmacao_portal.
+                segundo_fator_canal="email",
+                segundo_fator_confirmado_em=documento.assinado_em,
             )
         )
     _auditar_cliente(session, cliente, request, "assinar_documento", f"documento:{documento.id}")

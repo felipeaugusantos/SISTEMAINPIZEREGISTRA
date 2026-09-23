@@ -500,6 +500,19 @@ def test_portal_cliente_exige_codigo_de_confirmacao_para_assinar() -> None:
     assert "pendenteAssinatura" in script
 
 
+def test_admin_registrar_aceite_de_proposta_pede_codigo_mfa() -> None:
+    # Achado do usuário (23/09/2026): "Registrar aceite" no admin mudava o
+    # status da proposta sem nenhuma prova de que o operador confirmou de
+    # verdade -- agora pede o código do autenticador (TOTP) antes de
+    # mandar, e o backend (app.api.leads_propostas) grava isso como
+    # evidência da assinatura, mesmo padrão do aceite pelo próprio cliente.
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    assert "codigo_mfa" in script
+    assert "proposal-accept" in script
+    assert "autenticador" in script.lower()
+
+
 def test_admin_cadastra_logo_do_cliente_para_o_personagem_do_portal() -> None:
     # Mesmo item acima, lado administrativo: a equipe cadastra a logo do
     # cliente na ficha do lead.

@@ -1939,9 +1939,20 @@ async function renderPropostas(lead) {
       if (response.ok) await renderPropostas(lead); else alert("Não foi possível criar a nova versão.");
     }));
     box.querySelectorAll(".proposal-send, .proposal-accept").forEach(button => button.addEventListener("click", async () => {
+      // Achado do usuário (23/09/2026): "Registrar aceite" mudava o status
+      // sem nenhuma prova de que foi esse operador quem confirmou -- agora
+      // pede o código do autenticador (TOTP, mesmo do login) antes de
+      // mandar, e o backend grava isso como evidência da assinatura
+      // (mesmo padrão do aceite pelo próprio cliente).
+      let corpoAceite = null;
+      if (button.classList.contains("proposal-accept")) {
+        const codigo = prompt("Confirme com o código do seu autenticador (Google Authenticator) para registrar o aceite:");
+        if (!codigo || !codigo.trim()) return;
+        corpoAceite = { status: "aceita", codigo_mfa: codigo.trim() };
+      }
       const response = button.classList.contains("proposal-send")
         ? await fetch(`/v1/admin/propostas/${button.dataset.id}/enviar`, { method: "POST" })
-        : await fetch(`/v1/admin/propostas/${button.dataset.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "aceita" }) });
+        : await fetch(`/v1/admin/propostas/${button.dataset.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpoAceite) });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         alert(data.detail || "Não foi possível atualizar a proposta.");

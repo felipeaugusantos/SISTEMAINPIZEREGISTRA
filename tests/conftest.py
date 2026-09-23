@@ -19,7 +19,9 @@ def _resetar_rate_limiters() -> Iterator[None]:
     _limpar_rate_limiters()
 
 
-def usuario_teste(perfil: str = "administrador", permissoes: set[str] | None = None) -> UsuarioAutenticado:
+def usuario_teste(
+    perfil: str = "administrador", permissoes: set[str] | None = None, *, mfa_ativo: bool = False
+) -> UsuarioAutenticado:
     return UsuarioAutenticado(
         id=1,
         nome="Admin Teste",
@@ -30,6 +32,7 @@ def usuario_teste(perfil: str = "administrador", permissoes: set[str] | None = N
         alterar_senha=False,
         sessao_id=1,
         csrf_hash="",
+        mfa_ativo=mfa_ativo,
     )
 
 

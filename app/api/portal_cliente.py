@@ -49,7 +49,6 @@ from app.models import (
     Lead,
     MaterialMarcaCliente,
     MensagemClientePortal,
-    NotificacaoClientePortal,
     Organizacao,
     ParcelaFinanceira,
     PrazoJuridico,
@@ -209,6 +208,31 @@ def progresso_processo(situacao_normalizada: str | None) -> dict:
         "alerta": info["alerta"],
         "resultado": info.get("resultado", "ativo"),
     }
+
+
+def _validar_documento_portal_pronto(documento: DocumentoLead) -> None:
+    """Levanta 409 com a causa específica se o documento ainda não está
+    pronto pra assinatura no portal. Achado da Fase 13.6 (23/09/2026): o
+    botão "Assinar" aparecia na tela pra qualquer documento não assinado,
+    inclusive um recém-criado ainda "pendente" e sem número/data (ver
+    app.api.leads.DOCUMENTOS_VALIDOS) -- o cliente só descobria que não
+    dava pra assinar depois de pedir o código por e-mail. Única fonte de
+    verdade usada tanto aqui quanto em _documento_portal_pronto_para_assinar
+    (exposto em /v1/portal/resumo pro front decidir se mostra o botão)."""
+    if documento.status not in DOCUMENTOS_VALIDOS:
+        raise HTTPException(status_code=409, detail="Documento ainda não está pronto para assinatura")
+    if not documento.numero or not documento.data:
+        raise HTTPException(status_code=409, detail="Documento incompleto; aguarde a equipe preencher os dados")
+    if documento.validade_em and documento.validade_em < datetime.now(UTC).date():
+        raise HTTPException(status_code=409, detail="Documento expirado; solicite uma nova versão")
+
+
+def _documento_portal_pronto_para_assinar(documento: DocumentoLead) -> bool:
+    try:
+        _validar_documento_portal_pronto(documento)
+    except HTTPException:
+        return False
+    return True
 
 
 def _serializar_parcela_portal(parcela: ParcelaFinanceira, descricoes_lancamento: dict[int, str]) -> dict:
@@ -1752,6 +1776,7 @@ async def portal_resumo(request: Request, cliente: ClientDep, session: SessionDe
                 "obrigatorio": d.obrigatorio,
                 "assinado_em": d.assinado_em,
                 "tem_arquivo": bool(d.caminho),
+                "pronto_para_assinar": _documento_portal_pronto_para_assinar(d),
             }
             for d in documentos
         ],
@@ -1959,6 +1984,7 @@ async def solicitar_codigo_assinatura_documento_portal(
     ).scalar_one_or_none()
     if documento is None:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _validar_documento_portal_pronto(documento)
     return await _solicitar_codigo_confirmacao_portal(
         session,
         request,
@@ -2070,12 +2096,7 @@ async def assinar_documento_portal(
     # app/models/_core.py::DocumentoLead), mas já aparecia em /v1/portal/resumo
     # com o documento_id pronto pra assinar. Mesmo conjunto DOCUMENTOS_VALIDOS
     # usado no gate de avanço de fase (app/api/leads.py).
-    if documento.status not in DOCUMENTOS_VALIDOS:
-        raise HTTPException(status_code=409, detail="Documento ainda não está pronto para assinatura")
-    if not documento.numero or not documento.data:
-        raise HTTPException(status_code=409, detail="Documento incompleto; aguarde a equipe preencher os dados")
-    if documento.validade_em and documento.validade_em < datetime.now(UTC).date():
-        raise HTTPException(status_code=409, detail="Documento expirado; solicite uma nova versão")
+    _validar_documento_portal_pronto(documento)
     digest = _hash_assinatura_documento(documento)
     await _validar_codigo_confirmacao_portal(session, cliente, "documento", documento.id, dados.codigo, digest)
     nova_assinatura = not (documento.assinado_em and documento.hash_documento == digest)
@@ -2494,86 +2515,12 @@ async def baixar_material_marca_portal(
     return FileResponse(caminho, media_type=item.content_type or "application/octet-stream", filename=item.nome)
 
 
-@router.get("/v1/portal/notificacoes")
-async def listar_notificacoes_portal(request: Request, cliente: ClientDep, session: SessionDep) -> dict:
-    itens = (
-        (
-            await session.execute(
-                select(NotificacaoClientePortal)
-                .where(NotificacaoClientePortal.cliente_id == cliente.id)
-                .order_by(NotificacaoClientePortal.criado_em.desc())
-            )
-        )
-        .scalars()
-        .all()
-    )
-    _auditar_cliente(session, cliente, request, "consultar_notificacoes", "portal:notificacoes")
-    await session.commit()
-    return {
-        "notificacoes": [
-            {
-                "id": item.id,
-                "titulo": item.titulo,
-                "mensagem": item.mensagem,
-                "lida_em": item.lida_em,
-                "criado_em": item.criado_em,
-            }
-            for item in itens
-        ]
-    }
-
-
-@router.patch("/v1/portal/notificacoes/{notificacao_id}/ler")
-async def marcar_notificacao_lida(
-    notificacao_id: int, request: Request, cliente: ClientCsrfDep, session: SessionDep
-) -> dict:
-    item = (
-        await session.execute(
-            select(NotificacaoClientePortal).where(
-                NotificacaoClientePortal.id == notificacao_id,
-                NotificacaoClientePortal.cliente_id == cliente.id,
-            )
-        )
-    ).scalar_one_or_none()
-    if item is None:
-        raise HTTPException(status_code=404, detail="Notificação não encontrada")
-    item.lida_em = datetime.now(UTC)
-    _auditar_cliente(session, cliente, request, "marcar_notificacao", f"notificacao:{item.id}")
-    await session.commit()
-    return {"ok": True, "lida_em": item.lida_em}
-
-
-@router.get("/v1/portal/eventos")
-async def listar_eventos_portal(request: Request, cliente: ClientDep, session: SessionDep) -> dict:
-    itens = (
-        (
-            await session.execute(
-                select(EventoAuditoria)
-                .where(
-                    EventoAuditoria.organizacao_id == cliente.organizacao_id,
-                    EventoAuditoria.detalhes["cliente_id"].as_integer() == cliente.id,
-                )
-                .order_by(EventoAuditoria.criado_em.desc())
-                .limit(200)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    _auditar_cliente(session, cliente, request, "consultar_eventos", "portal:eventos")
-    await session.commit()
-    return {
-        "eventos": [
-            {
-                "id": item.id,
-                "acao": item.acao,
-                "recurso": item.recurso,
-                "sucesso": item.sucesso,
-                "criado_em": item.criado_em,
-            }
-            for item in itens
-        ]
-    }
+# Achado baixo da Fase 13.6 (23/09/2026): /v1/portal/notificacoes,
+# /v1/portal/notificacoes/{id}/ler e /v1/portal/eventos, junto com o modelo
+# NotificacaoClientePortal, nunca foram consumidos por nenhuma tela --
+# nenhum código em app.web nunca gerava uma notificação de cliente nem
+# chamava esses endpoints. Removidos; ver migrations/versions para o drop
+# da tabela notificacoes_clientes_portal.
 
 
 @router.get("/portal", include_in_schema=False)

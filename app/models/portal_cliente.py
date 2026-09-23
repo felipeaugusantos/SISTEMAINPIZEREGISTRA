@@ -182,14 +182,3 @@ class MensagemClientePortal(Base):
     mensagem: Mapped[str] = mapped_column(Text)
     lida_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
-
-
-class NotificacaoClientePortal(Base):
-    __tablename__ = "notificacoes_clientes_portal"
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    cliente_id: Mapped[int] = mapped_column(ForeignKey("clientes_portal.id", ondelete="CASCADE"), index=True)
-    titulo: Mapped[str] = mapped_column(String(180))
-    mensagem: Mapped[str] = mapped_column(Text)
-    lida_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

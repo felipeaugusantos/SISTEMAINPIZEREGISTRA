@@ -43,7 +43,15 @@ def _request(ip: str = "10.0.0.1") -> Request:
 
 
 def _sessao(usuario: UsuarioOperacoes) -> FakeSession:
-    sessao = FakeSession([FakeResult(scalar=usuario)])
+    sessao = FakeSession(
+        [
+            # aplicar_contexto_autenticacao() roda antes da busca do
+            # usuário e, com session.info já definido, executa o
+            # set_config incondicionalmente (sem checar in_transaction).
+            FakeResult(),
+            FakeResult(scalar=usuario),
+        ]
+    )
     # _auditar() lê session.info diretamente (sem hasattr) pra achar a
     # organização do evento de auditoria; sessão real ganha isso de
     # aplicar_contexto_tenant, aqui precisa vir pronto.

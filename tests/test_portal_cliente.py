@@ -1711,14 +1711,14 @@ def test_redefinir_acesso_portal_revoga_sessoes_e_limpa_cookies() -> None:
     registro = RecuperacaoClientePortal(
         id=1,
         cliente_id=cliente.id,
-        token_hash=hash_token("token-valido"),
+        token_hash=hash_token("token-valido-com-tamanho-suficiente"),
         expira_em=datetime(2099, 1, 1, tzinfo=UTC),
     )
     sessao_antiga = SessaoClientePortal(
         id=9, cliente_id=cliente.id, token_hash="hash-antigo", expira_em=datetime(2099, 1, 1, tzinfo=UTC)
     )
     session = FakeSession([FakeResult(scalar=registro), FakeResult(itens=[sessao_antiga])], objetos_get=[cliente])
-    dados = RecuperacaoRedefinicao(token="token-valido", nova_senha="Senha-Correta-123")
+    dados = RecuperacaoRedefinicao(token="token-valido-com-tamanho-suficiente", nova_senha="Senha-Correta-123")
     response = Response()
 
     resultado = asyncio.run(redefinir_acesso_portal(dados, _request(), response, session))

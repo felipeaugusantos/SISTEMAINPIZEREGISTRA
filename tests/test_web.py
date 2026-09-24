@@ -767,9 +767,23 @@ def test_tela_de_prospeccao_expoe_lista_de_supressao_opt_out() -> None:
     assert 'id="supressoes-section"' in page
     assert 'id="open-supressao"' in page
     assert 'id="supressao-form"' in page
+    assert 'id="supressoes-pagination"' in page
     assert "Lista de supressão" in page
     assert "/v1/admin/prospeccao/supressoes" in script
     assert "loadSupressoes" in script
+
+
+def test_tela_de_prospeccao_esconde_acoes_de_supressao_sem_permissao_manage() -> None:
+    # Achado P2 do Codex (PR #137, 24/09/2026): botão de adicionar e todos
+    # os botões de remover apareciam pra qualquer usuário com prospeccao.view
+    # (ex.: perfil auditor), embora só prospeccao.manage possa de fato criar
+    # ou remover -- clicar resultava em 403. Mesmo padrão de
+    # admin-regras-automaticas.js/admin-financeiro-*.js.
+    script = (web_dir / "static" / "admin-prospeccao.js").read_text(encoding="utf-8")
+
+    assert "state.canManage" in script
+    assert 'document.querySelector("#open-supressao").hidden = !state.canManage;' in script
+    assert 'state.canManage ? `<button class="secondary-button" data-remover-supressao' in script
 
 
 def test_tela_de_script_atendimento_existe_com_crud_completo() -> None:

@@ -1,6 +1,6 @@
 const state = { offset: 0, pageSize: 20, statusLabels: {
   novo: "Novo", aprovado: "Aprovado", rejeitado: "Rejeitado", duplicado: "Duplicado", convertido_lead: "Convertido em lead",
-}, pollingCampanhas: false };
+}, pollingCampanhas: false, canManage: false, supressoesOffset: 0, supressoesPageSize: 50 };
 const TRIAGEM_LABELS = {
   nao_localizado: "Não localizado", resultado_semelhante: "Resultado semelhante",
   resultado_relevante_localizado: "Resultado relevante localizado", inconclusivo: "Inconclusivo",
@@ -259,6 +259,14 @@ async function configurarBotaoImportarCnpjRfb() {
   try {
     const usuario = await api("/v1/auth/me");
     document.querySelector("#importar-cnpj-rfb").hidden = !usuario.superadmin;
+    // Achado P2 da Fase 16.1 (24/09/2026): um usuário só com prospeccao.view
+    // (ex.: perfil auditor) via os botões de criar/remover supressão mesmo
+    // sem permissão -- clicar só resultava em 403. Mesmo padrão de
+    // admin-regras-automaticas.js/admin-financeiro-*.js.
+    state.canManage = Boolean(
+      usuario.superadmin || usuario.perfil === "administrador" || (usuario.permissoes || []).includes("prospeccao.manage"),
+    );
+    document.querySelector("#open-supressao").hidden = !state.canManage;
   } catch {
     document.querySelector("#importar-cnpj-rfb").hidden = true;
   }
@@ -593,27 +601,46 @@ document.querySelector("#duplicatas-lista").addEventListener("click", async even
 // lista de supressão (opt-out) tinha backend completo desde a Fase 5 mas
 // nenhuma tela -- só dava pra usar via API direta. ---
 
-function renderSupressoes(itens) {
+function renderSupressoes(data) {
   const alvo = document.querySelector("#supressoes-lista");
-  if (!itens.length) {
+  if (!data.itens.length) {
     alvo.innerHTML = `<p class="prospeccao-empty">Nenhuma supressão cadastrada ainda.</p>`;
-    return;
+  } else {
+    alvo.innerHTML = `<ul class="prospeccao-supressoes-lista">${data.itens.map(item => `
+      <li data-id="${item.id}">
+        <div>
+          <strong>${item.cnpj ? escapeHtml(item.cnpj) : escapeHtml(item.email)}</strong>
+          ${item.cnpj && item.email ? ` · ${escapeHtml(item.email)}` : ""}
+          ${item.motivo ? `<br><small>${escapeHtml(item.motivo)}</small>` : ""}
+          <br><small>Adicionado por ${escapeHtml(item.criado_por)} em ${formatDateTime(item.criado_em)}</small>
+        </div>
+        ${state.canManage ? `<button class="secondary-button" data-remover-supressao type="button">Remover</button>` : ""}
+      </li>`).join("")}</ul>`;
   }
-  alvo.innerHTML = `<ul class="prospeccao-supressoes-lista">${itens.map(item => `
-    <li data-id="${item.id}">
-      <div>
-        <strong>${item.cnpj ? escapeHtml(item.cnpj) : escapeHtml(item.email)}</strong>
-        ${item.cnpj && item.email ? ` · ${escapeHtml(item.email)}` : ""}
-        ${item.motivo ? `<br><small>${escapeHtml(item.motivo)}</small>` : ""}
-        <br><small>Adicionado por ${escapeHtml(item.criado_por)} em ${formatDateTime(item.criado_em)}</small>
-      </div>
-      <button class="secondary-button" data-remover-supressao type="button">Remover</button>
-    </li>`).join("")}</ul>`;
+  renderSupressoesPagination(data);
+}
+function renderSupressoesPagination(data) {
+  const nav = document.querySelector("#supressoes-pagination");
+  if (data.total <= data.itens.length && state.supressoesOffset === 0) { nav.hidden = true; return; }
+  const totalPages = Math.max(1, Math.ceil(data.total / state.supressoesPageSize));
+  const currentPage = Math.floor(state.supressoesOffset / state.supressoesPageSize) + 1;
+  nav.hidden = false;
+  document.querySelector("#supressoes-page-summary").textContent = `Página ${currentPage} de ${totalPages} · ${data.total} supressão(ões)`;
+  document.querySelector("#supressoes-prev").disabled = state.supressoesOffset === 0;
+  document.querySelector("#supressoes-next").disabled = currentPage >= totalPages;
 }
 async function loadSupressoes() {
-  const itens = await api("/v1/admin/prospeccao/supressoes");
-  renderSupressoes(itens);
+  const data = await api(`/v1/admin/prospeccao/supressoes?limite=${state.supressoesPageSize}&deslocamento=${state.supressoesOffset}`);
+  renderSupressoes(data);
 }
+document.querySelector("#supressoes-prev").addEventListener("click", () => {
+  state.supressoesOffset = Math.max(0, state.supressoesOffset - state.supressoesPageSize);
+  loadSupressoes().catch(error => showMessage(error.message, "error"));
+});
+document.querySelector("#supressoes-next").addEventListener("click", () => {
+  state.supressoesOffset += state.supressoesPageSize;
+  loadSupressoes().catch(error => showMessage(error.message, "error"));
+});
 
 const supressaoDialog = document.querySelector("#supressao-dialog");
 document.querySelector("#open-supressao").addEventListener("click", () => { document.querySelector("#supressao-form").reset(); supressaoDialog.showModal(); });
@@ -630,6 +657,7 @@ document.querySelector("#supressao-form").addEventListener("submit", async event
       body: JSON.stringify({ cnpj: values.cnpj || null, email: values.email || null, motivo: values.motivo || null }),
     });
     showMessage("Supressão adicionada."); supressaoDialog.close(); form.reset();
+    state.supressoesOffset = 0;
     await Promise.all([loadSupressoes(), loadProspects(), loadDashboard()]);
   } catch (error) { showMessage(error.message, "error"); }
 });
@@ -646,4 +674,9 @@ document.querySelector("#supressoes-lista").addEventListener("click", async even
 });
 
 popularSelecionaresUf();
-Promise.all([loadDashboard(), loadCampanhas(), loadProspects(), loadCacheRfbStatus(), configurarBotaoImportarCnpjRfb(), loadSupressoes()]).catch(error => showMessage(error.message, "error"));
+// configurarBotaoImportarCnpjRfb() precisa terminar antes de loadSupressoes()
+// pra state.canManage já estar certo quando os botões de remover renderizarem.
+configurarBotaoImportarCnpjRfb()
+  .then(loadSupressoes)
+  .catch(error => showMessage(error.message, "error"));
+Promise.all([loadDashboard(), loadCampanhas(), loadProspects(), loadCacheRfbStatus()]).catch(error => showMessage(error.message, "error"));

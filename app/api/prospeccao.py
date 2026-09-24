@@ -62,6 +62,7 @@ from app.schemas import (
     ProspectResponse,
     ProspectStatusUpdate,
     SupressaoProspeccaoCreate,
+    SupressaoProspeccaoListResponse,
     SupressaoProspeccaoResponse,
 )
 
@@ -1286,10 +1287,20 @@ async def criar_supressao_prospeccao(
     return SupressaoProspeccaoResponse.model_validate(supressao)
 
 
-@router_campanhas.get("/supressoes", response_model=list[SupressaoProspeccaoResponse])
+@router_campanhas.get("/supressoes", response_model=SupressaoProspeccaoListResponse)
 async def listar_supressoes_prospeccao(
-    session: SessionDep, usuario: ProspeccaoViewDep, limite: Annotated[int, Query(ge=1, le=200)] = 50
-) -> list[SupressaoProspeccaoResponse]:
+    session: SessionDep,
+    usuario: ProspeccaoViewDep,
+    limite: Annotated[int, Query(ge=1, le=200)] = 50,
+    deslocamento: Annotated[int, Query(ge=0)] = 0,
+) -> SupressaoProspeccaoListResponse:
+    total = (
+        await session.execute(
+            select(func.count())
+            .select_from(SupressaoProspeccao)
+            .where(SupressaoProspeccao.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one()
     itens = (
         (
             await session.execute(
@@ -1297,12 +1308,18 @@ async def listar_supressoes_prospeccao(
                 .where(SupressaoProspeccao.organizacao_id == usuario.organizacao_id)
                 .order_by(SupressaoProspeccao.criado_em.desc())
                 .limit(limite)
+                .offset(deslocamento)
             )
         )
         .scalars()
         .all()
     )
-    return [SupressaoProspeccaoResponse.model_validate(item) for item in itens]
+    return SupressaoProspeccaoListResponse(
+        total=total,
+        limite=limite,
+        deslocamento=deslocamento,
+        itens=[SupressaoProspeccaoResponse.model_validate(item) for item in itens],
+    )
 
 
 @router_campanhas.delete("/supressoes/{supressao_id}", status_code=status.HTTP_204_NO_CONTENT)

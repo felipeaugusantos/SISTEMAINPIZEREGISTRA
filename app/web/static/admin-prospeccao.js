@@ -256,19 +256,34 @@ async function loadCacheRfbStatus() {
   renderCacheRfbStatus(dados);
 }
 async function configurarBotaoImportarCnpjRfb() {
+  let usuario;
   try {
-    const usuario = await api("/v1/auth/me");
-    document.querySelector("#importar-cnpj-rfb").hidden = !usuario.superadmin;
-    // Achado P2 da Fase 16.1 (24/09/2026): um usuário só com prospeccao.view
-    // (ex.: perfil auditor) via os botões de criar/remover supressão mesmo
-    // sem permissão -- clicar só resultava em 403. Mesmo padrão de
-    // admin-regras-automaticas.js/admin-financeiro-*.js.
-    state.canManage = Boolean(
-      usuario.superadmin || usuario.perfil === "administrador" || (usuario.permissoes || []).includes("prospeccao.manage"),
-    );
-    document.querySelector("#open-supressao").hidden = !state.canManage;
+    usuario = await api("/v1/auth/me");
   } catch {
-    document.querySelector("#importar-cnpj-rfb").hidden = true;
+    document.querySelector("#cache-rfb-section").hidden = true;
+    return;
+  }
+  // Achado P2 da Fase 16.1 (24/09/2026): um usuário só com prospeccao.view
+  // (ex.: perfil auditor) via os botões de criar/remover supressão mesmo
+  // sem permissão -- clicar só resultava em 403. Mesmo padrão de
+  // admin-regras-automaticas.js/admin-financeiro-*.js.
+  state.canManage = Boolean(
+    usuario.superadmin || usuario.perfil === "administrador" || (usuario.permissoes || []).includes("prospeccao.manage"),
+  );
+  document.querySelector("#open-supressao").hidden = !state.canManage;
+
+  // Achado 16.2 da auditoria fina do Radar de Prospecção (24/09/2026):
+  // GET /importar-cnpj-rfb agora é restrito a superadmin igual ao POST --
+  // a seção inteira (não só o botão de disparar) só faz sentido, e só
+  // responde sem 403, pra quem é superadmin. Achado P2 do Codex (PR #138):
+  // isolado num try/catch próprio pra uma falha/travamento aqui não impedir
+  // a inicialização de state.canManage acima, que não depende disso.
+  document.querySelector("#cache-rfb-section").hidden = !usuario.superadmin;
+  if (usuario.superadmin) {
+    document.querySelector("#importar-cnpj-rfb").hidden = false;
+    try {
+      await loadCacheRfbStatus();
+    } catch (error) { showMessage(error.message, "error"); }
   }
 }
 document.querySelector("#importar-cnpj-rfb").addEventListener("click", async () => {
@@ -679,4 +694,4 @@ popularSelecionaresUf();
 configurarBotaoImportarCnpjRfb()
   .then(loadSupressoes)
   .catch(error => showMessage(error.message, "error"));
-Promise.all([loadDashboard(), loadCampanhas(), loadProspects(), loadCacheRfbStatus()]).catch(error => showMessage(error.message, "error"));
+Promise.all([loadDashboard(), loadCampanhas(), loadProspects()]).catch(error => showMessage(error.message, "error"));

@@ -105,8 +105,6 @@ from app.trademarks.consolidated import analise_para_exibicao
 router = APIRouter(tags=["leads"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 limitar_leads = RateLimiter(limite=10, janela_segundos=60, escopo="leads-publicos")
-# Nomes preservados apenas para limpeza de estado nos testes antigos; não autenticam requisições.
-limitar_admin = RateLimiter(limite=10, janela_segundos=60, escopo="admin-legado")
 limitar_acoes_admin = RateLimiter(limite=30, janela_segundos=60, escopo="admin-acoes")
 LeadsViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
 LeadsManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.manage"))]
@@ -1376,27 +1374,11 @@ async def mover_lead_kanban(
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
     if etapa["fase"] in {"protocolo_inpi", "processo_inpi"}:
-        documentos = (
-            (
-                await session.execute(
-                    select(DocumentoLead).where(
-                        DocumentoLead.lead_id == lead.id,
-                        DocumentoLead.organizacao_id == lead.organizacao_id,
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        por_tipo = {documento.tipo: documento for documento in documentos}
-        obrigatorios = {documento.tipo for documento in documentos if documento.obrigatorio} | {"procuracao"}
-        pendencias = [
-            tipo for tipo in obrigatorios if tipo not in por_tipo or por_tipo[tipo].status not in DOCUMENTOS_VALIDOS
-        ]
+        pendencias = await _pendencias_documentos(session, lead.id, lead.organizacao_id)
         if pendencias:
             raise HTTPException(
                 status_code=422,
-                detail=f"Etapa bloqueada. Documentos obrigatórios pendentes: {', '.join(sorted(pendencias))}.",
+                detail=f"Etapa bloqueada. Documentos obrigatórios pendentes: {', '.join(pendencias)}.",
             )
     await avancar_fase_lead(session, lead, etapa["fase"], por=usuario.nome or "operador", forcar=True)
     if dados.etapa == "primeiro_contato":
@@ -2567,28 +2549,7 @@ async def definir_fase_lead(
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
     if dados.fase.value in {"protocolo_inpi", "processo_inpi"}:
-        documentos = (
-            (
-                await session.execute(
-                    select(DocumentoLead).where(
-                        DocumentoLead.lead_id == lead.id,
-                        DocumentoLead.organizacao_id == lead.organizacao_id,
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        por_tipo = {documento.tipo: documento for documento in documentos}
-        obrigatorios = {documento.tipo for documento in documentos if documento.obrigatorio}
-        obrigatorios.add("procuracao")
-        pendencias = sorted(
-            tipo
-            for tipo in obrigatorios
-            if tipo not in por_tipo
-            or por_tipo[tipo].status not in DOCUMENTOS_VALIDOS
-            or (por_tipo[tipo].validade_em is not None and por_tipo[tipo].validade_em < datetime.now(UTC).date())
-        )
+        pendencias = await _pendencias_documentos(session, lead.id, lead.organizacao_id)
         if pendencias:
             raise HTTPException(
                 status_code=422,
@@ -2656,13 +2617,23 @@ class DocumentosInput(BaseModel):
 DOCUMENTOS_VALIDOS = {"validado", "recebido", "aprovado"}
 
 
-async def _pendencias_documentos(session: AsyncSession, proposta: PropostaComercial) -> list[str]:
+async def _pendencias_documentos(session: AsyncSession, lead_id: int, organizacao_id: int) -> list[str]:
+    """Documentos obrigatórios (sempre incluindo procuração) que ainda
+    faltam, estão num status inválido, ou venceram, pro lead informado.
+
+    Achado da Fase 15.5 (auditoria fina de Leads, 23/09/2026): essa regra
+    estava duplicada de forma ligeiramente diferente em 3 lugares
+    (aqui, mover_lead_kanban e definir_fase_lead) -- já tinha divergido:
+    mover_lead_kanban não checava documento vencido (validade_em),
+    definir_fase_lead e esta função checavam. Consolidado numa fonte
+    única; os 3 chamadores agora passam lead_id/organizacao_id direto
+    (antes só esta função recebia uma PropostaComercial)."""
     documentos = (
         (
             await session.execute(
                 select(DocumentoLead).where(
-                    DocumentoLead.lead_id == proposta.lead_id,
-                    DocumentoLead.organizacao_id == proposta.organizacao_id,
+                    DocumentoLead.lead_id == lead_id,
+                    DocumentoLead.organizacao_id == organizacao_id,
                 )
             )
         )
@@ -2693,7 +2664,7 @@ def _prazo_sla_24h(inicio: datetime) -> datetime:
 
 
 async def _documentacao_protocolavel(session: AsyncSession, proposta: PropostaComercial) -> bool:
-    return not await _pendencias_documentos(session, proposta)
+    return not await _pendencias_documentos(session, proposta.lead_id, proposta.organizacao_id)
 
 
 async def _lead_da_org(session: AsyncSession, lead_id: int, organizacao_id: int) -> int:

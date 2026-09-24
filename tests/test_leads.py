@@ -17,7 +17,6 @@ from app.api.leads import (
     _valor_csv,
     dashboard_funil_produtividade,
     limitar_acoes_admin,
-    limitar_admin,
     limitar_leads,
 )
 from app.auth import hash_token, obter_usuario_atual
@@ -50,12 +49,10 @@ CREDENCIAIS_OK = (_settings.admin_username, _settings.admin_password)
 @pytest.fixture(autouse=True)
 def _reset_estado() -> None:
     limitar_leads.limpar()
-    limitar_admin.limpar()
     limitar_acoes_admin.limpar()
     yield
     app.dependency_overrides.clear()
     limitar_leads.limpar()
-    limitar_admin.limpar()
     limitar_acoes_admin.limpar()
 
 
@@ -675,6 +672,50 @@ def test_mover_kanban_permite_oportunidade_aberta_com_proxima_acao() -> None:
     )
 
     assert resposta.status_code == 200
+
+
+def test_mover_kanban_bloqueia_protocolo_com_procuracao_vencida() -> None:
+    # Achado da Fase 15.5 (auditoria fina de Leads, 23/09/2026): antes da
+    # consolidação em _pendencias_documentos, esta rota não checava
+    # validade_em (só definir_fase_lead checava) -- uma procuração vencida
+    # não travava o Kanban, mas travava a troca de fase via API dedicada.
+    lead = Lead(
+        id=9,
+        organizacao_id=1,
+        nome="Fulano",
+        email="fulano@example.com",
+        telefone="11999998888",
+        marca="ACME",
+        origem="processo",
+        status=StatusLead.NOVO,
+        fase="contato_inicial",
+        responsavel_id=3,
+        proxima_acao_em=datetime.now(UTC),
+        aceite_marketing=False,
+    )
+    documento_vencido = DocumentoLead(
+        id=3,
+        organizacao_id=1,
+        lead_id=9,
+        tipo="procuracao",
+        status="validado",
+        obrigatorio=True,
+        versao=1,
+        validade_em=(datetime.now(UTC) - timedelta(days=1)).date(),
+    )
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(itens=[documento_vencido]))
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/9/kanban",
+        json={"etapa": "protocolo_inpi"},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 422
+    assert "procuracao" in resposta.json()["detail"]
 
 
 def test_leads_kanban_marca_card_atrasado_fora_do_sla() -> None:

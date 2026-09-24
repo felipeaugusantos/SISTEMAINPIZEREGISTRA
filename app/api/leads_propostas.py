@@ -849,7 +849,7 @@ async def registrar_protocolo_proposta(
                 status_code=422,
                 detail="O protocolo exige proposta aceita e pagamento confirmado.",
             )
-        pendencias = await _pendencias_documentos(session, proposta)
+        pendencias = await _pendencias_documentos(session, proposta.lead_id, proposta.organizacao_id)
         if pendencias:
             raise HTTPException(
                 status_code=422,
@@ -915,7 +915,7 @@ async def registrar_protocolo_proposta(
 async def obter_sla_proposta(proposta_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
     proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
     status_sla = _atualizar_sla_proposta(proposta)
-    pendencias = await _pendencias_documentos(session, proposta)
+    pendencias = await _pendencias_documentos(session, proposta.lead_id, proposta.organizacao_id)
     return {
         "proposta_id": proposta.id,
         "status": status_sla,
@@ -969,7 +969,7 @@ async def listar_assinaturas_proposta(proposta_id: int, session: SessionDep, usu
 @router.get("/v1/admin/propostas/{proposta_id}/pendencias")
 async def obter_pendencias_proposta(proposta_id: int, session: SessionDep, usuario: LeadsViewDep) -> dict:
     proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
-    pendencias = await _pendencias_documentos(session, proposta)
+    pendencias = await _pendencias_documentos(session, proposta.lead_id, proposta.organizacao_id)
     return {
         "proposta_id": proposta.id,
         "status": proposta.status,

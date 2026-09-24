@@ -66,6 +66,34 @@
 .import-example tbody tr:last-child td{border-bottom:0}
 .import-example td:empty::after{content:"—";color:#b6bfb6}
 .portfolio-select-cell{margin-right:8px;font-size:.76rem;font-weight:700;color:#52645a}
+
+/* Checkboxes não devem herdar as dimensões dos campos de texto. */
+.portfolio-main input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  flex: 0 0 18px;
+  accent-color: var(--forest, #075e46);
+  vertical-align: middle;
+  cursor: pointer;
+}
+.portfolio-link-bar .portfolio-select-all,
+.portfolio-select-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  justify-self: start;
+  cursor: pointer;
+}
+.portfolio-main input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--forest, #075e46);
+  outline-offset: 3px;
+}
+.portfolio-main input[type="checkbox"]:disabled { cursor: not-allowed; }
 #portfolio-bulk-count{align-self:center;color:#52645a;font-size:.78rem}
 .import-guide>small{color:#66776e;font-size:.74rem;line-height:1.5}
 .rpi-status-indicator{margin:0 0 14px;padding:10px 14px;border-radius:11px;font-size:.8rem;font-weight:700}

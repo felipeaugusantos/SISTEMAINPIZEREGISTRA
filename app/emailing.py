@@ -339,12 +339,14 @@ async def enviar_alerta_novo_lead(
     pesquisa de marca). Silencioso se e-mail ou destinatário não configurados.
 
     Achado da Fase 15.2 (23/09/2026): "destinatario" é o e-mail configurado
-    por organização (PoliticaCRM.email_alerta_leads) -- settings.
-    equipe_atendimento_email (env var global do processo) só é usada como
-    fallback pra quem não configurou nada, preservando o comportamento
-    anterior em vez de quebrar silenciosamente."""
+    por organização (PoliticaCRM.email_alerta_leads). Achado P1 do Codex no
+    PR #133: um fallback pra settings.equipe_atendimento_email (env var
+    global do processo) recriava exatamente o vazamento entre tenants que
+    esta fase corrige -- toda organização sem o campo configurado (o estado
+    de toda organização já existente logo após a migration) mandaria dados
+    de lead pra uma caixa de e-mail de OUTRO tenant. Sem destinatário
+    configurado pra esta organização, o alerta simplesmente não dispara."""
     settings = get_settings()
-    destinatario = destinatario or settings.equipe_atendimento_email
     if not settings.email_enabled or not destinatario:
         return
     mensagem = EmailMessage()
@@ -436,10 +438,12 @@ async def enviar_alerta_nova_pesquisa(
 
     Achado da Fase 15.2 (23/09/2026): mesmo raciocínio de
     enviar_alerta_novo_lead -- "destinatario" é o e-mail configurado por
-    organização, com settings.equipe_atendimento_email como fallback.
+    organização. Achado P1 do Codex no PR #133: nada de fallback pra
+    settings.equipe_atendimento_email (env var global), senão qualquer
+    organização sem o campo configurado mandaria dados de lead pra uma
+    caixa de e-mail de outro tenant.
     """
     settings = get_settings()
-    destinatario = destinatario or settings.equipe_atendimento_email
     if not settings.email_enabled or not destinatario:
         return
     mensagem = EmailMessage()

@@ -626,9 +626,11 @@ class PoliticaCRM(Base):
     # "lead novo sem responsável" e de "nova pesquisa" sempre mandava pra
     # settings.equipe_atendimento_email, uma env var GLOBAL do processo --
     # em um SaaS multi-tenant, todo tenant disparava alerta pra mesma caixa
-    # (ou nenhum recebia, se a env não estivesse configurada pro tenant
-    # certo). Nulo (padrão) mantém o comportamento atual como fallback
-    # (ver app/emailing.py).
+    # de outro tenant. Nulo (padrão, estado de toda organização já
+    # existente logo após a migration) significa que o alerta simplesmente
+    # não dispara pra essa organização -- achado P1 do Codex no PR #133:
+    # nenhum fallback pra env var global, senão o vazamento entre tenants
+    # continuaria (ver app/emailing.py).
     email_alerta_leads: Mapped[str | None] = mapped_column(String(254), nullable=True)
     atualizado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     atualizado_em: Mapped[datetime] = mapped_column(

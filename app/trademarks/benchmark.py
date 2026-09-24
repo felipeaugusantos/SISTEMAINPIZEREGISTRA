@@ -34,11 +34,17 @@ def avaliar_benchmark(casos: Iterable[dict]) -> dict:
         mrr.append(1 / posicoes[0] if posicoes else 0.0)
         falsos_negativos += int(bool(relevantes) and not relevantes.intersection(retornados[:20]))
     metricas["mrr"] = round(sum(mrr) / len(mrr), 4) if mrr else 0.0
-    metricas["falso_negativo_critico"] = falsos_negativos
+    # Achado da Fase 14.6 (auditoria fina da busca figurativa, 23/09/2026):
+    # "falso_negativo_critico" (singular) era resquício de um rename
+    # incompleto -- "falsos_negativos_criticos" (plural) é a chave
+    # canônica lida em todo o resto do código (app.search_model,
+    # app.cli.avaliar_busca_marcas/avaliar_qualidade_busca). Removida a
+    # duplicata; app.search_model mantém o fallback pro nome antigo só
+    # pra registros históricos já persistidos com a chave singular.
     metricas["falsos_negativos_criticos"] = falsos_negativos
     metricas["revisao_humana_obrigatoria"] = True
     metricas["natureza"] = "triagem_tecnica_de_anterioridades"
-    latencias = sorted(float(caso["latencia_ms"]) for caso in casos if caso.get("latencia_ms") is not None)
+    latencias = sorted(float(caso.get("latencia_ms")) for caso in casos if caso.get("latencia_ms") is not None)
     for nome, percentil in (("p50", 0.50), ("p95", 0.95), ("p99", 0.99)):
         if latencias:
             indice = min(len(latencias) - 1, math.ceil((len(latencias) - 1) * percentil))

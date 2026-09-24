@@ -2,7 +2,7 @@ from io import BytesIO
 
 from PIL import Image
 
-from app.trademarks.benchmark import avaliar_gate_regressao
+from app.trademarks.benchmark import avaliar_benchmark, avaliar_gate_regressao
 from app.trademarks.visual import assinatura_visual, similaridade_visual
 from app.trademarks.visual_ranking import calcular_score_visual
 
@@ -56,3 +56,15 @@ def test_similaridade_visual_zero_quando_tamanhos_diferem() -> None:
 
 def test_similaridade_visual_zero_quando_vazia() -> None:
     assert similaridade_visual((), ()) == 0.0
+
+
+def test_avaliar_benchmark_nao_duplica_chave_de_falso_negativo() -> None:
+    # Achado da Fase 14.6 (auditoria fina da busca figurativa, 23/09/2026):
+    # "falso_negativo_critico" (singular) era resquício de um rename
+    # incompleto -- "falsos_negativos_criticos" (plural) é a chave
+    # canônica lida em todo o resto do código.
+    casos = [{"relevantes": ["a"], "retornados": ["a"], "latencia_ms": 120}]
+    metricas = avaliar_benchmark(casos)
+    assert "falso_negativo_critico" not in metricas
+    assert metricas["falsos_negativos_criticos"] == 0
+    assert metricas["p50"] == 120

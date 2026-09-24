@@ -32,6 +32,7 @@ from app.crm import (
     obter_ou_criar_empresa,
     obter_politica_crm,
     registrar_consentimento_operador,
+    registrar_consentimento_prospeccao_comercial,
     registrar_consentimento_titular,
     registrar_evento_operacional,
     sincronizar_fase_por_status,
@@ -499,6 +500,14 @@ def _lead_response(
         dados.email = _mascarar_email(dados.email)
         dados.telefone = _mascarar_telefone(dados.telefone)
         dados.documento = _mascarar_documento(dados.documento)
+        # Achado da Fase 15.3 (auditoria fina de Leads, 23/09/2026): "notas"
+        # e "tags" são texto livre digitado pelo operador, sem vocabulário
+        # fixo -- nada impede alguém de colar um CPF ou endereço numa nota
+        # ou tag. Ficavam de fora do mascaramento de PII (só e-mail/
+        # telefone/documento eram cobertos), furando o controle por essa
+        # via pra quem não tem leads.pii.view.
+        dados.notas = None
+        dados.tags = []
     dados.responsavel_nome = getattr(getattr(lead, "responsavel", None), "nome", None)
     dados.total_pesquisas = len(pesquisas)
     dados.ultima_pesquisa = pesquisas[0] if pesquisas else None
@@ -819,7 +828,15 @@ async def importar_leads(
             notas=linha["observacoes"],
             proxima_acao_em=proxima_acao_padrao,
         )
-        registrar_consentimento_operador(lead, usuario.id)
+        # Achado da Fase 15.3 (auditoria fina de Leads, 23/09/2026):
+        # registrar_consentimento_operador afirma que "o contato já pediu
+        # atendimento" -- verdade pra um lead cadastrado durante uma
+        # ligação/reunião, mas dificilmente pra uma planilha inteira
+        # importada de uma vez (tipicamente uma carteira externa de
+        # prospecção, não contatos que já solicitaram nada). Mesma base
+        # legal já usada pra conversão de Prospect do Radar de Prospecção
+        # (app.api.prospeccao), que tem a mesma natureza de dado.
+        registrar_consentimento_prospeccao_comercial(lead, usuario.id)
         session.add(lead)
         criados += 1
         if email:

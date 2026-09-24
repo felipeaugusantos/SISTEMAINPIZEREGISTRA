@@ -1138,6 +1138,8 @@ def test_contato_fica_mascarado_sem_permissao_pii() -> None:
         marca="ACME",
         origem="relatorio",
         status=StatusLead.NOVO,
+        notas="CPF do titular: 123.456.789-00",
+        tags=["vip", "cpf-123.456.789-00"],
     )
     lead.id = 10
     lead.criado_em = datetime.now(UTC)
@@ -1145,6 +1147,32 @@ def test_contato_fica_mascarado_sem_permissao_pii() -> None:
     resposta = _lead_response(lead, usuario_teste("operador", {"leads.view"}))
     assert resposta.email == "c***@empresa.com.br"
     assert resposta.telefone == "***8888"
+    # Achado da Fase 15.3 (auditoria fina de Leads, 23/09/2026): "notas" e
+    # "tags" são texto livre digitado pelo operador, sem vocabulário fixo
+    # -- ficavam de fora do mascaramento de PII (só e-mail/telefone/
+    # documento eram cobertos), furando o controle por essa via.
+    assert resposta.notas is None
+    assert resposta.tags == []
+
+
+def test_contato_mantem_notas_e_tags_com_permissao_pii() -> None:
+    lead = Lead(
+        organizacao_id=1,
+        nome="Contato",
+        email="contato@empresa.com.br",
+        telefone="11999998888",
+        marca="ACME",
+        origem="relatorio",
+        status=StatusLead.NOVO,
+        notas="Cliente antigo",
+        tags=["vip"],
+    )
+    lead.id = 10
+    lead.criado_em = datetime.now(UTC)
+    lead.atualizado_em = datetime.now(UTC)
+    resposta = _lead_response(lead, usuario_teste())
+    assert resposta.notas == "Cliente antigo"
+    assert resposta.tags == ["vip"]
 
 
 def test_lead_response_expoe_logo_cliente_url_so_quando_ha_asset() -> None:
@@ -1602,6 +1630,12 @@ def test_importar_leads_cria_novos_e_ignora_duplicado() -> None:
     assert len(leads_criados) == 2
     assert all(lead.origem == "importacao" for lead in leads_criados)
     assert {lead.email for lead in leads_criados} == {"ana@example.com", "bruno@example.com"}
+    # Achado da Fase 15.3 (auditoria fina de Leads, 23/09/2026):
+    # "interesse_legitimo_atendimento" afirma que o contato já pediu
+    # atendimento -- dificilmente verdade pra uma planilha inteira
+    # importada de uma vez. Mesma base legal já usada pra conversão de
+    # Prospect do Radar de Prospecção.
+    assert all(lead.consentimento_base_legal == "interesse_legitimo_prospeccao_comercial" for lead in leads_criados)
     assert session.commits == 1
 
 

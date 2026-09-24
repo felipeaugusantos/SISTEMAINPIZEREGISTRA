@@ -9,7 +9,6 @@ from app.database import get_session
 from app.models import EventoAuditoria
 from app.proxy import cliente_ip
 from app.trademarks.visual import assinatura_visual
-from app.trademarks.visual_ranking import calcular_score_visual
 
 router = APIRouter(prefix="/v1/admin/figurativa", tags=["busca visual"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -27,8 +26,9 @@ async def validar_imagem(
     """Valida a imagem e devolve sua assinatura visual reproduzível.
 
     A comparação com um acervo será ativada na próxima entrega; por enquanto
-    este endpoint evita aceitar arquivos inválidos e estabelece o contrato do
-    score visual, sem sugerir uma decisão jurídica automática.
+    este endpoint evita aceitar arquivos inválidos e devolve o OCR e a
+    assinatura, sem sugerir uma decisão jurídica automática nem uma pontuação
+    de similaridade (ver achado da Fase 14.2 abaixo).
     """
     conteudo = await arquivo.read()
     if len(conteudo) > limite_mb * 1024 * 1024:
@@ -54,7 +54,13 @@ async def validar_imagem(
         ocr = {"status": "concluido", "texto": texto, "confianca": None}
     except Exception:
         pass
-    score = calcular_score_visual(1.0, 1.0 if ocr.get("texto") else 0.0)
+    # Achado da Fase 14.2 (auditoria fina da busca figurativa, 23/09/2026):
+    # o "score visual" antigo passava similaridade=1.0 fixo pro fator de
+    # maior peso (55%) mesmo sem nenhuma comparação real com acervo --
+    # qualquer upload válido saía com nota alta que não significava nada.
+    # E a resposta de OCR era descartada e substituída por um texto
+    # estático de "pendente" mesmo quando o OCR já tinha rodado de verdade
+    # (bloco acima). Removido o score decorativo; devolvido o OCR real.
     assinatura_hex = "".join(map(str, assinatura))
     # Achado baixo da Fase 14.1 (auditoria fina da busca figurativa,
     # 23/09/2026): nenhum upload de imagem deixava rastro -- não dava pra
@@ -93,11 +99,12 @@ async def validar_imagem(
         "mime_type": arquivo.content_type,
         "pixels": 256,
         "assinatura_visual": assinatura_hex,
-        "ocr": {
-            "status": "pendente",
-            "motivo": "OCR será executado na etapa de processamento textual.",
+        "ocr": ocr,
+        "score_visual": {
+            "disponivel": False,
+            "motivo": "A comparação com um acervo de imagens ainda não foi implementada -- "
+            "nenhuma pontuação de similaridade real é calculada por este endpoint.",
         },
-        "score_combinado": score.as_dict(),
-        "score_status": "experimental",
-        "aviso": "A similaridade visual é um indicador técnico e requer validação humana.",
+        "aviso": "Esta validação confirma que o arquivo é uma imagem íntegra e gera sua "
+        "assinatura visual reproduzível; não há decisão automática de anterioridade.",
     }

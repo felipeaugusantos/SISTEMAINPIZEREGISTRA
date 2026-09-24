@@ -109,7 +109,14 @@ document.querySelector("#validar-imagem")?.addEventListener("click", async () =>
     const resposta = await fetch("/v1/admin/figurativa/validar-imagem", { method: "POST", body: dados });
     const payload = await resposta.json().catch(() => ({}));
     if (!resposta.ok) throw new Error(payload.detail || "Não foi possível validar a imagem.");
-    imagemStatus.textContent = `Imagem válida (${payload.pixels} pixels de assinatura). ${payload.aviso}`;
+    // Achado da Fase 14.2 (auditoria fina, 23/09/2026): a tela nunca exibia
+    // o texto do OCR nem avisava que não existe pontuação de similaridade
+    // ainda -- o operador não tinha como saber que o upload não compara
+    // com nada de verdade.
+    const textoOcr = payload.ocr?.status === "concluido" && payload.ocr.texto
+      ? ` Texto identificado por OCR: "${payload.ocr.texto}".`
+      : "";
+    imagemStatus.textContent = `Imagem válida (${payload.pixels} pixels de assinatura).${textoOcr} ${payload.aviso}`;
   } catch (error) {
     imagemStatus.textContent = error.message;
   }

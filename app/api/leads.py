@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.email_leads_config import config_email_leads, substituir_placeholders_organizacao
 from app.api.juridico import FUSO_BRASIL
-from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
+from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, exigir_qualquer_permissao, hash_ip
 from app.cadencia_email import processar_descadastro_cadencia, registrar_abertura
 from app.crm import (
     DOMINIO_CLIENTE_SEM_EMAIL,
@@ -110,6 +110,17 @@ LeadsViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.vie
 LeadsManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.manage"))]
 LeadsDeleteDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.delete"))]
 LeadsExportDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.export"))]
+# Achado 17.2 da auditoria fina do CRM (24/09/2026): Kanban é consumido só
+# por admin-crm.js (tela de CRM, permissão crm.*) -- nunca pela tela de
+# Leads. Dashboard/série temporal são consumidos por admin-crm.js E pelo
+# widget de funil da Visão geral (admin-funil.js, permissão dashboard.view).
+LeadsOuCrmViewDep = Annotated[UsuarioAutenticado, Depends(exigir_qualquer_permissao("leads.view", "crm.view"))]
+LeadsOuCrmManageDep = Annotated[
+    UsuarioAutenticado, Depends(exigir_qualquer_permissao("leads.manage", "crm.manage"))
+]
+DashboardLeadsDep = Annotated[
+    UsuarioAutenticado, Depends(exigir_qualquer_permissao("leads.view", "crm.view", "dashboard.view"))
+]
 BuscaLead = Annotated[str | None, Query(max_length=100)]
 StatusLeadFiltro = Annotated[StatusLead | None, Query(alias="status")]
 LimiteLead = Annotated[int, Query(ge=1, le=200)]
@@ -1055,7 +1066,7 @@ def _kanban_etapa(lead: Lead) -> str:
 
 
 @router.get("/v1/admin/leads-kanban")
-async def listar_leads_kanban(session: SessionDep, usuario: LeadsViewDep) -> dict:
+async def listar_leads_kanban(session: SessionDep, usuario: LeadsOuCrmViewDep) -> dict:
     leads = (
         (
             await session.execute(
@@ -1358,7 +1369,7 @@ async def mover_lead_kanban(
     dados: KanbanEtapaInput,
     request: Request,
     session: SessionDep,
-    usuario: LeadsManageDep,
+    usuario: LeadsOuCrmManageDep,
 ) -> dict:
     etapa = KANBAN_ETAPAS.get(dados.etapa)
     if etapa is None:
@@ -1444,7 +1455,7 @@ def _consulta_propostas_dashboard(organizacao_id: int):
 
 
 @router.get("/v1/admin/leads-dashboard")
-async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewDep) -> dict:
+async def dashboard_funil_produtividade(session: SessionDep, usuario: DashboardLeadsDep) -> dict:
     org = usuario.organizacao_id
     base = (Lead.organizacao_id == org, Lead.arquivado_em.is_(None))
     agora = datetime.now(UTC)
@@ -1750,7 +1761,7 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
 @router.get("/v1/admin/leads-dashboard/serie-temporal")
 async def serie_temporal_leads(
     session: SessionDep,
-    usuario: LeadsViewDep,
+    usuario: DashboardLeadsDep,
     dias: Annotated[int, Query(ge=7, le=180)] = 30,
 ) -> dict:
     """Leads criados por dia e evolução do funil (achado Fase 4 do roadmap

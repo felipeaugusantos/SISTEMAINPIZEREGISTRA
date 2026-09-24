@@ -256,6 +256,37 @@ def exigir_permissao(chave: str) -> Callable:
     return dependencia
 
 
+def exigir_qualquer_permissao(*chaves: str) -> Callable:
+    """Como ``exigir_permissao``, mas libera com QUALQUER uma das chaves.
+
+    Achado 17.2 da auditoria fina do CRM (24/09/2026): Kanban, dashboard e
+    série temporal de Leads (``app/api/leads.py``) só respondiam pra quem
+    tinha ``leads.view``/``leads.manage`` -- mas essas rotas são consumidas
+    também pela tela de CRM (``admin-crm.js``, permissão ``crm.*``) e pelo
+    widget de funil da Visão geral (``admin-funil.js``, permissão
+    ``dashboard.view``). Um usuário com só uma dessas (ex.: perfil
+    "tecnico", que só tem dashboard.view) via a seção correspondente
+    simplesmente sumir da tela, sem nenhum aviso -- 403 silencioso.
+    """
+    for chave in chaves:
+        if chave not in CHAVES_PERMISSAO:
+            raise ValueError(f"Permissao desconhecida: {chave}")
+
+    async def dependencia(request: Request, usuario: UsuarioAtualDep) -> UsuarioAutenticado:
+        exigir_csrf(request, usuario)
+        concedida = next((chave for chave in chaves if usuario.pode(chave)), None)
+        if concedida is None:
+            raise HTTPException(status_code=403, detail="Acesso nao autorizado")
+        modulo = MODULO_POR_PERMISSAO.get(concedida.split(".", 1)[0])
+        if modulo and not usuario.superadmin and modulo not in usuario.modulos_plano:
+            raise HTTPException(status_code=403, detail="Modulo indisponivel no plano contratado")
+        if request.method not in SAFE_METHODS:
+            _limitar_acoes.aplicar(f"usuario:{usuario.id}")
+        return usuario
+
+    return dependencia
+
+
 def criar_sessao(usuario_id: int, request: Request) -> tuple[SessaoOperacoes, str, str]:
     token, csrf = gerar_credenciais_sessao()
     settings = get_settings()

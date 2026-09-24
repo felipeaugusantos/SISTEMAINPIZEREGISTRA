@@ -1214,6 +1214,21 @@ def test_criar_supressao_sem_cnpj_nem_email_retorna_422() -> None:
     assert resposta.status_code == 422
 
 
+def test_criar_supressao_com_cnpj_invalido_retorna_422() -> None:
+    # Achado P1 do Codex (PR #137, 24/09/2026): _validar_cnpj só tirava os
+    # não-dígitos, sem checar tamanho/dígito verificador -- um CNPJ digitado
+    # errado (ex.: "123") criava uma supressão inerte, já que _esta_suprimido
+    # compara por igualdade exata contra Prospect.cnpj (sempre 14 dígitos
+    # válidos). Mesma validação de ProspectCreate.
+    _sessao_admin()
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/supressoes", json={"cnpj": "123"}, headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 422
+
+
 def test_listar_supressoes_prospeccao() -> None:
     from app.models import SupressaoProspeccao
 
@@ -1221,14 +1236,36 @@ def test_listar_supressoes_prospeccao() -> None:
         id=1, organizacao_id=1, cnpj="11222333000181", email=None, motivo="pedido do titular",
         criado_por="Admin", criado_em=datetime(2026, 9, 4, tzinfo=UTC),
     )
-    _sessao_admin(FakeResult(itens=[item]))
+    _sessao_admin(FakeResult(scalar=1), FakeResult(itens=[item]))
 
     resposta = TestClient(app).get("/v1/admin/prospeccao/supressoes")
 
     assert resposta.status_code == 200
     corpo = resposta.json()
-    assert len(corpo) == 1
-    assert corpo[0]["cnpj"] == "11222333000181"
+    assert corpo["total"] == 1
+    assert len(corpo["itens"]) == 1
+    assert corpo["itens"][0]["cnpj"] == "11222333000181"
+
+
+def test_listar_supressoes_prospeccao_pagina_com_deslocamento() -> None:
+    # Achado P2 da Fase 16.1 (24/09/2026): a listagem tinha limite fixo de
+    # 50 sem paginação -- organizações com mais opt-outs não conseguiam
+    # ver/remover os mais antigos pela tela de gerenciamento.
+    from app.models import SupressaoProspeccao
+
+    item = SupressaoProspeccao(
+        id=2, organizacao_id=1, cnpj=None, email="antigo@example.com", motivo=None,
+        criado_por="Admin", criado_em=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+    _sessao_admin(FakeResult(scalar=120), FakeResult(itens=[item]))
+
+    resposta = TestClient(app).get("/v1/admin/prospeccao/supressoes?limite=50&deslocamento=50")
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["total"] == 120
+    assert corpo["deslocamento"] == 50
+    assert corpo["itens"][0]["email"] == "antigo@example.com"
 
 
 def test_remover_supressao_prospeccao() -> None:

@@ -692,10 +692,21 @@ class SupressaoProspeccaoCreate(BaseModel):
     @field_validator("cnpj")
     @classmethod
     def _validar_cnpj(cls, valor: str | None) -> str | None:
+        # Achado P1 da Fase 16.1 (24/09/2026): antes só tirava os não-dígitos,
+        # sem checar tamanho/dígito verificador -- um CNPJ digitado errado
+        # (ex.: "123") criava uma supressão inerte, já que _esta_suprimido
+        # compara por igualdade exata contra Prospect.cnpj (sempre 14 dígitos
+        # válidos). Mesma validação de ProspectCreate.
         if valor is None:
             return None
         digitos = "".join(item for item in valor if item.isdigit())
-        return digitos or None
+        if not digitos:
+            return None
+        if len(digitos) != 14:
+            raise ValueError("Informe um CNPJ com 14 dígitos")
+        if not _cnpj_valido(digitos):
+            raise ValueError("CNPJ inválido (dígito verificador não confere)")
+        return digitos
 
     @model_validator(mode="after")
     def _exige_identificador(self) -> "SupressaoProspeccaoCreate":
@@ -713,6 +724,18 @@ class SupressaoProspeccaoResponse(BaseModel):
     motivo: str | None
     criado_por: str
     criado_em: datetime
+
+
+class SupressaoProspeccaoListResponse(BaseModel):
+    """Achado P2 da Fase 16.1 (24/09/2026): a listagem devolvia só os 50
+    primeiros registros (limite fixo, sem paginação) -- organizações com mais
+    de 50 opt-outs não conseguiam inspecionar nem remover os mais antigos
+    pela tela de gerenciamento recém-criada."""
+
+    total: int
+    limite: int
+    deslocamento: int
+    itens: list[SupressaoProspeccaoResponse]
 
 
 class ProspectStatusUpdate(BaseModel):

@@ -677,7 +677,7 @@ def test_crm_abre_contato_usa_a_mesma_tela_do_lead() -> None:
     page = (web_dir / "admin-crm.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-crm.js").read_text(encoding="utf-8")
 
-    assert '/static/admin-leads.js?v=74" defer' in page
+    assert '/static/admin-leads.js?v=75" defer' in page
     assert '/static/admin-leads.css?v=31"' in page
     # O diálogo do lead de verdade (não uma cópia reduzida) fica visível.
     assert '<dialog id="lead-dialog" class="lead-dialog">' in page
@@ -1015,8 +1015,39 @@ def test_admin_leads_oculta_notas_e_tags_sem_permissao_pii() -> None:
     page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
 
-    assert "admin-leads.js?v=74" in page
+    assert "admin-leads.js?v=75" in page
     assert '${state.canPii ? `<label><span>Tags' in script
     assert '${state.canPii ? `<label class="lead-notes">' in script
     assert "if (state.canPii) {" in script
     assert "payload.notas = data.get(\"notas\")" in script
+
+
+def test_admin_leads_expoe_botao_de_importacao_em_lote() -> None:
+    # Achado da Fase 15.4 (auditoria fina de Leads, 23/09/2026):
+    # POST /v1/admin/leads/importar já existia pronto e testado no
+    # backend, mas sem nenhum botão na tela -- só dava pra importar uma
+    # carteira externa de leads via chamada direta à API.
+    page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    assert 'id="import-leads"' in page
+    assert 'id="import-leads-dialog"' in page
+    assert 'id="import-leads-form"' in page
+    assert 'name="arquivo" type="file"' in page
+    assert '"/v1/admin/leads/importar"' in script
+    assert "document.querySelector(\"#import-leads\").hidden = !state.canManage;" in script
+    assert "data.criados" in script and "data.duplicados" in script
+
+
+def test_admin_leads_filtro_de_origem_cobre_todos_os_valores_do_backend() -> None:
+    # Achado da Fase 15.4 (auditoria fina de Leads, 23/09/2026): o filtro
+    # de origem na tela (e o rótulo mostrado por lead) não cobria todos
+    # os valores que o backend de fato gera -- "landing" (formulário
+    # público padrão), "importacao", "prospeccao" (conversão do Radar) e
+    # "operador" (cadastro manual) caíam no fallback bruto.
+    page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    for valor in ("landing", "importacao", "prospeccao", "operador"):
+        assert f'value="{valor}"' in page
+        assert f"{valor}:" in script

@@ -10,12 +10,12 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.leads import _lead_da_org
+from app.api.leads import _auditar, _lead_da_org
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
 from app.models import GuiaInpi, Lead, RetribuicaoInpi
@@ -113,7 +113,9 @@ async def listar_guias_inpi(lead_id: int, session: SessionDep, usuario: LeadsVie
 
 
 @router.post("/v1/admin/leads/{lead_id}/guias", status_code=status.HTTP_201_CREATED)
-async def criar_guia_inpi(lead_id: int, dados: GuiaInpiInput, session: SessionDep, usuario: LeadsManageDep) -> dict:
+async def criar_guia_inpi(
+    lead_id: int, dados: GuiaInpiInput, request: Request, session: SessionDep, usuario: LeadsManageDep
+) -> dict:
     await _lead_da_org(session, lead_id, usuario.organizacao_id)
     guia = GuiaInpi(
         organizacao_id=usuario.organizacao_id,
@@ -128,13 +130,30 @@ async def criar_guia_inpi(lead_id: int, dados: GuiaInpiInput, session: SessionDe
         observacoes=dados.observacoes,
     )
     session.add(guia)
+    await session.flush()
+    # Achado da Fase 15.1 (auditoria fina de Leads, 23/09/2026): as 3
+    # mutações de GuiaInpi (guia de pagamento ao INPI, entidade financeira
+    # sensível) não deixavam nenhum rastro de auditoria -- diferente do
+    # resto do módulo de leads, que audita quase toda mutação relevante.
+    # Achado P2 do Codex no PR #132: status_http ficava no padrão 200 de
+    # _auditar mesmo quando o endpoint responde 201/204 -- o rastro de
+    # auditoria classificava errado a resposta real.
+    _auditar(
+        session,
+        usuario,
+        request,
+        "criar_guia",
+        f"lead:{lead_id}:guia:{guia.id}",
+        {"descricao": guia.descricao},
+        status_http=201,
+    )
     await session.commit()
     return {"id": guia.id}
 
 
 @router.patch("/v1/admin/guias-inpi/{guia_id}")
 async def atualizar_guia_inpi(
-    guia_id: int, dados: GuiaStatusInput, session: SessionDep, usuario: LeadsManageDep
+    guia_id: int, dados: GuiaStatusInput, request: Request, session: SessionDep, usuario: LeadsManageDep
 ) -> dict:
     guia = (
         await session.execute(
@@ -145,12 +164,20 @@ async def atualizar_guia_inpi(
         raise HTTPException(status_code=404, detail="Guia não encontrada")
     guia.status = dados.status
     guia.pago_em = (dados.pago_em or datetime.now(UTC).date()) if dados.status == "paga" else None
+    _auditar(
+        session,
+        usuario,
+        request,
+        "atualizar_guia",
+        f"lead:{guia.lead_id}:guia:{guia.id}",
+        {"status": dados.status, "pago_em": str(guia.pago_em) if guia.pago_em else None},
+    )
     await session.commit()
     return {"ok": True}
 
 
 @router.delete("/v1/admin/guias-inpi/{guia_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remover_guia_inpi(guia_id: int, session: SessionDep, usuario: LeadsManageDep) -> Response:
+async def remover_guia_inpi(guia_id: int, request: Request, session: SessionDep, usuario: LeadsManageDep) -> Response:
     guia = (
         await session.execute(
             select(GuiaInpi).where(GuiaInpi.id == guia_id, GuiaInpi.organizacao_id == usuario.organizacao_id)
@@ -158,6 +185,15 @@ async def remover_guia_inpi(guia_id: int, session: SessionDep, usuario: LeadsMan
     ).scalar_one_or_none()
     if guia is None:
         raise HTTPException(status_code=404, detail="Guia não encontrada")
+    _auditar(
+        session,
+        usuario,
+        request,
+        "remover_guia",
+        f"lead:{guia.lead_id}:guia:{guia.id}",
+        {"descricao": guia.descricao},
+        status_http=204,
+    )
     await session.delete(guia)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

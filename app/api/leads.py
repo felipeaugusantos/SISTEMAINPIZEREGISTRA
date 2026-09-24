@@ -1408,9 +1408,9 @@ async def mover_lead_kanban(
     return {"id": lead.id, "etapa": _kanban_etapa(lead), "fase": lead.fase}
 
 
-# Fases do funil em que uma proposta já foi enviada (usadas em
-# _tempo_medio_ate_proposta_dias) — achado L10 do plano Leads/CRM (Fase 2,
-# 03/09/2026).
+# Fases do funil em que uma proposta já foi enviada -- achado L10 do plano
+# Leads/CRM (Fase 2, 03/09/2026), usadas no cálculo SQL de
+# tempo_medio_ate_proposta_dias em dashboard_funil_produtividade.
 FASES_POS_PROPOSTA: frozenset[str] = frozenset(
     {
         "proposta_enviada",
@@ -1422,45 +1422,6 @@ FASES_POS_PROPOSTA: frozenset[str] = frozenset(
         "processo_inpi",
     }
 )
-
-
-def _tempo_medio_ate_proposta_dias(leads: list[Lead], entradas_proposta: dict[int, datetime]) -> list[float]:
-    """Dias de ``Lead.criado_em`` até o envio da proposta, por lead.
-
-    Achado L10 do plano Leads/CRM (Fase 2, 03/09/2026): antes usava
-    ``Lead.atualizado_em`` como proxy — um campo tocado por qualquer edição do
-    registro (mudar responsável, tag, nota), não só pelo envio da proposta.
-    ``entradas_proposta`` vem de ``HistoricoFaseLead`` (evento real da
-    transição para a fase "proposta_enviada"); quando não há esse histórico
-    (ex.: proposta enviada por um fluxo que ainda não avança a fase do lead),
-    cai para ``atualizado_em`` em vez de descartar o lead da métrica.
-    """
-    valores: list[float] = []
-    for item in leads:
-        if item.fase not in FASES_POS_PROPOSTA or not item.criado_em:
-            continue
-        entrada = entradas_proposta.get(item.id) or item.atualizado_em
-        if not entrada:
-            continue
-        valores.append((entrada - item.criado_em).total_seconds() / 86400)
-    return valores
-
-
-def _tempo_medio_primeiro_atendimento_horas(leads: list[Lead], primeiro_contato: dict[int, datetime]) -> list[float]:
-    """Horas de ``Lead.criado_em`` até o primeiro ``ContatoLead`` registrado.
-
-    Achado P1 da auditoria de Leads (03/09/2026): não existia nenhuma medida de
-    SLA de primeiro atendimento -- o dashboard só media tempo até a proposta
-    (uma etapa bem mais adiante no funil). Leads sem nenhum contato registrado
-    ainda não entram nessa média (contam à parte, ver ``leads_sem_atendimento``).
-    """
-    valores: list[float] = []
-    for item in leads:
-        primeiro = primeiro_contato.get(item.id)
-        if primeiro is None or not item.criado_em:
-            continue
-        valores.append((primeiro - item.criado_em).total_seconds() / 3600)
-    return valores
 
 
 def _consulta_propostas_dashboard(organizacao_id: int):
@@ -1594,42 +1555,76 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         }
         for origem_valor, bucket in sorted(resumo_por_origem.items())
     ]
-    leads = list((await session.execute(select(Lead).where(*base))).scalars())
-    atrasados = sum(
-        1
-        for item in leads
-        if item.status not in (StatusLead.CONVERTIDO, StatusLead.DESCARTADO)
-        and item.proxima_acao_em is not None
-        and item.proxima_acao_em < agora
+    # Achado 17.1 da auditoria fina do CRM (24/09/2026): este endpoint
+    # carregava TODOS os leads não arquivados da organização como entidades
+    # ORM completas (toda coluna, inclusive JSON de tags/histórico) só para
+    # somar/contar em Python -- numa organização com muitos leads isso é uma
+    # varredura completa da tabela a cada carregamento do dashboard, sem
+    # nenhuma agregação no banco. As contagens e médias abaixo passam a ser
+    # calculadas no Postgres (COUNT/AVG/FILTER, mesmo estilo já usado acima
+    # em "prod"); nada mais itera sobre a lista completa de leads.
+    contadores = (
+        await session.execute(
+            select(
+                func.count(),
+                func.count().filter(aberta, Lead.proxima_acao_em.is_not(None), Lead.proxima_acao_em < agora),
+            )
+            .select_from(Lead)
+            .where(*base)
+        )
+    ).one()
+    total_leads_org, atrasados = int(contadores[0]), int(contadores[1])
+
+    entradas_proposta_sq = (
+        select(
+            HistoricoFaseLead.lead_id.label("lead_id"),
+            func.min(HistoricoFaseLead.entrou_em).label("entrada_em"),
+        )
+        .where(HistoricoFaseLead.organizacao_id == org, HistoricoFaseLead.fase == "proposta_enviada")
+        .group_by(HistoricoFaseLead.lead_id)
+        .subquery()
     )
-    entradas_proposta = dict(
-        (
-            await session.execute(
-                select(HistoricoFaseLead.lead_id, func.min(HistoricoFaseLead.entrou_em))
-                .where(
-                    HistoricoFaseLead.organizacao_id == org,
-                    HistoricoFaseLead.fase == "proposta_enviada",
+    tempo_ate_proposta_media = (
+        await session.execute(
+            select(
+                func.avg(
+                    func.extract(
+                        "epoch",
+                        func.coalesce(entradas_proposta_sq.c.entrada_em, Lead.atualizado_em) - Lead.criado_em,
+                    )
+                    / 86400.0
                 )
-                .group_by(HistoricoFaseLead.lead_id)
             )
-        ).all()
+            .select_from(Lead)
+            .outerjoin(entradas_proposta_sq, entradas_proposta_sq.c.lead_id == Lead.id)
+            .where(*base, Lead.fase.in_(FASES_POS_PROPOSTA), Lead.criado_em.is_not(None))
+        )
+    ).scalar_one()
+
+    primeiro_contato_sq = (
+        select(
+            ContatoLead.lead_id.label("lead_id"),
+            func.min(ContatoLead.criado_em).label("primeiro_em"),
+        )
+        .where(ContatoLead.organizacao_id == org)
+        .group_by(ContatoLead.lead_id)
+        .subquery()
     )
-    tempo_ate_proposta = _tempo_medio_ate_proposta_dias(leads, entradas_proposta)
-    primeiro_contato = dict(
-        (
-            await session.execute(
-                select(ContatoLead.lead_id, func.min(ContatoLead.criado_em))
-                .where(ContatoLead.organizacao_id == org)
-                .group_by(ContatoLead.lead_id)
+    atendimento = (
+        await session.execute(
+            select(
+                func.avg(
+                    func.extract("epoch", primeiro_contato_sq.c.primeiro_em - Lead.criado_em) / 3600.0
+                ).filter(primeiro_contato_sq.c.lead_id.is_not(None), Lead.criado_em.is_not(None)),
+                func.count().filter(primeiro_contato_sq.c.lead_id.is_(None), aberta),
             )
-        ).all()
-    )
-    tempo_primeiro_atendimento = _tempo_medio_primeiro_atendimento_horas(leads, primeiro_contato)
-    sem_atendimento = sum(
-        1
-        for item in leads
-        if item.id not in primeiro_contato and item.status not in (StatusLead.CONVERTIDO, StatusLead.DESCARTADO)
-    )
+            .select_from(Lead)
+            .outerjoin(primeiro_contato_sq, primeiro_contato_sq.c.lead_id == Lead.id)
+            .where(*base)
+        )
+    ).one()
+    tempo_primeiro_atendimento_media, sem_atendimento = atendimento[0], int(atendimento[1])
+
     propostas = list((await session.execute(_consulta_propostas_dashboard(org))).scalars())
     aceites = [
         (item.aceito_em - item.enviado_em).total_seconds() / 86400
@@ -1674,7 +1669,6 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
             )
         ).all()
     )
-    total_leads_org = len(leads)
     conversao_por_etapa = []
     entrada_anterior: int | None = None
     for indice, fase in enumerate(ORDEM_FASE_LEAD):
@@ -1710,11 +1704,19 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
     # o forecast cai para 0 em vez de uma probabilidade inventada.
     acumulada_por_fase = {item["fase"]: item["taxa_acumulada"] for item in conversao_por_etapa}
     taxa_final_historica = acumulada_por_fase.get(FaseLead.GANHO.value, 0)
-    leads_por_id = {item.id: item for item in leads}
+    # Achado 17.1: só precisa da fase de quem tem proposta aberta, não de
+    # todos os leads da organização -- consulta com escopo limitado a esses
+    # poucos ids em vez do dicionário `leads_por_id` que existia antes.
+    lead_ids_abertos = {item.lead_id for item in propostas_abertas}
+    fases_dos_leads_abertos: dict[int, str] = (
+        dict((await session.execute(select(Lead.id, Lead.fase).where(Lead.id.in_(lead_ids_abertos)))).all())
+        if lead_ids_abertos
+        else {}
+    )
     forecast_ponderado = Decimal("0")
     for item in propostas_abertas:
-        lead_da_proposta = leads_por_id.get(item.lead_id)
-        taxa_da_fase_atual = acumulada_por_fase.get(lead_da_proposta.fase, 0) if lead_da_proposta else 0
+        fase_da_proposta = fases_dos_leads_abertos.get(item.lead_id)
+        taxa_da_fase_atual = acumulada_por_fase.get(fase_da_proposta, 0) if fase_da_proposta else 0
         probabilidade = min(1.0, taxa_final_historica / taxa_da_fase_atual) if taxa_da_fase_atual else 0
         forecast_ponderado += ((item.honorarios or 0) + (item.taxa_gru or 0)) * Decimal(str(probabilidade))
 
@@ -1730,14 +1732,12 @@ async def dashboard_funil_produtividade(session: SessionDep, usuario: LeadsViewD
         "pipeline_previsto": pipeline_previsto,
         "forecast_ponderado": round(forecast_ponderado, 2),
         "atrasos": atrasados,
-        "tempo_medio_ate_proposta_dias": round(sum(tempo_ate_proposta) / len(tempo_ate_proposta), 2)
-        if tempo_ate_proposta
+        "tempo_medio_ate_proposta_dias": round(tempo_ate_proposta_media, 2)
+        if tempo_ate_proposta_media is not None
         else 0,
         "tempo_medio_ate_aceite_dias": round(sum(aceites) / len(aceites), 2) if aceites else 0,
-        "tempo_medio_primeiro_atendimento_horas": round(
-            sum(tempo_primeiro_atendimento) / len(tempo_primeiro_atendimento), 2
-        )
-        if tempo_primeiro_atendimento
+        "tempo_medio_primeiro_atendimento_horas": round(tempo_primeiro_atendimento_media, 2)
+        if tempo_primeiro_atendimento_media is not None
         else 0,
         "leads_sem_atendimento": sem_atendimento,
         "taxa_aceite": round(len(propostas_aceitas) / len(propostas), 4) if propostas else 0,

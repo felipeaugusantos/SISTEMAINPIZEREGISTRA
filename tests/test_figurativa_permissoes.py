@@ -129,9 +129,10 @@ def test_anterioridades_figurativas_registra_evento_auditoria() -> None:
 
 
 class _ArquivoFalso:
-    def __init__(self, conteudo: bytes) -> None:
+    def __init__(self, conteudo: bytes, *, size: int | None = None) -> None:
         self.filename = "logo.png"
         self.content_type = "image/png"
+        self.size = len(conteudo) if size is None else size
         self._conteudo = conteudo
 
     async def read(self) -> bytes:
@@ -193,3 +194,50 @@ def test_validar_imagem_invalida_nao_registra_evento_auditoria() -> None:
     assert exc_info.value.status_code == 422
     assert session.adicionados == []
     assert session.commits == 0
+
+
+def test_validar_imagem_rejeita_pelo_tamanho_declarado_sem_ler_o_arquivo() -> None:
+    # Achado da Fase 14.3 (auditoria fina da busca figurativa, 23/09/2026):
+    # o arquivo inteiro era lido em memória antes de checar o tamanho --
+    # agora arquivo.size (já conhecido pelo Starlette durante o parse do
+    # multipart) é checado primeiro, sem precisar ler o conteúdo inteiro.
+    usuario = usuario_teste()
+    session = FakeSession()
+    arquivo = _ArquivoFalso(b"conteudo pequeno", size=20 * 1024 * 1024)
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(validar_imagem(arquivo, _request(), session, usuario, limite_mb=5))
+
+    assert exc_info.value.status_code == 413
+
+
+def test_validar_imagem_tem_rate_limit_por_operador() -> None:
+    # Achado da Fase 14.3: upload + processamento de imagem (PIL) é a
+    # operação mais cara em CPU/IO do módulo, mas não tinha nenhum
+    # limitador de taxa -- diferente de todo outro endpoint de upload do
+    # sistema.
+    usuario = usuario_teste()
+    for _ in range(20):
+        session = FakeSession()
+        asyncio.run(validar_imagem(_ArquivoFalso(_imagem_png()), _request(), session, usuario))
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(validar_imagem(_ArquivoFalso(_imagem_png()), _request(), FakeSession(), usuario))
+    assert exc_info.value.status_code == 429
+
+
+def test_validar_imagem_registra_log_do_erro_real(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Achado da Fase 14.3: "except Exception" cru mascarava qualquer erro
+    # interno (não só imagem inválida) como "arquivo inválido" 422, sem
+    # nenhum log -- passa a registrar o erro real pra observabilidade.
+    import app.api.visual as visual_module
+
+    chamadas: list[str] = []
+    monkeypatch.setattr(visual_module.logger, "exception", lambda msg: chamadas.append(msg))
+    usuario = usuario_teste()
+    session = FakeSession()
+    arquivo = _ArquivoFalso(b"nao e uma imagem")
+
+    with pytest.raises(HTTPException):
+        asyncio.run(validar_imagem(arquivo, _request(), session, usuario))
+
+    assert chamadas

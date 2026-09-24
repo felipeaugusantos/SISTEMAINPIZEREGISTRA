@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -8,11 +9,19 @@ from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import get_session
 from app.models import EventoAuditoria
 from app.proxy import cliente_ip
+from app.ratelimit import RateLimiter
 from app.trademarks.visual import assinatura_visual
+
+logger = logging.getLogger("ze_registra.visual")
 
 router = APIRouter(prefix="/v1/admin/figurativa", tags=["busca visual"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 OperadorDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
+# Achado da Fase 14.3 (auditoria fina da busca figurativa, 23/09/2026):
+# upload + processamento de imagem (PIL) é a operação mais cara em CPU/IO
+# do módulo, mas não tinha nenhum limitador de taxa -- diferente de todo
+# outro endpoint de upload do sistema (app.api.portal_cliente, app.api.leads).
+_limitar_validar_imagem = RateLimiter(limite=20, janela_segundos=60, escopo="figurativa-validar-imagem")
 
 
 @router.post("/validar-imagem")
@@ -30,6 +39,16 @@ async def validar_imagem(
     assinatura, sem sugerir uma decisão jurídica automática nem uma pontuação
     de similaridade (ver achado da Fase 14.2 abaixo).
     """
+    _limitar_validar_imagem.aplicar(f"operador:{operador.id}")
+    # Achado da Fase 14.3: o arquivo inteiro era lido em memória antes de
+    # checar o tamanho -- um cliente podia mandar um arquivo bem maior que
+    # o limite e ele seria totalmente carregado antes de ser rejeitado.
+    # arquivo.size (Starlette) reflete o que já foi gravado no spool
+    # durante o parse do multipart, permitindo rejeitar sem ler tudo antes;
+    # a checagem por len(conteudo) abaixo continua como defesa em
+    # profundidade, mesmo padrão de app.api.leads.enviar_arquivo_documento_lead.
+    if arquivo.size and arquivo.size > limite_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="A imagem excede o limite permitido.")
     conteudo = await arquivo.read()
     if len(conteudo) > limite_mb * 1024 * 1024:
         raise HTTPException(status_code=413, detail="A imagem excede o limite permitido.")
@@ -38,6 +57,12 @@ async def validar_imagem(
     try:
         assinatura = assinatura_visual(conteudo)
     except Exception as exc:
+        # Achado da Fase 14.3: "except Exception" cru mascarava qualquer
+        # erro interno (inclusive bug de código, não só imagem inválida)
+        # como "arquivo inválido" 422, sem nenhum log -- passa a registrar
+        # o erro real pra observabilidade, mantendo a mensagem genérica
+        # pro cliente (não expõe detalhe interno na resposta).
+        logger.exception("Falha ao calcular assinatura visual do upload em /validar-imagem")
         raise HTTPException(status_code=422, detail="O arquivo enviado não é uma imagem válida.") from exc
     ocr: dict[str, object] = {
         "status": "indisponivel",

@@ -66,7 +66,7 @@ def test_admin_leads_requires_authentication() -> None:
     assert 'data-admin-section="leads"' in response.text
     assert "/static/admin-leads.css?v=12" in response.text
     assert client.get("/static/admin-leads.css").status_code == 200
-    script = client.get("/static/admin-leads.js")
+    script = client.get("/static/lead-dialog.js")
     assert "renderPropostas" in script.text
     assert "/v1/admin/leads/${lead.id}/propostas" in script.text
     _limpar_auth()
@@ -159,7 +159,8 @@ def test_learning_panel_has_responsive_control_grid() -> None:
 
 def test_leads_exibe_status_e_acao_do_relatorio_completo() -> None:
     page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
     styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
 
     assert "admin-leads.js?v=" in page
@@ -237,7 +238,8 @@ def test_icones_do_resumo_de_contato_usam_data_icon_nao_posicao() -> None:
     # e Empresa ficou sem ícone nenhum. Atributos data-icon são imunes a
     # mudanças de posição/visibilidade dos campos.
     styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     assert "nth-child(1)::before" not in styles
     assert 'div[data-icon="email"]::before { content: "@"' in styles
@@ -257,7 +259,8 @@ def test_ficha_do_lead_tem_atalhos_de_busca_para_a_empresa() -> None:
     # saída sem custo é um atalho de busca pronto (Google e Google
     # restrito a instagram.com) com o nome da empresa já preenchido --
     # poupa o atendente de abrir uma aba nova e digitar o nome à mão.
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     assert "https://www.google.com/search?q=${encodeURIComponent(lead.empresa)}" in script
     assert "site:instagram.com" in script
@@ -271,7 +274,8 @@ def test_painel_do_lead_usa_abas() -> None:
     # Linha do tempo, Documentos do atendimento, Guias do INPI e Proposta de
     # registro, com o card de identificacao e o Portal do cliente fixos no
     # topo (fora das abas).
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
     styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
 
     for aba in [
@@ -308,7 +312,8 @@ def test_tela_de_leads_avisa_quando_ha_pendencia_de_contato() -> None:
     # usa/conhece" -- ficavam discretos no meio da tela. Banner no topo,
     # só aparece quando há pendência de verdade.
     page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
     styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
 
     assert 'id="lead-attention-banner"' in page
@@ -323,7 +328,8 @@ def test_ficha_do_lead_tem_whatsapp_e_site_de_facil_acesso() -> None:
     # listagem de leads, mas sumia ao abrir a ficha (só telefone em texto).
     # O site da empresa (já cadastrado) ficava só editável na aba "Empresa",
     # sem virar link em lugar nenhum.
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     assert 'href="https://wa.me/${phoneDigits(lead.telefone)}"' in script
     assert 'id="lead-site-row"' in script
@@ -337,7 +343,8 @@ def test_ficha_do_lead_abre_direto_na_linha_do_tempo() -> None:
     # fase, propostas, documentos etc., já montada por
     # app/api/leads.py::timeline_lead) ficava escondida como a 4ª de 7 abas,
     # atrás de "Atendimento Comercial". Passa a ser a aba padrão.
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     assert 'const ABAS_LEAD = [\n    ["timeline", "Linha do tempo"],' in script
     assert 'data-panel="atendimento" hidden' in script
@@ -463,7 +470,8 @@ def test_admin_cadastra_materiais_de_identidade_visual_para_o_cliente() -> None:
     # Mesmo item acima, lado administrativo: a equipe cadastra os materiais
     # na ficha do lead (upload + descrição opcional + lista com remoção).
     page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     assert "admin-leads.js?v=" in page
     assert "async function renderMateriaisMarca" in script
@@ -534,7 +542,8 @@ def test_admin_registrar_aceite_de_proposta_pede_codigo_mfa() -> None:
     # verdade -- agora pede o código do autenticador (TOTP) antes de
     # mandar, e o backend (app.api.leads_propostas) grava isso como
     # evidência da assinatura, mesmo padrão do aceite pelo próprio cliente.
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     assert "codigo_mfa" in script
     assert "proposal-accept" in script
@@ -598,7 +607,8 @@ def test_portal_cliente_so_mostra_assinar_documento_quando_pronto() -> None:
 def test_admin_cadastra_logo_do_cliente_para_o_personagem_do_portal() -> None:
     # Mesmo item acima, lado administrativo: a equipe cadastra a logo do
     # cliente na ficha do lead.
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     assert "async function renderLogoCliente" in script
     assert 'fetch(`/v1/admin/leads/${lead.id}/logo-cliente`' in script
@@ -610,7 +620,8 @@ def test_upload_de_logo_do_cliente_mostra_criterios_de_tamanho_e_formato() -> No
     # (tamanho do arquivo, dimensões, formatos aceitos -- já aplicados no
     # backend via app/api/confiabilidade.py::normalizar_logo) não apareciam
     # em lugar nenhum da tela -- a equipe só descobria o limite ao errar.
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
     styles = (web_dir / "static" / "admin-leads.css").read_text(encoding="utf-8")
 
     assert "lead-logo-cliente-hint" in script
@@ -624,7 +635,8 @@ def test_admin_visualiza_arquivos_enviados_pelo_cliente_no_portal() -> None:
     # enviados pelo cliente (ArquivoClientePortal) não tinham NENHUMA tela
     # administrativa equivalente -- a equipe não conseguia ver nem baixar o
     # que o cliente enviava pelo portal.
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     assert "async function renderPortalArquivos" in script
     assert 'fetch(`/v1/admin/leads/${lead.id}/portal-arquivos`)' in script
@@ -637,7 +649,8 @@ def test_funil_do_lead_nao_marca_etapa_pulada_como_concluida() -> None:
     # lead movido manualmente direto para "Ganho" mostrava "Pagamento
     # confirmado" como concluído mesmo sem nunca ter existido nenhuma
     # contratação financeira por trás (caso real: lead "Tactical Cloud").
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
     styles = (web_dir / "static" / "styles.css").read_text(encoding="utf-8")
 
     assert "const alcancada = i === 0 || Boolean(datas[f]);" in script
@@ -651,7 +664,8 @@ def test_salvar_fase_do_lead_mostra_motivo_real_do_erro() -> None:
     # fase" só mostrava "Erro — tentar de novo" genérico, sem o motivo real
     # -- quem tentava mover um lead pra "Ganho" sem contratação financeira
     # vinculada (trava do PR #61) não fazia ideia do porquê estava travado.
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     assert 'id="lead-fase-status"' in script
     assert "erro.detail || \"Não foi possível salvar a fase.\"" in script
@@ -663,7 +677,8 @@ def test_registrar_atendimento_nao_quebra_para_lead_sem_pesquisa() -> None:
     # dedicado "Registrar atendimento" exigia um <select required> só com
     # as pesquisas do lead -- para um lead sem nenhuma, ficava vazio e o
     # navegador bloqueava o envio silenciosamente, sem explicar nada.
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     # abrirRegistroAtendimento cai para o diálogo completo (que já funciona
     # sem pesquisa, via "Salvar atendimento") em vez de montar o formulário
@@ -685,7 +700,8 @@ def test_tela_de_leads_permite_distribuir_sem_responsavel_em_lote() -> None:
     # equivalente na tela de Leads -- quem via o card "Sem responsável"
     # acumular tinha que trocar de tela pra resolver.
     page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     assert 'id="distribute-leads"' in page
     assert 'fetch("/v1/admin/leads/distribuir"' in script
@@ -695,52 +711,29 @@ def test_tela_de_leads_permite_distribuir_sem_responsavel_em_lote() -> None:
 
 
 def test_crm_abre_contato_usa_a_mesma_tela_do_lead() -> None:
-    # Achado do usuário (21/09/2026): "Abrir contato" no Kanban/histórico do
-    # CRM tinha que abrir "exatamente a mesma tela" do lead -- em vez de
-    # duplicar a lógica enorme e interligada de admin-leads.js (lista e
-    # diálogo compartilham estado, permissões e funções auxiliares), a
-    # página do CRM passou a carregar aquele script inteiro e reaproveitar
-    # openLead() dele direto, com uma cópia oculta do HTML que ele espera
-    # encontrar (filtros, métricas, tabela, paginação) pra não quebrar.
     page = (web_dir / "admin-crm.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-crm.js").read_text(encoding="utf-8")
+    shared = (web_dir / "static" / "lead-dialog.js").read_text(encoding="utf-8")
+    leads = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
 
-    assert '/static/admin-leads.js?v=75" defer' in page
-    assert '/static/admin-leads.css?v=31"' in page
-    # O diálogo do lead de verdade (não uma cópia reduzida) fica visível.
-    assert '<dialog id="lead-dialog" class="lead-dialog">' in page
-    assert 'id="lead-dialog-content"' in page
-    # Cópia oculta do que admin-leads.js precisa pra não quebrar ao carregar
-    # nesta página (ver comentário no próprio admin-crm.html).
-    assert '<div hidden aria-hidden="true">' in page
-    assert 'id="leads-list"' in page
-    assert 'id="lead-filters"' in page
-
-    assert "openLead(Number(gatilho.dataset.openContact));" in script
-    # Achado: admin-leads.js só fecha o diálogo com querySelector(".dialog-close")
-    # (o primeiro da página) -- como o CRM já tinha outros dois antes dele no
-    # DOM (lembrete/adiar), o close do #lead-dialog precisa de handler próprio.
-    assert 'id="close-lead-dialog"' in page
-    assert '#close-lead-dialog' in script
-
-    # Achado: os dois scripts declaravam `const message` no mesmo escopo
-    # global (scripts sem type=module compartilham o escopo) -- quebrava
-    # com SyntaxError assim que os dois carregavam juntos na mesma página.
-    assert "const crmMessage = " in script
-    assert "const message = " not in script
-
-    # Achados do Codex review (PR #96):
-    # 1) salvar atendimento/mover fase dentro do diálogo reaproveitado só
-    #    recarregava a lista oculta de Leads -- Kanban e histórico do CRM
-    #    ficavam desatualizados até um refresh manual.
-    assert 'addEventListener("close", () => {' in script
-    assert "loadKanban().catch" in script
-    assert "loadHistory().catch" in script
-    # 2) #admin-message (onde admin-leads.js escreve confirmações/erros de
-    #    ações do diálogo) estava dentro do bloco oculto -- o operador nunca
-    #    via essas mensagens. Agora fica visível dentro do próprio diálogo.
+    for html in (page, leads):
+        assert '/static/lead-dialog.js?v=1" defer' in html
+        assert 'id="lead-workspace"' in html
+        assert '<dialog id="lead-dialog" class="lead-dialog">' in html
+        assert 'id="lead-dialog-content"' in html
+    assert "/static/admin-leads.js" not in page
+    assert 'id="leads-list"' not in page
+    assert 'id="lead-filters"' not in page
+    assert '<div hidden aria-hidden="true">' not in page
+    assert "crmLeadDialog.openLead(Number(gatilho.dataset.openContact))" in script
+    assert "onChange:" in script and "onClose:" in script
+    assert "Promise.all([loadKanban(), loadHistory()])" in script
+    assert "onSummary: loadAtendimentoStats" in script
+    assert 'dialog.querySelector(".dialog-close")' in shared
+    assert 'dialog.addEventListener("close", onClose)' in shared
+    assert "instances.has(root)" in shared
+    assert "document.querySelector" not in shared
     assert '<div id="admin-message" class="status-message lead-dialog-message" role="status"></div>' in page
-    assert page.index('id="admin-message"') < page.index('<div hidden aria-hidden="true">')
 
 
 def test_lead_permite_vincular_processo_direto_do_aviso() -> None:
@@ -748,7 +741,8 @@ def test_lead_permite_vincular_processo_direto_do_aviso() -> None:
     # mandava o operador pra tela de Processos monitorados -- de dentro da
     # ficha do lead não tinha como vincular. Agora dá pra digitar o número
     # do processo (já cadastrado na carteira) direto no aviso e vincular.
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     assert "data-vincular-processo" in script
     assert "data-processo-numero" in script
@@ -1096,9 +1090,10 @@ def test_admin_leads_oculta_notas_e_tags_sem_permissao_pii() -> None:
     # agora só aparecem no formulário, e só entram no payload, quando
     # state.canPii é verdadeiro.
     page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
-    assert "admin-leads.js?v=75" in page
+    assert "admin-leads.js?v=76" in page
     assert '${state.canPii ? `<label><span>Tags' in script
     assert '${state.canPii ? `<label class="lead-notes">' in script
     assert "if (state.canPii) {" in script
@@ -1111,7 +1106,8 @@ def test_admin_leads_expoe_botao_de_importacao_em_lote() -> None:
     # backend, mas sem nenhum botão na tela -- só dava pra importar uma
     # carteira externa de leads via chamada direta à API.
     page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     assert 'id="import-leads"' in page
     assert 'id="import-leads-dialog"' in page
@@ -1133,7 +1129,8 @@ def test_admin_leads_filtro_de_origem_cobre_todos_os_valores_do_backend() -> Non
     # público padrão), "importacao", "prospeccao" (conversão do Radar) e
     # "operador" (cadastro manual) caíam no fallback bruto.
     page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
-    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+    script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
+                       for name in ("admin-leads.js", "lead-dialog.js"))
 
     for valor in ("landing", "importacao", "prospeccao", "operador"):
         assert f'value="{valor}"' in page

@@ -89,6 +89,8 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
+      - name: Test shared frontend components (mocked APIs)
+        run: npm run test:frontend
       - name: Start application for E2E
         run: |
           uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/ze-registra-api.log 2>&1 &

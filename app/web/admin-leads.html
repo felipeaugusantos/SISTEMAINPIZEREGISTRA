@@ -10,7 +10,8 @@
     <link rel="stylesheet" href="/static/admin-leads.css?v=31" />
     <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=12 -->
     <script src="/static/admin-shell.js?v=52" defer></script>
-    <script src="/static/admin-leads.js?v=75" defer></script>
+    <script src="/static/lead-dialog.js?v=1" defer></script>
+    <script src="/static/admin-leads.js?v=76" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
     <header class="topbar">
@@ -155,6 +156,7 @@
       </nav>
     </main>
 
+    <section id="lead-workspace" aria-label="Detalhes do lead">
     <dialog id="lead-dialog" class="lead-dialog">
       <div class="lead-dialog-frame">
         <header><div><p class="eyebrow">Oportunidade</p><h2 id="lead-dialog-title">Lead</h2></div><button class="dialog-close" type="button" aria-label="Fechar">×</button></header>
@@ -240,6 +242,7 @@
         </div>
       </form>
     </dialog>
+    </section>
     <!-- Achado da Fase 15.4 (auditoria fina de Leads, 23/09/2026):
          POST /v1/admin/leads/importar já existia pronto e testado no
          backend, mas sem nenhum botão na tela -- só dava pra importar uma

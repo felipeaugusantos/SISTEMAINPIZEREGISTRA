@@ -4,13 +4,8 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>CRM — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=67"><link rel="stylesheet" href="/static/ze-brand.css?v=1"><link rel="stylesheet" href="/static/admin-crm.css?v=4"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=8"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=7"><link rel="stylesheet" href="/static/admin-leads.css?v=31">
-  <!-- Achado do usuário (21/09/2026): "Abrir contato" precisa abrir exatamente a mesma
-       tela do lead que a página de Leads usa -- em vez de duplicar aquela lógica (~2000
-       linhas fortemente interligadas entre lista e diálogo), esta página carrega o
-       mesmo admin-leads.js e traz uma cópia oculta do HTML que ele espera encontrar
-       (filtros, métricas, tabela, paginação) só pra ele não quebrar ao rodar aqui;
-       o diálogo do lead (#lead-dialog) em si fica visível/funcional normalmente. -->
-  <script src="/static/admin-shell.js?v=52" defer></script><script src="/static/admin-leads.js?v=75" defer></script><script src="/static/admin-crm.js?v=19" defer></script>
+
+  <script src="/static/admin-shell.js?v=52" defer></script><script src="/static/lead-dialog.js?v=1" defer></script><script src="/static/admin-crm.js?v=20" defer></script>
 </head>
 <body class="admin-body ze-brand-theme" data-admin-section="crm">
   <main class="admin-main crm-main">
@@ -75,28 +70,15 @@
       <footer><button id="cancel-postpone" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Adiar</button></footer>
     </form>
   </dialog>
+  <section id="lead-workspace" aria-label="Detalhes do lead">
   <dialog id="lead-dialog" class="lead-dialog">
     <div class="lead-dialog-frame">
-      <!-- Achado do usuário (21/09/2026): admin-leads.js fecha o diálogo do lead com
-           document.querySelector(".dialog-close") (singular, não querySelectorAll) --
-           nesta página já existem outros dois botões .dialog-close antes deste no DOM
-           (lembrete/adiar), então esse ficaria sem o clique funcionando. id próprio +
-           handler explícito em admin-crm.js, sem tocar admin-leads.js. -->
+
       <header><div><p class="eyebrow">Oportunidade</p><h2 id="lead-dialog-title">Lead</h2></div><button id="close-lead-dialog" class="dialog-close" type="button" aria-label="Fechar">×</button></header>
-      <!-- Achado do Codex review (PR #96): admin-leads.js escreve confirmações e erros de
-           ações do diálogo (enviar e-mail, gerar relatório, acesso ao portal) neste
-           elemento via showMessage() -- ficar dentro do bloco oculto deixava o operador
-           sem nenhum retorno visual quando essas ações falhavam ou funcionavam. -->
+
       <div id="admin-message" class="status-message lead-dialog-message" role="status"></div>
       <div id="lead-dialog-content" class="lead-dialog-content"></div>
     </div>
-  </dialog>
-  <dialog id="archive-dialog" class="confirm-dialog">
-    <form method="dialog">
-      <h2>Arquivar contato?</h2>
-      <p>O contato sairá da operação, mas todas as pesquisas e relatórios serão preservados.</p>
-      <div><button class="secondary-button" value="cancel">Cancelar</button><button id="confirm-archive" class="danger-button" value="confirm">Arquivar</button></div>
-    </form>
   </dialog>
   <dialog id="research-delete-dialog" class="confirm-dialog">
     <form id="research-delete-form">
@@ -169,70 +151,6 @@
       </div>
     </form>
   </dialog>
-  <div hidden aria-hidden="true">
-    <!-- Achado do usuário (21/09/2026): admin-leads.js precisa destes elementos pra
-         não quebrar ao carregar (filtros, métricas, tabela, paginação) mesmo que esta
-         página não use a listagem em si -- só o diálogo do lead acima é usado de fato.
-         Cópia fiel de app/web/admin-leads.html; mudanças lá também valem aqui. -->
-    <button id="distribute-leads" type="button" hidden>Distribuir sem responsável</button>
-    <button id="copy-emails" type="button">Copiar e-mails</button>
-    <button id="export-leads" type="button">Exportar resultado</button>
-    <div id="lead-attention-banner" role="status" hidden>
-      <span id="lead-attention-text"></span>
-      <button type="button" id="lead-attention-action">Ver agora</button>
-    </div>
-    <section aria-label="Resumo dos leads">
-      <div><span>Contatos ativos</span><strong id="metric-global">0</strong></div>
-      <div><span>Resultados filtrados</span><strong id="metric-total">0</strong></div>
-      <div><span>Pesquisas realizadas</span><strong id="metric-searches">0</strong></div>
-      <div><span>Novos</span><strong id="metric-new">0</strong></div>
-      <div><span>Em contato</span><strong id="metric-contact">0</strong></div>
-      <div><span>Convertidos</span><strong id="metric-converted">0</strong></div>
-    </section>
-    <div id="crm-pipeline">
-      <button type="button" class="crm-stage" data-status="novo"><span>Novo</span><strong>0</strong></button>
-      <button type="button" class="crm-stage" data-status="em_contato"><span>Em contato</span><strong>0</strong></button>
-      <button type="button" class="crm-stage" data-status="qualificado"><span>Qualificado</span><strong>0</strong></button>
-      <button type="button" class="crm-stage" data-status="proposta_enviada"><span>Proposta enviada</span><strong>0</strong></button>
-      <button type="button" class="crm-stage" data-status="sem_retorno"><span>Sem retorno</span><strong>0</strong></button>
-      <button type="button" class="crm-stage" data-status="convertido"><span>Convertido</span><strong>0</strong></button>
-      <button type="button" class="crm-stage" data-status="descartado"><span>Descartado</span><strong>0</strong></button>
-    </div>
-    <div id="crm-priorities">
-      <button type="button" class="crm-priority overdue" data-priority="atrasadas"><span>Ações atrasadas</span><strong id="crm-overdue">0</strong><small>Precisam de retorno</small></button>
-      <button type="button" class="crm-priority" data-priority="sem_responsavel"><span>Sem responsável</span><strong id="crm-unassigned">0</strong><small>Aguardam distribuição</small></button>
-      <button type="button" class="crm-priority" data-priority="sem_proxima_acao"><span>Sem próxima ação</span><strong id="crm-no-action">0</strong><small>Precisam de planejamento</small></button>
-    </div>
-    <p id="crm-distribuicao-desligada" role="status" hidden>Distribuição automática desligada.</p>
-    <form id="lead-filters">
-      <input id="lead-search" type="search">
-      <select id="lead-status-filter"><option value="">Todos</option></select>
-      <select id="lead-owner-filter"><option value="">Todos</option></select>
-      <select id="lead-origin-filter"><option value="">Todas</option></select>
-      <input id="lead-date-start" type="date">
-      <input id="lead-date-end" type="date">
-      <select id="lead-marketing-filter"><option value="">Todos</option></select>
-      <button type="submit">Filtrar</button>
-      <button id="clear-lead-filters" type="button">Limpar filtros</button>
-    </form>
-    <section id="deletion-requests" hidden>
-      <span id="deletion-request-count">0 pendentes</span>
-      <div id="deletion-request-list"></div>
-    </section>
-    <section aria-label="Visualização dos resultados">
-      <div><button class="lead-view-button active" type="button" data-view="researches" aria-pressed="true">Por pesquisa</button></div>
-      <p id="lead-view-description"></p>
-    </section>
-    <table>
-      <thead><tr><th id="research-column-title">Pesquisa</th><th id="activity-column-title">Data</th></tr></thead>
-      <tbody id="leads-list"></tbody>
-    </table>
-    <nav aria-label="Paginação dos leads">
-      <select id="lead-page-size"><option selected>50</option></select>
-      <span id="lead-page-summary">0 resultados</span>
-      <button id="lead-prev" type="button">Anterior</button>
-      <button id="lead-next" type="button">Próxima</button>
-    </nav>
-  </div>
+  </section>
 </body>
 </html>

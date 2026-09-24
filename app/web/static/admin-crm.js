@@ -92,34 +92,16 @@ function renderKanban(data) {
 }
 async function loadKanban() { renderKanban(await api("/v1/admin/leads-kanban")); }
 
-// Achado do usuário (21/09/2026): "Abrir contato" no Kanban/histórico do CRM
-// levava pra página de Leads inteira (troca de tela, recarrega a lista
-// inteira lá) só pra ver e-mail/telefone. O usuário pediu que fosse
-// "exatamente a mesma tela" do lead -- em vez de duplicar a lógica enorme
-// e interligada de admin-leads.js (lista e diálogo compartilham estado,
-// permissões e funções auxiliares), esta página carrega aquele script
-// inteiro (ver admin-crm.html) e reaproveita a função openLead() dele
-// direto, sem navegar pra fora do CRM.
-document.addEventListener("click", (evento) => {
-  const gatilho = evento.target.closest("[data-open-contact]");
-  if (!gatilho || !gatilho.dataset.openContact) return;
-  if (evento.button !== 0 || evento.ctrlKey || evento.metaKey || evento.shiftKey) return;
-  evento.preventDefault();
-  openLead(Number(gatilho.dataset.openContact));
+const crmLeadDialog = window.createLeadDialog(document.querySelector("#lead-workspace"), {
+  onChange: async () => { await Promise.all([loadKanban(), loadHistory()]); },
+  onSummary: loadAtendimentoStats,
+  onClose: () => { Promise.all([loadKanban(), loadHistory()]).catch(error => show(error.message)); },
 });
-// admin-leads.js liga o fechar do #lead-dialog via document.querySelector(".dialog-close")
-// (só o primeiro da página) -- aqui já existem outros dois antes dele no DOM, então o
-// dele precisa de um handler próprio, feito aqui em vez de tocar admin-leads.js.
-document.querySelector("#close-lead-dialog")?.addEventListener("click", () => document.querySelector("#lead-dialog")?.close());
-// Achado do Codex review (PR #96): salvar atendimento, mover fase etc. dentro
-// do diálogo reaproveitado só recarrega a lista oculta de Leads (admin-leads.js
-// não sabe que existe um Kanban/histórico nesta página) -- o board e a linha do
-// tempo do CRM ficavam desatualizados até um refresh manual. O evento nativo
-// "close" do <dialog> dispara em qualquer forma de fechar (botão × ou Esc),
-// então recarregar ali cobre o caso comum sem precisar tocar admin-leads.js.
-document.querySelector("#lead-dialog")?.addEventListener("close", () => {
-  loadKanban().catch(() => {});
-  loadHistory().catch(() => {});
+document.addEventListener("click", evento => {
+  const gatilho = evento.target.closest("[data-open-contact]");
+  if (!gatilho || evento.button !== 0 || evento.ctrlKey || evento.metaKey || evento.shiftKey) return;
+  evento.preventDefault();
+  crmLeadDialog.openLead(Number(gatilho.dataset.openContact)).catch(error => show(error.message));
 });
 function agruparHistoricoPorCliente(itens) {
   const grupos = [];

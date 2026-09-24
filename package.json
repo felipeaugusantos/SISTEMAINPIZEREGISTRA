@@ -2,7 +2,8 @@
   "name": "ze-registra-e2e",
   "private": true,
   "scripts": {
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:frontend": "node --test tests/frontend/*.test.cjs"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1"

@@ -32,6 +32,7 @@ from app.crm import (
     obter_ou_criar_empresa,
     obter_politica_crm,
     registrar_consentimento_operador,
+    registrar_consentimento_prospeccao_comercial,
     registrar_consentimento_titular,
     registrar_evento_operacional,
     sincronizar_fase_por_status,
@@ -499,6 +500,14 @@ def _lead_response(
         dados.email = _mascarar_email(dados.email)
         dados.telefone = _mascarar_telefone(dados.telefone)
         dados.documento = _mascarar_documento(dados.documento)
+        # Achado da Fase 15.3 (auditoria fina de Leads, 23/09/2026): "notas"
+        # e "tags" são texto livre digitado pelo operador, sem vocabulário
+        # fixo -- nada impede alguém de colar um CPF ou endereço numa nota
+        # ou tag. Ficavam de fora do mascaramento de PII (só e-mail/
+        # telefone/documento eram cobertos), furando o controle por essa
+        # via pra quem não tem leads.pii.view.
+        dados.notas = None
+        dados.tags = []
     dados.responsavel_nome = getattr(getattr(lead, "responsavel", None), "nome", None)
     dados.total_pesquisas = len(pesquisas)
     dados.ultima_pesquisa = pesquisas[0] if pesquisas else None
@@ -819,7 +828,15 @@ async def importar_leads(
             notas=linha["observacoes"],
             proxima_acao_em=proxima_acao_padrao,
         )
-        registrar_consentimento_operador(lead, usuario.id)
+        # Achado da Fase 15.3 (auditoria fina de Leads, 23/09/2026):
+        # registrar_consentimento_operador afirma que "o contato já pediu
+        # atendimento" -- verdade pra um lead cadastrado durante uma
+        # ligação/reunião, mas dificilmente pra uma planilha inteira
+        # importada de uma vez (tipicamente uma carteira externa de
+        # prospecção, não contatos que já solicitaram nada). Mesma base
+        # legal já usada pra conversão de Prospect do Radar de Prospecção
+        # (app.api.prospeccao), que tem a mesma natureza de dado.
+        registrar_consentimento_prospeccao_comercial(lead, usuario.id)
         session.add(lead)
         criados += 1
         if email:
@@ -1904,7 +1921,14 @@ async def atualizar_status_lead(
                 raise HTTPException(status_code=422, detail="O contato não pertence à empresa desta oportunidade")
         alteracoes["contato_id"] = {"de": lead.contato_id, "para": dados.contato_id}
         lead.contato_id = dados.contato_id
-    if "notas" in dados.model_fields_set:
+    # Achado P1 do Codex no PR #134 (Fase 15.3, 23/09/2026): _lead_response
+    # passou a ocultar notas/tags pra quem não tem leads.pii.view, mas
+    # admin-leads.js continua mandando os dois campos em todo PATCH de
+    # "Salvar atendimento" -- pra esse usuário o formulário nunca viu o
+    # valor real, então o payload chega com notas=None/tags=[] e apagaria
+    # de vez o que já existia. Sem a permissão, ignora silenciosamente em
+    # vez de gravar um valor que o operador nunca teve como conferir.
+    if "notas" in dados.model_fields_set and usuario.pode("leads.pii.view"):
         alteracoes["notas_atualizadas"] = True
         lead.notas = dados.notas
     if "proxima_acao_em" in dados.model_fields_set:
@@ -1943,7 +1967,7 @@ async def atualizar_status_lead(
                 lembrete_manual.status = "pendente"
         elif lembrete_manual is not None:
             lembrete_manual.status = "cancelado"
-    if dados.tags is not None:
+    if dados.tags is not None and usuario.pode("leads.pii.view"):
         alteracoes["tags"] = dados.tags
         lead.tags = dados.tags
     if "documento" in dados.model_fields_set:

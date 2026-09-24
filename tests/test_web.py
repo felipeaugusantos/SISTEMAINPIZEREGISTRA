@@ -677,7 +677,7 @@ def test_crm_abre_contato_usa_a_mesma_tela_do_lead() -> None:
     page = (web_dir / "admin-crm.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-crm.js").read_text(encoding="utf-8")
 
-    assert '/static/admin-leads.js?v=73" defer' in page
+    assert '/static/admin-leads.js?v=74" defer' in page
     assert '/static/admin-leads.css?v=31"' in page
     # O diálogo do lead de verdade (não uma cópia reduzida) fica visível.
     assert '<dialog id="lead-dialog" class="lead-dialog">' in page
@@ -1002,3 +1002,21 @@ def test_admin_figurativa_api_nao_forca_json_em_corpo_formdata() -> None:
 
     assert "admin-figurativa.js?v=6" in page
     assert "options.body instanceof FormData" in script
+
+
+def test_admin_leads_oculta_notas_e_tags_sem_permissao_pii() -> None:
+    # Achado P1 do Codex no PR #134 (Fase 15.3, 23/09/2026): o backend
+    # passou a ocultar notas/tags pra quem não tem leads.pii.view, mas o
+    # formulário de "Salvar atendimento" continuava mandando os dois
+    # campos em todo PATCH -- pra esse usuário isso apagava de vez o que
+    # já existia (o formulário nunca mostrou o valor real). Os campos
+    # agora só aparecem no formulário, e só entram no payload, quando
+    # state.canPii é verdadeiro.
+    page = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-leads.js").read_text(encoding="utf-8")
+
+    assert "admin-leads.js?v=74" in page
+    assert '${state.canPii ? `<label><span>Tags' in script
+    assert '${state.canPii ? `<label class="lead-notes">' in script
+    assert "if (state.canPii) {" in script
+    assert "payload.notas = data.get(\"notas\")" in script

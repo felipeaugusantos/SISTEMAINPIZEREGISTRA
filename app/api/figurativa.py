@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import get_session
 from app.models import EventoAuditoria, Processo
+from app.normalization import normalizar_numero_processo
 from app.proxy import cliente_ip
 from app.trademarks.benchmark import avaliar_benchmark, avaliar_gate_regressao
 from app.trademarks.viena import buscar_anterioridades_viena, contar_anterioridades_viena
@@ -91,7 +92,14 @@ async def validar_resultado_figurativo(
     # server-side. Processo não tem organizacao_id (base pública replicada
     # da RPI, compartilhada entre tenants -- mesmo padrão de
     # buscar_anterioridades_viena), então a checagem não filtra por tenant.
-    existe = (await session.execute(select(Processo.id).where(Processo.numero == dados.processo))).scalar_one_or_none()
+    # Achado P2 do Codex no PR #130: comparar direto com Processo.numero
+    # rejeitava números válidos só por diferença de formatação (espaços,
+    # pontuação) -- normaliza e compara com numero_normalizado, mesmo
+    # padrão já usado na consulta pública de processos.
+    numero_normalizado = normalizar_numero_processo(dados.processo)
+    existe = (
+        await session.execute(select(Processo.id).where(Processo.numero_normalizado == numero_normalizado))
+    ).scalar_one_or_none()
     if existe is None:
         raise HTTPException(status_code=404, detail="Processo não encontrado.")
     session.add(

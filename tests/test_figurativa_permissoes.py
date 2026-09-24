@@ -283,6 +283,21 @@ def test_validar_resultado_figurativo_aceita_processo_existente() -> None:
     assert session.commits == 1
 
 
+def test_validar_resultado_figurativo_normaliza_o_numero_antes_de_checar() -> None:
+    # Achado P2 do Codex no PR #130: comparar direto com Processo.numero
+    # rejeitava números válidos só por diferença de formatação (espaços,
+    # pontuação) -- normaliza igual à consulta pública de processos.
+    usuario = usuario_teste()
+    session = FakeSession([FakeResult(scalar=42)])
+    dados = ValidacaoHumanaEntrada(
+        processo=" 900.000.001 ", decisao="confirmado", observacao="Conferido manualmente."
+    )
+
+    resultado = asyncio.run(validar_resultado_figurativo(dados, _request(), session, usuario))
+
+    assert resultado["registrado"] is True
+
+
 # --- Achado da Fase 14.5 (auditoria fina da busca figurativa, 23/09/2026):
 # zero teste de integração HTTP nas duas rotas centrais de uso diário
 # (busca por Viena e upload de imagem) -- só havia teste unitário das

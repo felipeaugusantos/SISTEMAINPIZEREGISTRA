@@ -786,6 +786,20 @@ def test_tela_de_prospeccao_esconde_acoes_de_supressao_sem_permissao_manage() ->
     assert 'state.canManage ? `<button class="secondary-button" data-remover-supressao' in script
 
 
+def test_tela_de_prospeccao_esconde_secao_de_cache_rfb_para_nao_superadmin() -> None:
+    # Achado 16.2 da auditoria fina do Radar de Prospecção (24/09/2026): a
+    # listagem de importações do cache nacional (GET /importar-cnpj-rfb) só
+    # é restrita a superadmin desde essa fase -- antes qualquer organização
+    # com prospeccao.view via dados de outras organizações. A tela precisa
+    # parar de chamar esse endpoint (e esconder a seção inteira) pra quem
+    # não é superadmin, senão a página quebra com 403 pra todo mundo.
+    script = (web_dir / "static" / "admin-prospeccao.js").read_text(encoding="utf-8")
+
+    assert 'document.querySelector("#cache-rfb-section").hidden = !usuario.superadmin;' in script
+    assert "if (usuario.superadmin) {" in script
+    assert "loadCacheRfbStatus()]" not in script
+
+
 def test_tela_de_script_atendimento_existe_com_crud_completo() -> None:
     # Item 1 da lista de melhorias de produto (15/09/2026): modelo de 1º
     # atendimento + opção de adicionar mais modelos manualmente. Reaproveita

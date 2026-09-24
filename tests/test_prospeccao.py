@@ -1297,7 +1297,7 @@ def test_remover_supressao_inexistente_retorna_404() -> None:
 
 def test_listar_importacoes_cnpj_rfb() -> None:
     execucao = _importacao_cnpj_rfb()
-    _sessao_admin(FakeResult(itens=[execucao]))
+    _sessao_superadmin(FakeResult(itens=[execucao]))
 
     resposta = TestClient(app).get("/v1/admin/prospeccao/importar-cnpj-rfb")
 
@@ -1305,6 +1305,19 @@ def test_listar_importacoes_cnpj_rfb() -> None:
     corpo = resposta.json()
     assert corpo[0]["status"] == "concluido"
     assert corpo[0]["total_validos"] == 90
+
+
+def test_listar_importacoes_cnpj_rfb_exige_superadmin() -> None:
+    # Achado 16.2 da auditoria fina do Radar de Prospecção (24/09/2026): só
+    # o disparo (POST) era restrito a superadmin -- a listagem usava
+    # ProspeccaoViewDep, vazando informação operacional de plataforma
+    # (solicitante, período, volume) pra qualquer organização com
+    # prospeccao.view.
+    _sessao_admin()
+
+    resposta = TestClient(app).get("/v1/admin/prospeccao/importar-cnpj-rfb")
+
+    assert resposta.status_code == 403
 
 
 # --- Fase 1 do roadmap pos-auditoria do CRM (06/09/2026): central de

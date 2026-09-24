@@ -258,7 +258,15 @@ async function loadCacheRfbStatus() {
 async function configurarBotaoImportarCnpjRfb() {
   try {
     const usuario = await api("/v1/auth/me");
-    document.querySelector("#importar-cnpj-rfb").hidden = !usuario.superadmin;
+    // Achado 16.2 da auditoria fina do Radar de Prospecção (24/09/2026):
+    // GET /importar-cnpj-rfb agora é restrito a superadmin igual ao POST --
+    // a seção inteira (não só o botão de disparar) só faz sentido, e só
+    // responde sem 403, pra quem é superadmin.
+    document.querySelector("#cache-rfb-section").hidden = !usuario.superadmin;
+    if (usuario.superadmin) {
+      document.querySelector("#importar-cnpj-rfb").hidden = false;
+      await loadCacheRfbStatus();
+    }
     // Achado P2 da Fase 16.1 (24/09/2026): um usuário só com prospeccao.view
     // (ex.: perfil auditor) via os botões de criar/remover supressão mesmo
     // sem permissão -- clicar só resultava em 403. Mesmo padrão de
@@ -268,7 +276,7 @@ async function configurarBotaoImportarCnpjRfb() {
     );
     document.querySelector("#open-supressao").hidden = !state.canManage;
   } catch {
-    document.querySelector("#importar-cnpj-rfb").hidden = true;
+    document.querySelector("#cache-rfb-section").hidden = true;
   }
 }
 document.querySelector("#importar-cnpj-rfb").addEventListener("click", async () => {
@@ -679,4 +687,4 @@ popularSelecionaresUf();
 configurarBotaoImportarCnpjRfb()
   .then(loadSupressoes)
   .catch(error => showMessage(error.message, "error"));
-Promise.all([loadDashboard(), loadCampanhas(), loadProspects(), loadCacheRfbStatus()]).catch(error => showMessage(error.message, "error"));
+Promise.all([loadDashboard(), loadCampanhas(), loadProspects()]).catch(error => showMessage(error.message, "error"));

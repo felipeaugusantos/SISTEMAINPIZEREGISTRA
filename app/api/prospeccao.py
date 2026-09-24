@@ -1194,8 +1194,14 @@ async def disparar_importacao_cnpj_rfb(
 
 @router_campanhas.get("/importar-cnpj-rfb", response_model=list[ImportacaoCnpjRfbResponse])
 async def listar_importacoes_cnpj_rfb(
-    session: SessionDep, usuario: ProspeccaoViewDep, limite: Annotated[int, Query(ge=1, le=50)] = 10
+    session: SessionDep, usuario: SuperAdminDep, limite: Annotated[int, Query(ge=1, le=50)] = 10
 ) -> list[ImportacaoCnpjRfbResponse]:
+    # Achado 16.2 da auditoria fina do Radar de Prospecção (24/09/2026): só o
+    # disparo (POST) era restrito a superadmin -- a listagem usava
+    # ProspeccaoViewDep, vazando pra qualquer organização com prospeccao.view
+    # informação operacional de plataforma (quem disparou a importação em
+    # outra organização, período, volume processado, erro). ImportacaoCnpjRfb
+    # não tem organizacao_id -- é global, não por tenant.
     execucoes = (
         (
             await session.execute(

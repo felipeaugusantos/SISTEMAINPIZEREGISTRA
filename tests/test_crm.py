@@ -181,6 +181,22 @@ def test_editar_politica_crm_persiste_ia_sombra_ativa() -> None:
     assert resultado["ia_sombra_ativa"] is True
 
 
+def test_editar_politica_crm_persiste_email_alerta_leads() -> None:
+    # Achado da Fase 15.2 (auditoria fina de Leads, 23/09/2026): o alerta de
+    # lead novo/nova pesquisa mandava sempre pra uma env var global do
+    # processo -- agora configurável por organização.
+    from app.api.crm_admin import PoliticaCRMUpdate, editar_politica_crm
+
+    session = FakeSession([FakeResult(scalar=None)])
+    dados = PoliticaCRMUpdate(email_alerta_leads="equipe@exemplo.com.br")
+
+    resultado = asyncio.run(editar_politica_crm(dados, session, usuario_teste()))
+
+    politica_criada = next(item for item in session.adicionados if isinstance(item, PoliticaCRM))
+    assert politica_criada.email_alerta_leads == "equipe@exemplo.com.br"
+    assert resultado["email_alerta_leads"] == "equipe@exemplo.com.br"
+
+
 # --- Round-robin ponderado por carga (achado do usuário, 16/09/2026): antes
 # distribuía por ordem sequencial de cursor, ignorando quanto cada operador
 # já tinha em aberto -- quem estava sobrecarregado continuava recebendo na

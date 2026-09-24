@@ -818,6 +818,9 @@ class PoliticaCRMUpdate(BaseModel):
     distribuicao_automatica_ativa: bool = False
     horas_sla_primeiro_atendimento: int | None = Field(default=None, ge=1, le=720)
     ia_sombra_ativa: bool = False
+    # Achado da Fase 15.2 (auditoria fina de Leads, 23/09/2026): antes preso
+    # a uma env var global do processo -- ver app/emailing.py.
+    email_alerta_leads: str | None = Field(default=None, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=254)
 
 
 def _politica_dict(politica: PoliticaCRM) -> dict:
@@ -829,6 +832,7 @@ def _politica_dict(politica: PoliticaCRM) -> dict:
         "distribuicao_automatica_ativa": politica.distribuicao_automatica_ativa,
         "ia_sombra_ativa": politica.ia_sombra_ativa,
         "horas_sla_primeiro_atendimento": politica.horas_sla_primeiro_atendimento,
+        "email_alerta_leads": politica.email_alerta_leads,
         "atualizado_por": politica.atualizado_por,
         "atualizado_em": politica.atualizado_em,
     }

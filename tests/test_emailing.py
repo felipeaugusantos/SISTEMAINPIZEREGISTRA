@@ -4,7 +4,14 @@ from email.message import EmailMessage
 
 import pytest
 
-from app.emailing import _enviar_smtp, _link_recuperacao, _mensagem_recuperacao, _registrar_email_rejeitado
+from app.emailing import (
+    _enviar_smtp,
+    _link_recuperacao,
+    _mensagem_recuperacao,
+    _registrar_email_rejeitado,
+    enviar_alerta_nova_pesquisa,
+    enviar_alerta_novo_lead,
+)
 from app.models import EventoOperacional
 from app.settings import Settings
 from tests.conftest import FakeSession
@@ -129,3 +136,45 @@ def test_registrar_email_rejeitado_ignora_erro_transitorio(monkeypatch: pytest.M
 
     assert session.commits == 0
     assert session.adicionados == []
+
+
+# --- Achado P1 do Codex no PR #133 (Fase 15.2, 23/09/2026): um fallback
+# pra settings.equipe_atendimento_email (env var global do processo)
+# recriava o vazamento entre tenants que a fase corrige -- toda
+# organização sem e-mail de alerta configurado mandaria dados de lead
+# pra uma caixa de e-mail de OUTRO tenant. Sem destinatário configurado
+# pra esta organização, o alerta simplesmente não dispara. ---
+
+
+def test_alerta_novo_lead_nao_envia_sem_destinatario_configurado(monkeypatch: pytest.MonkeyPatch) -> None:
+    enviados: list[str] = []
+    monkeypatch.setattr("app.emailing.get_settings", configuracao_email)
+    monkeypatch.setattr("app.emailing._enviar_smtp", lambda msg, _settings: enviados.append(msg["To"]))
+
+    asyncio.run(enviar_alerta_novo_lead("Fulano", "fulano@example.test", "11999999999", "Marca", "geral"))
+
+    assert enviados == []
+
+
+def test_alerta_novo_lead_envia_para_destinatario_da_organizacao(monkeypatch: pytest.MonkeyPatch) -> None:
+    enviados: list[str] = []
+    monkeypatch.setattr("app.emailing.get_settings", configuracao_email)
+    monkeypatch.setattr("app.emailing._enviar_smtp", lambda msg, _settings: enviados.append(msg["To"]))
+
+    asyncio.run(
+        enviar_alerta_novo_lead(
+            "Fulano", "fulano@example.test", "11999999999", "Marca", "geral", "equipe@empresa.com.br"
+        )
+    )
+
+    assert enviados == ["equipe@empresa.com.br"]
+
+
+def test_alerta_nova_pesquisa_nao_envia_sem_destinatario_configurado(monkeypatch: pytest.MonkeyPatch) -> None:
+    enviados: list[str] = []
+    monkeypatch.setattr("app.emailing.get_settings", configuracao_email)
+    monkeypatch.setattr("app.emailing._enviar_smtp", lambda msg, _settings: enviados.append(msg["To"]))
+
+    asyncio.run(enviar_alerta_nova_pesquisa("Marca", "Fulano", None))
+
+    assert enviados == []

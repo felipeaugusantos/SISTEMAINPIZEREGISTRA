@@ -14,7 +14,7 @@ from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.email_leads_config import config_email_leads
+from app.api.email_leads_config import config_email_leads, substituir_placeholders_organizacao
 from app.api.juridico import FUSO_BRASIL
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, hash_ip
 from app.cadencia_email import processar_descadastro_cadencia, registrar_abertura
@@ -698,7 +698,13 @@ async def criar_lead(
     if lead.responsavel_id is None:
         # Achado P0 da auditoria de Leads: nenhum alerta ativo avisava a equipe
         # de um lead novo chegando pelo formulário genérico de captação.
-        await enviar_alerta_novo_lead(lead.nome, lead.email, lead.telefone, lead.marca, lead.origem)
+        # Achado da Fase 15.2 (23/09/2026): o destinatário agora é
+        # configurável por organização (PoliticaCRM.email_alerta_leads),
+        # não mais preso à env var global settings.equipe_atendimento_email.
+        politica_alerta = await obter_politica_crm(session, organizacao.id)
+        await enviar_alerta_novo_lead(
+            lead.nome, lead.email, lead.telefone, lead.marca, lead.origem, politica_alerta.email_alerta_leads
+        )
     await enfileirar_qualificacao_ia_se_ativa(session, lead)
     # Lead recém-criado -- os campos já são exatamente o que veio em
     # "dados", então model_validate direto é seguro aqui (diferente dos
@@ -2188,8 +2194,12 @@ async def enviar_email_prospeccao(
         raise HTTPException(status_code=422, detail="Este lead nao tem e-mail cadastrado")
     org = await session.get(Organizacao, usuario.organizacao_id)
     config = config_email_leads(org)
-    assunto = config["assunto"].replace("{{lead.nome}}", lead.nome)
-    corpo = config["corpo"].replace("{{lead.nome}}", lead.nome)
+    # Achado da Fase 15.2 (auditoria fina de Leads, 23/09/2026): o template
+    # padrão tinha marca/assinatura hardcoded com placeholders nunca
+    # substituídos -- "{{organizacao.*}}" agora resolve pros dados reais
+    # da organização, mesmo mecanismo já usado pra "{{lead.nome}}".
+    assunto = substituir_placeholders_organizacao(config["assunto"].replace("{{lead.nome}}", lead.nome), org)
+    corpo = substituir_placeholders_organizacao(config["corpo"].replace("{{lead.nome}}", lead.nome), org)
     try:
         await enviar_email_prospeccao_lead(lead.email, assunto, corpo, reply_to=config.get("reply_to") or usuario.email)
     except Exception as exc:

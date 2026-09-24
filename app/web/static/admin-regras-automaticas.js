@@ -37,6 +37,7 @@ function politicaFill(politica) {
   politicaForm.elements.exigir_proxima_acao.checked = !!politica.exigir_proxima_acao;
   politicaForm.elements.dias_proxima_acao_padrao.value = politica.dias_proxima_acao_padrao ?? "";
   politicaForm.elements.horas_sla_primeiro_atendimento.value = politica.horas_sla_primeiro_atendimento ?? "";
+  politicaForm.elements.email_alerta_leads.value = politica.email_alerta_leads ?? "";
 }
 async function politicaLoad() {
   const politica = await fetch("/v1/admin/crm/politica").then(r => r.json());
@@ -56,6 +57,7 @@ politicaForm?.addEventListener("submit", async event => {
   const submit = politicaForm.querySelector("button[type=submit]");
   const dias = politicaForm.elements.dias_proxima_acao_padrao.value;
   const horasSla = politicaForm.elements.horas_sla_primeiro_atendimento.value;
+  const emailAlerta = politicaForm.elements.email_alerta_leads.value.trim();
   const payload = {
     exigir_responsavel: politicaForm.elements.exigir_responsavel.checked,
     atribuir_ao_operador: politicaForm.elements.atribuir_ao_operador.checked,
@@ -64,6 +66,7 @@ politicaForm?.addEventListener("submit", async event => {
     exigir_proxima_acao: politicaForm.elements.exigir_proxima_acao.checked,
     dias_proxima_acao_padrao: dias === "" ? null : Number(dias),
     horas_sla_primeiro_atendimento: horasSla === "" ? null : Number(horasSla),
+    email_alerta_leads: emailAlerta === "" ? null : emailAlerta,
   };
   submit.disabled = true;
   politicaMsg("Salvando política…", "loading");

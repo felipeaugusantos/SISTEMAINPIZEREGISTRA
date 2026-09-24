@@ -330,18 +330,29 @@ async def enviar_codigo_confirmacao_portal(destinatario: str, nome: str, codigo:
         raise ultimo_erro
 
 
-async def enviar_alerta_novo_lead(nome: str, email: str, telefone: str, marca: str, origem: str) -> None:
+async def enviar_alerta_novo_lead(
+    nome: str, email: str, telefone: str, marca: str, origem: str, destinatario: str | None = None
+) -> None:
     """Avisa a equipe de atendimento por e-mail quando um novo lead chega sem
     responsável (achado P0 da auditoria de Leads, 03/09/2026: o formulário
     genérico de captação não tinha nenhum alerta ativo, diferente do fluxo de
-    pesquisa de marca). Silencioso se e-mail ou destinatário não configurados."""
+    pesquisa de marca). Silencioso se e-mail ou destinatário não configurados.
+
+    Achado da Fase 15.2 (23/09/2026): "destinatario" é o e-mail configurado
+    por organização (PoliticaCRM.email_alerta_leads). Achado P1 do Codex no
+    PR #133: um fallback pra settings.equipe_atendimento_email (env var
+    global do processo) recriava exatamente o vazamento entre tenants que
+    esta fase corrige -- toda organização sem o campo configurado (o estado
+    de toda organização já existente logo após a migration) mandaria dados
+    de lead pra uma caixa de e-mail de OUTRO tenant. Sem destinatário
+    configurado pra esta organização, o alerta simplesmente não dispara."""
     settings = get_settings()
-    if not settings.email_enabled or not settings.equipe_atendimento_email:
+    if not settings.email_enabled or not destinatario:
         return
     mensagem = EmailMessage()
     mensagem["Subject"] = f"Novo lead recebido: {nome}"
     mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
-    mensagem["To"] = settings.equipe_atendimento_email
+    mensagem["To"] = destinatario
     linha_marca = f"\nMarca de interesse: {marca}" if marca else ""
     mensagem.set_content(
         f"Um novo lead acabou de ser recebido, ainda sem responsável.\n\n"
@@ -417,19 +428,28 @@ async def enviar_alerta_atividades_atrasadas(
         logger.exception("Falha ao enviar alerta de atividades atrasadas por e-mail")
 
 
-async def enviar_alerta_nova_pesquisa(marca: str, nome_lead: str, empresa: str | None) -> None:
+async def enviar_alerta_nova_pesquisa(
+    marca: str, nome_lead: str, empresa: str | None, destinatario: str | None = None
+) -> None:
     """Avisa a equipe de atendimento por e-mail quando uma nova pesquisa chega.
 
     Silencioso se e-mail ou o destinatário não estiverem configurados: este alerta é um
     reforço da central de notificações do painel, não o único canal.
+
+    Achado da Fase 15.2 (23/09/2026): mesmo raciocínio de
+    enviar_alerta_novo_lead -- "destinatario" é o e-mail configurado por
+    organização. Achado P1 do Codex no PR #133: nada de fallback pra
+    settings.equipe_atendimento_email (env var global), senão qualquer
+    organização sem o campo configurado mandaria dados de lead pra uma
+    caixa de e-mail de outro tenant.
     """
     settings = get_settings()
-    if not settings.email_enabled or not settings.equipe_atendimento_email:
+    if not settings.email_enabled or not destinatario:
         return
     mensagem = EmailMessage()
     mensagem["Subject"] = f"Nova pesquisa recebida: {marca}"
     mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
-    mensagem["To"] = settings.equipe_atendimento_email
+    mensagem["To"] = destinatario
     linha_empresa = f" ({empresa})" if empresa else ""
     mensagem.set_content(
         f"Uma nova pesquisa de marca acabou de ser recebida.\n\n"

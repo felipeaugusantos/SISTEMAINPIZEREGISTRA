@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>Regras automáticas — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=67"><link rel="stylesheet" href="/static/admin-financeiro.css?v=13"><link rel="stylesheet" href="/static/admin-crm.css?v=4"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=8">
-  <script src="/static/admin-shell.js?v=52" defer></script><script src="/static/admin-regras-automaticas.js?v=5" defer></script><script src="/static/admin-cadencias.js?v=3" defer></script>
+  <script src="/static/admin-shell.js?v=52" defer></script><script src="/static/admin-regras-automaticas.js?v=6" defer></script><script src="/static/admin-cadencias.js?v=3" defer></script>
 </head>
 <body class="admin-body" data-admin-section="config-regras">
   <main class="admin-main finance-main">
@@ -27,6 +27,7 @@
         <label class="crm-politica-toggle"><input type="checkbox" name="exigir_proxima_acao"><span>Exigir próxima ação definida</span></label>
         <label class="crm-politica-dias"><span>Prazo padrão da próxima ação (dias, opcional)</span><input type="number" name="dias_proxima_acao_padrao" min="0" max="365" placeholder="Sem padrão"></label>
         <label class="crm-politica-dias"><span>SLA de primeiro atendimento (horas, opcional) — cria um lembrete de alta prioridade se ninguém registrar contato com o lead até esse prazo</span><input type="number" name="horas_sla_primeiro_atendimento" min="1" max="720" placeholder="Sem SLA"></label>
+        <label class="crm-politica-dias"><span>E-mail para alertas de leads novos e pesquisas recebidas (opcional)</span><input type="email" name="email_alerta_leads" maxlength="254" placeholder="equipe@suaempresa.com.br"></label>
         <div id="politica-message" class="status-message" hidden role="status"></div>
         <button class="primary-button" type="submit">Salvar política</button>
       </form>

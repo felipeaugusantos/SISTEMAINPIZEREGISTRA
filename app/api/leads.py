@@ -1124,7 +1124,12 @@ async def listar_leads_kanban(session: SessionDep, usuario: LeadsOuCrmViewDep) -
     return {
         "etapas": [{"id": etapa, **dados} for etapa, dados in KANBAN_ETAPAS.items()],
         "cards": cards,
-        "acoes": {"gerenciar": usuario.pode("leads.manage")},
+        # Achado P2 do Codex (PR #141, 24/09/2026): a rota de mover card
+        # (POST .../kanban) já aceita leads.manage OU crm.manage, mas esta
+        # flag (usada por admin-crm.js pra decidir se o card é arrastável)
+        # só olhava leads.manage -- quem só tinha crm.manage via os cards
+        # não-arrastáveis, mesmo podendo de fato mover.
+        "acoes": {"gerenciar": usuario.pode("leads.manage") or usuario.pode("crm.manage")},
     }
 
 

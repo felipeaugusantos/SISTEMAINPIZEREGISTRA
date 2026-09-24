@@ -274,15 +274,27 @@ def exigir_qualquer_permissao(*chaves: str) -> Callable:
 
     async def dependencia(request: Request, usuario: UsuarioAtualDep) -> UsuarioAutenticado:
         exigir_csrf(request, usuario)
-        concedida = next((chave for chave in chaves if usuario.pode(chave)), None)
-        if concedida is None:
-            raise HTTPException(status_code=403, detail="Acesso nao autorizado")
-        modulo = MODULO_POR_PERMISSAO.get(concedida.split(".", 1)[0])
-        if modulo and not usuario.superadmin and modulo not in usuario.modulos_plano:
+        # Achado P2 do Codex (PR #141, 24/09/2026): parar na primeira chave
+        # concedida (sem checar o módulo dela) rejeitava quem tinha uma
+        # permissão cujo módulo está fora do plano MAS também tinha uma
+        # segunda permissão válida com módulo contratado -- ex.: usuário com
+        # leads.view + crm.view num tenant só-CRM caía no módulo "leads"
+        # desabilitado e nunca chegava a considerar crm.view. Cada chave
+        # concedida só é aceita se o módulo dela também estiver liberado.
+        sem_modulo_contratado = False
+        for chave in chaves:
+            if not usuario.pode(chave):
+                continue
+            modulo = MODULO_POR_PERMISSAO.get(chave.split(".", 1)[0])
+            if modulo and not usuario.superadmin and modulo not in usuario.modulos_plano:
+                sem_modulo_contratado = True
+                continue
+            if request.method not in SAFE_METHODS:
+                _limitar_acoes.aplicar(f"usuario:{usuario.id}")
+            return usuario
+        if sem_modulo_contratado:
             raise HTTPException(status_code=403, detail="Modulo indisponivel no plano contratado")
-        if request.method not in SAFE_METHODS:
-            _limitar_acoes.aplicar(f"usuario:{usuario.id}")
-        return usuario
+        raise HTTPException(status_code=403, detail="Acesso nao autorizado")
 
     return dependencia
 

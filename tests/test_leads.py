@@ -865,6 +865,37 @@ def test_kanban_aceita_permissao_crm_view_sem_leads_view() -> None:
     assert resposta.status_code == 200
 
 
+def test_kanban_considera_modulo_de_cada_chave_candidata_da_permissao() -> None:
+    # Achado P2 do Codex (PR #141, 24/09/2026): exigir_qualquer_permissao
+    # parava na primeira chave concedida sem checar o módulo dela -- um
+    # usuário com leads.view (módulo "leads" fora do plano) E crm.view
+    # (módulo "crm" no plano) caía no módulo desabilitado e nunca chegava
+    # a considerar crm.view, mesmo tendo acesso legítimo por ali.
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[]))
+    usuario = usuario_teste(perfil="operador", permissoes={"leads.view", "crm.view"})
+    object.__setattr__(usuario, "modulos_plano", frozenset({"crm"}))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).get("/v1/admin/leads-kanban")
+
+    assert resposta.status_code == 200
+
+
+def test_kanban_lista_expoe_acao_gerenciar_para_crm_manage() -> None:
+    # Achado P2 do Codex (PR #141, 24/09/2026): a rota de mover card já
+    # aceitava leads.manage OU crm.manage, mas "acoes.gerenciar" (usado por
+    # admin-crm.js pra decidir se o card é arrastável) só olhava
+    # leads.manage -- quem só tinha crm.manage via os cards travados.
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[]))
+    usuario = usuario_teste(perfil="operador", permissoes={"crm.view", "crm.manage"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).get("/v1/admin/leads-kanban")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["acoes"]["gerenciar"] is True
+
+
 def test_kanban_bloqueia_quem_nao_tem_leads_view_nem_crm_view() -> None:
     app.dependency_overrides[get_session] = sessao_override()
     usuario = usuario_teste(perfil="operador", permissoes={"dashboard.view"})

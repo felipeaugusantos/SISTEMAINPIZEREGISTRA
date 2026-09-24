@@ -1921,7 +1921,14 @@ async def atualizar_status_lead(
                 raise HTTPException(status_code=422, detail="O contato não pertence à empresa desta oportunidade")
         alteracoes["contato_id"] = {"de": lead.contato_id, "para": dados.contato_id}
         lead.contato_id = dados.contato_id
-    if "notas" in dados.model_fields_set:
+    # Achado P1 do Codex no PR #134 (Fase 15.3, 23/09/2026): _lead_response
+    # passou a ocultar notas/tags pra quem não tem leads.pii.view, mas
+    # admin-leads.js continua mandando os dois campos em todo PATCH de
+    # "Salvar atendimento" -- pra esse usuário o formulário nunca viu o
+    # valor real, então o payload chega com notas=None/tags=[] e apagaria
+    # de vez o que já existia. Sem a permissão, ignora silenciosamente em
+    # vez de gravar um valor que o operador nunca teve como conferir.
+    if "notas" in dados.model_fields_set and usuario.pode("leads.pii.view"):
         alteracoes["notas_atualizadas"] = True
         lead.notas = dados.notas
     if "proxima_acao_em" in dados.model_fields_set:
@@ -1960,7 +1967,7 @@ async def atualizar_status_lead(
                 lembrete_manual.status = "pendente"
         elif lembrete_manual is not None:
             lembrete_manual.status = "cancelado"
-    if dados.tags is not None:
+    if dados.tags is not None and usuario.pode("leads.pii.view"):
         alteracoes["tags"] = dados.tags
         lead.tags = dados.tags
     if "documento" in dados.model_fields_set:

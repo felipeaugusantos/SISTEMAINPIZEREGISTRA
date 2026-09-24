@@ -659,9 +659,9 @@ async function openLead(id, selectedResearchId = null) {
         </div>
         <label><span>Responsável</span><select name="responsavel_id">${ownerOptions(lead.responsavel_id)}</select></label>
         <label><span>Próxima ação</span><input name="proxima_acao_em" type="datetime-local" value="${lead.proxima_acao_em ? new Date(lead.proxima_acao_em).toISOString().slice(0, 16) : ""}" /></label>
-        <label><span>Tags, separadas por vírgula</span><input name="tags" maxlength="400" value="${escapeHtml((lead.tags || []).join(", "))}" /></label>
+        ${state.canPii ? `<label><span>Tags, separadas por vírgula</span><input name="tags" maxlength="400" value="${escapeHtml((lead.tags || []).join(", "))}" /></label>` : ""}
         ${state.canPii ? `<label><span>CPF/CNPJ</span><input name="documento" inputmode="numeric" maxlength="18" value="${escapeHtml(lead.documento || "")}" placeholder="Somente para cadastro interno" /></label>` : ""}
-        <label class="lead-notes"><span>Anotações internas</span><textarea name="notas" maxlength="4000" rows="5">${escapeHtml(lead.notas || "")}</textarea></label>
+        ${state.canPii ? `<label class="lead-notes"><span>Anotações internas</span><textarea name="notas" maxlength="4000" rows="5">${escapeHtml(lead.notas || "")}</textarea></label>` : ""}
         <div><button class="primary-button" type="submit">Salvar atendimento</button><a class="secondary-button" href="/admin/crm?lead_id=${lead.id}">Criar lembrete</a><span id="lead-save-message" role="status"></span></div>
       </form>` : `<section class="lead-readonly-note">Você possui acesso somente para consulta.</section>`}
       <section class="lead-contact-log">
@@ -1875,13 +1875,20 @@ dialogContent.addEventListener("submit", async event => {
     status: data.get("status"),
     responsavel_id: data.get("responsavel_id") ? Number(data.get("responsavel_id")) : null,
     proxima_acao_em: data.get("proxima_acao_em") ? new Date(data.get("proxima_acao_em")).toISOString() : null,
-    notas: data.get("notas") || null,
-    tags: String(data.get("tags") || "").split(",").map(item => item.trim()).filter(Boolean),
     registrar_contato: true,
     motivo_perda: data.get("motivo_perda") || null,
     motivo_perda_detalhe: data.get("motivo_perda_detalhe") || null,
   };
-  if (state.canPii) payload.documento = data.get("documento") || null;
+  // Achado P1 do Codex no PR #134 (Fase 15.3, 23/09/2026): sem
+  // leads.pii.view o formulário nunca mostra o valor real de notas/tags
+  // (campos ocultos acima) -- mandar esses campos mesmo assim apagaria o
+  // que já existia. O backend também ignora essas duas chaves pra quem
+  // não tem a permissão, mas nem manda o campo é mais honesto.
+  if (state.canPii) {
+    payload.notas = data.get("notas") || null;
+    payload.tags = String(data.get("tags") || "").split(",").map(item => item.trim()).filter(Boolean);
+    payload.documento = data.get("documento") || null;
+  }
   saveMessage.textContent = "Salvando…";
   const response = await fetch(`/v1/admin/leads/${form.dataset.leadId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   if (!response.ok) {

@@ -589,5 +589,61 @@ document.querySelector("#duplicatas-lista").addEventListener("click", async even
   } catch (error) { showMessage(error.message, "error"); }
 });
 
+// --- Fase 16.1 da auditoria fina do Radar de Prospecção (24/09/2026):
+// lista de supressão (opt-out) tinha backend completo desde a Fase 5 mas
+// nenhuma tela -- só dava pra usar via API direta. ---
+
+function renderSupressoes(itens) {
+  const alvo = document.querySelector("#supressoes-lista");
+  if (!itens.length) {
+    alvo.innerHTML = `<p class="prospeccao-empty">Nenhuma supressão cadastrada ainda.</p>`;
+    return;
+  }
+  alvo.innerHTML = `<ul class="prospeccao-supressoes-lista">${itens.map(item => `
+    <li data-id="${item.id}">
+      <div>
+        <strong>${item.cnpj ? escapeHtml(item.cnpj) : escapeHtml(item.email)}</strong>
+        ${item.cnpj && item.email ? ` · ${escapeHtml(item.email)}` : ""}
+        ${item.motivo ? `<br><small>${escapeHtml(item.motivo)}</small>` : ""}
+        <br><small>Adicionado por ${escapeHtml(item.criado_por)} em ${formatDateTime(item.criado_em)}</small>
+      </div>
+      <button class="secondary-button" data-remover-supressao type="button">Remover</button>
+    </li>`).join("")}</ul>`;
+}
+async function loadSupressoes() {
+  const itens = await api("/v1/admin/prospeccao/supressoes");
+  renderSupressoes(itens);
+}
+
+const supressaoDialog = document.querySelector("#supressao-dialog");
+document.querySelector("#open-supressao").addEventListener("click", () => { document.querySelector("#supressao-form").reset(); supressaoDialog.showModal(); });
+document.querySelector("#close-supressao").addEventListener("click", () => supressaoDialog.close());
+document.querySelector("#cancel-supressao").addEventListener("click", () => supressaoDialog.close());
+document.querySelector("#supressao-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form));
+  if (!values.cnpj && !values.email) { showMessage("Informe pelo menos o CNPJ ou o e-mail.", "error"); return; }
+  try {
+    await api("/v1/admin/prospeccao/supressoes", {
+      method: "POST",
+      body: JSON.stringify({ cnpj: values.cnpj || null, email: values.email || null, motivo: values.motivo || null }),
+    });
+    showMessage("Supressão adicionada."); supressaoDialog.close(); form.reset();
+    await Promise.all([loadSupressoes(), loadProspects(), loadDashboard()]);
+  } catch (error) { showMessage(error.message, "error"); }
+});
+document.querySelector("#supressoes-lista").addEventListener("click", async event => {
+  const botao = event.target.closest("[data-remover-supressao]"); if (!botao) return;
+  const id = botao.closest("[data-id]").dataset.id;
+  if (!confirm("Remover esta supressão? O CNPJ/e-mail volta a poder ser prospectado normalmente.")) return;
+  botao.disabled = true;
+  try {
+    await api(`/v1/admin/prospeccao/supressoes/${id}`, { method: "DELETE" });
+    showMessage("Supressão removida.");
+    await loadSupressoes();
+  } catch (error) { showMessage(error.message, "error"); botao.disabled = false; }
+});
+
 popularSelecionaresUf();
-Promise.all([loadDashboard(), loadCampanhas(), loadProspects(), loadCacheRfbStatus(), configurarBotaoImportarCnpjRfb()]).catch(error => showMessage(error.message, "error"));
+Promise.all([loadDashboard(), loadCampanhas(), loadProspects(), loadCacheRfbStatus(), configurarBotaoImportarCnpjRfb(), loadSupressoes()]).catch(error => showMessage(error.message, "error"));

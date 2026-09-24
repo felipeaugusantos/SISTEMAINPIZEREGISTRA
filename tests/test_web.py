@@ -756,6 +756,22 @@ def test_card_de_prospeccao_mostra_descricao_do_cnae() -> None:
     assert "item.cnae_principal_descricao" in script
 
 
+def test_tela_de_prospeccao_expoe_lista_de_supressao_opt_out() -> None:
+    # Achado 16.1 da auditoria fina do Radar de Prospecção (24/09/2026):
+    # SupressaoProspeccao (opt-out LGPD) tinha backend completo desde a
+    # Fase 5, mas nenhuma tela -- só dava pra usar via API direta.
+    page = (web_dir / "admin-prospeccao.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-prospeccao.js").read_text(encoding="utf-8")
+
+    assert "admin-prospeccao.js?v=" in page
+    assert 'id="supressoes-section"' in page
+    assert 'id="open-supressao"' in page
+    assert 'id="supressao-form"' in page
+    assert "Lista de supressão" in page
+    assert "/v1/admin/prospeccao/supressoes" in script
+    assert "loadSupressoes" in script
+
+
 def test_tela_de_script_atendimento_existe_com_crud_completo() -> None:
     # Item 1 da lista de melhorias de produto (15/09/2026): modelo de 1º
     # atendimento + opção de adicionar mais modelos manualmente. Reaproveita

@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Radar de Prospecção — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=67">
-  <link rel="stylesheet" href="/static/admin-prospeccao.css?v=8">
+  <link rel="stylesheet" href="/static/admin-prospeccao.css?v=9">
   <script src="/static/admin-shell.js?v=52" defer></script>
-  <script src="/static/admin-prospeccao.js?v=10" defer></script>
+  <script src="/static/admin-prospeccao.js?v=11" defer></script>
 </head>
 <body class="admin-body" data-admin-section="prospeccao">
   <main class="admin-main prospeccao-main">
@@ -31,6 +31,13 @@
         <button id="importar-cnpj-rfb" class="secondary-button" type="button" hidden>Importar agora</button>
       </header>
       <div id="cache-rfb-status" class="prospeccao-cache-status">Carregando…</div>
+    </section>
+
+    <section class="prospeccao-card" id="supressoes-section">
+      <header><div><p class="eyebrow">LGPD</p><h2>Lista de supressão (opt-out)</h2><p>Empresas/contatos que pediram para não ser mais prospectados. Quem entra aqui nunca mais vira Prospect nessa organização, mesmo reaparecendo em uma campanha ou importação futura.</p></div>
+        <button id="open-supressao" class="secondary-button" type="button">+ Adicionar supressão</button>
+      </header>
+      <div id="supressoes-lista"></div>
     </section>
 
     <section class="prospeccao-card" id="duplicatas-section">
@@ -127,6 +134,17 @@
     </form>
   </dialog>
 
+  <dialog id="supressao-dialog" class="prospeccao-dialog">
+    <form id="supressao-form" method="dialog">
+      <header><div><p class="eyebrow">LGPD</p><h2>Adicionar supressão</h2></div><button id="close-supressao" type="button" aria-label="Fechar">×</button></header>
+      <p class="import-hint">Informe pelo menos o CNPJ ou o e-mail. Qualquer prospect existente que já bata com um dos dois é descartado e anonimizado na hora.</p>
+      <label><span>CNPJ</span><input name="cnpj" maxlength="18" placeholder="Opcional se o e-mail for informado"></label>
+      <label><span>E-mail</span><input name="email" type="email" maxlength="254" placeholder="Opcional se o CNPJ for informado"></label>
+      <label><span>Motivo</span><input name="motivo" maxlength="200" placeholder="Opcional"></label>
+      <footer><button id="cancel-supressao" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Adicionar</button></footer>
+    </form>
+  </dialog>
+
   <dialog id="prospeccao-help" class="prospeccao-help-drawer" aria-labelledby="prospeccao-help-title">
     <header>
       <div><p class="eyebrow">GUIA OPERACIONAL</p><h2 id="prospeccao-help-title">Como funciona o Radar</h2></div>
@@ -144,6 +162,8 @@
       <details><summary>4. Score comercial</summary><p>Soma pontos de 4 fatores, todos visíveis na ficha do prospect com o peso de cada um: situação cadastral ativa, tempo de empresa aberta, site respondendo e resultado da triagem de marca (marca "limpa" pontua mais, mas um conflito já localizado não zera o score — ainda pode valer a conversa). Score de 0 a 100, nunca uma caixa-preta.</p></details>
 
       <details><summary>5. Aprovação → Lead → Cliente</summary><p>Aprovação pode ser manual (botão "Aprovar") ou automática — em "Aprovação automática" no topo da tela, você define um score mínimo e, a partir daí, todo prospect que atingir esse score é aprovado sozinho. Vem desligada por padrão. Depois de aprovado (ou direto de "novo", se preferir pular a etapa), "Converter em lead" joga o prospect no funil comercial de sempre — CRM, propostas, processo no INPI.</p></details>
+
+      <details><summary>6. Lista de supressão (opt-out)</summary><p>Quando uma empresa ou contato pede para não ser mais prospectado, cadastre o CNPJ e/ou e-mail em "Lista de supressão", na seção abaixo do funil. Qualquer prospect já existente que bata com um dos dois é descartado e anonimizado na hora; novas campanhas e importações passam a ignorar esse CNPJ/e-mail automaticamente, para sempre.</p></details>
 
       <section class="help-glossary">
         <h3>Classificações da triagem de marca</h3>

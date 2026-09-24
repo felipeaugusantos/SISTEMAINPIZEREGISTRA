@@ -7,7 +7,13 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from starlette.requests import Request
 
-from app.api.figurativa import BenchmarkEntrada, anterioridades_figurativas, benchmark_figurativo
+from app.api.figurativa import (
+    BenchmarkEntrada,
+    ValidacaoHumanaEntrada,
+    anterioridades_figurativas,
+    benchmark_figurativo,
+    validar_resultado_figurativo,
+)
 from app.api.visual import validar_imagem
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
@@ -245,3 +251,83 @@ def test_validar_imagem_registra_log_do_erro_real(monkeypatch: pytest.MonkeyPatc
         asyncio.run(validar_imagem(arquivo, _request(), session, usuario))
 
     assert chamadas
+
+
+def test_validar_resultado_figurativo_rejeita_processo_inexistente() -> None:
+    # Achado da Fase 14.5 (auditoria fina da busca figurativa, 23/09/2026):
+    # aceitava qualquer string de 1-40 caracteres como "processo" sem checar
+    # se corresponde a um Processo real -- uma decisão jurídica podia ficar
+    # associada a um número de processo inexistente ou digitado errado.
+    usuario = usuario_teste()
+    session = FakeSession([FakeResult(scalar=None)])
+    dados = ValidacaoHumanaEntrada(processo="900000001", decisao="confirmado", observacao="Conferido manualmente.")
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(validar_resultado_figurativo(dados, _request(), session, usuario))
+
+    assert exc_info.value.status_code == 404
+    assert session.adicionados == []
+    assert session.commits == 0
+
+
+def test_validar_resultado_figurativo_aceita_processo_existente() -> None:
+    usuario = usuario_teste()
+    session = FakeSession([FakeResult(scalar=42)])
+    dados = ValidacaoHumanaEntrada(processo="900000001", decisao="confirmado", observacao="Conferido manualmente.")
+
+    resultado = asyncio.run(validar_resultado_figurativo(dados, _request(), session, usuario))
+
+    assert resultado["registrado"] is True
+    evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
+    assert evento.resource_id == "900000001"
+    assert session.commits == 1
+
+
+def test_validar_resultado_figurativo_normaliza_o_numero_antes_de_checar() -> None:
+    # Achado P2 do Codex no PR #130: comparar direto com Processo.numero
+    # rejeitava números válidos só por diferença de formatação (espaços,
+    # pontuação) -- normaliza igual à consulta pública de processos.
+    usuario = usuario_teste()
+    session = FakeSession([FakeResult(scalar=42)])
+    dados = ValidacaoHumanaEntrada(
+        processo=" 900.000.001 ", decisao="confirmado", observacao="Conferido manualmente."
+    )
+
+    resultado = asyncio.run(validar_resultado_figurativo(dados, _request(), session, usuario))
+
+    assert resultado["registrado"] is True
+
+
+# --- Achado da Fase 14.5 (auditoria fina da busca figurativa, 23/09/2026):
+# zero teste de integração HTTP nas duas rotas centrais de uso diário
+# (busca por Viena e upload de imagem) -- só havia teste unitário das
+# funções de domínio, chamadas diretamente sem passar pela camada HTTP. ---
+
+
+def test_get_anterioridades_via_http_exige_autenticacao() -> None:
+    resposta = TestClient(app).get("/v1/admin/figurativa/anterioridades", params={"codigos": "27.5.1"})
+    assert resposta.status_code == 401
+
+
+def test_post_validar_imagem_via_http_exige_autenticacao() -> None:
+    resposta = TestClient(app).post(
+        "/v1/admin/figurativa/validar-imagem", files={"arquivo": ("logo.png", _imagem_png(), "image/png")}
+    )
+    assert resposta.status_code == 401
+
+
+async def _sessao_com_um_resultado() -> FakeSession:
+    linha = ("900000001", "Marca Exemplo", "figurativa", None, ["27.5.1"], 1)
+    yield FakeSession([FakeResult(itens=[linha]), FakeResult(scalar=1)])
+
+
+def test_get_anterioridades_via_http_com_usuario_autenticado() -> None:
+    usuario = usuario_teste()
+    app.dependency_overrides[get_session] = _sessao_com_um_resultado
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).get("/v1/admin/figurativa/anterioridades", params={"codigos": "27.5.1"})
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 200
+    assert resposta.json()["total"] == 1

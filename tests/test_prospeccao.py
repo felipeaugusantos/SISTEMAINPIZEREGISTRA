@@ -178,6 +178,21 @@ def test_criar_prospect_cria_novo_quando_nao_ha_correspondencia() -> None:
     assert session.commits == 1
 
 
+def test_cadastro_manual_possui_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api import prospeccao as api_prospeccao
+
+    monkeypatch.setattr(api_prospeccao._limitar_cadastro_manual, "limite", 1)
+    _sessao_admin(FakeResult(scalar=None), FakeResult(scalar=None), FakeResult(scalar=None), FakeResult(scalar=None))
+    cliente = TestClient(app)
+
+    primeira = cliente.post("/v1/admin/prospects", json=PAYLOAD_BASE, headers={"X-CSRF-Token": "csrf-teste"})
+    segunda = cliente.post("/v1/admin/prospects", json=PAYLOAD_BASE, headers={"X-CSRF-Token": "csrf-teste"})
+
+    assert primeira.status_code == 201
+    assert segunda.status_code == 429
+    assert int(segunda.headers["Retry-After"]) >= 1
+
+
 def test_criar_prospect_duplicado_no_radar_nao_cria_novo() -> None:
     existente = _prospect(id=9, cnpj="11222333000181")
     session = _sessao_admin(FakeResult(scalar=None), FakeResult(scalar=existente))
@@ -307,6 +322,25 @@ def test_importar_prospects_cria_ignora_duplicado_e_invalido() -> None:
     assert corpo["invalidos"] == 1
     assert corpo["suprimidos"] == 0
     assert session.commits == 1
+
+
+def test_importacao_de_prospects_possui_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api import prospeccao as api_prospeccao
+
+    monkeypatch.setattr(api_prospeccao._limitar_importacao, "limite", 1)
+    _sessao_admin(FakeResult(scalar=1))
+    cliente = TestClient(app)
+    csv_conteudo = "Razao Social;Email\nAlpha Ltda;alpha@example.com\n"
+
+    primeira = cliente.post(
+        "/v1/admin/prospects/importar", files=_csv_upload(csv_conteudo), headers={"X-CSRF-Token": "csrf-teste"}
+    )
+    segunda = cliente.post(
+        "/v1/admin/prospects/importar", files=_csv_upload(csv_conteudo), headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert primeira.status_code == 201
+    assert segunda.status_code == 429
 
 
 def test_converter_prospect_em_lead_cria_lead_novo() -> None:
@@ -533,6 +567,25 @@ def test_criar_campanha() -> None:
     # CriteriosBuscaCampanha._normalizar_uf/_limpar_cidade em app/schemas.py.
     assert corpo["criterios_busca"] == {"cnae_principal": "4711302", "uf": ["SP"], "cidade": []}
     assert session.commits == 1
+
+
+def test_campanhas_possuem_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api import prospeccao as api_prospeccao
+
+    monkeypatch.setattr(api_prospeccao._limitar_campanhas, "limite", 1)
+    _sessao_admin()
+    cliente = TestClient(app)
+    payload = {"nome": "Padarias em SP capital", "criterios_busca": {"uf": "SP"}}
+
+    primeira = cliente.post(
+        "/v1/admin/prospeccao/campanhas", json=payload, headers={"X-CSRF-Token": "csrf-teste"}
+    )
+    segunda = cliente.post(
+        "/v1/admin/prospeccao/campanhas", json=payload, headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert primeira.status_code == 201
+    assert segunda.status_code == 429
 
 
 def test_listar_campanhas_inclui_contagem_de_prospects_gerados() -> None:

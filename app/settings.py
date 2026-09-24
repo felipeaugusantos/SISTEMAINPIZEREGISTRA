@@ -202,6 +202,10 @@ class Settings(BaseSettings):
     # silêncio no fallback da base local (ver app/inpi_titular_live.py).
     prospeccao_titularidade_inpi_ao_vivo_enabled: bool = False
     prospeccao_titularidade_inpi_timeout_segundos: float = 8.0
+    prospeccao_titularidade_inpi_cache_segundos: int = 86_400
+    prospeccao_titularidade_inpi_cache_falha_segundos: int = 300
+    prospeccao_titularidade_inpi_max_chamadas_minuto: int = 10
+    prospeccao_titularidade_inpi_cache_maximo: int = 5_000
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -46,6 +46,7 @@ from app.models import (
 from app.prospeccao_triagem import DISCLAIMER_TRIAGEM, extrair_marca_candidata
 from app.proxy import cliente_ip
 from app.queueing import enfileirar
+from app.ratelimit import RateLimiter
 from app.schemas import (
     CampanhaProspeccaoCreate,
     CampanhaProspeccaoListResponse,
@@ -72,6 +73,17 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ProspeccaoViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("prospeccao.view"))]
 ProspeccaoManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("prospeccao.manage"))]
 ProspeccaoConvertDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("prospeccao.convert"))]
+
+# Limites separados por custo da operação. A chave inclui organização e
+# usuário, evitando que uma organização consuma a capacidade das demais.
+# Em produção o RateLimiter compartilha a janela entre instâncias via Redis.
+_limitar_cadastro_manual = RateLimiter(limite=30, janela_segundos=60, escopo="radar-cadastro-manual")
+_limitar_importacao = RateLimiter(limite=5, janela_segundos=300, escopo="radar-importacao")
+_limitar_campanhas = RateLimiter(limite=10, janela_segundos=300, escopo="radar-campanhas")
+
+
+def _aplicar_limite_radar(limitador: RateLimiter, usuario: UsuarioAutenticado) -> None:
+    limitador.aplicar(f"organizacao:{usuario.organizacao_id}:usuario:{usuario.id}")
 
 MOTIVOS_DESCARTE_PROSPECT: tuple[str, ...] = (
     "ja_e_cliente",
@@ -480,6 +492,7 @@ async def timeline_prospect(prospect_id: int, session: SessionDep, usuario: Pros
 async def criar_prospect(
     dados: ProspectCreate, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
 ) -> ProspectResponse:
+    _aplicar_limite_radar(_limitar_cadastro_manual, usuario)
     prospect, resultado = await _criar_prospect(session, usuario.organizacao_id, dados, usuario.nome or "sistema")
     if prospect is None:
         raise HTTPException(422, "Este CNPJ/e-mail está na lista de supressão de prospecção (opt-out).")
@@ -549,6 +562,7 @@ async def importar_prospects(
     Colunas reconhecidas (cabeçalho, sem acento/maiúsculas): razaosocial
     (obrigatória), fantasia, cnpj, cnae, porte, uf, cidade, telefone, email, site.
     """
+    _aplicar_limite_radar(_limitar_importacao, usuario)
     conteudo = await arquivo.read()
     if not conteudo:
         raise HTTPException(400, "Arquivo vazio.")
@@ -820,6 +834,7 @@ async def detalhar_campanha(campanha_id: int, session: SessionDep, usuario: Pros
 async def criar_campanha(
     dados: CampanhaProspeccaoCreate, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
 ) -> CampanhaProspeccaoResponse:
+    _aplicar_limite_radar(_limitar_campanhas, usuario)
     campanha = CampanhaProspeccao(
         organizacao_id=usuario.organizacao_id,
         nome=dados.nome,
@@ -903,6 +918,7 @@ async def coletar_campanha(
     """Enfileira a coleta -- não roda na hora. A RFB não é uma API de consulta
     sob demanda: quem gera os prospects é o job (app/worker.py), consultando
     o cache local já pronto (ver migrations/.../98czgjqcsywi_...py)."""
+    _aplicar_limite_radar(_limitar_campanhas, usuario)
     campanha = (
         await session.execute(
             select(CampanhaProspeccao).where(

@@ -164,6 +164,24 @@ def test_validar_imagem_registra_evento_auditoria() -> None:
     assert session.commits == 1
 
 
+def test_validar_imagem_nao_devolve_score_decorativo_e_expoe_ocr_real() -> None:
+    # Achado da Fase 14.2 (auditoria fina da busca figurativa, 23/09/2026):
+    # o "score visual" antigo sempre passava similaridade=1.0 fixa (fator
+    # de maior peso), sem nenhuma comparação real com acervo -- qualquer
+    # upload válido saía com nota alta que não significava nada. E a
+    # resposta de OCR era descartada e trocada por um texto estático de
+    # "pendente" mesmo quando o OCR real já tinha rodado.
+    usuario = usuario_teste()
+    session = FakeSession()
+    arquivo = _ArquivoFalso(_imagem_png())
+
+    resultado = asyncio.run(validar_imagem(arquivo, _request(), session, usuario))
+
+    assert "score_combinado" not in resultado
+    assert resultado["score_visual"]["disponivel"] is False
+    assert resultado["ocr"].get("motivo") != "OCR será executado na etapa de processamento textual."
+
+
 def test_validar_imagem_invalida_nao_registra_evento_auditoria() -> None:
     usuario = usuario_teste()
     session = FakeSession()

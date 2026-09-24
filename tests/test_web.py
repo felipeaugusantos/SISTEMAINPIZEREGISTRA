@@ -955,3 +955,17 @@ def test_politica_crm_usa_permissao_correta_e_checkboxes_compactos() -> None:
     assert 'type="checkbox"' in styles
     assert "height: 18px" in styles
     assert "width: 18px" in styles
+
+
+def test_admin_figurativa_exibe_ocr_real_em_vez_de_score_decorativo() -> None:
+    # Achado da Fase 14.2 (auditoria fina da busca figurativa, 23/09/2026):
+    # a tela nunca exibia o texto do OCR nem avisava que não existe
+    # pontuação de similaridade ainda -- o operador não tinha como saber
+    # que o upload de imagem não é comparado com nada de verdade.
+    page = (web_dir / "admin-figurativa.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-figurativa.js").read_text(encoding="utf-8")
+
+    assert "admin-figurativa.js?v=4" in page
+    assert "payload.ocr" in script
+    assert "score_combinado" not in script
+    assert "payload.score_visual" in script

@@ -1991,9 +1991,9 @@ async def test_dashboard_calcula_taxa_conversao_por_vendedor() -> None:
             FakeResult(itens=[(5, "Ana")]),  # nomes
             FakeResult(itens=[]),  # por_origem
             FakeResult(itens=[]),  # por_origem_resultado
-            FakeResult(itens=[]),  # leads
-            FakeResult(itens=[]),  # entradas_proposta
-            FakeResult(itens=[]),  # primeiro_contato
+            FakeResult(itens=[(0, 0)]),  # contadores: total_leads_org, atrasados
+            FakeResult(scalar=None),  # tempo_ate_proposta_media
+            FakeResult(itens=[(None, 0)]),  # atendimento: media, sem_atendimento
             FakeResult(itens=[]),  # propostas
             FakeResult(itens=[]),  # entradas_por_fase
         ]
@@ -2019,9 +2019,9 @@ async def test_dashboard_sem_fechamentos_devolve_taxa_zero_em_vez_de_erro() -> N
             FakeResult(itens=[(5, "Ana")]),
             FakeResult(itens=[]),
             FakeResult(itens=[]),
-            FakeResult(itens=[]),
-            FakeResult(itens=[]),
-            FakeResult(itens=[]),
+            FakeResult(itens=[(0, 0)]),  # contadores
+            FakeResult(scalar=None),  # tempo_ate_proposta_media
+            FakeResult(itens=[(None, 0)]),  # atendimento
             FakeResult(itens=[]),
             FakeResult(itens=[]),
         ]
@@ -2044,9 +2044,9 @@ async def test_dashboard_calcula_conversao_por_origem() -> None:
             FakeResult(
                 itens=[("site", "ganho", 2), ("site", "perdido", 1), ("indicacao", "ganho", 1)]
             ),  # por_origem_resultado
-            FakeResult(itens=[]),  # leads
-            FakeResult(itens=[]),  # entradas_proposta
-            FakeResult(itens=[]),  # primeiro_contato
+            FakeResult(itens=[(0, 0)]),  # contadores
+            FakeResult(scalar=None),  # tempo_ate_proposta_media
+            FakeResult(itens=[(None, 0)]),  # atendimento
             FakeResult(itens=[]),  # propostas
             FakeResult(itens=[]),  # entradas_por_fase
         ]
@@ -2064,17 +2064,6 @@ async def test_dashboard_calcula_conversao_por_origem() -> None:
 
 @pytest.mark.asyncio
 async def test_dashboard_calcula_conversao_por_etapa_usando_historico() -> None:
-    leads_fake = [
-        SimpleNamespace(
-            id=i,
-            status=StatusLead.NOVO,
-            proxima_acao_em=None,
-            criado_em=None,
-            atualizado_em=None,
-            fase="contato_inicial",
-        )
-        for i in range(10)
-    ]
     session = FakeSession(
         [
             FakeResult(itens=[]),  # por_fase
@@ -2083,9 +2072,9 @@ async def test_dashboard_calcula_conversao_por_etapa_usando_historico() -> None:
             FakeResult(itens=[]),  # prod
             FakeResult(itens=[]),  # por_origem
             FakeResult(itens=[]),  # por_origem_resultado
-            FakeResult(itens=leads_fake),  # leads
-            FakeResult(itens=[]),  # entradas_proposta
-            FakeResult(itens=[]),  # primeiro_contato
+            FakeResult(itens=[(10, 0)]),  # contadores: total_leads_org=10, atrasados=0
+            FakeResult(scalar=None),  # tempo_ate_proposta_media
+            FakeResult(itens=[(None, 0)]),  # atendimento
             FakeResult(itens=[]),  # propostas
             FakeResult(
                 itens=[
@@ -2124,24 +2113,6 @@ async def test_dashboard_calcula_conversao_por_etapa_usando_historico() -> None:
 
 @pytest.mark.asyncio
 async def test_dashboard_calcula_pipeline_previsto_e_forecast_ponderado() -> None:
-    leads_fake = [
-        SimpleNamespace(
-            id=1,
-            status=StatusLead.NOVO,
-            proxima_acao_em=None,
-            criado_em=None,
-            atualizado_em=None,
-            fase="proposta_enviada",
-        ),
-        SimpleNamespace(
-            id=2,
-            status=StatusLead.NOVO,
-            proxima_acao_em=None,
-            criado_em=None,
-            atualizado_em=None,
-            fase="qualificado",
-        ),
-    ]
     propostas_fake = [
         SimpleNamespace(
             lead_id=1,
@@ -2182,11 +2153,12 @@ async def test_dashboard_calcula_pipeline_previsto_e_forecast_ponderado() -> Non
             FakeResult(itens=[]),  # prod
             FakeResult(itens=[]),  # por_origem
             FakeResult(itens=[]),  # por_origem_resultado
-            FakeResult(itens=leads_fake),  # leads
-            FakeResult(itens=[]),  # entradas_proposta
-            FakeResult(itens=[]),  # primeiro_contato
+            FakeResult(itens=[(2, 0)]),  # contadores: total_leads_org=2, atrasados=0
+            FakeResult(scalar=None),  # tempo_ate_proposta_media
+            FakeResult(itens=[(None, 0)]),  # atendimento
             FakeResult(itens=propostas_fake),  # propostas
             FakeResult(itens=[("qualificado", 2), ("proposta_enviada", 1), ("ganho", 1)]),  # entradas_por_fase
+            FakeResult(itens=[(1, "proposta_enviada"), (2, "qualificado")]),  # fases_dos_leads_abertos
         ]
     )
 

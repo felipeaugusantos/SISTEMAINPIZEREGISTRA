@@ -965,7 +965,27 @@ def test_admin_figurativa_exibe_ocr_real_em_vez_de_score_decorativo() -> None:
     page = (web_dir / "admin-figurativa.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-figurativa.js").read_text(encoding="utf-8")
 
-    assert "admin-figurativa.js?v=4" in page
+    assert "admin-figurativa.js?v=5" in page
     assert "payload.ocr" in script
     assert "score_combinado" not in script
     assert "payload.score_visual" in script
+
+
+def test_admin_figurativa_mostra_total_real_e_bloqueia_duplo_clique() -> None:
+    # Achado da Fase 14.4 (auditoria fina da busca figurativa, 23/09/2026):
+    # "total" era len(resultados) DEPOIS do limite aplicado -- o operador
+    # podia achar que "50 resultados" era o total real quando existiam
+    # muito mais anterioridades na base. A tela também não protegia contra
+    # duplo clique no botão de busca, e sugeria que a validação de imagem
+    # complementava a busca por Viena acima (fluxos na verdade desconexos).
+    page = (web_dir / "admin-figurativa.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-figurativa.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "admin-figurativa.css").read_text(encoding="utf-8")
+
+    assert "admin-figurativa.css?v=2" in page
+    assert "resposta.retornados < resposta.total" in script
+    assert "botaoBuscar.disabled = true" in script
+    assert "botaoBuscar.disabled = false" in script
+    assert "Validação avulsa de imagem" in page
+    assert "independente da busca por Viena" in page
+    assert ".visual-search-title" in styles

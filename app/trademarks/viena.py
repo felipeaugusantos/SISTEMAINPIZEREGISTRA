@@ -161,3 +161,31 @@ async def buscar_anterioridades_viena(
         }
         for numero, titulo, apresentacao, data_deposito, codigos, total in linhas
     ]
+
+
+async def contar_anterioridades_viena(
+    session: AsyncSession,
+    codigos: list[str],
+    apresentacao: str | None = None,
+) -> int:
+    """Total real de processos com anterioridade figurativa, sem o LIMIT da
+    busca. Achado da Fase 14.4 (auditoria fina, 23/09/2026): o "total"
+    devolvido pra tela era `len(resultados)` DEPOIS do LIMIT aplicado --
+    o operador podia achar que "50 resultados" era o total real quando
+    existiam muito mais anterioridades na base."""
+    alvo = [c.strip() for c in codigos if c.strip()]
+    if not alvo:
+        return 0
+    stmt = (
+        select(func.count(func.distinct(Processo.id)))
+        .select_from(Processo)
+        .join(ClassificacaoMarca, ClassificacaoMarca.processo_id == Processo.id)
+        .where(
+            Processo.tipo == TipoProcesso.MARCA,
+            ClassificacaoMarca.sistema == "vienna",
+            ClassificacaoMarca.codigo.in_(alvo),
+        )
+    )
+    if apresentacao:
+        stmt = stmt.where(Processo.apresentacao == apresentacao)
+    return (await session.execute(stmt)).scalar_one()

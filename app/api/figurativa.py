@@ -9,7 +9,7 @@ from app.database import get_session
 from app.models import EventoAuditoria
 from app.proxy import cliente_ip
 from app.trademarks.benchmark import avaliar_benchmark, avaliar_gate_regressao
-from app.trademarks.viena import buscar_anterioridades_viena
+from app.trademarks.viena import buscar_anterioridades_viena, contar_anterioridades_viena
 
 router = APIRouter(prefix="/v1/admin/figurativa", tags=["busca figurativa"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -115,6 +115,11 @@ async def anterioridades_figurativas(
     if apresentacao and apresentacao not in {"mista", "figurativa"}:
         raise HTTPException(status_code=422, detail="Tipo de apresentação inválido.")
     resultados = await buscar_anterioridades_viena(session, lista, limite, apresentacao)
+    # Achado da Fase 14.4 (auditoria fina, 23/09/2026): "total" era
+    # len(resultados) DEPOIS do LIMIT aplicado -- o operador podia achar
+    # que "50 resultados" era o total real quando existiam muito mais
+    # anterioridades na base. Conta de verdade, sem o LIMIT.
+    total = await contar_anterioridades_viena(session, lista, apresentacao)
     # Achado baixo da Fase 14.1 (auditoria fina da busca figurativa,
     # 23/09/2026): esta é a rota que qualquer operador comercial usa a toda
     # hora (busca real por Viena), mas só as rotas administrativas raramente
@@ -131,13 +136,14 @@ async def anterioridades_figurativas(
             sucesso=True,
             status_http=200,
             ip_hash=hash_ip(cliente_ip(request)),
-            detalhes={"codigos": lista, "apresentacao": apresentacao, "total": len(resultados)},
+            detalhes={"codigos": lista, "apresentacao": apresentacao, "total": total, "retornados": len(resultados)},
         )
     )
     await session.commit()
     return {
         "codigos": lista,
         "apresentacao": apresentacao,
-        "total": len(resultados),
+        "total": total,
+        "retornados": len(resultados),
         "anterioridades": resultados,
     }

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.trademarks.viena import avaliar_afinidade_viena, buscar_anterioridades_viena
+from app.trademarks.viena import avaliar_afinidade_viena, buscar_anterioridades_viena, contar_anterioridades_viena
 from tests.conftest import FakeResult, FakeSession
 
 
@@ -65,3 +65,18 @@ async def test_busca_anterioridades_viena_ranqueia_por_sobreposicao() -> None:
 async def test_busca_anterioridades_viena_sem_codigos_retorna_vazio() -> None:
     session = FakeSession([])
     assert await buscar_anterioridades_viena(session, ["   ", ""], 10) == []
+
+
+@pytest.mark.asyncio
+async def test_contar_anterioridades_viena_ignora_o_limite() -> None:
+    # Achado da Fase 14.4 (auditoria fina da busca figurativa, 23/09/2026):
+    # o "total" mostrado na tela era len(resultados) DEPOIS do LIMIT --
+    # esta contagem não aplica limite nenhum.
+    session = FakeSession([FakeResult(scalar=42)])
+    assert await contar_anterioridades_viena(session, ["26.4.1"]) == 42
+
+
+@pytest.mark.asyncio
+async def test_contar_anterioridades_viena_sem_codigos_retorna_zero() -> None:
+    session = FakeSession([])
+    assert await contar_anterioridades_viena(session, ["   ", ""]) == 0

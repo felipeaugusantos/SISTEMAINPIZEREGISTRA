@@ -67,11 +67,17 @@ function linha(item) {
   return tr;
 }
 
+const botaoBuscar = form.querySelector(".form-submit");
+
 form.addEventListener("submit", async event => {
   event.preventDefault();
   const dados = Object.fromEntries(new FormData(form));
   const codigos = dados.codigos.trim();
   if (!codigos) return;
+  // Achado da Fase 14.4 (auditoria fina, 23/09/2026): nada impedia um
+  // clique duplo rápido no botão de disparar duas buscas em paralelo --
+  // desabilita o botão enquanto a busca está em andamento.
+  if (botaoBuscar) botaoBuscar.disabled = true;
   setStatus("Buscando anterioridades figurativas…", "loading");
   resultado.hidden = true;
   try {
@@ -87,12 +93,24 @@ form.addEventListener("submit", async event => {
       tr.append(td);
       lista.replaceChildren(tr);
     }
-    resumo.textContent = `${resposta.total} anterioridade(s) para ${resposta.codigos.join(", ")}`;
+    // Achado da Fase 14.4 (auditoria fina, 23/09/2026): "total" era
+    // len(resultados) DEPOIS do limite aplicado -- o operador podia achar
+    // que "50 resultados" era o total real quando existiam muito mais
+    // anterioridades na base. Agora o backend devolve o total real
+    // (resposta.total) separado do que foi de fato retornado
+    // (resposta.retornados), e a tela deixa isso explícito quando são
+    // diferentes.
+    const resumoTexto = resposta.retornados < resposta.total
+      ? `Mostrando ${resposta.retornados} de ${resposta.total} anterioridade(s) para ${resposta.codigos.join(", ")} -- aumente o limite pra ver mais.`
+      : `${resposta.total} anterioridade(s) para ${resposta.codigos.join(", ")}`;
+    resumo.textContent = resumoTexto;
     resultado.hidden = false;
     setStatus(`Busca concluída — ${resposta.total} resultado(s).`, "success");
     resultado.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     setStatus(error.message, "error");
+  } finally {
+    if (botaoBuscar) botaoBuscar.disabled = false;
   }
 });
 

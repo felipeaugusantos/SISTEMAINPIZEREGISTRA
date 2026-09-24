@@ -116,15 +116,19 @@ def test_benchmark_com_relevantes_nao_hasheavel_devolve_422() -> None:
 def test_anterioridades_figurativas_registra_evento_auditoria() -> None:
     usuario = usuario_teste()
     linha = ("900000001", "Marca Exemplo", "figurativa", None, ["27.5.1"], 1)
-    session = FakeSession([FakeResult(itens=[linha])])
+    # Achado da Fase 14.4 (auditoria fina, 23/09/2026): "total" agora é a
+    # contagem real (contar_anterioridades_viena), sem o LIMIT aplicado --
+    # aqui simula 3 anterioridades na base, mas só 1 retornada (limite).
+    session = FakeSession([FakeResult(itens=[linha]), FakeResult(scalar=3)])
 
     resultado = asyncio.run(anterioridades_figurativas(_request(), session, usuario, codigos="27.5.1"))
 
-    assert resultado["total"] == 1
+    assert resultado["total"] == 3
+    assert resultado["retornados"] == 1
     evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
     assert evento.acao == "buscar"
     assert evento.recurso == "busca_figurativa"
-    assert evento.detalhes == {"codigos": ["27.5.1"], "apresentacao": None, "total": 1}
+    assert evento.detalhes == {"codigos": ["27.5.1"], "apresentacao": None, "total": 3, "retornados": 1}
     assert session.commits == 1
 
 

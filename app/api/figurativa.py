@@ -2,11 +2,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import get_session
-from app.models import EventoAuditoria
+from app.models import EventoAuditoria, Processo
 from app.proxy import cliente_ip
 from app.trademarks.benchmark import avaliar_benchmark, avaliar_gate_regressao
 from app.trademarks.viena import buscar_anterioridades_viena, contar_anterioridades_viena
@@ -82,6 +83,17 @@ async def validar_resultado_figurativo(
     session: SessionDep,
     operador: ValidacaoDep,
 ) -> dict:
+    # Achado da Fase 14.5 (auditoria fina da busca figurativa, 23/09/2026):
+    # aceitava qualquer string de 1-40 caracteres como "processo" sem checar
+    # se corresponde a um Processo real -- uma decisão jurídica (confirmar
+    # ou descartar uma anterioridade) podia ficar associada a um número de
+    # processo inexistente ou digitado errado, sem nenhuma validação
+    # server-side. Processo não tem organizacao_id (base pública replicada
+    # da RPI, compartilhada entre tenants -- mesmo padrão de
+    # buscar_anterioridades_viena), então a checagem não filtra por tenant.
+    existe = (await session.execute(select(Processo.id).where(Processo.numero == dados.processo))).scalar_one_or_none()
+    if existe is None:
+        raise HTTPException(status_code=404, detail="Processo não encontrado.")
     session.add(
         EventoAuditoria(
             organizacao_id=operador.organizacao_id,

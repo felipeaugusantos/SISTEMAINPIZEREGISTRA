@@ -69,6 +69,9 @@ def test_criar_guia_inpi_registra_evento_auditoria() -> None:
     assert evento.acao == "criar_guia"
     assert evento.recurso == f"lead:1:guia:{resultado['id']}"
     assert evento.detalhes == {"descricao": "Depósito de pedido de marca"}
+    # Achado P2 do Codex no PR #132: o endpoint responde 201, o rastro de
+    # auditoria precisa refletir isso em vez do padrão 200 de _auditar.
+    assert evento.status_http == 201
     assert session.commits == 1
 
 
@@ -118,5 +121,6 @@ def test_remover_guia_inpi_registra_evento_auditoria() -> None:
     evento = next(obj for obj in session.adicionados if isinstance(obj, EventoAuditoria))
     assert evento.acao == "remover_guia"
     assert evento.recurso == "lead:1:guia:9"
+    assert evento.status_http == 204
     assert guia in session.deletados
     assert session.commits == 1

@@ -135,8 +135,17 @@ async def criar_guia_inpi(
     # mutações de GuiaInpi (guia de pagamento ao INPI, entidade financeira
     # sensível) não deixavam nenhum rastro de auditoria -- diferente do
     # resto do módulo de leads, que audita quase toda mutação relevante.
+    # Achado P2 do Codex no PR #132: status_http ficava no padrão 200 de
+    # _auditar mesmo quando o endpoint responde 201/204 -- o rastro de
+    # auditoria classificava errado a resposta real.
     _auditar(
-        session, usuario, request, "criar_guia", f"lead:{lead_id}:guia:{guia.id}", {"descricao": guia.descricao}
+        session,
+        usuario,
+        request,
+        "criar_guia",
+        f"lead:{lead_id}:guia:{guia.id}",
+        {"descricao": guia.descricao},
+        status_http=201,
     )
     await session.commit()
     return {"id": guia.id}
@@ -183,6 +192,7 @@ async def remover_guia_inpi(guia_id: int, request: Request, session: SessionDep,
         "remover_guia",
         f"lead:{guia.lead_id}:guia:{guia.id}",
         {"descricao": guia.descricao},
+        status_http=204,
     )
     await session.delete(guia)
     await session.commit()

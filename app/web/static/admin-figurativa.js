@@ -13,7 +13,17 @@ function setStatus(texto, tipo) {
 }
 
 async function api(url, options = {}) {
-  options.headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  // Achado da Fase 14.6 (auditoria fina da busca figurativa, 23/09/2026):
+  // o Content-Type era sempre forçado pra application/json, mesmo em
+  // requisições sem corpo (como o GET de busca). Isso funcionava só porque
+  // o upload de imagem evita este helper (usa fetch direto) -- se algum
+  // POST com FormData um dia reusar api(), o header fixo sobrescreveria o
+  // boundary do multipart e quebraria silenciosamente. Só força JSON
+  // quando há corpo e ele não é FormData.
+  const corpoJson = options.body !== undefined && !(options.body instanceof FormData);
+  options.headers = corpoJson
+    ? { "Content-Type": "application/json", ...(options.headers || {}) }
+    : { ...(options.headers || {}) };
   const response = await fetch(url, options);
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {

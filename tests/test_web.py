@@ -965,7 +965,7 @@ def test_admin_figurativa_exibe_ocr_real_em_vez_de_score_decorativo() -> None:
     page = (web_dir / "admin-figurativa.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-figurativa.js").read_text(encoding="utf-8")
 
-    assert "admin-figurativa.js?v=5" in page
+    assert "admin-figurativa.js?v=6" in page
     assert "payload.ocr" in script
     assert "score_combinado" not in script
     assert "payload.score_visual" in script
@@ -989,3 +989,16 @@ def test_admin_figurativa_mostra_total_real_e_bloqueia_duplo_clique() -> None:
     assert "Validação avulsa de imagem" in page
     assert "independente da busca por Viena" in page
     assert ".visual-search-title" in styles
+
+
+def test_admin_figurativa_api_nao_forca_json_em_corpo_formdata() -> None:
+    # Achado da Fase 14.6 (auditoria fina da busca figurativa, 23/09/2026):
+    # o helper api() sempre forçava Content-Type: application/json, mesmo
+    # em requisições sem corpo -- funcionava só porque o upload de imagem
+    # evita esse helper (usa fetch direto); se um POST com FormData um dia
+    # reusar api(), o header fixo sobrescreveria o boundary do multipart.
+    page = (web_dir / "admin-figurativa.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-figurativa.js").read_text(encoding="utf-8")
+
+    assert "admin-figurativa.js?v=6" in page
+    assert "options.body instanceof FormData" in script

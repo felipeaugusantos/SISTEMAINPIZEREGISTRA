@@ -50,6 +50,7 @@
 .portal-recovery form label.sr-only { position:static!important; width:auto!important; height:auto!important; padding:0!important; margin:0!important; overflow:visible!important; clip:auto!important; white-space:normal!important; border:0!important; }
 .portal-recovery form button { justify-self:start; white-space:nowrap; }
 .portal-recovery form .status-message { margin:0; }
+.portal-login-card .status-message:empty { display:none; }
 .portal-security { margin:28px 0 0; color:var(--muted); font-size:.75rem; line-height:1.45; text-align:center; }
 .sr-only { position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:-1px!important; overflow:hidden!important; clip:rect(0,0,0,0)!important; white-space:nowrap!important; border:0!important; }
 .portal-app { display:grid; gap:18px; }

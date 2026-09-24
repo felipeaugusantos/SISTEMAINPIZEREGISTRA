@@ -413,6 +413,18 @@ def test_portal_cliente_recuperacao_exibe_campo_de_email() -> None:
     assert ".portal-recovery form { display:grid" in styles
 
 
+def test_portal_cliente_nao_exibe_caixas_de_status_vazias() -> None:
+    page = (web_dir / "portal-cliente.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "portal-cliente.js").read_text(encoding="utf-8")
+    styles = (web_dir / "static" / "portal-cliente.css").read_text(encoding="utf-8")
+
+    assert 'id="login-error"' in page
+    assert 'id="recovery-message"' in page
+    assert ".portal-login-card .status-message:empty { display:none; }" in styles
+    assert 'message.className = "status-message error"' in script
+    assert 'message.className = "status-message success"' in script
+
+
 def test_portal_cliente_confirma_envio_de_documento_e_lista_arquivos() -> None:
     # Achado da validação do Portal do Cliente (17/09/2026): o formulário de
     # envio de documento não tinha tratamento de erro (upload falho passava

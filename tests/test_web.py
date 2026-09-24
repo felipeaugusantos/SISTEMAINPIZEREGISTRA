@@ -1035,7 +1035,11 @@ def test_admin_leads_expoe_botao_de_importacao_em_lote() -> None:
     assert 'id="import-leads-form"' in page
     assert 'name="arquivo" type="file"' in page
     assert '"/v1/admin/leads/importar"' in script
-    assert "document.querySelector(\"#import-leads\").hidden = !state.canManage;" in script
+    # Achado P2 do Codex no PR #135: querySelector direto (sem guard)
+    # derrubava loadLeads() em admin-crm.html, que carrega este script
+    # mas não tem #import-leads na sua cópia reduzida do HTML.
+    assert "const importLeadsButton = document.querySelector(\"#import-leads\");" in script
+    assert "if (importLeadsButton) importLeadsButton.hidden = !state.canManage;" in script
     assert "data.criados" in script and "data.duplicados" in script
 
 

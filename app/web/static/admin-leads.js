@@ -406,7 +406,14 @@ async function loadLeads() {
     }
     document.querySelector("#export-leads").hidden = !state.canExport;
     document.querySelector("#copy-emails").hidden = !state.canExport;
-    document.querySelector("#import-leads").hidden = !state.canManage;
+    // Achado P2 do Codex no PR #135: admin-crm.html também carrega este
+    // script, mas sua cópia reduzida do HTML de admin-leads.html (achado
+    // 17.2 da auditoria do CRM) não tem #import-leads -- querySelector
+    // direto derrubaria loadLeads() com um erro técnico visível ao abrir
+    // qualquer contato em /admin/crm. "a?.b = c" não existe em JS
+    // (SyntaxError), por isso o guard em duas linhas.
+    const importLeadsButton = document.querySelector("#import-leads");
+    if (importLeadsButton) importLeadsButton.hidden = !state.canManage;
     document.querySelector("#metric-global").textContent = data.total_global;
     document.querySelector("#metric-total").textContent = data.total;
     document.querySelector("#metric-searches").textContent = data.pesquisas_total;

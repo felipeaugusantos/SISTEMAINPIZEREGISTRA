@@ -110,8 +110,24 @@ async function responsePayload(response) {
   return payload;
 }
 
+// Achado da Fase 15.4 (auditoria fina de Leads, 23/09/2026): o mapa de
+// rótulos (e o filtro de origem na tela) não cobria todos os valores que
+// o backend de fato gera -- "landing" (formulário público padrão),
+// "importacao" (importação em lote), "prospeccao" (conversão do Radar de
+// Prospecção) e "operador" (cadastro manual) caíam no fallback bruto.
 function originLabel(value) {
-  return ({ relatorio: "Relatório", processo: "Página do processo", resultados: "Resultados", geral: "Contato geral" })[value] || value;
+  return (
+    {
+      relatorio: "Relatório",
+      processo: "Página do processo",
+      resultados: "Resultados",
+      geral: "Contato geral",
+      landing: "Página de captação",
+      importacao: "Importação em lote",
+      prospeccao: "Radar de Prospecção",
+      operador: "Cadastro manual",
+    }[value] || value
+  );
 }
 
 function fullReportStatus(item, compact = false) {
@@ -390,6 +406,14 @@ async function loadLeads() {
     }
     document.querySelector("#export-leads").hidden = !state.canExport;
     document.querySelector("#copy-emails").hidden = !state.canExport;
+    // Achado P2 do Codex no PR #135: admin-crm.html também carrega este
+    // script, mas sua cópia reduzida do HTML de admin-leads.html (achado
+    // 17.2 da auditoria do CRM) não tem #import-leads -- querySelector
+    // direto derrubaria loadLeads() com um erro técnico visível ao abrir
+    // qualquer contato em /admin/crm. "a?.b = c" não existe em JS
+    // (SyntaxError), por isso o guard em duas linhas.
+    const importLeadsButton = document.querySelector("#import-leads");
+    if (importLeadsButton) importLeadsButton.hidden = !state.canManage;
     document.querySelector("#metric-global").textContent = data.total_global;
     document.querySelector("#metric-total").textContent = data.total;
     document.querySelector("#metric-searches").textContent = data.pesquisas_total;
@@ -2047,3 +2071,43 @@ async function visualizarProposta(id) {
   // o CSS vem de um link 'self', nunca de um atributo style="" inline.
   if (win) win.document.write(`<link rel="stylesheet" href="/static/print-proposta.css"><pre class="proposta-texto">${escapeHtml(data.texto)}</pre>`);
 }
+
+// Achado da Fase 15.4 (auditoria fina de Leads, 23/09/2026):
+// POST /v1/admin/leads/importar já existia pronto e testado no backend,
+// mas sem nenhum botão na tela -- só dava pra importar uma carteira
+// externa de leads via chamada direta à API.
+const importLeadsDialog = document.querySelector("#import-leads-dialog");
+const importLeadsForm = document.querySelector("#import-leads-form");
+
+document.querySelector("#import-leads")?.addEventListener("click", () => {
+  importLeadsForm.reset();
+  const message = document.querySelector("#import-leads-message");
+  message.hidden = true;
+  importLeadsDialog.showModal();
+});
+
+document.querySelector("#cancel-import-leads")?.addEventListener("click", () => importLeadsDialog.close());
+
+importLeadsForm?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const button = importLeadsForm.querySelector("button[type=submit]");
+  const message = document.querySelector("#import-leads-message");
+  message.hidden = false;
+  message.className = "status-message loading";
+  message.textContent = "Importando…";
+  button.disabled = true;
+  try {
+    const response = await fetch("/v1/admin/leads/importar", { method: "POST", body: new FormData(importLeadsForm) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || "Não foi possível importar a planilha.");
+    message.className = "status-message success";
+    message.textContent = `${data.criados} lead(s) criado(s) de ${data.total_linhas} linha(s) -- ${data.duplicados} duplicado(s) e ${data.sem_dados_essenciais} sem nome/contato foram ignorados.`;
+    importLeadsForm.reset();
+    await loadLeads();
+  } catch (error) {
+    message.className = "status-message error";
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});

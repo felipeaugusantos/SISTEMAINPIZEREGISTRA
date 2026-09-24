@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/admin-leads.css?v=31" />
     <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=12 -->
     <script src="/static/admin-shell.js?v=52" defer></script>
-    <script src="/static/admin-leads.js?v=74" defer></script>
+    <script src="/static/admin-leads.js?v=75" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
     <header class="topbar">
@@ -32,6 +32,7 @@
         </div>
         <div class="admin-heading-actions">
           <button id="distribute-leads" class="secondary-button" type="button" hidden>Distribuir sem responsável</button>
+          <button id="import-leads" class="secondary-button" type="button" hidden>Importar leads</button>
           <button id="copy-emails" class="secondary-button" type="button">Copiar e-mails</button>
           <button id="export-leads" class="primary-button admin-export" type="button">Exportar resultado</button>
         </div>
@@ -98,7 +99,7 @@
           </select>
         </label>
         <label><span>Responsável</span><select id="lead-owner-filter"><option value="">Todos</option></select></label>
-        <label><span>Origem</span><select id="lead-origin-filter"><option value="">Todas</option><option value="relatorio">Relatório</option><option value="processo">Processo</option><option value="resultados">Resultados</option><option value="geral">Contato geral</option></select></label>
+        <label><span>Origem</span><select id="lead-origin-filter"><option value="">Todas</option><option value="relatorio">Relatório</option><option value="processo">Processo</option><option value="resultados">Resultados</option><option value="geral">Contato geral</option><option value="landing">Página de captação</option><option value="importacao">Importação em lote</option><option value="prospeccao">Radar de Prospecção</option><option value="operador">Cadastro manual</option></select></label>
         <label><span>Desde</span><input id="lead-date-start" type="date" /></label>
         <label><span>Até</span><input id="lead-date-end" type="date" /></label>
         <label><span>Marketing</span><select id="lead-marketing-filter"><option value="">Todos</option><option value="true">Autorizado</option><option value="false">Não autorizado</option></select></label>
@@ -236,6 +237,24 @@
         <div>
           <button id="cancel-proposal" class="secondary-button" type="button">Cancelar</button>
           <button class="primary-button" type="submit">Gerar proposta</button>
+        </div>
+      </form>
+    </dialog>
+    <!-- Achado da Fase 15.4 (auditoria fina de Leads, 23/09/2026):
+         POST /v1/admin/leads/importar já existia pronto e testado no
+         backend, mas sem nenhum botão na tela -- só dava pra importar uma
+         carteira externa de leads via chamada direta à API. -->
+    <dialog id="import-leads-dialog" class="confirm-dialog">
+      <form id="import-leads-form">
+        <h2>Importar leads em lote</h2>
+        <p>Envie uma planilha CSV ou XLSX com as colunas <strong>nome</strong> (obrigatória) e <strong>e-mail</strong> e/ou <strong>telefone</strong> (ao menos um). Colunas opcionais: marca, empresa, observações. Linhas cujo e-mail ou telefone já pertence a um lead ativo são ignoradas.</p>
+        <label>Arquivo (CSV ou XLSX, até 5 MB)
+          <input name="arquivo" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+        </label>
+        <div id="import-leads-message" class="status-message" role="status" hidden></div>
+        <div>
+          <button id="cancel-import-leads" class="secondary-button" type="button">Cancelar</button>
+          <button class="primary-button" type="submit">Importar</button>
         </div>
       </form>
     </dialog>

@@ -622,6 +622,14 @@ class PoliticaCRM(Base):
     # próxima ação, nunca envio automático) -- além do kill-switch global
     # settings.ia_sombra_enabled. Ver app/ia_sombra.py.
     ia_sombra_ativa: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Achado da Fase 15.2 (auditoria fina de Leads, 23/09/2026): o alerta de
+    # "lead novo sem responsável" e de "nova pesquisa" sempre mandava pra
+    # settings.equipe_atendimento_email, uma env var GLOBAL do processo --
+    # em um SaaS multi-tenant, todo tenant disparava alerta pra mesma caixa
+    # (ou nenhum recebia, se a env não estivesse configurada pro tenant
+    # certo). Nulo (padrão) mantém o comportamento atual como fallback
+    # (ver app/emailing.py).
+    email_alerta_leads: Mapped[str | None] = mapped_column(String(254), nullable=True)
     atualizado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

@@ -28,6 +28,7 @@ from app.models import (
     EventoAuditoria,
     Lead,
     PesquisaMarca,
+    PoliticaCRM,
     PropostaComercial,
     QualificacaoIALead,
     RespostaEmailLead,
@@ -344,6 +345,36 @@ def test_upsert_publico_novo_lead_sem_responsavel_dispara_alerta() -> None:
     assert resposta.status_code == 201
     assert len(chamadas) == 1
     assert chamadas[0][0] == "Fulano de Tal"
+
+
+def test_upsert_publico_novo_lead_usa_email_de_alerta_da_organizacao() -> None:
+    # Achado da Fase 15.2 (auditoria fina de Leads, 23/09/2026): o alerta
+    # de lead novo mandava sempre pra uma env var global do processo --
+    # agora usa o e-mail configurado por organização (PoliticaCRM.
+    # email_alerta_leads) quando existir.
+    import app.api.leads as modulo
+
+    chamadas: list[tuple] = []
+
+    async def _capturar(*args: object) -> None:
+        chamadas.append(args)
+
+    original = modulo.enviar_alerta_novo_lead
+    modulo.enviar_alerta_novo_lead = _capturar
+    try:
+        politica = PoliticaCRM(organizacao_id=1, email_alerta_leads="equipe@empresa.com.br")
+        # 3 consultas nesta ordem: dedup de lead existente (nenhum),
+        # obter_politica_crm dentro de _garantir_proxima_acao_padrao (usa a
+        # mesma política aqui só por conveniência do teste), e
+        # obter_politica_crm de novo antes de disparar o alerta.
+        session = FakeSession([FakeResult(scalar=None), FakeResult(scalar=politica), FakeResult(scalar=politica)])
+        app.dependency_overrides[get_session] = _override_session(session)
+        resposta = TestClient(app).post("/v1/leads", json=_payload())
+    finally:
+        modulo.enviar_alerta_novo_lead = original
+
+    assert resposta.status_code == 201
+    assert chamadas[0][-1] == "equipe@empresa.com.br"
 
 
 def test_upsert_publico_atualizacao_de_lead_existente_nao_dispara_alerta() -> None:
@@ -2309,7 +2340,11 @@ def test_enviar_email_prospeccao_usa_modelo_configurado_e_registra_contato(monke
     monkeypatch.setattr("app.api.leads.enviar_email_prospeccao_lead", _fake_enviar)
     lead = _lead_para_email()
     org = SimpleNamespace(
-        id=1, branding={"email_leads": {"assunto": "Oi {{lead.nome}}", "corpo": "Olá {{lead.nome}}!", "reply_to": ""}}
+        id=1,
+        nome="Organização Teste",
+        telefone_contato=None,
+        email_contato=None,
+        branding={"email_leads": {"assunto": "Oi {{lead.nome}}", "corpo": "Olá {{lead.nome}}!", "reply_to": ""}},
     )
     session = FakeSession([], objetos_get=[lead, org])
     usuario = usuario_teste()
@@ -2396,7 +2431,7 @@ def test_enviar_email_prospeccao_propaga_falha_de_envio_como_502(monkeypatch) ->
 
     monkeypatch.setattr("app.api.leads.enviar_email_prospeccao_lead", _fake_enviar)
     lead = _lead_para_email()
-    org = SimpleNamespace(id=1, branding={})
+    org = SimpleNamespace(id=1, nome="Organização Teste", telefone_contato=None, email_contato=None, branding={})
     session = FakeSession([], objetos_get=[lead, org])
     usuario = usuario_teste()
     object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))

@@ -12,11 +12,21 @@ router = APIRouter(prefix="/v1/admin/configuracao/email-leads", tags=["configura
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.manage"))]
 
+# Achado da Fase 15.2 (auditoria fina de Leads, 23/09/2026): o template
+# padrão tinha a marca "Zé Registra" e a assinatura "Letícia" hardcoded,
+# com placeholders literais ("[Sobrenome]", "[Telefone/WhatsApp]",
+# "[E-mail]", "[Site]") que nunca eram substituídos -- se uma organização-
+# tenant não customizasse o próprio modelo, esse texto ia direto pro
+# cliente com a marca ERRADA e placeholders crus visíveis. Agora usa
+# placeholders "{{organizacao.*}}", substituídos com os dados reais da
+# organização em enviar_email_prospeccao (mesmo mecanismo já usado pra
+# "{{lead.nome}}"), com fallback vazio (nunca um placeholder cru) quando
+# o dado não está cadastrado.
 DEFAULTS = {
-    "assunto": "Proteja sua marca com a Zé Registra",
+    "assunto": "Proteja sua marca com a {{organizacao.nome}}",
     "corpo": (
         "Olá, {{lead.nome}}, tudo bem?\n"
-        "Meu nome é Letícia e faço parte da equipe da Zé Registra.\n"
+        "Meu nome é {{organizacao.nome}} e fazemos o acompanhamento de registro de marcas.\n"
         "Ajudamos empreendedores e empresas a protegerem suas marcas perante o Instituto "
         "Nacional da Propriedade Industrial — INPI, oferecendo acompanhamento desde a "
         "pesquisa inicial até o protocolo e monitoramento do processo.\n"
@@ -40,14 +50,12 @@ DEFAULTS = {
         "- Você possui CPF ou CNPJ?\n"
         "- Já realizou algum pedido anteriormente no INPI?\n"
         "Com essas informações, conseguimos orientar o melhor próximo passo.\n"
-        "Se preferir, também podemos conversar pelo WhatsApp: [número ou link do WhatsApp].\n"
         "Atenciosamente,\n"
-        "Letícia [Sobrenome]\n"
         "Atendimento Comercial\n"
-        "Zé Registra\n"
-        "[Telefone/WhatsApp]\n"
-        "[E-mail]\n"
-        "[Site]"
+        "{{organizacao.nome}}\n"
+        "{{organizacao.telefone}}\n"
+        "{{organizacao.email}}\n"
+        "{{organizacao.site}}"
     ),
     "reply_to": "",
 }
@@ -62,6 +70,21 @@ class EmailLeadsConfigInput(BaseModel):
 def config_email_leads(org: Organizacao | None) -> dict:
     atual = (org.branding or {}).get("email_leads") if org else None
     return {**DEFAULTS, **(atual or {})}
+
+
+def substituir_placeholders_organizacao(texto: str, org: Organizacao | None) -> str:
+    """Substitui "{{organizacao.*}}" pelos dados reais da organização, com
+    fallback vazio (nunca deixa um placeholder cru visível pro cliente)."""
+    branding = (org.branding or {}) if org else {}
+    valores = {
+        "{{organizacao.nome}}": (org.nome if org else "") or "",
+        "{{organizacao.telefone}}": (org.telefone_contato if org else "") or branding.get("telefone") or "",
+        "{{organizacao.email}}": (org.email_contato if org else "") or branding.get("email") or "",
+        "{{organizacao.site}}": branding.get("site") or "",
+    }
+    for placeholder, valor in valores.items():
+        texto = texto.replace(placeholder, valor)
+    return texto
 
 
 @router.get("")

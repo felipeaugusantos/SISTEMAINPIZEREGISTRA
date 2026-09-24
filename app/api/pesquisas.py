@@ -11,6 +11,7 @@ from app.crm import (
     avancar_fase_lead,
     buscar_lead_ativo_por_email,
     obter_ou_criar_empresa,
+    obter_politica_crm,
     registrar_consentimento_titular,
 )
 from app.database import get_session
@@ -216,7 +217,12 @@ async def criar_pesquisa(
     )
     await session.commit()
     await session.refresh(pesquisa)
-    await enviar_alerta_nova_pesquisa(dados.marca, dados.nome, dados.empresa)
+    # Achado da Fase 15.2 (auditoria fina de Leads, 23/09/2026): o
+    # destinatário agora é configurável por organização
+    # (PoliticaCRM.email_alerta_leads), não mais preso à env var global
+    # settings.equipe_atendimento_email.
+    politica_alerta = await obter_politica_crm(session, organizacao.id)
+    await enviar_alerta_nova_pesquisa(dados.marca, dados.nome, dados.empresa, politica_alerta.email_alerta_leads)
     return PesquisaMarcaCriada(
         id=pesquisa.id,
         relatorio_url=f"/relatorios/{pesquisa.id}",

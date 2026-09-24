@@ -965,6 +965,7 @@ def test_admin_figurativa_exibe_ocr_real_em_vez_de_score_decorativo() -> None:
     page = (web_dir / "admin-figurativa.html").read_text(encoding="utf-8")
     script = (web_dir / "static" / "admin-figurativa.js").read_text(encoding="utf-8")
 
-    assert "admin-figurativa.js?v=3" in page
+    assert "admin-figurativa.js?v=4" in page
     assert "payload.ocr" in script
     assert "score_combinado" not in script
+    assert "payload.score_visual" in script

@@ -113,10 +113,15 @@ document.querySelector("#validar-imagem")?.addEventListener("click", async () =>
     // o texto do OCR nem avisava que não existe pontuação de similaridade
     // ainda -- o operador não tinha como saber que o upload não compara
     // com nada de verdade.
+    // Achado P2 do Codex no PR #127: o "aviso" genérico só dizia que não
+    // há decisão jurídica automática, sem deixar claro que não existe
+    // NENHUMA comparação com acervo/pontuação de similaridade ainda --
+    // o operador podia interpretar a validação como uma comparação real.
     const textoOcr = payload.ocr?.status === "concluido" && payload.ocr.texto
       ? ` Texto identificado por OCR: "${payload.ocr.texto}".`
       : "";
-    imagemStatus.textContent = `Imagem válida (${payload.pixels} pixels de assinatura).${textoOcr} ${payload.aviso}`;
+    const semScore = payload.score_visual?.disponivel === false ? ` ${payload.score_visual.motivo}` : "";
+    imagemStatus.textContent = `Imagem válida (${payload.pixels} pixels de assinatura).${textoOcr}${semScore} ${payload.aviso}`;
   } catch (error) {
     imagemStatus.textContent = error.message;
   }

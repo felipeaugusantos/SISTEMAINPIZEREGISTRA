@@ -256,6 +256,49 @@ def exigir_permissao(chave: str) -> Callable:
     return dependencia
 
 
+def exigir_qualquer_permissao(*chaves: str) -> Callable:
+    """Como ``exigir_permissao``, mas libera com QUALQUER uma das chaves.
+
+    Achado 17.2 da auditoria fina do CRM (24/09/2026): Kanban, dashboard e
+    série temporal de Leads (``app/api/leads.py``) só respondiam pra quem
+    tinha ``leads.view``/``leads.manage`` -- mas essas rotas são consumidas
+    também pela tela de CRM (``admin-crm.js``, permissão ``crm.*``) e pelo
+    widget de funil da Visão geral (``admin-funil.js``, permissão
+    ``dashboard.view``). Um usuário com só uma dessas (ex.: perfil
+    "tecnico", que só tem dashboard.view) via a seção correspondente
+    simplesmente sumir da tela, sem nenhum aviso -- 403 silencioso.
+    """
+    for chave in chaves:
+        if chave not in CHAVES_PERMISSAO:
+            raise ValueError(f"Permissao desconhecida: {chave}")
+
+    async def dependencia(request: Request, usuario: UsuarioAtualDep) -> UsuarioAutenticado:
+        exigir_csrf(request, usuario)
+        # Achado P2 do Codex (PR #141, 24/09/2026): parar na primeira chave
+        # concedida (sem checar o módulo dela) rejeitava quem tinha uma
+        # permissão cujo módulo está fora do plano MAS também tinha uma
+        # segunda permissão válida com módulo contratado -- ex.: usuário com
+        # leads.view + crm.view num tenant só-CRM caía no módulo "leads"
+        # desabilitado e nunca chegava a considerar crm.view. Cada chave
+        # concedida só é aceita se o módulo dela também estiver liberado.
+        sem_modulo_contratado = False
+        for chave in chaves:
+            if not usuario.pode(chave):
+                continue
+            modulo = MODULO_POR_PERMISSAO.get(chave.split(".", 1)[0])
+            if modulo and not usuario.superadmin and modulo not in usuario.modulos_plano:
+                sem_modulo_contratado = True
+                continue
+            if request.method not in SAFE_METHODS:
+                _limitar_acoes.aplicar(f"usuario:{usuario.id}")
+            return usuario
+        if sem_modulo_contratado:
+            raise HTTPException(status_code=403, detail="Modulo indisponivel no plano contratado")
+        raise HTTPException(status_code=403, detail="Acesso nao autorizado")
+
+    return dependencia
+
+
 def criar_sessao(usuario_id: int, request: Request) -> tuple[SessaoOperacoes, str, str]:
     token, csrf = gerar_credenciais_sessao()
     settings = get_settings()

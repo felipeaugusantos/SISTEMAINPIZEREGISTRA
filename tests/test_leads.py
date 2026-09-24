@@ -848,6 +848,117 @@ def test_kanban_nao_avisa_quando_processo_ja_esta_vinculado() -> None:
     assert resposta.json()["cards"][0]["processo_vinculado_pendente"] is False
 
 
+# --- Achado 17.2 da auditoria fina do CRM (24/09/2026): Kanban/dashboard só
+# respondiam pra quem tinha leads.view/leads.manage, mas são consumidos
+# também pela tela de CRM (crm.*) e, no caso do dashboard, pelo widget de
+# funil da Visão geral (dashboard.view, ex.: perfil "tecnico"). Um usuário
+# com só uma dessas via a seção correspondente sumir da tela, 403 silencioso. ---
+
+
+def test_kanban_aceita_permissao_crm_view_sem_leads_view() -> None:
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[]))
+    usuario = usuario_teste(perfil="operador", permissoes={"crm.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).get("/v1/admin/leads-kanban")
+
+    assert resposta.status_code == 200
+
+
+def test_kanban_considera_modulo_de_cada_chave_candidata_da_permissao() -> None:
+    # Achado P2 do Codex (PR #141, 24/09/2026): exigir_qualquer_permissao
+    # parava na primeira chave concedida sem checar o módulo dela -- um
+    # usuário com leads.view (módulo "leads" fora do plano) E crm.view
+    # (módulo "crm" no plano) caía no módulo desabilitado e nunca chegava
+    # a considerar crm.view, mesmo tendo acesso legítimo por ali.
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[]))
+    usuario = usuario_teste(perfil="operador", permissoes={"leads.view", "crm.view"})
+    object.__setattr__(usuario, "modulos_plano", frozenset({"crm"}))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).get("/v1/admin/leads-kanban")
+
+    assert resposta.status_code == 200
+
+
+def test_kanban_lista_expoe_acao_gerenciar_para_crm_manage() -> None:
+    # Achado P2 do Codex (PR #141, 24/09/2026): a rota de mover card já
+    # aceitava leads.manage OU crm.manage, mas "acoes.gerenciar" (usado por
+    # admin-crm.js pra decidir se o card é arrastável) só olhava
+    # leads.manage -- quem só tinha crm.manage via os cards travados.
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(itens=[]))
+    usuario = usuario_teste(perfil="operador", permissoes={"crm.view", "crm.manage"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).get("/v1/admin/leads-kanban")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["acoes"]["gerenciar"] is True
+
+
+def test_kanban_bloqueia_quem_nao_tem_leads_view_nem_crm_view() -> None:
+    app.dependency_overrides[get_session] = sessao_override()
+    usuario = usuario_teste(perfil="operador", permissoes={"dashboard.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).get("/v1/admin/leads-kanban")
+
+    assert resposta.status_code == 403
+
+
+def test_mover_kanban_aceita_permissao_crm_manage_sem_leads_manage() -> None:
+    lead = Lead(
+        id=9,
+        organizacao_id=1,
+        nome="Fulano",
+        email="fulano@example.com",
+        telefone="11999998888",
+        marca="ACME",
+        origem="processo",
+        status=StatusLead.NOVO,
+        fase="contato_inicial",
+        responsavel_id=3,
+        proxima_acao_em=datetime.now(UTC),
+        aceite_marketing=False,
+    )
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lead), FakeResult(scalar=None))
+    usuario = usuario_teste(perfil="operador", permissoes={"crm.manage"})
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/9/kanban",
+        json={"etapa": "aguardando_contato_nosso"},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 200
+
+
+def test_dashboard_leads_aceita_permissao_dashboard_view_sozinha() -> None:
+    # Reproduz o bug real: perfil "tecnico" só tem dashboard.view, e o
+    # widget de funil da Visão geral (admin-funil.js) chama este endpoint.
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(itens=[]),  # por_fase
+        FakeResult(itens=[]),  # por_resultado
+        FakeResult(itens=[]),  # motivos
+        FakeResult(itens=[]),  # prod
+        FakeResult(itens=[]),  # por_origem
+        FakeResult(itens=[]),  # por_origem_resultado
+        FakeResult(itens=[(0, 0)]),  # contadores
+        FakeResult(scalar=None),  # tempo_ate_proposta_media
+        FakeResult(itens=[(None, 0)]),  # atendimento
+        FakeResult(itens=[]),  # propostas
+        FakeResult(itens=[]),  # entradas_por_fase
+    )
+    usuario = usuario_teste(perfil="tecnico", permissoes={"dashboard.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).get("/v1/admin/leads-dashboard")
+
+    assert resposta.status_code == 200
+
+
 def test_distribuir_leads_round_robin_entre_atendentes_elegiveis() -> None:
     # FakeSession não avalia o .where() do SQLAlchemy -- o FakeResult já
     # representa o resultado de "perfil == comercial" aplicado pelo banco,

@@ -1,6 +1,6 @@
 const state = { offset: 0, pageSize: 20, statusLabels: {
   novo: "Novo", aprovado: "Aprovado", rejeitado: "Rejeitado", duplicado: "Duplicado", convertido_lead: "Convertido em lead",
-}, pollingCampanhas: false, canManage: false, supressoesOffset: 0, supressoesPageSize: 50 };
+}, pollingCampanhas: false, canManage: false, canExport: false, supressoesOffset: 0, supressoesPageSize: 50 };
 const TRIAGEM_LABELS = {
   nao_localizado: "Não localizado", resultado_semelhante: "Resultado semelhante",
   resultado_relevante_localizado: "Resultado relevante localizado", inconclusivo: "Inconclusivo",
@@ -188,7 +188,7 @@ function renderPagination(data) {
   document.querySelector("#prospeccao-prev").disabled = state.offset === 0;
   document.querySelector("#prospeccao-next").disabled = currentPage >= totalPages;
 }
-async function loadProspects() {
+function prospectFilterParams({ paginar = false } = {}) {
   // Achado do usuário: UF já vinha certo aqui (URLSearchParams a partir de
   // um FormData preserva múltiplos valores de um <select multiple>,
   // diferente de Object.fromEntries) -- só cidade precisa virar vários
@@ -199,9 +199,18 @@ async function loadProspects() {
   (new FormData(form).get("cidade") || "").split(",").map(v => v.trim()).filter(Boolean)
     .forEach(cidade => params.append("cidade", cidade));
   [...params.entries()].forEach(([key, value]) => { if (!String(value).trim()) params.delete(key); });
-  params.set("limite", state.pageSize); params.set("deslocamento", state.offset);
+  if (paginar) { params.set("limite", state.pageSize); params.set("deslocamento", state.offset); }
+  return params;
+}
+function atualizarLinkExportacao() {
+  const link = document.querySelector("#export-prospects");
+  link.href = `/v1/admin/prospects/exportar.csv?${prospectFilterParams()}`;
+}
+async function loadProspects() {
+  const params = prospectFilterParams({ paginar: true });
   const data = await api(`/v1/admin/prospects?${params}`);
   renderProspects(data);
+  atualizarLinkExportacao();
 }
 async function reloadAll() { await Promise.all([loadDashboard(), loadProspects()]); }
 
@@ -270,6 +279,10 @@ async function configurarBotaoImportarCnpjRfb() {
   state.canManage = Boolean(
     usuario.superadmin || usuario.perfil === "administrador" || (usuario.permissoes || []).includes("prospeccao.manage"),
   );
+  state.canExport = Boolean(
+    usuario.superadmin || usuario.perfil === "administrador" || (usuario.permissoes || []).includes("prospeccao.export"),
+  );
+  document.querySelector("#export-prospects").hidden = !state.canExport;
   document.querySelector("#open-supressao").hidden = !state.canManage;
 
   // Achado 16.2 da auditoria fina do Radar de Prospecção (24/09/2026):

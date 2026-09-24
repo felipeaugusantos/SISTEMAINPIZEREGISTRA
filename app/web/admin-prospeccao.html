@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/static/styles.css?v=67">
   <link rel="stylesheet" href="/static/admin-prospeccao.css?v=9">
   <script src="/static/admin-shell.js?v=52" defer></script>
-  <script src="/static/admin-prospeccao.js?v=12" defer></script>
+  <script src="/static/admin-prospeccao.js?v=13" defer></script>
 </head>
 <body class="admin-body" data-admin-section="prospeccao">
   <main class="admin-main prospeccao-main">
@@ -16,6 +16,7 @@
       <div><p class="eyebrow">CAPTAÇÃO ATIVA</p><div class="prospeccao-title-row"><h1>Radar de Prospecção</h1><button id="prospeccao-help-open" class="help-trigger" type="button" aria-label="Como funciona o Radar de Prospecção">?</button></div><p>Encontre, qualifique e converta empresas em leads antes que a concorrência chegue primeiro. A triagem de marca é sempre indicativa — nunca uma garantia de disponibilidade para registro.</p></div>
       <div class="prospeccao-hero-actions">
         <button id="open-politica" class="secondary-button" type="button">Aprovação automática</button>
+        <a id="export-prospects" class="secondary-button" href="/v1/admin/prospects/exportar.csv" hidden>Exportar CSV</a>
         <button id="open-import" class="secondary-button" type="button">Importar CSV</button>
         <button id="open-campanha" class="secondary-button" type="button">Nova campanha</button>
         <button id="open-manual" class="primary-button" type="button">Cadastrar prospect</button>

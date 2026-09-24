@@ -828,6 +828,17 @@ def test_tela_de_prospeccao_esconde_secao_de_cache_rfb_para_nao_superadmin() -> 
     assert "loadCacheRfbStatus()]" not in script
 
 
+def test_tela_de_prospeccao_exibe_exportacao_somente_com_permissao() -> None:
+    page = (web_dir / "admin-prospeccao.html").read_text(encoding="utf-8")
+    script = (web_dir / "static" / "admin-prospeccao.js").read_text(encoding="utf-8")
+
+    assert 'id="export-prospects"' in page
+    assert "/v1/admin/prospects/exportar.csv" in page
+    assert 'includes("prospeccao.export")' in script
+    assert 'document.querySelector("#export-prospects").hidden = !state.canExport;' in script
+    assert "prospectFilterParams()" in script
+
+
 def test_tela_de_script_atendimento_existe_com_crud_completo() -> None:
     # Item 1 da lista de melhorias de produto (15/09/2026): modelo de 1º
     # atendimento + opção de adicionar mais modelos manualmente. Reaproveita

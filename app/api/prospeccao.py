@@ -7,11 +7,14 @@ própria migração -- esta fase não antecipa colunas que nenhum código ainda
 preenche.
 """
 
+import csv
+import io
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,6 +76,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ProspeccaoViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("prospeccao.view"))]
 ProspeccaoManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("prospeccao.manage"))]
 ProspeccaoConvertDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("prospeccao.convert"))]
+ProspeccaoExportDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("prospeccao.export"))]
 
 # Limites separados por custo da operação. A chave inclui organização e
 # usuário, evitando que uma organização consuma a capacidade das demais.
@@ -130,6 +134,53 @@ def _prospect_response(prospect: Prospect) -> ProspectResponse:
 
 def _digitos(valor: str | None) -> str:
     return "".join(c for c in (valor or "") if c.isdigit())
+
+
+def _valor_csv(valor: object) -> str:
+    """Evita que planilhas executem valores exportados como fórmulas."""
+    texto = "" if valor is None else str(valor)
+    if texto.lstrip().startswith(("=", "+", "-", "@")):
+        return "'" + texto
+    return texto
+
+
+def _filtros_prospects(
+    usuario: UsuarioAutenticado,
+    busca: str | None,
+    status_prospect: str | None,
+    uf: list[str] | None,
+    cidade: list[str] | None,
+    cnae_principal: str | None,
+    responsavel_id: int | None,
+    campanha_id: int | None,
+) -> list:
+    filtros = [Prospect.organizacao_id == usuario.organizacao_id]
+    if busca:
+        termo = f"%{busca.strip()}%"
+        condicoes_busca = [
+            Prospect.razao_social.ilike(termo),
+            Prospect.nome_fantasia.ilike(termo),
+            Prospect.cnpj.ilike(termo),
+        ]
+        digitos_busca = re.sub(r"\D", "", busca)
+        if digitos_busca and digitos_busca != busca.strip():
+            condicoes_busca.append(Prospect.cnpj.ilike(f"%{digitos_busca}%"))
+        filtros.append(or_(*condicoes_busca))
+    if status_prospect:
+        filtros.append(Prospect.status == status_prospect)
+    ufs = [item.strip().upper() for item in uf if item.strip()] if uf else []
+    if ufs:
+        filtros.append(Prospect.uf.in_(ufs))
+    cidades = [item.strip() for item in cidade if item.strip()] if cidade else []
+    if cidades:
+        filtros.append(or_(*[Prospect.cidade.ilike(f"%{item}%") for item in cidades]))
+    if cnae_principal:
+        filtros.append(Prospect.cnae_principal == cnae_principal)
+    if responsavel_id:
+        filtros.append(Prospect.responsavel_id == responsavel_id)
+    if campanha_id:
+        filtros.append(Prospect.campanha_id == campanha_id)
+    return filtros
 
 
 async def _buscar_prospect(session: AsyncSession, prospect_id: int, organizacao_id: int) -> Prospect:
@@ -289,37 +340,16 @@ async def listar_prospects(
     # Achado do usuário: filtro de estado/cidade era de valor único --
     # agora aceita vários (?uf=SP&uf=RJ), a fonte de dados (cache nacional
     # do CNPJ/RFB) já cobre qualquer UF, era só o filtro que limitava.
-    filtros = [Prospect.organizacao_id == usuario.organizacao_id]
-    if busca:
-        termo = f"%{busca.strip()}%"
-        condicoes_busca = [Prospect.razao_social.ilike(termo), Prospect.nome_fantasia.ilike(termo), Prospect.cnpj.ilike(termo)]
-        # Achado da validação do Radar de Prospecção (17/09/2026): Prospect.cnpj
-        # é sempre gravado só com dígitos (ProspectCreate._validar_cnpj em
-        # app/schemas.py, único ponto de entrada nos três fluxos de criação --
-        # manual, importação e coleta de campanha). Buscar com CNPJ formatado
-        # ("12.345.678/0001-90") nunca batia com o ilike acima, que comparava o
-        # texto digitado literalmente. Compara também a versão só com dígitos.
-        digitos_busca = re.sub(r"\D", "", busca)
-        if digitos_busca and digitos_busca != busca.strip():
-            condicoes_busca.append(Prospect.cnpj.ilike(f"%{digitos_busca}%"))
-        filtros.append(or_(*condicoes_busca))
-    if status_prospect:
-        filtros.append(Prospect.status == status_prospect)
-    ufs = [item.strip().upper() for item in uf if item.strip()] if uf else []
-    if ufs:
-        filtros.append(Prospect.uf.in_(ufs))
-    cidades = [item.strip() for item in cidade if item.strip()] if cidade else []
-    if cidades:
-        filtros.append(or_(*[Prospect.cidade.ilike(f"%{item}%") for item in cidades]))
-    if cnae_principal:
-        filtros.append(Prospect.cnae_principal == cnae_principal)
-    if responsavel_id:
-        filtros.append(Prospect.responsavel_id == responsavel_id)
-    if campanha_id:
-        # Achado do usuário (13/09/2026): sem esse filtro, a lista sempre
-        # trazia todos os prospects da organização, sem como isolar só os
-        # gerados por uma campanha específica.
-        filtros.append(Prospect.campanha_id == campanha_id)
+    filtros = _filtros_prospects(
+        usuario,
+        busca,
+        status_prospect,
+        uf,
+        cidade,
+        cnae_principal,
+        responsavel_id,
+        campanha_id,
+    )
 
     total = (await session.execute(select(func.count()).select_from(Prospect).where(*filtros))).scalar_one()
     itens = (
@@ -337,6 +367,121 @@ async def listar_prospects(
     )
     return ProspectListResponse(
         total=total, limite=limite, deslocamento=deslocamento, itens=[_prospect_response(item) for item in itens]
+    )
+
+
+@router.get("/exportar.csv")
+async def exportar_prospects(
+    request: Request,
+    session: SessionDep,
+    usuario: ProspeccaoExportDep,
+    busca: Annotated[str | None, Query(max_length=200)] = None,
+    status_prospect: Annotated[str | None, Query(alias="status")] = None,
+    uf: Annotated[list[str] | None, Query(max_length=2)] = None,
+    cidade: Annotated[list[str] | None, Query(max_length=120)] = None,
+    cnae_principal: Annotated[str | None, Query(max_length=10)] = None,
+    responsavel_id: Annotated[int | None, Query(ge=1)] = None,
+    campanha_id: Annotated[int | None, Query(ge=1)] = None,
+) -> StreamingResponse:
+    """Exporta até 5.000 prospects visíveis à organização do usuário."""
+    filtros = _filtros_prospects(
+        usuario,
+        busca,
+        status_prospect,
+        uf,
+        cidade,
+        cnae_principal,
+        responsavel_id,
+        campanha_id,
+    )
+    prospects = (
+        (
+            await session.execute(
+                select(Prospect)
+                .where(*filtros)
+                .order_by(Prospect.criado_em.desc(), Prospect.id.desc())
+                .limit(5000)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    arquivo = io.StringIO()
+    escritor = csv.writer(arquivo, delimiter=";")
+    escritor.writerow(
+        (
+            "id",
+            "razao_social",
+            "nome_fantasia",
+            "cnpj",
+            "cnae_principal",
+            "porte",
+            "situacao_cadastral",
+            "data_abertura",
+            "uf",
+            "cidade",
+            "telefone",
+            "email",
+            "site",
+            "status",
+            "score",
+            "campanha_id",
+            "criado_em",
+        )
+    )
+    for prospect in prospects:
+        escritor.writerow(
+            tuple(
+                _valor_csv(valor)
+                for valor in (
+                    prospect.id,
+                    prospect.razao_social,
+                    prospect.nome_fantasia,
+                    prospect.cnpj,
+                    prospect.cnae_principal,
+                    prospect.porte,
+                    prospect.situacao_cadastral,
+                    prospect.data_abertura,
+                    prospect.uf,
+                    prospect.cidade,
+                    prospect.telefone,
+                    prospect.email,
+                    prospect.site,
+                    prospect.status,
+                    prospect.score,
+                    prospect.campanha_id,
+                    prospect.criado_em.isoformat(),
+                )
+            )
+        )
+
+    _auditar(
+        session,
+        request,
+        usuario,
+        "exportar_prospects",
+        "prospects:csv",
+        {
+            "quantidade": len(prospects),
+            "limite": 5000,
+            "filtros": {
+                "busca": busca,
+                "status": status_prospect,
+                "uf": uf or [],
+                "cidade": cidade or [],
+                "cnae_principal": cnae_principal,
+                "responsavel_id": responsavel_id,
+                "campanha_id": campanha_id,
+            },
+        },
+    )
+    await session.commit()
+    conteudo = "\ufeff" + arquivo.getvalue()
+    return StreamingResponse(
+        iter((conteudo,)),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="prospects.csv"'},
     )
 
 
@@ -406,7 +551,6 @@ CAMPOS_PREENCHIVEIS_NA_MESCLA = (
     "data_abertura",
     "uf",
     "cidade",
-    "endereco",
     "telefone",
     "email",
     "site",
@@ -1246,7 +1390,6 @@ def _anonimizar_prospect(prospect: Prospect) -> None:
     prospect.telefone = None
     prospect.email = None
     prospect.site = None
-    prospect.endereco = None
 
 
 @router_campanhas.post(

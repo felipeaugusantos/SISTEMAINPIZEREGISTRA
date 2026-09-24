@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,7 +8,16 @@ from fastapi.testclient import TestClient
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
-from app.models import CampanhaProspeccao, Lead, PesquisaMarca, Prospect, ProspectTriagem, StatusLead, StatusProspect
+from app.models import (
+    CampanhaProspeccao,
+    Lead,
+    PesquisaMarca,
+    Prospect,
+    ProspectFonte,
+    ProspectTriagem,
+    StatusLead,
+    StatusProspect,
+)
 from tests.conftest import FakeResult, FakeSession, auth_override, usuario_teste
 
 # --- Fase 1 do Radar de Prospecção (03/09/2026, docs/arquitetura-radar-prospeccao-2026-09-03.md) ---
@@ -148,6 +158,62 @@ def test_listar_prospects_busca_sem_digitos_nao_duplica_condicao() -> None:
     assert resposta.json()["total"] == 1
     sql = str(session.executados[0].compile(compile_kwargs={"literal_binds": True}))
     assert sql.lower().count("cnpj") == 1
+
+
+def test_exportar_prospects_exige_permissao_e_isola_organizacao() -> None:
+    prospect = _prospect(razao_social="=EMPRESA", campanha_id=4)
+    session = FakeSession([FakeResult(itens=[prospect])])
+    usuario = usuario_teste(perfil="comercial", permissoes={"prospeccao.export"})
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).get("/v1/admin/prospects/exportar.csv?status=novo&campanha_id=4")
+
+    assert resposta.status_code == 200
+    assert resposta.headers["content-type"].startswith("text/csv")
+    assert resposta.headers["content-disposition"] == 'attachment; filename="prospects.csv"'
+    assert "'\u003dEMPRESA" in resposta.text
+    assert "razao_social" in resposta.text
+    consulta = session.executados[0]
+    sql = str(consulta.compile(compile_kwargs={"literal_binds": True}))
+    assert "prospects.organizacao_id = 1" in sql
+    assert "prospects.campanha_id = 4" in sql
+    assert "prospects.status = 'novo'" in sql
+    assert session.commits == 1
+    assert any(getattr(item, "acao", None) == "exportar_prospects" for item in session.adicionados)
+
+
+def test_exportar_prospects_sem_permissao_retorna_403() -> None:
+    session = FakeSession()
+    usuario = usuario_teste(perfil="operador")
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).get("/v1/admin/prospects/exportar.csv")
+
+    assert resposta.status_code == 403
+    assert not session.executados
+
+
+def test_fase_16_4_remove_campos_mortos_com_downgrade_reversivel() -> None:
+    assert "endereco" not in Prospect.__table__.columns
+    assert "dados_brutos" not in Prospect.__table__.columns
+    assert "configuracao" not in ProspectFonte.__table__.columns
+    assert "ativo" not in ProspectFonte.__table__.columns
+
+    migration = Path("migrations/versions/g9b0c1d2e3f4_remove_campos_mortos_prospeccao.py").read_text(
+        encoding="utf-8"
+    )
+    for tabela, coluna in (
+        ("prospects", "endereco"),
+        ("prospects", "dados_brutos"),
+        ("prospect_fontes", "configuracao"),
+        ("prospect_fontes", "ativo"),
+    ):
+        assert f'op.drop_column("{tabela}", "{coluna}")' in migration
+        assert f'Column("{coluna}"' in migration
+    assert "RAISE EXCEPTION 'campos mortos de prospects passaram a conter dados" in migration
+    assert "RAISE EXCEPTION 'campos mortos de prospect_fontes passaram a conter dados" in migration
 
 
 def test_detalhar_prospect_inexistente_retorna_404() -> None:

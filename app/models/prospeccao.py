@@ -57,7 +57,6 @@ class Prospect(Base):
     data_abertura: Mapped[date | None] = mapped_column(Date, nullable=True)
     uf: Mapped[str | None] = mapped_column(String(2), nullable=True, index=True)
     cidade: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
-    endereco: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     telefone: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
     email: Mapped[str | None] = mapped_column(String(254), nullable=True, index=True)
     site: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -97,7 +96,6 @@ class Prospect(Base):
     score: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
     score_detalhe: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     score_calculado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    dados_brutos: Mapped[dict] = mapped_column(JSON, default=dict)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -161,8 +159,6 @@ class ProspectFonte(Base):
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
     tipo: Mapped[str] = mapped_column(String(30))
     nome: Mapped[str] = mapped_column(String(120))
-    configuracao: Mapped[dict] = mapped_column(JSON, default=dict)
-    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

@@ -43,6 +43,7 @@ from app.emailing import (
     enviar_alerta_novo_lead,
     enviar_email_prospeccao_lead,
     erro_cota_diaria_email,
+    listar_provedores_email,
 )
 from app.ia_sombra import enfileirar_qualificacao_ia_se_ativa
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
@@ -2268,54 +2269,103 @@ async def status_cota_email(session: SessionDep, _usuario: LeadsViewDep) -> dict
     """Uso agregado do remetente SMTP, sem destinatários ou conteúdo."""
     settings = get_settings()
     agora = datetime.now(UTC)
-    hoje_br = agora.astimezone(FUSO_BRASIL).date()
-    inicio = datetime.combine(hoje_br, datetime.min.time(), FUSO_BRASIL).astimezone(UTC)
-    fim = datetime.combine(hoje_br + timedelta(days=1), datetime.min.time(), FUSO_BRASIL).astimezone(UTC)
-    usados = int(
-        (
+    inicio = agora - timedelta(hours=24)
+    provedores = []
+    for provedor in listar_provedores_email(settings, "prospeccao_lead"):
+        chave_provedor = EventoOperacional.detalhes["provedor"].as_string()
+        filtro_provedor = (
+            or_(chave_provedor == "principal", chave_provedor.is_(None))
+            if provedor.identificador == "principal"
+            else chave_provedor == provedor.identificador
+        )
+        usados = int(
+            (
+                await session.execute(
+                    select(func.count(EventoOperacional.id)).where(
+                        EventoOperacional.componente == "email",
+                        EventoOperacional.sucesso.is_(True),
+                        EventoOperacional.criado_em >= inicio,
+                        filtro_provedor,
+                    )
+                )
+            ).scalar_one()
+            or 0
+        )
+        ultimo_sucesso = (
             await session.execute(
-                select(func.count(EventoOperacional.id)).where(
+                select(func.max(EventoOperacional.criado_em)).where(
                     EventoOperacional.componente == "email",
                     EventoOperacional.sucesso.is_(True),
                     EventoOperacional.criado_em >= inicio,
-                    EventoOperacional.criado_em < fim,
+                    filtro_provedor,
                 )
             )
-        ).scalar_one()
-        or 0
-    )
-    rejeicao_cota = (
-        await session.execute(
-            select(EventoOperacional.id)
-            .where(
-                EventoOperacional.componente == "email",
-                EventoOperacional.sucesso.is_(False),
-                EventoOperacional.criado_em >= inicio,
-                EventoOperacional.criado_em < fim,
-                or_(
-                    EventoOperacional.detalhes["motivo"].as_string() == "quota_diaria",
-                    EventoOperacional.detalhes["mensagem"].as_string().ilike("%daily user sending limit exceeded%"),
-                    EventoOperacional.detalhes["mensagem"].as_string().ilike("%daily smtp relay limit exceeded%"),
-                ),
+        ).scalar_one_or_none()
+        rejeicao_cota = (
+            await session.execute(
+                select(EventoOperacional.criado_em)
+                .where(
+                    EventoOperacional.componente == "email",
+                    EventoOperacional.sucesso.is_(False),
+                    EventoOperacional.criado_em >= inicio,
+                    filtro_provedor,
+                    or_(
+                        EventoOperacional.detalhes["motivo"].as_string() == "quota_diaria",
+                        EventoOperacional.detalhes["mensagem"]
+                        .as_string()
+                        .ilike("%daily user sending limit exceeded%"),
+                        EventoOperacional.detalhes["mensagem"]
+                        .as_string()
+                        .ilike("%daily smtp relay limit exceeded%"),
+                    ),
+                )
+                .order_by(EventoOperacional.criado_em.desc())
+                .limit(1)
             )
-            .limit(1)
+        ).scalar_one_or_none()
+        percentual = min(100, round((usados / provedor.limite_diario) * 100))
+        if not settings.email_enabled:
+            situacao_provedor = "desativado"
+        elif (
+            rejeicao_cota is not None and (ultimo_sucesso is None or rejeicao_cota > ultimo_sucesso)
+        ) or usados >= provedor.limite_diario:
+            situacao_provedor = "esgotado"
+        elif percentual >= provedor.alerta_percentual:
+            situacao_provedor = "alerta"
+        else:
+            situacao_provedor = "disponivel"
+        provedores.append(
+            {
+                "id": provedor.identificador,
+                "nome": provedor.nome,
+                "situacao": situacao_provedor,
+                "usados": usados,
+                "limite": provedor.limite_diario,
+                "restantes": max(0, provedor.limite_diario - usados),
+                "percentual": percentual,
+                "alerta_percentual": provedor.alerta_percentual,
+            }
         )
-    ).scalar_one_or_none()
-    limite = max(1, settings.email_daily_limit)
-    percentual = min(100, round((usados / limite) * 100))
-    alerta_em = max(1, min(100, settings.email_daily_warning_percent))
+
+    disponiveis = [item for item in provedores if item["situacao"] not in {"esgotado", "desativado"}]
+    usados = sum(item["usados"] for item in provedores)
+    limite = sum(item["limite"] for item in provedores)
+    percentual = min(100, round((usados / limite) * 100)) if limite else 0
     if not settings.email_enabled:
         situacao = "desativado"
         mensagem = "O envio de e-mails está desativado nesta instalação."
-    elif rejeicao_cota is not None or usados >= limite:
+    elif not disponiveis:
         situacao = "esgotado"
-        mensagem = "Limite diário do provedor atingido. Novos envios estão temporariamente indisponíveis."
-    elif percentual >= alerta_em:
+        mensagem = "A cota dos remetentes disponíveis foi atingida. Novos envios estão temporariamente bloqueados."
+    elif any(item["situacao"] == "alerta" for item in provedores):
         situacao = "alerta"
-        mensagem = f"Atenção: {percentual}% da cota diária de e-mails já foi utilizada."
+        mensagem = "Atenção: um dos remetentes está próximo do limite das últimas 24 horas."
+    elif any(item["situacao"] == "esgotado" for item in provedores):
+        situacao = "disponivel"
+        mensagem = "O remetente de reserva está disponível e assumirá os próximos envios."
     else:
         situacao = "disponivel"
-        mensagem = f"Cota de e-mail disponível: {max(0, limite - usados)} envio(s) estimado(s)."
+        mensagem = "Os remetentes de e-mail estão disponíveis."
     return {
         "situacao": situacao,
         "mensagem": mensagem,
@@ -2323,8 +2373,8 @@ async def status_cota_email(session: SessionDep, _usuario: LeadsViewDep) -> dict
         "limite": limite,
         "restantes": max(0, limite - usados),
         "percentual": percentual,
-        "alerta_percentual": alerta_em,
-        "renova_em": fim.isoformat(),
+        "janela_horas": 24,
+        "provedores": provedores,
     }
 
 

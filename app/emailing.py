@@ -6,6 +6,8 @@ import logging
 import os
 import smtplib
 import ssl
+import time
+from dataclasses import dataclass
 from email.message import EmailMessage
 from urllib.parse import quote
 
@@ -23,6 +25,81 @@ logger = logging.getLogger("ze_registra.emailing")
 # de timeout/conexão (SMTPServerDisconnected, TimeoutError, OSError) é
 # falha transitória, não rejeição, e não é contado aqui.
 _ERROS_REJEICAO_SMTP = (smtplib.SMTPResponseException, smtplib.SMTPRecipientsRefused)
+_PROVEDORES_ESGOTADOS_ATE: dict[str, float] = {}
+
+
+@dataclass(frozen=True)
+class ProvedorSMTP:
+    identificador: str
+    nome: str
+    email_from_address: str
+    email_from_name: str
+    smtp_host: str
+    smtp_port: int
+    smtp_username: str
+    smtp_password: str
+    smtp_starttls: bool
+    smtp_ssl: bool
+    smtp_timeout_seconds: float
+    limite_diario: int
+    alerta_percentual: int
+
+
+def _provedor_principal(settings: Settings) -> ProvedorSMTP:
+    return ProvedorSMTP(
+        identificador="principal",
+        nome="Principal",
+        email_from_address=settings.email_from_address,
+        email_from_name=settings.email_from_name,
+        smtp_host=settings.smtp_host,
+        smtp_port=settings.smtp_port,
+        smtp_username=settings.smtp_username,
+        smtp_password=settings.smtp_password,
+        smtp_starttls=settings.smtp_starttls,
+        smtp_ssl=settings.smtp_ssl,
+        smtp_timeout_seconds=settings.smtp_timeout_seconds,
+        limite_diario=max(1, settings.email_daily_limit),
+        alerta_percentual=max(1, min(100, settings.email_daily_warning_percent)),
+    )
+
+
+def _provedor_secundario(settings: Settings) -> ProvedorSMTP | None:
+    remetente = settings.smtp_secondary_from_address or settings.smtp_secondary_username
+    if not settings.smtp_secondary_enabled or not settings.smtp_secondary_host or not remetente:
+        return None
+    return ProvedorSMTP(
+        identificador="secundario",
+        nome=settings.smtp_secondary_name.strip() or "Secundário",
+        email_from_address=remetente,
+        email_from_name=settings.smtp_secondary_from_name,
+        smtp_host=settings.smtp_secondary_host,
+        smtp_port=settings.smtp_secondary_port,
+        smtp_username=settings.smtp_secondary_username,
+        smtp_password=settings.smtp_secondary_password,
+        smtp_starttls=settings.smtp_secondary_starttls,
+        smtp_ssl=settings.smtp_secondary_ssl,
+        smtp_timeout_seconds=settings.smtp_secondary_timeout_seconds,
+        limite_diario=max(1, settings.email_secondary_daily_limit),
+        alerta_percentual=max(1, min(100, settings.email_secondary_daily_warning_percent)),
+    )
+
+
+def listar_provedores_email(settings: Settings, operacao: str) -> list[ProvedorSMTP]:
+    """Resolve o pool sem expor credenciais nem alterar o modo legado."""
+    principal = _provedor_principal(settings)
+    secundario = _provedor_secundario(settings)
+    estrategia = settings.email_provider_strategy.strip().lower()
+    if secundario is None or estrategia == "single":
+        return [principal]
+    if estrategia == "failover":
+        return [principal, secundario]
+    if estrategia == "category":
+        operacoes_secundarias = {
+            item.strip() for item in settings.email_secondary_operations.split(",") if item.strip()
+        }
+        return [secundario] if operacao in operacoes_secundarias else [principal]
+    logger.warning("Estratégia de e-mail inválida; usando somente o provedor principal")
+    return [principal]
 
 
 async def _registrar_email_rejeitado(operacao: str, exc: Exception) -> None:
@@ -32,6 +109,8 @@ async def _registrar_email_rejeitado(operacao: str, exc: Exception) -> None:
     requisição HTTP quanto do worker em segundo plano, sem sessão
     compartilhada disponível (mesmo padrão de app.observability._registrar)."""
     if not isinstance(exc, _ERROS_REJEICAO_SMTP):
+        return
+    if getattr(exc, "_zeregistra_rejeicao_registrada", False):
         return
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return
@@ -48,6 +127,7 @@ async def _registrar_email_rejeitado(operacao: str, exc: Exception) -> None:
                     detalhes={
                         "mensagem": str(exc)[:300],
                         "motivo": "quota_diaria" if erro_cota_diaria_email(exc) else "rejeitado_smtp",
+                        "provedor": getattr(exc, "_zeregistra_provedor", "principal"),
                     },
                 )
             )
@@ -70,7 +150,7 @@ def erro_cota_diaria_email(exc: Exception) -> bool:
     )
 
 
-async def _registrar_email_enviado(operacao: str) -> None:
+async def _registrar_email_enviado(operacao: str, provedor: ProvedorSMTP) -> None:
     """Telemetria sem destinatário/assunto: permite acompanhar a cota sem PII."""
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return
@@ -84,7 +164,7 @@ async def _registrar_email_enviado(operacao: str) -> None:
                     duracao_ms=0,
                     status_http=0,
                     codigo_erro=None,
-                    detalhes={},
+                    detalhes={"provedor": provedor.identificador},
                 )
             )
             await session.commit()
@@ -93,8 +173,38 @@ async def _registrar_email_enviado(operacao: str) -> None:
 
 
 async def _enviar_smtp_contabilizado(mensagem: EmailMessage, settings: Settings, operacao: str) -> None:
-    await asyncio.to_thread(_enviar_smtp, mensagem, settings)
-    await _registrar_email_enviado(operacao)
+    provedores = listar_provedores_email(settings, operacao)
+    disponiveis = [
+        provedor
+        for provedor in provedores
+        if _PROVEDORES_ESGOTADOS_ATE.get(provedor.identificador, 0) <= time.monotonic()
+    ]
+    if not disponiveis:
+        erro = smtplib.SMTPDataError(550, b"5.4.5 Daily user sending limit exceeded")
+        erro._zeregistra_provedor = provedores[0].identificador
+        raise erro
+    for indice, provedor in enumerate(disponiveis):
+        if "From" in mensagem:
+            mensagem.replace_header("From", f"{provedor.email_from_name} <{provedor.email_from_address}>")
+        else:
+            mensagem["From"] = f"{provedor.email_from_name} <{provedor.email_from_address}>"
+        try:
+            await asyncio.to_thread(_enviar_smtp, mensagem, provedor)
+            _PROVEDORES_ESGOTADOS_ATE.pop(provedor.identificador, None)
+            await _registrar_email_enviado(operacao, provedor)
+            return
+        except Exception as exc:
+            exc._zeregistra_provedor = provedor.identificador
+            if not erro_cota_diaria_email(exc):
+                raise
+            # A resposta 550/5.4.5 é definitiva para esta tentativa; portanto,
+            # é seguro tentar o próximo remetente sem risco de envio duplicado.
+            espera = max(1, settings.email_provider_quota_cooldown_minutes) * 60
+            _PROVEDORES_ESGOTADOS_ATE[provedor.identificador] = time.monotonic() + espera
+            await _registrar_email_rejeitado(operacao, exc)
+            exc._zeregistra_rejeicao_registrada = True
+            if indice == len(disponiveis) - 1:
+                raise
 
 
 def _link_recuperacao(settings: Settings, token: str) -> str:
@@ -148,7 +258,7 @@ def _mensagem_recuperacao(destinatario: str, nome: str, token: str, settings: Se
     return mensagem
 
 
-def _enviar_smtp(mensagem: EmailMessage, settings: Settings) -> None:
+def _enviar_smtp(mensagem: EmailMessage, settings: Settings | ProvedorSMTP) -> None:
     if settings.smtp_ssl:
         with smtplib.SMTP_SSL(
             settings.smtp_host,

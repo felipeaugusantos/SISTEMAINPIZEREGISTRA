@@ -5,7 +5,9 @@ from email.message import EmailMessage
 import pytest
 
 from app.emailing import (
+    ProvedorSMTP,
     _enviar_smtp,
+    _enviar_smtp_contabilizado,
     _link_recuperacao,
     _mensagem_recuperacao,
     _registrar_email_rejeitado,
@@ -160,11 +162,72 @@ def test_cota_diaria_interrompe_retentativas_smtp(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr("app.emailing.get_settings", configuracao_email)
     monkeypatch.setattr("app.emailing._enviar_smtp", _smtp_esgotado)
     monkeypatch.setattr("app.emailing._registrar_email_rejeitado", _ignorar_registro)
+    monkeypatch.setattr("app.emailing._PROVEDORES_ESGOTADOS_ATE", {})
 
     with pytest.raises(smtplib.SMTPDataError):
         asyncio.run(enviar_email_prospeccao_lead("lead@example.test", "Assunto", "Conteúdo"))
 
     assert tentativas == 1
+
+
+def test_categoria_comercial_usa_provedor_secundario(monkeypatch: pytest.MonkeyPatch) -> None:
+    usados: list[str] = []
+    settings = configuracao_email().model_copy(
+        update={
+            "email_provider_strategy": "category",
+            "smtp_secondary_enabled": True,
+            "smtp_secondary_host": "smtp.gmail.com",
+            "smtp_secondary_username": "comercial@example.test",
+            "smtp_secondary_password": "segredo",
+            "smtp_secondary_from_address": "comercial@example.test",
+        }
+    )
+    mensagem = EmailMessage()
+    mensagem["From"] = "Zé Registra <principal@example.test>"
+    mensagem["To"] = "lead@example.test"
+    mensagem.set_content("Teste")
+    monkeypatch.setattr("app.emailing._PROVEDORES_ESGOTADOS_ATE", {})
+    monkeypatch.setattr("app.emailing._enviar_smtp", lambda _msg, provider: usados.append(provider.identificador))
+
+    asyncio.run(_enviar_smtp_contabilizado(mensagem, settings, "prospeccao_lead"))
+
+    assert usados == ["secundario"]
+    assert mensagem["From"] == "Zé Registra <comercial@example.test>"
+
+
+def test_failover_troca_de_conta_somente_apos_rejeicao_definitiva(monkeypatch: pytest.MonkeyPatch) -> None:
+    usados: list[str] = []
+    settings = configuracao_email().model_copy(
+        update={
+            "email_provider_strategy": "failover",
+            "smtp_secondary_enabled": True,
+            "smtp_secondary_host": "smtp.gmail.com",
+            "smtp_secondary_username": "reserva@example.test",
+            "smtp_secondary_from_address": "reserva@example.test",
+        }
+    )
+    mensagem = EmailMessage()
+    mensagem["From"] = "Zé Registra <principal@example.test>"
+    mensagem["To"] = "lead@example.test"
+    mensagem.set_content("Teste")
+
+    def _enviar(_msg: EmailMessage, provider: ProvedorSMTP) -> None:
+        identificador = provider.identificador
+        usados.append(identificador)
+        if identificador == "principal":
+            raise smtplib.SMTPDataError(550, b"5.4.5 Daily user sending limit exceeded")
+
+    async def _ignorar_registro(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr("app.emailing._PROVEDORES_ESGOTADOS_ATE", {})
+    monkeypatch.setattr("app.emailing._enviar_smtp", _enviar)
+    monkeypatch.setattr("app.emailing._registrar_email_rejeitado", _ignorar_registro)
+
+    asyncio.run(_enviar_smtp_contabilizado(mensagem, settings, "prospeccao_lead"))
+
+    assert usados == ["principal", "secundario"]
+    assert mensagem["From"] == "Zé Registra <reserva@example.test>"
 
 
 # --- Achado P1 do Codex no PR #133 (Fase 15.2, 23/09/2026): um fallback

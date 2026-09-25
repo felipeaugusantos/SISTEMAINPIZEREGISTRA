@@ -2641,3 +2641,41 @@ def test_status_email_alerta_antes_de_esgotar_cota(monkeypatch) -> None:
     assert resposta.json()["situacao"] == "alerta"
     assert resposta.json()["percentual"] == 82
     assert resposta.json()["restantes"] == 90
+
+
+def test_status_email_mostra_contas_e_reserva_disponivel(monkeypatch) -> None:
+    settings = get_settings().model_copy(
+        update={
+            "email_enabled": True,
+            "email_provider_strategy": "failover",
+            "smtp_secondary_enabled": True,
+            "smtp_secondary_name": "Comercial",
+            "smtp_secondary_host": "smtp.gmail.com",
+            "smtp_secondary_username": "reserva@example.test",
+            "smtp_secondary_from_address": "reserva@example.test",
+        }
+    )
+    monkeypatch.setattr("app.api.leads.get_settings", lambda: settings)
+    sucesso_antigo = datetime.now(UTC) - timedelta(hours=2)
+    rejeicao_recente = datetime.now(UTC) - timedelta(hours=1)
+    session = FakeSession(
+        [
+            FakeResult(scalar=500),
+            FakeResult(scalar=sucesso_antigo),
+            FakeResult(scalar=rejeicao_recente),
+            FakeResult(scalar=25),
+            FakeResult(scalar=rejeicao_recente),
+            FakeResult(scalar=None),
+        ]
+    )
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario_teste())
+
+    resposta = TestClient(app).get("/v1/admin/leads/status-email")
+
+    assert resposta.status_code == 200
+    payload = resposta.json()
+    assert payload["situacao"] == "disponivel"
+    assert [item["situacao"] for item in payload["provedores"]] == ["esgotado", "disponivel"]
+    assert [item["nome"] for item in payload["provedores"]] == ["Principal", "Comercial"]
+    assert "example.test" not in resposta.text

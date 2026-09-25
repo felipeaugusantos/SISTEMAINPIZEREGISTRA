@@ -394,9 +394,13 @@ async function openLead(id, selectedResearchId = null) {
   ).join("");
   const emailStatus = state.emailStatus;
   const emailBlocked = ["esgotado", "desativado"].includes(emailStatus?.situacao);
+  const provedoresEmail = emailStatus?.provedores?.length ? emailStatus.provedores : (emailStatus ? [emailStatus] : []);
   const emailQuota = emailStatus ? `<section class="lead-email-quota ${escapeHtml(emailStatus.situacao)}" role="status">
-    <div><strong>${escapeHtml(emailStatus.mensagem)}</strong><span>${emailStatus.usados}/${emailStatus.limite} envios contabilizados hoje · renovação ${formatDate(emailStatus.renova_em)}</span></div>
-    <meter min="0" max="100" value="${Number(emailStatus.percentual) || 0}">${Number(emailStatus.percentual) || 0}%</meter>
+    <header><strong>${escapeHtml(emailStatus.mensagem)}</strong><span>Uso estimado em uma janela móvel de ${Number(emailStatus.janela_horas) || 24} horas.</span></header>
+    <div class="lead-email-quota-list">${provedoresEmail.map(provedor => `<article class="${escapeHtml(provedor.situacao)}">
+      <div><strong>${escapeHtml(provedor.nome || "Remetente")}</strong><span>${Number(provedor.usados) || 0}/${Number(provedor.limite) || 0} envios · ${Number(provedor.restantes) || 0} restantes</span></div>
+      <meter min="0" max="100" value="${Number(provedor.percentual) || 0}">${Number(provedor.percentual) || 0}%</meter>
+    </article>`).join("")}</div>
   </section>` : "";
   root.querySelector("#lead-dialog-title").textContent = lead.nome;
   // Achado do usuário (17/09/2026): "histórico de contato confuso" -- a

@@ -107,6 +107,25 @@ class Settings(BaseSettings):
     # adivinhar a cota do provedor; usa este valor para o aviso preventivo.
     email_daily_limit: int = 500
     email_daily_warning_percent: int = 80
+    # Pool opcional de SMTP. "single" preserva o comportamento legado;
+    # "category" separa os e-mails comerciais no provedor secundário;
+    # "failover" usa o secundário quando o principal esgota a cota.
+    email_provider_strategy: str = "single"
+    email_provider_quota_cooldown_minutes: int = 60
+    email_secondary_operations: str = "prospeccao_lead,passo_cadencia"
+    smtp_secondary_enabled: bool = False
+    smtp_secondary_name: str = "Comercial"
+    smtp_secondary_host: str = ""
+    smtp_secondary_port: int = 587
+    smtp_secondary_username: str = ""
+    smtp_secondary_password: str = ""
+    smtp_secondary_from_address: str = ""
+    smtp_secondary_from_name: str = "Zé Registra"
+    smtp_secondary_starttls: bool = True
+    smtp_secondary_ssl: bool = False
+    smtp_secondary_timeout_seconds: float = 10.0
+    email_secondary_daily_limit: int = 500
+    email_secondary_daily_warning_percent: int = 80
     oauth_attempt_minutes: int = 10
     oauth_auto_link_verified_email: bool = True
     google_oauth_enabled: bool = False

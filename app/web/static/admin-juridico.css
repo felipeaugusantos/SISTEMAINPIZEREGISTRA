@@ -110,3 +110,12 @@
   .legal-filter{grid-template-columns:1fr}
   .legal-filter .wide{grid-column:auto}
 }
+
+.legal-policy-form{display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:12px;align-items:center}
+.legal-policy-form>label{display:flex;align-items:center;gap:8px;min-height:42px;font-size:.82rem;color:var(--ink)}
+.legal-policy-form input[type="checkbox"]{width:18px;height:18px;flex:0 0 18px}
+.legal-policy-form .legal-policy-margin{grid-column:span 2;display:grid;grid-template-columns:1fr 90px}
+.legal-policy-form input[type="number"]{width:100%;min-height:42px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box}
+.legal-policy-form button{justify-self:end}
+@media(max-width:1000px){.legal-policy-form{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.legal-policy-form{grid-template-columns:1fr}.legal-policy-form .legal-policy-margin{grid-column:auto}.legal-policy-form button{width:100%}}

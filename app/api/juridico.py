@@ -23,6 +23,8 @@ from app.models import (
     EmpresaCRM,
     EventoAuditoria,
     EventoJuridico,
+    ExcecaoCalendarioJuridico,
+    ExecucaoMotorJuridico,
     FaseLead,
     ItemChecklistPrazo,
     LancamentoFinanceiro,
@@ -36,6 +38,7 @@ from app.models import (
     ProcessoMonitorado,
     PropostaComercial,
     RegraJuridicaVersionada,
+    RegraPrazoJuridico,
     Titular,
     UsuarioOperacoes,
     processo_titulares,
@@ -95,16 +98,16 @@ def _feriados_nacionais(ano: int) -> set[date]:
     return feriados
 
 
-def _eh_dia_util(dia: date) -> bool:
-    return dia.weekday() < 5 and dia not in _feriados_nacionais(dia.year)
+def _eh_dia_util(dia: date, excecoes: set[date] | None = None) -> bool:
+    return dia.weekday() < 5 and dia not in _feriados_nacionais(dia.year) and dia not in (excecoes or set())
 
 
-def _proximo_dia_util(dia: date) -> date:
+def _proximo_dia_util(dia: date, excecoes: set[date] | None = None) -> date:
     """Prorroga para o primeiro dia útil seguinte quando ``dia`` cair em
     sábado, domingo ou feriado nacional — Portaria/INPI/PR nº 08/2022, art.
     6º, § 2º: "prorroga-se automaticamente para o primeiro dia útil o prazo
     que vença no sábado, domingo ou feriado"."""
-    while not _eh_dia_util(dia):
+    while not _eh_dia_util(dia, excecoes):
         dia += timedelta(days=1)
     return dia
 
@@ -332,6 +335,26 @@ def _valor_vigente(historico: list[RegraJuridicaVersionada], data_referencia: da
     return valor_padrao
 
 
+def _regra_prazo_vigente(
+    regras: list[RegraPrazoJuridico],
+    codigo_despacho: str | None,
+    data_referencia: date,
+) -> RegraPrazoJuridico | None:
+    codigo = codigo_numerico(codigo_despacho)
+    if codigo is None:
+        return None
+    aplicaveis = [
+        regra
+        for regra in regras
+        if regra.codigo_despacho == codigo
+        and regra.ativo is not False
+        and (regra.confianca or "homologada") == "homologada"
+        and regra.vigencia_inicio <= data_referencia
+        and (regra.vigencia_fim is None or data_referencia < regra.vigencia_fim)
+    ]
+    return max(aplicaveis, key=lambda regra: regra.vigencia_inicio, default=None)
+
+
 class RegraJuridicaInput(BaseModel):
     codigo: Literal["marco_isencao_taxa_concessao", "prazo_administrativo_padrao_dias"]
     valor: int | date
@@ -427,6 +450,199 @@ async def criar_regra_juridica(
     return _serializar_regra(regra)
 
 
+class RegraPrazoInput(BaseModel):
+    codigo_despacho: str = Field(min_length=1, max_length=12, pattern=r"^[0-9A-Za-z.\-]+$")
+    descricao_oficial: str = Field(min_length=5, max_length=300)
+    tipo_prazo: str
+    acao: str = Field(min_length=3, max_length=180)
+    dias_prazo: int = Field(ge=0, le=3650)
+    contagem: Literal["corridos", "uteis"] = "corridos"
+    vigencia_inicio: date
+    vigencia_fim: date | None = None
+    fonte_legal: str = Field(min_length=10, max_length=2000)
+    checklist: list[str] = Field(default_factory=list, max_length=30)
+    evidencias_exigidas: list[str] = Field(default_factory=list, max_length=30)
+    confianca: Literal["rascunho", "homologada"] = "homologada"
+
+    @field_validator("tipo_prazo")
+    @classmethod
+    def validar_tipo_prazo(cls, value: str) -> str:
+        if value not in TIPOS_PRAZO:
+            raise ValueError("Tipo de prazo inválido")
+        return value
+
+    @model_validator(mode="after")
+    def validar_vigencia(self) -> "RegraPrazoInput":
+        if self.vigencia_fim is not None and self.vigencia_fim <= self.vigencia_inicio:
+            raise ValueError("vigencia_fim deve ser posterior a vigencia_inicio")
+        codigo = codigo_numerico(self.codigo_despacho)
+        if codigo is None:
+            raise ValueError("codigo_despacho não contém um código numérico válido")
+        self.codigo_despacho = codigo
+        self.checklist = [item.strip() for item in self.checklist if item.strip()]
+        self.evidencias_exigidas = [item.strip() for item in self.evidencias_exigidas if item.strip()]
+        return self
+
+
+class ExcecaoCalendarioInput(BaseModel):
+    data_inicio: date
+    data_fim: date
+    tipo: Literal["suspensao", "indisponibilidade", "feriado_oficial"]
+    descricao: str = Field(min_length=5, max_length=300)
+    fonte_oficial: str = Field(min_length=10, max_length=2000)
+
+    @model_validator(mode="after")
+    def validar_periodo(self) -> "ExcecaoCalendarioInput":
+        if self.data_fim < self.data_inicio:
+            raise ValueError("data_fim não pode ser anterior a data_inicio")
+        if (self.data_fim - self.data_inicio).days > 366:
+            raise ValueError("Uma exceção de calendário não pode exceder 366 dias")
+        return self
+
+
+def _serializar_regra_prazo(regra: RegraPrazoJuridico) -> dict:
+    return {
+        "id": regra.id,
+        "codigo_despacho": regra.codigo_despacho,
+        "descricao_oficial": regra.descricao_oficial,
+        "tipo_prazo": regra.tipo_prazo,
+        "acao": regra.acao,
+        "dias_prazo": regra.dias_prazo,
+        "contagem": regra.contagem,
+        "vigencia_inicio": regra.vigencia_inicio,
+        "vigencia_fim": regra.vigencia_fim,
+        "fonte_legal": regra.fonte_legal,
+        "checklist": regra.checklist or [],
+        "evidencias_exigidas": regra.evidencias_exigidas or [],
+        "confianca": regra.confianca,
+        "ativo": regra.ativo,
+        "aprovado_por": regra.aprovado_por,
+        "aprovado_em": regra.aprovado_em,
+    }
+
+
+@router.get("/regras-prazo")
+async def listar_regras_prazo(session: SessionDep, _: ViewDep) -> list[dict]:
+    regras = (
+        (
+            await session.execute(
+                select(RegraPrazoJuridico).order_by(
+                    RegraPrazoJuridico.codigo_despacho,
+                    RegraPrazoJuridico.vigencia_inicio.desc(),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [_serializar_regra_prazo(regra) for regra in regras]
+
+
+@router.post("/regras-prazo", status_code=status.HTTP_201_CREATED)
+async def criar_regra_prazo(
+    dados: RegraPrazoInput,
+    request: Request,
+    session: SessionDep,
+    usuario: SuperAdminDep,
+) -> dict:
+    sobrepostas = (
+        (
+            await session.execute(
+                select(RegraPrazoJuridico.id).where(
+                    RegraPrazoJuridico.codigo_despacho == dados.codigo_despacho,
+                    RegraPrazoJuridico.ativo.is_(True),
+                    or_(
+                        RegraPrazoJuridico.vigencia_fim.is_(None),
+                        RegraPrazoJuridico.vigencia_fim > dados.vigencia_inicio,
+                    ),
+                    or_(dados.vigencia_fim is None, RegraPrazoJuridico.vigencia_inicio < dados.vigencia_fim),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if sobrepostas:
+        aberta_anterior = (
+            await session.execute(
+                select(RegraPrazoJuridico).where(
+                    RegraPrazoJuridico.id.in_(sobrepostas),
+                    RegraPrazoJuridico.vigencia_fim.is_(None),
+                    RegraPrazoJuridico.vigencia_inicio < dados.vigencia_inicio,
+                )
+            )
+        ).scalar_one_or_none()
+        if aberta_anterior is None or len(sobrepostas) != 1:
+            raise HTTPException(409, "A vigência informada se sobrepõe a uma regra existente")
+        # A regra anterior permanece imutável em conteúdo; somente o fim de
+        # sua vigência aberta é fechado pela nova versão.
+        aberta_anterior.vigencia_fim = dados.vigencia_inicio
+    regra = RegraPrazoJuridico(
+        **dados.model_dump(),
+        aprovado_por=usuario.ator,
+    )
+    session.add(regra)
+    await session.flush()
+    _auditar(
+        session,
+        request,
+        usuario,
+        "criar_regra_prazo_juridico",
+        f"regra_prazo:{regra.id}",
+        {"codigo_despacho": regra.codigo_despacho, "vigencia_inicio": regra.vigencia_inicio.isoformat()},
+    )
+    await session.commit()
+    return _serializar_regra_prazo(regra)
+
+
+@router.get("/calendario/excecoes")
+async def listar_excecoes_calendario(session: SessionDep, _: ViewDep) -> list[dict]:
+    itens = (
+        (
+            await session.execute(
+                select(ExcecaoCalendarioJuridico).order_by(ExcecaoCalendarioJuridico.data_inicio.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        {
+            "id": item.id,
+            "data_inicio": item.data_inicio,
+            "data_fim": item.data_fim,
+            "tipo": item.tipo,
+            "descricao": item.descricao,
+            "fonte_oficial": item.fonte_oficial,
+            "ativo": item.ativo,
+            "aprovado_por": item.aprovado_por,
+        }
+        for item in itens
+    ]
+
+
+@router.post("/calendario/excecoes", status_code=status.HTTP_201_CREATED)
+async def criar_excecao_calendario(
+    dados: ExcecaoCalendarioInput,
+    request: Request,
+    session: SessionDep,
+    usuario: SuperAdminDep,
+) -> dict:
+    item = ExcecaoCalendarioJuridico(**dados.model_dump(), aprovado_por=usuario.ator)
+    session.add(item)
+    await session.flush()
+    _auditar(
+        session,
+        request,
+        usuario,
+        "criar_excecao_calendario_juridico",
+        f"excecao_calendario:{item.id}",
+        {"data_inicio": item.data_inicio.isoformat(), "data_fim": item.data_fim.isoformat()},
+    )
+    await session.commit()
+    return {"id": item.id, "ativo": item.ativo}
+
+
 def _classificar_despacho_terminal(
     descricao: str | None, codigo_despacho: str | None = None
 ) -> tuple[str, str] | None:
@@ -463,7 +679,12 @@ def _movimentacao_posterior(terminal: Movimentacao, origem: Movimentacao) -> boo
 FUSO_BRASIL = ZoneInfo("America/Sao_Paulo")
 
 
-def calcular_vencimento(data_base: date, dias: int, contagem: str) -> datetime:
+def calcular_vencimento(
+    data_base: date,
+    dias: int,
+    contagem: str,
+    excecoes: set[date] | None = None,
+) -> datetime:
     """Retorna o instante UTC correspondente ao final do dia (23:59:59) em
     Brasília, não 23:59:59 UTC.
 
@@ -478,15 +699,49 @@ def calcular_vencimento(data_base: date, dias: int, contagem: str) -> datetime:
         restantes = dias
         while restantes:
             atual += timedelta(days=1)
-            if _eh_dia_util(atual):
+            if _eh_dia_util(atual, excecoes):
                 restantes -= 1
     else:
         atual += timedelta(days=dias)
         # Portaria/INPI/PR nº 08/2022, art. 6º, § 2º: prorroga automaticamente
         # para o primeiro dia útil o prazo corrido que vença em sábado,
         # domingo ou feriado nacional.
-        atual = _proximo_dia_util(atual)
+        atual = _proximo_dia_util(atual, excecoes)
     return datetime.combine(atual, time(23, 59, 59), tzinfo=FUSO_BRASIL).astimezone(UTC)
+
+
+def calcular_vencimento_operacional(
+    vencimento_legal: datetime,
+    margem_dias_uteis: int,
+    excecoes: set[date] | None = None,
+) -> datetime:
+    """Antecipa o marco interno sem alterar o vencimento legal oficial."""
+    if margem_dias_uteis <= 0:
+        return vencimento_legal
+    dia = vencimento_legal.astimezone(FUSO_BRASIL).date()
+    restantes = margem_dias_uteis
+    while restantes:
+        dia -= timedelta(days=1)
+        if _eh_dia_util(dia, excecoes):
+            restantes -= 1
+    return datetime.combine(dia, time(23, 59, 59), tzinfo=FUSO_BRASIL).astimezone(UTC)
+
+
+async def _datas_excecao_calendario(session: AsyncSession) -> set[date]:
+    periodos = (
+        await session.execute(
+            select(ExcecaoCalendarioJuridico.data_inicio, ExcecaoCalendarioJuridico.data_fim).where(
+                ExcecaoCalendarioJuridico.ativo.is_(True)
+            )
+        )
+    ).all()
+    datas: set[date] = set()
+    for inicio, fim in periodos:
+        atual = inicio
+        while atual <= fim:
+            datas.add(atual)
+            atual += timedelta(days=1)
+    return datas
 
 
 class PrazoInput(BaseModel):
@@ -524,6 +779,9 @@ class PrazoUpdate(BaseModel):
 class PoliticaJuridicaUpdate(BaseModel):
     exigir_evidencia_conclusao: bool = False
     exigir_segunda_pessoa_critico: bool = False
+    exigir_responsavel_confirmacao: bool = True
+    exigir_checklist_conclusao: bool = True
+    margem_operacional_dias: int = Field(default=0, ge=0, le=30)
 
 
 async def obter_politica_juridica(session: AsyncSession, organizacao_id: int) -> PoliticaJuridica:
@@ -541,6 +799,9 @@ async def obter_politica_juridica(session: AsyncSession, organizacao_id: int) ->
         organizacao_id=organizacao_id,
         exigir_evidencia_conclusao=False,
         exigir_segunda_pessoa_critico=False,
+        exigir_responsavel_confirmacao=True,
+        exigir_checklist_conclusao=True,
+        margem_operacional_dias=0,
     )
 
 
@@ -548,6 +809,9 @@ def _politica_juridica_dict(politica: PoliticaJuridica) -> dict:
     return {
         "exigir_evidencia_conclusao": politica.exigir_evidencia_conclusao,
         "exigir_segunda_pessoa_critico": politica.exigir_segunda_pessoa_critico,
+        "exigir_responsavel_confirmacao": politica.exigir_responsavel_confirmacao is not False,
+        "exigir_checklist_conclusao": politica.exigir_checklist_conclusao is not False,
+        "margem_operacional_dias": politica.margem_operacional_dias or 0,
     }
 
 
@@ -956,6 +1220,7 @@ def _serializar_prazo(row) -> dict:
         "dias_prazo": prazo.dias_prazo,
         "contagem": prazo.contagem,
         "vencimento_em": prazo.vencimento_em,
+        "vencimento_operacional_em": prazo.vencimento_operacional_em,
         "dias_restantes": restantes,
         # Uma publicação antiga, descoberta pelo motor somente depois de o
         # prazo terminar, é referência histórica e não atraso operacional atual.
@@ -982,6 +1247,8 @@ def _serializar_prazo(row) -> dict:
         "escalonar_para_id": prazo.escalonar_para_id,
         "escalonar_para": escalacao,
         "escalonado_em": prazo.escalonado_em,
+        "revisado_historico_em": prazo.revisado_historico_em,
+        "revisado_historico_por": prazo.revisado_historico_por,
     }
 
 
@@ -1453,6 +1720,9 @@ async def criar_prazo(dados: PrazoInput, request: Request, session: SessionDep, 
     for user_id in (dados.responsavel_id, dados.escalonar_para_id):
         if not await _usuario_valido(session, usuario.organizacao_id, user_id):
             raise HTTPException(404, "Responsável não encontrado")
+    excecoes = await _datas_excecao_calendario(session)
+    politica = await obter_politica_juridica(session, usuario.organizacao_id)
+    vencimento_legal = calcular_vencimento(dados.data_base, dados.dias_prazo, dados.contagem, excecoes)
     prazo = PrazoJuridico(
         organizacao_id=usuario.organizacao_id,
         processo_monitorado_id=dados.processo_monitorado_id,
@@ -1463,7 +1733,10 @@ async def criar_prazo(dados: PrazoInput, request: Request, session: SessionDep, 
         contagem=dados.contagem,
         data_base=dados.data_base,
         dias_prazo=dados.dias_prazo,
-        vencimento_em=calcular_vencimento(dados.data_base, dados.dias_prazo, dados.contagem),
+        vencimento_em=vencimento_legal,
+        vencimento_operacional_em=calcular_vencimento_operacional(
+            vencimento_legal, politica.margem_operacional_dias or 0, excecoes
+        ),
         status="pendente",
         prioridade=dados.prioridade,
         confirmado=True,
@@ -1526,13 +1799,18 @@ async def atualizar_prazo(
         prioridade_final = dados.prioridade or prazo.prioridade
         if prioridade_final == "critica" and not usuario.pode("legal.confirm_critical"):
             raise HTTPException(403, "Confirmar prazo crítico exige permissão adicional (legal.confirm_critical)")
+        politica = await obter_politica_juridica(session, usuario.organizacao_id)
         responsavel_final = dados.responsavel_id or prazo.responsavel_id
-        if responsavel_final is None:
+        if politica.exigir_responsavel_confirmacao is not False and responsavel_final is None:
             raise HTTPException(422, "Defina o responsável antes de confirmar o prazo")
         if not dados.confirmacao_observacoes:
             raise HTTPException(422, "Informe as observações da confirmação jurídica")
         prazo.confirmado = True
-        prazo.status = "pendente"
+        if prazo.status in {"historico", "duplicado", "dispensado"}:
+            prazo.revisado_historico_em = datetime.now(UTC)
+            prazo.revisado_historico_por = usuario.ator
+        else:
+            prazo.status = "pendente"
         prazo.confirmado_por_id = usuario.id
         prazo.confirmado_por = usuario.ator
         prazo.confirmado_em = datetime.now(UTC)
@@ -1565,11 +1843,11 @@ async def atualizar_prazo(
                 .where(ItemChecklistPrazo.prazo_id == prazo.id, ItemChecklistPrazo.concluido.is_(False))
             )
         ).scalar_one()
-        if pendentes:
+        politica = await obter_politica_juridica(session, usuario.organizacao_id)
+        if politica.exigir_checklist_conclusao is not False and pendentes:
             raise HTTPException(
                 422, f"Há {pendentes} item(ns) do checklist ainda pendente(s) -- conclua-os antes de fechar o prazo."
             )
-        politica = await obter_politica_juridica(session, usuario.organizacao_id)
         if politica.exigir_evidencia_conclusao:
             entrega_existente = (
                 await session.execute(
@@ -1640,6 +1918,23 @@ async def editar_politica_juridica(
     for campo, valor in dados.model_dump().items():
         setattr(politica, campo, valor)
     politica.atualizado_por = usuario.ator
+    excecoes = await _datas_excecao_calendario(session)
+    prazos_ativos = (
+        (
+            await session.execute(
+                select(PrazoJuridico).where(
+                    PrazoJuridico.organizacao_id == usuario.organizacao_id,
+                    PrazoJuridico.status.in_(STATUS_ATIVOS),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for prazo in prazos_ativos:
+        prazo.vencimento_operacional_em = calcular_vencimento_operacional(
+            prazo.vencimento_em, dados.margem_operacional_dias, excecoes
+        )
     await session.commit()
     return _politica_juridica_dict(politica)
 
@@ -1683,6 +1978,7 @@ async def registrar_entrega(
             hash_documento=digest,
             caminho=caminho,
             content_type=dados.documento_content_type,
+            tamanho_bytes=len(conteudo),
             criado_por=usuario.ator,
         )
         session.add(documento)
@@ -1727,6 +2023,7 @@ async def listar_documentos_entrega(prazo_id: int, session: SessionDep, usuario:
                 "nome": documento.nome,
                 "hash": documento.hash_documento,
                 "content_type": documento.content_type,
+                "tamanho_bytes": documento.tamanho_bytes,
                 "criado_por": documento.criado_por,
                 "criado_em": documento.criado_em,
             }
@@ -2244,10 +2541,26 @@ async def _reconciliar_prazos_historicos(
     return len(historicos), len(duplicados)
 
 
-async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int, ator: str = "motor-juridico") -> dict:
+async def _executar_motor_organizacao_core(
+    session: AsyncSession, organizacao_id: int, ator: str = "motor-juridico"
+) -> dict:
     """Materializa alertas e sugestões; usado pela API e pela rotina horária."""
     motor_usuario = SimpleNamespace(organizacao_id=organizacao_id, ator=ator)
     agora = datetime.now(UTC)
+    politica = await obter_politica_juridica(session, organizacao_id)
+    excecoes_calendario = await _datas_excecao_calendario(session)
+    regras_prazo = list(
+        (
+            await session.execute(
+                select(RegraPrazoJuridico).where(
+                    RegraPrazoJuridico.ativo.is_(True),
+                    RegraPrazoJuridico.confianca == "homologada",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     reconciliados, _terminais_reconciliados = await _reconciliar_prazos_terminais(session, organizacao_id, ator)
     historicos, duplicados = await _reconciliar_prazos_historicos(session, organizacao_id, ator)
     prazos = (
@@ -2270,16 +2583,22 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
     notificacoes = 0
     escalados = 0
     for prazo in prazos:
-        dias = _dias_restantes(prazo.vencimento_em)
+        marco_operacional = prazo.vencimento_operacional_em or prazo.vencimento_em
+        dias = _dias_restantes(marco_operacional)
+        dias_legais = _dias_restantes(prazo.vencimento_em)
         if dias < 0:
-            prazo.prioridade = "critica"
+            prazo.prioridade = "critica" if dias_legais < 0 else "alta"
             notificacoes += await _notificar(
                 session,
                 prazo,
-                "vencido",
+                "vencido" if dias_legais < 0 else "margem_operacional_atingida",
                 prazo.responsavel_id,
-                "Prazo jurídico vencido",
-                f"{prazo.titulo} venceu há {abs(dias)} dia(s).",
+                "Prazo jurídico vencido" if dias_legais < 0 else "Marco operacional atingido",
+                (
+                    f"{prazo.titulo} venceu há {abs(dias_legais)} dia(s)."
+                    if dias_legais < 0
+                    else f"{prazo.titulo}: margem interna atingida; restam {dias_legais} dia(s) para o prazo legal."
+                ),
                 emails_destinatarios.get(prazo.responsavel_id),
             )
         elif dias <= prazo.antecedencia_dias:
@@ -2386,8 +2705,15 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
         dias_padrao = _valor_vigente(
             historico_prazo_padrao, movimentacao.data_rpi, PRAZO_ADMINISTRATIVO_PADRAO_DIAS
         )
-        classificacao = _classificar_despacho(
-            movimentacao.descricao, codigo_despacho=movimentacao.codigo_despacho, dias_padrao=dias_padrao
+        regra_homologada = _regra_prazo_vigente(regras_prazo, movimentacao.codigo_despacho, movimentacao.data_rpi)
+        classificacao = (
+            (regra_homologada.dias_prazo, regra_homologada.tipo_prazo, regra_homologada.acao)
+            if regra_homologada is not None
+            else _classificar_despacho(
+                movimentacao.descricao,
+                codigo_despacho=movimentacao.codigo_despacho,
+                dias_padrao=dias_padrao,
+            )
         )
         if classificacao is None:
             _marcar_avaliada("sem_prazo_mapeado")
@@ -2428,7 +2754,8 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
         else:
             titulo = f"Revisar: {acao} (RPI {movimentacao.numero_rpi})"
             descricao = movimentacao.descricao or ""
-        vencimento = calcular_vencimento(movimentacao.data_rpi, dias, "corridos")
+        contagem = regra_homologada.contagem if regra_homologada is not None else "corridos"
+        vencimento = calcular_vencimento(movimentacao.data_rpi, dias, contagem, excecoes_calendario)
         referencia_historica = not dispensa_concessao and vencimento < agora
         if referencia_historica:
             titulo = f"Histórico: {acao} (RPI {movimentacao.numero_rpi})"
@@ -2446,10 +2773,13 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
             descricao=descricao[:4000],
             tipo=tipo,
             origem="motor_rpi",
-            contagem="corridos",
+            contagem=contagem,
             data_base=movimentacao.data_rpi,
             dias_prazo=dias,
             vencimento_em=vencimento,
+            vencimento_operacional_em=calcular_vencimento_operacional(
+                vencimento, politica.margem_operacional_dias or 0, excecoes_calendario
+            ),
             status=(
                 "dispensado"
                 if dispensa_concessao
@@ -2465,6 +2795,16 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
         )
         session.add(prazo)
         await session.flush()
+        if regra_homologada is not None:
+            for ordem, descricao_item in enumerate(regra_homologada.checklist or []):
+                session.add(
+                    ItemChecklistPrazo(
+                        organizacao_id=organizacao_id,
+                        prazo_id=prazo.id,
+                        descricao=descricao_item[:300],
+                        ordem=ordem,
+                    )
+                )
         _evento(
             session,
             motor_usuario,
@@ -2478,7 +2818,14 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
             if dispensa_concessao or referencia_historica
             else "Prazo sugerido pelo motor a partir do despacho da RPI; requer confirmação humana",
             prazo.id,
-            {"movimentacao_id": movimentacao.id, "dias_prazo": dias, "tipo": tipo},
+            {
+                "movimentacao_id": movimentacao.id,
+                "dias_prazo": dias,
+                "tipo": tipo,
+                "regra_prazo_id": regra_homologada.id if regra_homologada is not None else None,
+                "fonte_classificacao": "regra_homologada" if regra_homologada is not None else "classificador_legado",
+                "evidencias_exigidas": regra_homologada.evidencias_exigidas if regra_homologada is not None else [],
+            },
         )
         if dispensa_concessao:
             dispensados += 1
@@ -2496,6 +2843,71 @@ async def executar_motor_organizacao(session: AsyncSession, organizacao_id: int,
         "prazos_duplicados": duplicados,
         "avaliados_sem_prazo": avaliados_sem_prazo,
         "backlog_no_limite": len(candidatos) == 2000,
+    }
+
+
+async def executar_motor_organizacao(
+    session: AsyncSession, organizacao_id: int, ator: str = "motor-juridico"
+) -> dict:
+    """Executa o motor e mantém um ledger por organização.
+
+    Em falha, as alterações parciais são revertidas e somente o registro
+    sanitizado da tentativa é persistido; a exceção continua subindo para o
+    mecanismo normal de retry/DLQ do worker.
+    """
+    execucao = ExecucaoMotorJuridico(organizacao_id=organizacao_id)
+    session.add(execucao)
+    await session.flush()
+    try:
+        resultado = await _executar_motor_organizacao_core(session, organizacao_id, ator)
+    except Exception as exc:
+        await session.rollback()
+        falha = ExecucaoMotorJuridico(
+            organizacao_id=organizacao_id,
+            concluido_em=datetime.now(UTC),
+            status="falha",
+            resultado={},
+            erro=f"{type(exc).__name__}: execução interrompida; consulte os logs protegidos",
+        )
+        session.add(falha)
+        await session.commit()
+        raise
+    execucao.status = "sucesso"
+    execucao.concluido_em = datetime.now(UTC)
+    execucao.resultado = resultado
+    return resultado
+
+
+@router.get("/motor/execucoes")
+async def listar_execucoes_motor(
+    session: SessionDep,
+    usuario: ViewDep,
+    limite: int = Query(default=20, ge=1, le=100),
+) -> dict:
+    execucoes = (
+        (
+            await session.execute(
+                select(ExecucaoMotorJuridico)
+                .where(ExecucaoMotorJuridico.organizacao_id == usuario.organizacao_id)
+                .order_by(ExecucaoMotorJuridico.iniciado_em.desc())
+                .limit(limite)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "execucoes": [
+            {
+                "id": item.id,
+                "iniciado_em": item.iniciado_em,
+                "concluido_em": item.concluido_em,
+                "status": item.status,
+                "resultado": item.resultado or {},
+                "erro": item.erro,
+            }
+            for item in execucoes
+        ]
     }
 
 

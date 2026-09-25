@@ -58,6 +58,8 @@ from app.models.juridico import ContratoJuridico as ContratoJuridico
 from app.models.juridico import CustoJuridico as CustoJuridico
 from app.models.juridico import DocumentoEntregaJuridico as DocumentoEntregaJuridico
 from app.models.juridico import EventoJuridico as EventoJuridico
+from app.models.juridico import ExcecaoCalendarioJuridico as ExcecaoCalendarioJuridico
+from app.models.juridico import ExecucaoMotorJuridico as ExecucaoMotorJuridico
 from app.models.juridico import FornecedorJuridico as FornecedorJuridico
 from app.models.juridico import ItemChecklistPrazo as ItemChecklistPrazo
 from app.models.juridico import MovimentacaoAvaliadaJuridico as MovimentacaoAvaliadaJuridico
@@ -65,6 +67,7 @@ from app.models.juridico import NotificacaoJuridica as NotificacaoJuridica
 from app.models.juridico import PoliticaJuridica as PoliticaJuridica
 from app.models.juridico import PrazoJuridico as PrazoJuridico
 from app.models.juridico import RegraJuridicaVersionada as RegraJuridicaVersionada
+from app.models.juridico import RegraPrazoJuridico as RegraPrazoJuridico
 from app.models.marca_busca import AfinidadeClasse as AfinidadeClasse
 from app.models.marca_busca import AfinidadeViena as AfinidadeViena
 from app.models.marca_busca import AvaliacaoRiscoMarca as AvaliacaoRiscoMarca

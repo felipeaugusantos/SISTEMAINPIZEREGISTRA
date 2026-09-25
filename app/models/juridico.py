@@ -6,6 +6,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -146,6 +147,9 @@ class PrazoJuridico(Base):
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    vencimento_operacional_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    revisado_historico_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revisado_historico_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
 
     processo_monitorado: Mapped["ProcessoMonitorado"] = relationship(back_populates="prazos_juridicos", lazy="selectin")
     responsavel: Mapped["UsuarioOperacoes | None"] = relationship(foreign_keys=[responsavel_id], lazy="selectin")
@@ -155,9 +159,9 @@ class PrazoJuridico(Base):
 class PoliticaJuridica(Base):
     """Regras operacionais do módulo jurídico configuradas por organização.
 
-    Achado 5.3 da auditoria (01/09/2026): por padrão nada muda — as duas
-    exigências abaixo são opt-in, desligadas por padrão, para não travar
-    operações pequenas que hoje concluem prazos sozinhas.
+    Evidência e segunda pessoa continuam opt-in. Responsável e checklist
+    preservam os guardrails já existentes; a margem interna nasce em zero e
+    só antecipa a operação após decisão explícita da organização.
     """
 
     __tablename__ = "politicas_juridicas"
@@ -167,6 +171,9 @@ class PoliticaJuridica(Base):
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
     exigir_evidencia_conclusao: Mapped[bool] = mapped_column(Boolean, default=False)
     exigir_segunda_pessoa_critico: Mapped[bool] = mapped_column(Boolean, default=False)
+    exigir_responsavel_confirmacao: Mapped[bool] = mapped_column(Boolean, default=True)
+    exigir_checklist_conclusao: Mapped[bool] = mapped_column(Boolean, default=True)
+    margem_operacional_dias: Mapped[int] = mapped_column(Integer, default=0)
     atualizado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -198,6 +205,69 @@ class RegraJuridicaVersionada(Base):
     observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
     criado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RegraPrazoJuridico(Base):
+    """Regra de docketing por código oficial de despacho, append-only por vigência."""
+
+    __tablename__ = "regras_prazo_juridico"
+    __table_args__ = (
+        UniqueConstraint("codigo_despacho", "vigencia_inicio", name="uq_regra_prazo_codigo_vigencia"),
+        CheckConstraint("dias_prazo BETWEEN 0 AND 3650", name="ck_regra_prazo_dias"),
+        CheckConstraint("contagem IN ('corridos','uteis')", name="ck_regra_prazo_contagem"),
+        CheckConstraint("confianca IN ('rascunho','homologada')", name="ck_regra_prazo_confianca"),
+        CheckConstraint("vigencia_fim IS NULL OR vigencia_fim > vigencia_inicio", name="ck_regra_prazo_vigencia"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    codigo_despacho: Mapped[str] = mapped_column(String(12), index=True)
+    descricao_oficial: Mapped[str] = mapped_column(String(300))
+    tipo_prazo: Mapped[str] = mapped_column(String(40), index=True)
+    acao: Mapped[str] = mapped_column(String(180))
+    dias_prazo: Mapped[int] = mapped_column(Integer)
+    contagem: Mapped[str] = mapped_column(String(20), default="corridos")
+    vigencia_inicio: Mapped[date] = mapped_column(Date, index=True)
+    vigencia_fim: Mapped[date | None] = mapped_column(Date, nullable=True)
+    fonte_legal: Mapped[str] = mapped_column(Text)
+    checklist: Mapped[list[str]] = mapped_column(JSON, default=list)
+    evidencias_exigidas: Mapped[list[str]] = mapped_column(JSON, default=list)
+    confianca: Mapped[str] = mapped_column(String(20), default="homologada")
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    aprovado_por: Mapped[str] = mapped_column(String(254))
+    aprovado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ExcecaoCalendarioJuridico(Base):
+    """Suspensão/indisponibilidade oficial que afeta o calendário de prazos."""
+
+    __tablename__ = "excecoes_calendario_juridico"
+    __table_args__ = (
+        UniqueConstraint("data_inicio", "data_fim", "tipo", name="uq_excecao_calendario_periodo_tipo"),
+        CheckConstraint("data_fim >= data_inicio", name="ck_excecao_calendario_periodo"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    data_inicio: Mapped[date] = mapped_column(Date, index=True)
+    data_fim: Mapped[date] = mapped_column(Date, index=True)
+    tipo: Mapped[str] = mapped_column(String(30))
+    descricao: Mapped[str] = mapped_column(String(300))
+    fonte_oficial: Mapped[str] = mapped_column(Text)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    aprovado_por: Mapped[str] = mapped_column(String(254))
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ExecucaoMotorJuridico(Base):
+    """Ledger operacional do motor, inclusive backlog e falhas."""
+
+    __tablename__ = "execucoes_motor_juridico"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    iniciado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    concluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="executando", index=True)
+    resultado: Mapped[dict] = mapped_column(JSON, default=dict)
+    erro: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class MovimentacaoAvaliadaJuridico(Base):
@@ -260,6 +330,7 @@ class DocumentoEntregaJuridico(Base):
     hash_documento: Mapped[str] = mapped_column(String(64), index=True)
     caminho: Mapped[str] = mapped_column(Text)
     content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tamanho_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     criado_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 

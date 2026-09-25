@@ -26,6 +26,7 @@ from app.api.juridico import (
     PrazoUpdate,
     ReceberEncaminhamentoInput,
     RegraJuridicaInput,
+    RegraPrazoInput,
     _classificar_despacho,
     _classificar_despacho_terminal,
     _dias_restantes,
@@ -37,12 +38,14 @@ from app.api.juridico import (
     _pendencias_encaminhamento,
     _reconciliar_prazos_historicos,
     _reconciliar_prazos_terminais,
+    _regra_prazo_vigente,
     _serializar_prazo,
     _status_encaminhamento,
     _valor_vigente,
     atualizar_item_checklist,
     atualizar_prazo,
     calcular_vencimento,
+    calcular_vencimento_operacional,
     consultar_regras_juridicas,
     criar_prazo,
     criar_regra_juridica,
@@ -60,6 +63,7 @@ from app.models import (
     DocumentoLead,
     EventoDominio,
     EventoJuridico,
+    ExecucaoMotorJuridico,
     Lead,
     Movimentacao,
     MovimentacaoAvaliadaJuridico,
@@ -68,6 +72,7 @@ from app.models import (
     ProcessoMonitorado,
     PropostaComercial,
     RegraJuridicaVersionada,
+    RegraPrazoJuridico,
     UsuarioOperacoes,
 )
 from tests.conftest import FakeResult, FakeSession, usuario_teste
@@ -97,6 +102,30 @@ FUSO_BRASIL_TESTE = ZoneInfo("America/Sao_Paulo")
 
 def _data_brasil(vencimento: datetime) -> date:
     return vencimento.astimezone(FUSO_BRASIL_TESTE).date()
+
+
+def test_excecao_oficial_prorroga_vencimento_e_margem_nao_altera_prazo_legal() -> None:
+    excecoes = {date(2026, 10, 13)}
+    legal = calcular_vencimento(date(2026, 10, 9), 1, "corridos", excecoes)
+    operacional = calcular_vencimento_operacional(legal, 2, excecoes)
+    assert _data_brasil(legal) == date(2026, 10, 14)
+    assert _data_brasil(operacional) == date(2026, 10, 8)
+
+
+def test_regra_prazo_normaliza_codigo_e_respeita_vigencia() -> None:
+    entrada = RegraPrazoInput(
+        codigo_despacho="IPAS010",
+        descricao_oficial="Exigência formal",
+        tipo_prazo="exigencia",
+        acao="Responder exigência",
+        dias_prazo=60,
+        vigencia_inicio=date(2026, 1, 1),
+        fonte_legal="Fonte oficial do INPI",
+    )
+    assert entrada.codigo_despacho == "010"
+    regra = RegraPrazoJuridico(**entrada.model_dump(), aprovado_por="admin")
+    assert _regra_prazo_vigente([regra], "IPAS010", date(2026, 9, 25)) is regra
+    assert _regra_prazo_vigente([regra], "IPAS010", date(2025, 12, 31)) is None
 
 
 def test_status_encaminhamento_explica_bloqueios_e_recebimento() -> None:
@@ -636,7 +665,9 @@ def test_tela_juridica_expoe_fluxos_principais() -> None:
     assert "Executar motor de prazos" in html
     assert "CENTRAL DE NOTIFICAÇÕES" in html
     assert "Registrar entrega" in html
-    assert "admin-juridico.css?v=17" in html
+    assert "admin-juridico.css?v=18" in html
+    assert "Política de prazos" in html
+    assert "margem_operacional_dias" in html
     assert "admin-juridico.js?v=" in html
     assert 'id="view-calendar"' in html
     assert 'option value="historico"' in html
@@ -647,6 +678,17 @@ def test_tela_juridica_expoe_fluxos_principais() -> None:
     assert "pagination.total_clientes" in javascript
     assert "/v1/admin/juridico/motor/executar" in javascript
     assert "/admin/operacao-juridica" in shell
+
+
+def test_migration_governanca_juridica_aplica_rls_e_defaults_compativeis() -> None:
+    migration = Path("migrations/versions/h0c1d2e3f4g5_governanca_operacao_juridica.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'FORCE ROW LEVEL SECURITY' in migration
+    assert "app.superadmin" in migration
+    assert 'server_default="0"' in migration
+    assert "ck_politica_juridica_margem_operacional" in migration
+    assert 'down_revision: str | None = "g9b0c1d2e3f4"' in migration
 
 
 def test_painel_pagina_dez_clientes_sem_cortar_prazos_do_cliente() -> None:
@@ -819,6 +861,29 @@ def test_cancelamento_com_justificativa_e_aceito() -> None:
         )
     )
     assert resultado["status"] == "cancelado"
+
+
+def test_confirmacao_humana_de_historico_nao_reabre_prazo() -> None:
+    prazo = _prazo_ativo(status="historico", confirmado=False, responsavel_id=7)
+    politica = PoliticaJuridica(
+        organizacao_id=1,
+        exigir_responsavel_confirmacao=True,
+        exigir_checklist_conclusao=True,
+    )
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=politica)])
+    resultado = asyncio.run(
+        atualizar_prazo(
+            9,
+            PrazoUpdate(confirmar=True, confirmacao_observacoes="Histórico conferido na RPI."),
+            _request(),
+            session,
+            usuario_teste(),
+        )
+    )
+    assert resultado["status"] == "historico"
+    assert resultado["confirmado"] is True
+    assert prazo.revisado_historico_em is not None
+    assert prazo.revisado_historico_por == usuario_teste().ator
 
 
 def test_conclusao_sem_politica_configurada_nao_exige_evidencia() -> None:
@@ -1031,7 +1096,13 @@ def test_editar_politica_juridica_cria_registro_quando_inexistente() -> None:
             usuario_teste(),
         )
     )
-    assert resultado == {"exigir_evidencia_conclusao": True, "exigir_segunda_pessoa_critico": True}
+    assert resultado == {
+        "exigir_evidencia_conclusao": True,
+        "exigir_segunda_pessoa_critico": True,
+        "exigir_responsavel_confirmacao": True,
+        "exigir_checklist_conclusao": True,
+        "margem_operacional_dias": 0,
+    }
     assert session.commits == 1
     assert len(session.adicionados) == 1
 
@@ -1210,6 +1281,9 @@ def test_motor_marca_despacho_nao_mapeado_como_avaliado_em_vez_de_ignorar_para_s
     )
     session = FakeSession(
         [
+            FakeResult(scalar=None),  # politica (fallback seguro)
+            FakeResult(itens=[]),  # excecoes de calendario
+            FakeResult(itens=[]),  # regras de prazo homologadas
             FakeResult(itens=[]),  # _reconciliar_prazos_terminais: pendencias
             FakeResult(itens=[]),  # _reconciliar_prazos_historicos: linhas
             FakeResult(itens=[]),  # prazos ativos confirmados
@@ -1231,6 +1305,9 @@ def test_motor_marca_despacho_nao_mapeado_como_avaliado_em_vez_de_ignorar_para_s
     prazos_criados = [obj for obj in session.adicionados if isinstance(obj, PrazoJuridico)]
     assert len(prazos_criados) == 1
     assert prazos_criados[0].tipo == "exigencia"
+    execucoes = [obj for obj in session.adicionados if isinstance(obj, ExecucaoMotorJuridico)]
+    assert execucoes[0].status == "sucesso"
+    assert execucoes[0].resultado["prazos_sugeridos"] == 1
 
 
 def test_motor_sinaliza_backlog_no_limite_quando_consulta_retorna_o_maximo() -> None:
@@ -1248,6 +1325,9 @@ def test_motor_sinaliza_backlog_no_limite_quando_consulta_retorna_o_maximo() -> 
     candidatos_no_limite = [(monitorado, movimentacao)] * 2000
     session = FakeSession(
         [
+            FakeResult(scalar=None),
+            FakeResult(itens=[]),
+            FakeResult(itens=[]),
             FakeResult(itens=[]),
             FakeResult(itens=[]),
             FakeResult(itens=[]),
@@ -1260,6 +1340,27 @@ def test_motor_sinaliza_backlog_no_limite_quando_consulta_retorna_o_maximo() -> 
     )
     resultado = asyncio.run(executar_motor_organizacao(session, organizacao_id=1))
     assert resultado["backlog_no_limite"] is True
+
+
+def test_motor_registra_falha_sanitizada_e_preserva_excecao() -> None:
+    class SessionComFalha(FakeSession):
+        async def execute(self, statement=None, *_args, **_kwargs):
+            raise RuntimeError("segredo que não pode ir para o ledger")
+
+    session = SessionComFalha()
+    try:
+        asyncio.run(executar_motor_organizacao(session, organizacao_id=1))
+        raise AssertionError("Esperava a falha original do motor")
+    except RuntimeError:
+        pass
+    falhas = [
+        obj
+        for obj in session.adicionados
+        if isinstance(obj, ExecucaoMotorJuridico) and obj.status == "falha"
+    ]
+    assert len(falhas) == 1
+    assert "segredo" not in falhas[0].erro
+    assert session.commits == 1
 
 
 # --- Achado 5.7 da auditoria (02/09/2026): prioridade do código de despacho (Fase 5) ---
@@ -1371,6 +1472,7 @@ def test_registrar_entrega_com_documento_calcula_hash_e_persiste_via_storage() -
     assert len(documentos) == 1
     assert documentos[0].hash_documento == digest_esperado
     assert documentos[0].nome == "comprovante.pdf"
+    assert documentos[0].tamanho_bytes == len(conteudo)
 
 
 def test_registrar_entrega_rejeita_base64_invalido() -> None:
@@ -1405,12 +1507,14 @@ def test_listar_documentos_entrega_retorna_lista_serializada() -> None:
         hash_documento="abc123",
         caminho="data/uploads/juridico/1/9/abc123-comprovante.pdf",
         content_type="application/pdf",
+        tamanho_bytes=321,
         criado_por="admin@teste.local",
     )
     session = FakeSession([FakeResult(scalar=prazo), FakeResult(itens=[documento])])
     resultado = asyncio.run(listar_documentos_entrega(prazo.id, session, usuario_teste()))
     assert resultado["documentos"][0]["hash"] == "abc123"
     assert resultado["documentos"][0]["nome"] == "comprovante.pdf"
+    assert resultado["documentos"][0]["tamanho_bytes"] == 321
 
 
 # --- Achado 5.9 da auditoria (02/09/2026): alerta de prazo por e-mail (Fase 8) ---

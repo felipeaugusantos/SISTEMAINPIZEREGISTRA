@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Operação jurídica — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=67">
-  <link rel="stylesheet" href="/static/admin-juridico.css?v=17">
+  <link rel="stylesheet" href="/static/admin-juridico.css?v=18">
   <script src="/static/admin-shell.js?v=52" defer></script>
-  <script src="/static/admin-juridico.js?v=15" defer></script>
+  <script src="/static/admin-juridico.js?v=16" defer></script>
 </head>
 <body class="admin-body" data-admin-section="legal">
   <main class="admin-main legal-main">
@@ -26,6 +26,22 @@
 
     <div id="legal-message" class="status-message" role="status" aria-live="polite" hidden></div>
     <section id="legal-metrics" class="legal-metrics" aria-label="Indicadores jurídicos"></section>
+
+    <section class="legal-card legal-policy-card">
+      <header>
+        <div><p class="eyebrow">GOVERNANÇA OPERACIONAL</p><h2>Política de prazos</h2></div>
+        <span id="legal-engine-status" class="legal-count">Motor ainda não executado</span>
+      </header>
+      <form id="legal-policy-form" class="legal-policy-form">
+        <label><input type="checkbox" name="exigir_responsavel_confirmacao"> <span>Exigir responsável antes da confirmação</span></label>
+        <label><input type="checkbox" name="exigir_checklist_conclusao"> <span>Bloquear conclusão com checklist pendente</span></label>
+        <label><input type="checkbox" name="exigir_evidencia_conclusao"> <span>Exigir evidência de entrega</span></label>
+        <label><input type="checkbox" name="exigir_segunda_pessoa_critico"> <span>Segunda pessoa em prazo crítico</span></label>
+        <label class="legal-policy-margin"><span>Margem operacional (dias úteis antes do prazo legal)</span><input type="number" name="margem_operacional_dias" min="0" max="30" value="0"></label>
+        <button class="primary-button" type="submit">Salvar política</button>
+      </form>
+      <p class="legal-section-help">A margem cria um marco interno antecipado. O vencimento legal permanece registrado e visível.</p>
+    </section>
 
     <section class="legal-card legal-intake-card">
       <header>

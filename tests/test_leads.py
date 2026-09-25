@@ -2601,3 +2601,43 @@ def test_enviar_email_prospeccao_propaga_falha_de_envio_como_502(monkeypatch) ->
     )
 
     assert resposta.status_code == 502
+
+
+def test_enviar_email_prospeccao_informa_cota_diaria_esgotada(monkeypatch) -> None:
+    import smtplib
+
+    async def _fake_enviar(*args: object, **kwargs: object) -> None:
+        raise smtplib.SMTPDataError(550, b"5.4.5 Daily user sending limit exceeded")
+
+    monkeypatch.setattr("app.api.leads.enviar_email_prospeccao_lead", _fake_enviar)
+    lead = _lead_para_email()
+    org = SimpleNamespace(id=1, nome="Organização Teste", telefone_contato=None, email_contato=None, branding={})
+    session = FakeSession([], objetos_get=[lead, org])
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/9/enviar-email-prospeccao", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 429
+    assert "Limite diário" in resposta.json()["detail"]
+
+
+def test_status_email_alerta_antes_de_esgotar_cota(monkeypatch) -> None:
+    settings = get_settings().model_copy(
+        update={"email_enabled": True, "email_daily_limit": 500, "email_daily_warning_percent": 80}
+    )
+    monkeypatch.setattr("app.api.leads.get_settings", lambda: settings)
+    session = FakeSession([FakeResult(scalar=410), FakeResult(scalar=None)])
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario_teste())
+
+    resposta = TestClient(app).get("/v1/admin/leads/status-email")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["situacao"] == "alerta"
+    assert resposta.json()["percentual"] == 82
+    assert resposta.json()["restantes"] == 90

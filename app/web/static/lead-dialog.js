@@ -7,7 +7,7 @@ window.createLeadDialog = (() => {
     const dialog = root.querySelector("#lead-dialog");
     const dialogContent = root.querySelector("#lead-dialog-content");
     message ||= root.querySelector("#admin-message");
-    const state = { owners: [], canManage: false, canDeleteResearch: false, canPii: false, openLeadId: null };
+    const state = { owners: [], canManage: false, canDeleteResearch: false, canPii: false, openLeadId: null, emailStatus: null };
     async function loadContext() {
       const usuario = await responsePayload(await fetch("/v1/auth/me"));
       const pode = chave => usuario.superadmin || usuario.perfil === "administrador" || (usuario.permissoes || []).includes(chave);
@@ -16,6 +16,8 @@ window.createLeadDialog = (() => {
       state.canPii = Boolean(pode("leads.pii.view"));
       const response = await fetch("/v1/admin/leads-responsaveis");
       state.owners = response.ok ? (await response.json()).itens || [] : [];
+      const emailResponse = await fetch("/v1/admin/leads/status-email");
+      state.emailStatus = emailResponse.ok ? await emailResponse.json() : null;
     }
 const researchDeleteDialog = root.querySelector("#research-delete-dialog");
 const researchDeleteForm = root.querySelector("#research-delete-form");
@@ -71,7 +73,11 @@ function showMessage(text, kind = "") {
 
 async function responsePayload(response) {
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.detail || `Falha na operação (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(payload.detail || `Falha na operação (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
   return payload;
 }
 
@@ -386,6 +392,12 @@ async function openLead(id, selectedResearchId = null) {
   const researchOptions = lead.pesquisas.map(item =>
     `<option value="${escapeHtml(item.id)}">${escapeHtml(item.marca)} · ${formatDate(item.criado_em, false)}</option>`
   ).join("");
+  const emailStatus = state.emailStatus;
+  const emailBlocked = ["esgotado", "desativado"].includes(emailStatus?.situacao);
+  const emailQuota = emailStatus ? `<section class="lead-email-quota ${escapeHtml(emailStatus.situacao)}" role="status">
+    <div><strong>${escapeHtml(emailStatus.mensagem)}</strong><span>${emailStatus.usados}/${emailStatus.limite} envios contabilizados hoje · renovação ${formatDate(emailStatus.renova_em)}</span></div>
+    <meter min="0" max="100" value="${Number(emailStatus.percentual) || 0}">${Number(emailStatus.percentual) || 0}%</meter>
+  </section>` : "";
   root.querySelector("#lead-dialog-title").textContent = lead.nome;
   // Achado do usuário (17/09/2026): "histórico de contato confuso" -- a
   // linha do tempo unificada (app/api/leads.py::timeline_lead) já existia
@@ -408,7 +420,8 @@ async function openLead(id, selectedResearchId = null) {
   ];
   dialogContent.innerHTML = `
     ${lead.processo_vinculado_pendente ? processoNaoVinculadoAviso(lead) : ""}
-    <section class="lead-contact-summary"><div data-icon="email"><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>${state.canManage && lead.email ? ` <button type="button" class="secondary-button lead-send-email" data-lead-id="${lead.id}">Enviar e-mail</button>` : ""}</div><div data-icon="telefone"><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a>${phoneDigits(lead.telefone) ? ` <a class="secondary-button" href="https://wa.me/${phoneDigits(lead.telefone)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div><div id="lead-site-row" hidden><span>Site</span><a id="lead-site-link" href="#" target="_blank" rel="noopener"></a></div><div data-icon="documento"><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div data-icon="empresa"><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong>${lead.empresa ? ` <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(lead.empresa)}" target="_blank" rel="noopener">Buscar no Google</a> <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(`site:instagram.com ${lead.empresa}`)}" target="_blank" rel="noopener">Buscar no Instagram</a>` : ""}</div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div><div><span>Prioridade (IA)</span><strong id="lead-qualificacao-badge">—</strong></div></section>
+    ${emailQuota}
+    <section class="lead-contact-summary"><div data-icon="email"><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>${state.canManage && lead.email ? ` <button type="button" class="secondary-button lead-send-email" data-lead-id="${lead.id}" ${emailBlocked ? "disabled" : ""}>${emailBlocked ? "Limite atingido" : "Enviar e-mail"}</button>` : ""}</div><div data-icon="telefone"><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a>${phoneDigits(lead.telefone) ? ` <a class="secondary-button" href="https://wa.me/${phoneDigits(lead.telefone)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div><div id="lead-site-row" hidden><span>Site</span><a id="lead-site-link" href="#" target="_blank" rel="noopener"></a></div><div data-icon="documento"><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div data-icon="empresa"><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong>${lead.empresa ? ` <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(lead.empresa)}" target="_blank" rel="noopener">Buscar no Google</a> <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(`site:instagram.com ${lead.empresa}`)}" target="_blank" rel="noopener">Buscar no Instagram</a>` : ""}</div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div><div><span>Prioridade (IA)</span><strong id="lead-qualificacao-badge">—</strong></div></section>
     <nav class="lead-tabs" role="tablist">${ABAS_LEAD.map(([id, label], i) => `<button type="button" class="lead-tab${i === 0 ? " active" : ""}" role="tab" aria-selected="${i === 0}" data-tab="${id}">${label}</button>`).join("")}</nav>
     <div class="lead-tab-panel" data-panel="atendimento" hidden>
       <section class="lead-qualificacao-ia lg-full" id="lead-qualificacao-ia" hidden></section>
@@ -481,8 +494,8 @@ async function openLead(id, selectedResearchId = null) {
       showMessage("E-mail enviado e registrado no histórico do lead.", "success");
       await openLead(lead.id, selectedResearchId);
     } catch (error) {
-      sendEmailButton.disabled = false;
-      sendEmailButton.textContent = original;
+      sendEmailButton.disabled = error.status === 429;
+      sendEmailButton.textContent = error.status === 429 ? "Limite atingido" : original;
       showMessage(error.message || "Não foi possível enviar o e-mail.", "error");
     }
   });

@@ -42,6 +42,7 @@ from app.emailing import (
     enviar_alerta_lead_atribuido,
     enviar_alerta_novo_lead,
     enviar_email_prospeccao_lead,
+    erro_cota_diaria_email,
 )
 from app.ia_sombra import enfileirar_qualificacao_ia_se_ativa
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
@@ -63,6 +64,7 @@ from app.models import (
     EnvioCadenciaEmail,
     EventoAuditoria,
     EventoDominio,
+    EventoOperacional,
     FaseLead,
     GuiaInpi,
     HistoricoFaseLead,
@@ -97,6 +99,7 @@ from app.schemas import (
     PesquisaLeadResumo,
     RelatorioMarcaResponse,
 )
+from app.settings import get_settings
 from app.storage import StorageError, local_root, read_bytes, save_bytes
 from app.tenancy import OrganizacaoPublicaDep
 from app.trademarks.analysis_workflow import EstadoAnalise, revisao_obrigatoria_pendente
@@ -2225,6 +2228,11 @@ async def enviar_email_prospeccao(
     try:
         await enviar_email_prospeccao_lead(lead.email, assunto, corpo, reply_to=config.get("reply_to") or usuario.email)
     except Exception as exc:
+        if erro_cota_diaria_email(exc):
+            raise HTTPException(
+                status_code=429,
+                detail="Limite diário do provedor de e-mail atingido. O envio será liberado pelo provedor após a renovação da cota.",
+            ) from exc
         raise HTTPException(status_code=502, detail="Nao foi possivel enviar o e-mail agora. Tente novamente.") from exc
     contato = ContatoLead(
         organizacao_id=usuario.organizacao_id,
@@ -2253,6 +2261,71 @@ async def enviar_email_prospeccao(
     await session.commit()
     await session.refresh(contato)
     return _contato_response(contato, None, lead.empresa)
+
+
+@router.get("/v1/admin/leads/status-email")
+async def status_cota_email(session: SessionDep, _usuario: LeadsViewDep) -> dict:
+    """Uso agregado do remetente SMTP, sem destinatários ou conteúdo."""
+    settings = get_settings()
+    agora = datetime.now(UTC)
+    hoje_br = agora.astimezone(FUSO_BRASIL).date()
+    inicio = datetime.combine(hoje_br, datetime.min.time(), FUSO_BRASIL).astimezone(UTC)
+    fim = datetime.combine(hoje_br + timedelta(days=1), datetime.min.time(), FUSO_BRASIL).astimezone(UTC)
+    usados = int(
+        (
+            await session.execute(
+                select(func.count(EventoOperacional.id)).where(
+                    EventoOperacional.componente == "email",
+                    EventoOperacional.sucesso.is_(True),
+                    EventoOperacional.criado_em >= inicio,
+                    EventoOperacional.criado_em < fim,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    rejeicao_cota = (
+        await session.execute(
+            select(EventoOperacional.id)
+            .where(
+                EventoOperacional.componente == "email",
+                EventoOperacional.sucesso.is_(False),
+                EventoOperacional.criado_em >= inicio,
+                EventoOperacional.criado_em < fim,
+                or_(
+                    EventoOperacional.detalhes["motivo"].as_string() == "quota_diaria",
+                    EventoOperacional.detalhes["mensagem"].as_string().ilike("%daily user sending limit exceeded%"),
+                    EventoOperacional.detalhes["mensagem"].as_string().ilike("%daily smtp relay limit exceeded%"),
+                ),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    limite = max(1, settings.email_daily_limit)
+    percentual = min(100, round((usados / limite) * 100))
+    alerta_em = max(1, min(100, settings.email_daily_warning_percent))
+    if not settings.email_enabled:
+        situacao = "desativado"
+        mensagem = "O envio de e-mails está desativado nesta instalação."
+    elif rejeicao_cota is not None or usados >= limite:
+        situacao = "esgotado"
+        mensagem = "Limite diário do provedor atingido. Novos envios estão temporariamente indisponíveis."
+    elif percentual >= alerta_em:
+        situacao = "alerta"
+        mensagem = f"Atenção: {percentual}% da cota diária de e-mails já foi utilizada."
+    else:
+        situacao = "disponivel"
+        mensagem = f"Cota de e-mail disponível: {max(0, limite - usados)} envio(s) estimado(s)."
+    return {
+        "situacao": situacao,
+        "mensagem": mensagem,
+        "usados": usados,
+        "limite": limite,
+        "restantes": max(0, limite - usados),
+        "percentual": percentual,
+        "alerta_percentual": alerta_em,
+        "renova_em": fim.isoformat(),
+    }
 
 
 @router.get("/v1/admin/leads-responsaveis")

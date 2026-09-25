@@ -11,6 +11,8 @@ from app.emailing import (
     _registrar_email_rejeitado,
     enviar_alerta_nova_pesquisa,
     enviar_alerta_novo_lead,
+    enviar_email_prospeccao_lead,
+    erro_cota_diaria_email,
 )
 from app.models import EventoOperacional
 from app.settings import Settings
@@ -136,6 +138,33 @@ def test_registrar_email_rejeitado_ignora_erro_transitorio(monkeypatch: pytest.M
 
     assert session.commits == 0
     assert session.adicionados == []
+
+
+def test_reconhece_limite_diario_do_provedor() -> None:
+    erro = smtplib.SMTPDataError(550, b"5.4.5 Daily user sending limit exceeded")
+    assert erro_cota_diaria_email(erro) is True
+    assert erro_cota_diaria_email(smtplib.SMTPDataError(550, b"Mailbox unavailable")) is False
+
+
+def test_cota_diaria_interrompe_retentativas_smtp(monkeypatch: pytest.MonkeyPatch) -> None:
+    tentativas = 0
+
+    def _smtp_esgotado(*_args: object, **_kwargs: object) -> None:
+        nonlocal tentativas
+        tentativas += 1
+        raise smtplib.SMTPDataError(550, b"5.4.5 Daily user sending limit exceeded")
+
+    async def _ignorar_registro(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr("app.emailing.get_settings", configuracao_email)
+    monkeypatch.setattr("app.emailing._enviar_smtp", _smtp_esgotado)
+    monkeypatch.setattr("app.emailing._registrar_email_rejeitado", _ignorar_registro)
+
+    with pytest.raises(smtplib.SMTPDataError):
+        asyncio.run(enviar_email_prospeccao_lead("lead@example.test", "Assunto", "Conteúdo"))
+
+    assert tentativas == 1
 
 
 # --- Achado P1 do Codex no PR #133 (Fase 15.2, 23/09/2026): um fallback

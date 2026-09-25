@@ -103,6 +103,10 @@ class Settings(BaseSettings):
     smtp_ssl: bool = False
     smtp_timeout_seconds: float = 10.0
     smtp_max_attempts: int = 3
+    # Limite contratado/configurado do remetente SMTP. O sistema não tenta
+    # adivinhar a cota do provedor; usa este valor para o aviso preventivo.
+    email_daily_limit: int = 500
+    email_daily_warning_percent: int = 80
     oauth_attempt_minutes: int = 10
     oauth_auto_link_verified_email: bool = True
     google_oauth_enabled: bool = False

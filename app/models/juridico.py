@@ -285,10 +285,9 @@ class MovimentacaoAvaliadaJuridico(Base):
     entre organizações que monitoram o mesmo processo), então esta marca tem
     que ser por organização, não pode ir na própria ``Movimentacao``.
 
-    Contrapartida assumida conscientemente: se uma norma futura tornar uma
-    movimentação hoje não-classificável em classificável, ela não será
-    reavaliada automaticamente — precisaria de uma rotina de reprocessamento
-    manual (fora do escopo desta correção).
+    Se uma norma futura tornar uma movimentação classificável, a Central de
+    Regras permite simular e executar um reprocessamento manual, limitado,
+    confirmado e auditado; nunca há reabertura automática retroativa.
     """
 
     __tablename__ = "movimentacoes_avaliadas_juridico"

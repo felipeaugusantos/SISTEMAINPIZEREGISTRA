@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Operação jurídica — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=67">
-  <link rel="stylesheet" href="/static/admin-juridico.css?v=18">
+  <link rel="stylesheet" href="/static/admin-juridico.css?v=19">
   <script src="/static/admin-shell.js?v=52" defer></script>
-  <script src="/static/admin-juridico.js?v=16" defer></script>
+  <script src="/static/admin-juridico.js?v=17" defer></script>
 </head>
 <body class="admin-body" data-admin-section="legal">
   <main class="admin-main legal-main">
@@ -41,6 +41,70 @@
         <button class="primary-button" type="submit">Salvar política</button>
       </form>
       <p class="legal-section-help">A margem cria um marco interno antecipado. O vencimento legal permanece registrado e visível.</p>
+    </section>
+
+    <section class="legal-card legal-governance-card">
+      <header>
+        <div><p class="eyebrow">CATÁLOGO HOMOLOGADO</p><h2>Regras de prazo e calendário oficial</h2></div>
+        <span id="legal-rules-count" class="legal-count">Carregando…</span>
+      </header>
+      <p class="legal-section-help">Toda regra conserva fonte, vigência e responsável pela aprovação. Novas versões não alteram registros anteriores.</p>
+      <div class="legal-governance-grid">
+        <div>
+          <h3>Regras por despacho</h3>
+          <div id="legal-rules" class="legal-governance-list"></div>
+        </div>
+        <div>
+          <h3>Suspensões e indisponibilidades</h3>
+          <div id="legal-calendar-exceptions" class="legal-governance-list"></div>
+        </div>
+      </div>
+
+      <details id="legal-rule-admin" class="legal-governance-admin" hidden>
+        <summary>Cadastrar nova versão de regra</summary>
+        <form id="legal-rule-form" class="legal-governance-form">
+          <label><span>Código do despacho</span><input name="codigo_despacho" maxlength="12" required></label>
+          <label class="wide"><span>Descrição oficial</span><input name="descricao_oficial" minlength="5" maxlength="300" required></label>
+          <label><span>Tipo de prazo</span><select name="tipo_prazo" required></select></label>
+          <label class="wide"><span>Ação esperada</span><input name="acao" minlength="3" maxlength="180" required></label>
+          <label><span>Dias</span><input name="dias_prazo" type="number" min="0" max="3650" required></label>
+          <label><span>Contagem</span><select name="contagem"><option value="corridos">Corridos</option><option value="uteis">Úteis</option></select></label>
+          <label><span>Início da vigência</span><input name="vigencia_inicio" type="date" required></label>
+          <label><span>Fim da vigência</span><input name="vigencia_fim" type="date"></label>
+          <label><span>Confiança</span><select name="confianca"><option value="homologada">Homologada</option><option value="rascunho">Rascunho</option></select></label>
+          <label class="full"><span>Fonte legal/oficial</span><textarea name="fonte_legal" minlength="10" maxlength="2000" rows="3" required></textarea></label>
+          <label class="full"><span>Checklist — uma etapa por linha</span><textarea name="checklist" rows="3"></textarea></label>
+          <label class="full"><span>Evidências exigidas — uma por linha</span><textarea name="evidencias_exigidas" rows="3"></textarea></label>
+          <button class="primary-button" type="submit">Cadastrar versão</button>
+        </form>
+      </details>
+
+      <details id="legal-calendar-admin" class="legal-governance-admin" hidden>
+        <summary>Cadastrar exceção oficial de calendário</summary>
+        <form id="legal-calendar-form" class="legal-governance-form">
+          <label><span>Data inicial</span><input name="data_inicio" type="date" required></label>
+          <label><span>Data final</span><input name="data_fim" type="date" required></label>
+          <label><span>Tipo</span><select name="tipo"><option value="suspensao">Suspensão</option><option value="indisponibilidade">Indisponibilidade</option><option value="feriado_oficial">Feriado oficial</option></select></label>
+          <label class="wide"><span>Descrição</span><input name="descricao" minlength="5" maxlength="300" required></label>
+          <label class="full"><span>Fonte oficial</span><textarea name="fonte_oficial" minlength="10" maxlength="2000" rows="3" required></textarea></label>
+          <button class="primary-button" type="submit">Cadastrar exceção</button>
+        </form>
+      </details>
+
+      <div id="legal-reprocess" class="legal-reprocess" hidden>
+        <h3>Reprocessar publicações cobertas por nova regra</h3>
+        <p class="legal-section-help">Primeiro simule. A execução libera somente avaliações “sem prazo mapeado” desta organização e exige justificativa e confirmação literal.</p>
+        <form id="legal-reprocess-preview" class="legal-reprocess-preview">
+          <label><span>Regra homologada</span><select name="regra_id" required></select></label>
+          <button class="secondary-button" type="submit">Simular impacto</button>
+        </form>
+        <div id="legal-reprocess-result" class="legal-reprocess-result" hidden></div>
+        <form id="legal-reprocess-confirm" class="legal-governance-form" hidden>
+          <label class="full"><span>Justificativa</span><textarea name="justificativa" minlength="20" maxlength="1000" rows="3" required></textarea></label>
+          <label><span>Digite REPROCESSAR</span><input name="confirmacao" pattern="REPROCESSAR" autocomplete="off" required></label>
+          <button class="primary-button" type="submit">Executar reprocessamento</button>
+        </form>
+      </div>
     </section>
 
     <section class="legal-card legal-intake-card">

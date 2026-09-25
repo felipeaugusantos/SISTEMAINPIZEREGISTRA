@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.saas import exigir_superadmin
@@ -498,6 +498,18 @@ class ExcecaoCalendarioInput(BaseModel):
         if (self.data_fim - self.data_inicio).days > 366:
             raise ValueError("Uma exceção de calendário não pode exceder 366 dias")
         return self
+
+
+class ReprocessamentoJuridicoInput(BaseModel):
+    regra_id: int = Field(ge=1)
+    limite: int = Field(default=200, ge=1, le=500)
+    justificativa: str = Field(min_length=20, max_length=1000)
+    confirmacao: Literal["REPROCESSAR"]
+
+    @field_validator("justificativa")
+    @classmethod
+    def limpar_justificativa(cls, value: str) -> str:
+        return value.strip()
 
 
 def _serializar_regra_prazo(regra: RegraPrazoJuridico) -> dict:
@@ -1280,7 +1292,10 @@ async def referencias(session: SessionDep, usuario: ViewDep) -> dict:
         "usuarios": [{"id": item.id, "nome": item.nome} for item in pessoas],
         "processos": [{"id": item.id, "nome": f"{item.numero} · {item.titulo or 'Sem título'}"} for item in processos],
         "tipos": [{"id": key, "nome": value} for key, value in TIPOS_PRAZO.items()],
-        "acoes": {"gerenciar": usuario.pode("legal.manage")},
+        "acoes": {
+            "gerenciar": usuario.pode("legal.manage"),
+            "governar_regras": usuario.superadmin,
+        },
     }
 
 
@@ -2909,6 +2924,136 @@ async def listar_execucoes_motor(
             for item in execucoes
         ]
     }
+
+
+async def _regra_reprocessavel(session: AsyncSession, regra_id: int) -> RegraPrazoJuridico:
+    regra = await session.get(RegraPrazoJuridico, regra_id)
+    if regra is None:
+        raise HTTPException(404, "Regra de prazo não encontrada")
+    if not regra.ativo or regra.confianca != "homologada":
+        raise HTTPException(409, "Somente regras homologadas e ativas podem reprocessar publicações")
+    return regra
+
+
+async def _candidatos_reprocessamento(
+    session: AsyncSession,
+    organizacao_id: int,
+    regra: RegraPrazoJuridico,
+    limite: int,
+    *,
+    bloquear: bool = False,
+) -> tuple[list[tuple[MovimentacaoAvaliadaJuridico, Movimentacao]], bool]:
+    """Localiza apenas marcas que a regra homologada passou a cobrir.
+
+    O vínculo com ``ProcessoMonitorado`` impede que uma organização libere a
+    avaliação pertencente a outra. A normalização SQL espelha
+    ``codigo_numerico`` para aceitar os formatos IPAS/DESP usados na carga.
+    """
+    codigo_normalizado = func.regexp_replace(
+        func.coalesce(Movimentacao.codigo_despacho, ""),
+        "[^0-9]",
+        "",
+        "g",
+    )
+    filtros_vigencia = [Movimentacao.data_rpi >= regra.vigencia_inicio]
+    if regra.vigencia_fim is not None:
+        filtros_vigencia.append(Movimentacao.data_rpi < regra.vigencia_fim)
+    consulta = (
+        select(MovimentacaoAvaliadaJuridico, Movimentacao)
+        .join(Movimentacao, Movimentacao.id == MovimentacaoAvaliadaJuridico.movimentacao_id)
+        .join(Processo, Processo.id == Movimentacao.processo_id)
+        .join(
+            ProcessoMonitorado,
+            and_(
+                ProcessoMonitorado.processo_id == Processo.id,
+                ProcessoMonitorado.organizacao_id == organizacao_id,
+                ProcessoMonitorado.status == "ativo",
+            ),
+        )
+        .where(
+            MovimentacaoAvaliadaJuridico.organizacao_id == organizacao_id,
+            MovimentacaoAvaliadaJuridico.motivo == "sem_prazo_mapeado",
+            codigo_normalizado == regra.codigo_despacho,
+            *filtros_vigencia,
+        )
+        .order_by(Movimentacao.data_rpi.asc(), Movimentacao.id.asc())
+        .limit(limite + 1)
+    )
+    if bloquear:
+        consulta = consulta.with_for_update(of=MovimentacaoAvaliadaJuridico, skip_locked=True)
+    linhas = (
+        (
+            await session.execute(consulta)
+        )
+        .all()
+    )
+    return linhas[:limite], len(linhas) > limite
+
+
+@router.get("/motor/reprocessamento")
+async def simular_reprocessamento(
+    session: SessionDep,
+    usuario: ManageDep,
+    regra_id: int = Query(ge=1),
+    limite: int = Query(default=200, ge=1, le=500),
+) -> dict:
+    regra = await _regra_reprocessavel(session, regra_id)
+    candidatos, ha_mais = await _candidatos_reprocessamento(
+        session, usuario.organizacao_id, regra, limite
+    )
+    return {
+        "regra": _serializar_regra_prazo(regra),
+        "quantidade": len(candidatos),
+        "ha_mais": ha_mais,
+        "limite": limite,
+        "amostra": [
+            {
+                "movimentacao_id": movimentacao.id,
+                "numero_rpi": movimentacao.numero_rpi,
+                "data_rpi": movimentacao.data_rpi,
+                "codigo_despacho": movimentacao.codigo_despacho,
+            }
+            for _marca, movimentacao in candidatos[:20]
+        ],
+    }
+
+
+@router.post("/motor/reprocessamento")
+async def executar_reprocessamento(
+    dados: ReprocessamentoJuridicoInput,
+    request: Request,
+    session: SessionDep,
+    usuario: ManageDep,
+) -> dict:
+    regra = await _regra_reprocessavel(session, dados.regra_id)
+    candidatos, ha_mais = await _candidatos_reprocessamento(
+        session, usuario.organizacao_id, regra, dados.limite, bloquear=True
+    )
+    for marca, _movimentacao in candidatos:
+        await session.delete(marca)
+    await session.flush()
+    resultado_motor = await executar_motor_organizacao(
+        session, usuario.organizacao_id, usuario.ator
+    )
+    resumo = {
+        "regra_id": regra.id,
+        "codigo_despacho": regra.codigo_despacho,
+        "avaliacoes_liberadas": len(candidatos),
+        "ha_mais": ha_mais,
+        "limite": dados.limite,
+        "justificativa": dados.justificativa,
+        "resultado_motor": resultado_motor,
+    }
+    _auditar(
+        session,
+        request,
+        usuario,
+        "reprocessar_juridico",
+        f"regra_prazo:{regra.id}",
+        resumo,
+    )
+    await session.commit()
+    return resumo
 
 
 @router.post("/motor/executar")

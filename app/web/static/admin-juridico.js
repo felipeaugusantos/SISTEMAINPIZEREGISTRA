@@ -6,7 +6,7 @@ function setBarWidth(el, percentual) {
   el.classList.add(`w-pct-${passo}`);
 }
 
-const legalState = { references: null, canManage: false, canConfirmCritical: false, checklists: {}, offset: 0, pageSize: 10 };
+const legalState = { references: null, rules: [], canManage: false, canGovernRules: false, canConfirmCritical: false, checklists: {}, offset: 0, pageSize: 10 };
 const legalMessage = document.querySelector("#legal-message");
 const deadlineDialog = document.querySelector("#deadline-dialog");
 const deadlineForm = document.querySelector("#deadline-form");
@@ -43,6 +43,12 @@ async function api(url, options = {}) {
 }
 function optionList(items, selected = "") {
   return items.map((item) => `<option value="${escapeHtml(item.id)}"${String(item.id) === String(selected) ? " selected" : ""}>${escapeHtml(item.nome)}</option>`).join("");
+}
+function civilDate(value) {
+  return value ? dateOnly.format(new Date(`${value}T12:00:00`)) : "sem término";
+}
+function splitLines(value) {
+  return String(value || "").split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
 }
 function queryParams() {
   const query = new URLSearchParams(new FormData(document.querySelector("#legal-filter")));
@@ -179,6 +185,7 @@ async function loadDashboard() {
 async function loadReferences() {
   const data = await api("/v1/admin/juridico/referencias");
   legalState.references = data;
+  legalState.canGovernRules = !!data.acoes.governar_regras;
   const users = optionList(data.usuarios);
   document.querySelector("#legal-filter").elements.responsavel_id.innerHTML = '<option value="">Todos</option>' + users;
   document.querySelector("#legal-filter").elements.tipo.innerHTML = '<option value="">Todos</option>' + optionList(data.tipos);
@@ -186,6 +193,10 @@ async function loadReferences() {
   deadlineForm.elements.tipo.innerHTML = optionList(data.tipos);
   deadlineForm.elements.responsavel_id.innerHTML = '<option value="">Não atribuído</option>' + users;
   deadlineForm.elements.escalonar_para_id.innerHTML = '<option value="">Sem escalonamento</option>' + users;
+  document.querySelector("#legal-rule-form").elements.tipo_prazo.innerHTML = optionList(data.tipos);
+  document.querySelector("#legal-rule-admin").hidden = !legalState.canGovernRules;
+  document.querySelector("#legal-calendar-admin").hidden = !legalState.canGovernRules;
+  document.querySelector("#legal-reprocess").hidden = !data.acoes.gerenciar;
 }
 async function loadLegalPolicy() {
   const [policy, engine] = await Promise.all([
@@ -203,6 +214,41 @@ async function loadLegalPolicy() {
     ? `Última execução: ${latest.status} · ${dateTime.format(new Date(latest.iniciado_em))}`
     : "Motor ainda não executado";
 }
+function renderRules(rules) {
+  legalState.rules = rules;
+  document.querySelector("#legal-rules-count").textContent = `${rules.length} regra(s) · catálogo versionado`;
+  document.querySelector("#legal-rules").innerHTML = rules.length ? rules.map((rule) => `
+    <article>
+      <header><strong>Despacho ${escapeHtml(rule.codigo_despacho)}</strong><span class="legal-badge ${rule.confianca === "homologada" ? "ready" : "warning"}">${escapeHtml(rule.confianca)}</span></header>
+      <h4>${escapeHtml(rule.descricao_oficial)}</h4>
+      <p>${escapeHtml(rule.acao)} · ${rule.dias_prazo} dia(s) ${escapeHtml(rule.contagem)}</p>
+      <small>Vigência: ${civilDate(rule.vigencia_inicio)} até ${civilDate(rule.vigencia_fim)} · ${rule.ativo ? "ativa" : "inativa"}</small>
+      <details><summary>Fonte e controles</summary><p>${escapeHtml(rule.fonte_legal)}</p><p><strong>Aprovada por:</strong> ${escapeHtml(rule.aprovado_por)}</p><p><strong>Checklist:</strong> ${(rule.checklist || []).map(escapeHtml).join(" · ") || "não definido"}</p><p><strong>Evidências:</strong> ${(rule.evidencias_exigidas || []).map(escapeHtml).join(" · ") || "não definidas"}</p></details>
+    </article>`).join("") : '<div class="legal-empty">Nenhuma regra de prazo cadastrada.</div>';
+  const homologadas = rules.filter((rule) => rule.ativo && rule.confianca === "homologada");
+  document.querySelector("#legal-reprocess-preview").elements.regra_id.innerHTML = homologadas.length
+    ? homologadas.map((rule) => `<option value="${rule.id}">Despacho ${escapeHtml(rule.codigo_despacho)} · ${escapeHtml(rule.acao)}</option>`).join("")
+    : '<option value="">Nenhuma regra homologada</option>';
+}
+
+function renderCalendarExceptions(items) {
+  document.querySelector("#legal-calendar-exceptions").innerHTML = items.length ? items.map((item) => `
+    <article>
+      <header><strong>${escapeHtml(item.descricao)}</strong><span class="legal-badge">${escapeHtml(item.tipo.replaceAll("_", " "))}</span></header>
+      <p>${civilDate(item.data_inicio)} a ${civilDate(item.data_fim)} · ${item.ativo ? "ativa" : "inativa"}</p>
+      <details><summary>Fonte oficial</summary><p>${escapeHtml(item.fonte_oficial)}</p><p><strong>Aprovada por:</strong> ${escapeHtml(item.aprovado_por)}</p></details>
+    </article>`).join("") : '<div class="legal-empty">Nenhuma exceção oficial cadastrada.</div>';
+}
+
+async function loadGovernance() {
+  const [rules, exceptions] = await Promise.all([
+    api("/v1/admin/juridico/regras-prazo"),
+    api("/v1/admin/juridico/calendario/excecoes"),
+  ]);
+  renderRules(rules);
+  renderCalendarExceptions(exceptions);
+}
+
 function openDeadline() {
   deadlineForm.reset();
   deadlineForm.elements.prioridade.value = "media";
@@ -318,7 +364,7 @@ confirmDeadlineForm.addEventListener("submit", async (event) => {
 });
 
 Promise.all([loadReferences(), loadDashboard()])
-  .then(loadLegalPolicy)
+  .then(() => Promise.all([loadLegalPolicy(), loadGovernance()]))
   .catch((error) => showMessage(error.message));
 
 document.querySelector("#legal-policy-form").addEventListener("submit", async (event) => {
@@ -335,6 +381,76 @@ document.querySelector("#legal-policy-form").addEventListener("submit", async (e
     await api("/v1/admin/juridico/politica", { method: "PUT", body: JSON.stringify(payload) });
     showMessage("Política jurídica salva e marcos operacionais recalculados.", "success");
     await Promise.all([loadLegalPolicy(), loadDashboard()]);
+  } catch (error) { showMessage(error.message, "error"); }
+});
+
+document.querySelector("#legal-rule-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const payload = Object.fromEntries(new FormData(form));
+  payload.dias_prazo = Number(payload.dias_prazo);
+  payload.vigencia_fim = payload.vigencia_fim || null;
+  payload.checklist = splitLines(payload.checklist);
+  payload.evidencias_exigidas = splitLines(payload.evidencias_exigidas);
+  try {
+    await api("/v1/admin/juridico/regras-prazo", { method: "POST", body: JSON.stringify(payload) });
+    form.reset();
+    showMessage("Nova versão da regra cadastrada com trilha de aprovação.", "success");
+    await loadGovernance();
+  } catch (error) { showMessage(error.message, "error"); }
+});
+
+document.querySelector("#legal-calendar-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  try {
+    await api("/v1/admin/juridico/calendario/excecoes", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+    form.reset();
+    showMessage("Exceção oficial adicionada ao calendário jurídico.", "success");
+    await loadGovernance();
+  } catch (error) { showMessage(error.message, "error"); }
+});
+
+document.querySelector("#legal-reprocess-preview").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const regraId = Number(event.currentTarget.elements.regra_id.value);
+  const resultBox = document.querySelector("#legal-reprocess-result");
+  const confirmForm = document.querySelector("#legal-reprocess-confirm");
+  if (!regraId) return;
+  try {
+    const result = await api(`/v1/admin/juridico/motor/reprocessamento?regra_id=${regraId}&limite=500`);
+    legalState.reprocessPreview = result;
+    resultBox.hidden = false;
+    resultBox.innerHTML = `<strong>${result.quantidade} publicação(ões) elegível(is)</strong><p>Despacho ${escapeHtml(result.regra.codigo_despacho)} · ${escapeHtml(result.regra.acao)}.${result.ha_mais ? " Há mais registros; esta execução ficará limitada a 500." : ""}</p>`;
+    confirmForm.hidden = result.quantidade === 0;
+    confirmForm.reset();
+  } catch (error) { showMessage(error.message, "error"); }
+});
+
+document.querySelector("#legal-reprocess-preview").elements.regra_id.addEventListener("change", () => {
+  document.querySelector("#legal-reprocess-result").hidden = true;
+  document.querySelector("#legal-reprocess-confirm").hidden = true;
+  legalState.reprocessPreview = null;
+});
+
+document.querySelector("#legal-reprocess-confirm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const preview = legalState.reprocessPreview;
+  if (!preview?.quantidade) return;
+  const data = Object.fromEntries(new FormData(event.currentTarget));
+  const payload = {
+    regra_id: preview.regra.id,
+    limite: preview.limite,
+    justificativa: data.justificativa,
+    confirmacao: data.confirmacao,
+  };
+  try {
+    const result = await api("/v1/admin/juridico/motor/reprocessamento", { method: "POST", body: JSON.stringify(payload) });
+    showMessage(`Reprocessamento concluído: ${result.avaliacoes_liberadas} avaliação(ões) liberada(s) e ${result.resultado_motor.prazos_sugeridos || 0} novo(s) prazo(s) sugerido(s).`, "success");
+    event.currentTarget.hidden = true;
+    document.querySelector("#legal-reprocess-result").hidden = true;
+    legalState.reprocessPreview = null;
+    await Promise.all([loadDashboard(), loadLegalPolicy(), loadGovernance()]);
   } catch (error) { showMessage(error.message, "error"); }
 });
 

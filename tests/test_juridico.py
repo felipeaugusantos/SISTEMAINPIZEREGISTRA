@@ -27,6 +27,7 @@ from app.api.juridico import (
     ReceberEncaminhamentoInput,
     RegraJuridicaInput,
     RegraPrazoInput,
+    ReprocessamentoJuridicoInput,
     _classificar_despacho,
     _classificar_despacho_terminal,
     _dias_restantes,
@@ -51,16 +52,19 @@ from app.api.juridico import (
     criar_regra_juridica,
     editar_politica_juridica,
     executar_motor_organizacao,
+    executar_reprocessamento,
     indicadores_juridicos,
     listar_documentos_entrega,
     painel,
     receber_encaminhamento,
     registrar_entrega,
     remover_item_checklist,
+    simular_reprocessamento,
 )
 from app.models import (
     DocumentoEntregaJuridico,
     DocumentoLead,
+    EventoAuditoria,
     EventoDominio,
     EventoJuridico,
     ExecucaoMotorJuridico,
@@ -665,7 +669,7 @@ def test_tela_juridica_expoe_fluxos_principais() -> None:
     assert "Executar motor de prazos" in html
     assert "CENTRAL DE NOTIFICAÇÕES" in html
     assert "Registrar entrega" in html
-    assert "admin-juridico.css?v=18" in html
+    assert "admin-juridico.css?v=19" in html
     assert "Política de prazos" in html
     assert "margem_operacional_dias" in html
     assert "admin-juridico.js?v=" in html
@@ -677,6 +681,10 @@ def test_tela_juridica_expoe_fluxos_principais() -> None:
     assert 'query.set("limite", legalState.pageSize)' in javascript
     assert "pagination.total_clientes" in javascript
     assert "/v1/admin/juridico/motor/executar" in javascript
+    assert 'id="legal-rules"' in html
+    assert 'id="legal-calendar-exceptions"' in html
+    assert 'id="legal-reprocess-preview"' in html
+    assert "/v1/admin/juridico/motor/reprocessamento" in javascript
     assert "/admin/operacao-juridica" in shell
 
 
@@ -1360,6 +1368,133 @@ def test_motor_registra_falha_sanitizada_e_preserva_excecao() -> None:
     ]
     assert len(falhas) == 1
     assert "segredo" not in falhas[0].erro
+    assert session.commits == 1
+
+
+def test_reprocessamento_exige_confirmacao_literal_e_justificativa() -> None:
+    try:
+        ReprocessamentoJuridicoInput(
+            regra_id=1,
+            limite=200,
+            justificativa="Nova regra homologada pela equipe jurídica.",
+            confirmacao="SIM",
+        )
+        raise AssertionError("Esperava confirmação literal inválida")
+    except ValidationError:
+        pass
+
+
+def test_simulacao_reprocessa_somente_avaliacoes_cobertas_pela_regra() -> None:
+    regra = RegraPrazoJuridico(
+        id=7,
+        codigo_despacho="010",
+        descricao_oficial="Exigência formal",
+        tipo_prazo="exigencia",
+        acao="Responder exigência",
+        dias_prazo=60,
+        contagem="corridos",
+        vigencia_inicio=date(2026, 1, 1),
+        vigencia_fim=None,
+        fonte_legal="Fonte oficial homologada pelo INPI",
+        checklist=[],
+        evidencias_exigidas=[],
+        confianca="homologada",
+        ativo=True,
+        aprovado_por="admin@teste.local",
+    )
+    marca = MovimentacaoAvaliadaJuridico(
+        id=9,
+        organizacao_id=1,
+        movimentacao_id=101,
+        motivo="sem_prazo_mapeado",
+    )
+    movimentacao = Movimentacao(
+        id=101,
+        processo_id=10,
+        descricao="Exigência formal",
+        data_rpi=date(2026, 9, 1),
+        numero_rpi=2900,
+        codigo_despacho="IPAS010",
+        fonte_arquivo="",
+        chave_origem="mov-101",
+    )
+    session = FakeSession(
+        [FakeResult(itens=[(marca, movimentacao)])],
+        objetos_get=[regra],
+    )
+
+    resultado = asyncio.run(
+        simular_reprocessamento(
+            session=session,
+            usuario=usuario_teste(permissoes={"legal.manage"}),
+            regra_id=7,
+            limite=200,
+        )
+    )
+
+    assert resultado["quantidade"] == 1
+    assert resultado["ha_mais"] is False
+    assert resultado["regra"]["id"] == 7
+    assert resultado["amostra"][0]["movimentacao_id"] == 101
+
+
+def test_execucao_reprocessamento_remove_marca_audita_e_roda_motor(monkeypatch) -> None:
+    regra = RegraPrazoJuridico(
+        id=7,
+        codigo_despacho="010",
+        descricao_oficial="Exigência formal",
+        tipo_prazo="exigencia",
+        acao="Responder exigência",
+        dias_prazo=60,
+        contagem="corridos",
+        vigencia_inicio=date(2026, 1, 1),
+        fonte_legal="Fonte oficial homologada pelo INPI",
+        checklist=[],
+        evidencias_exigidas=[],
+        confianca="homologada",
+        ativo=True,
+        aprovado_por="admin@teste.local",
+    )
+    marca = MovimentacaoAvaliadaJuridico(
+        id=9, organizacao_id=1, movimentacao_id=101, motivo="sem_prazo_mapeado"
+    )
+    movimentacao = Movimentacao(
+        id=101,
+        processo_id=10,
+        descricao="Exigência formal",
+        data_rpi=date(2026, 9, 1),
+        numero_rpi=2900,
+        codigo_despacho="IPAS010",
+        fonte_arquivo="",
+        chave_origem="mov-101-exec",
+    )
+    session = FakeSession([FakeResult(itens=[(marca, movimentacao)])], objetos_get=[regra])
+
+    async def motor_controlado(_session, organizacao_id, ator):
+        assert organizacao_id == 1
+        assert ator == "admin@teste.local"
+        return {"prazos_sugeridos": 1}
+
+    monkeypatch.setattr("app.api.juridico.executar_motor_organizacao", motor_controlado)
+    resultado = asyncio.run(
+        executar_reprocessamento(
+            dados=ReprocessamentoJuridicoInput(
+                regra_id=7,
+                limite=200,
+                justificativa="Regra homologada após conferência da fonte oficial.",
+                confirmacao="REPROCESSAR",
+            ),
+            request=_request(),
+            session=session,
+            usuario=usuario_teste(permissoes={"legal.manage"}),
+        )
+    )
+
+    assert session.deletados == [marca]
+    assert resultado["avaliacoes_liberadas"] == 1
+    assert resultado["resultado_motor"]["prazos_sugeridos"] == 1
+    auditorias = [item for item in session.adicionados if isinstance(item, EventoAuditoria)]
+    assert auditorias[0].acao == "reprocessar_juridico"
     assert session.commits == 1
 
 

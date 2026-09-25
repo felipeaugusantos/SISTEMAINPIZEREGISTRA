@@ -42,9 +42,11 @@ from app.api.juridico import (
     _regra_prazo_vigente,
     _serializar_prazo,
     _status_encaminhamento,
+    _tipo_real_documento_entrega,
     _valor_vigente,
     atualizar_item_checklist,
     atualizar_prazo,
+    baixar_documento_entrega,
     calcular_vencimento,
     calcular_vencimento_operacional,
     consultar_regras_juridicas,
@@ -669,7 +671,7 @@ def test_tela_juridica_expoe_fluxos_principais() -> None:
     assert "Executar motor de prazos" in html
     assert "CENTRAL DE NOTIFICAÇÕES" in html
     assert "Registrar entrega" in html
-    assert "admin-juridico.css?v=19" in html
+    assert "admin-juridico.css?v=20" in html
     assert "Política de prazos" in html
     assert "margem_operacional_dias" in html
     assert "admin-juridico.js?v=" in html
@@ -685,6 +687,9 @@ def test_tela_juridica_expoe_fluxos_principais() -> None:
     assert 'id="legal-calendar-exceptions"' in html
     assert 'id="legal-reprocess-preview"' in html
     assert "/v1/admin/juridico/motor/reprocessamento" in javascript
+    assert 'name="arquivo" type="file"' in html
+    assert 'id="delivery-documents"' in html
+    assert "/documentos/${item.id}/download" in javascript
     assert "/admin/operacao-juridica" in shell
 
 
@@ -1582,7 +1587,7 @@ def test_registrar_entrega_com_documento_calcula_hash_e_persiste_via_storage() -
     try:
         prazo = _prazo_ativo()
         session = FakeSession([FakeResult(scalar=prazo)])
-        conteudo = b"comprovante de protocolo em pdf"
+        conteudo = b"%PDF-1.7\ncomprovante de protocolo"
         resultado = asyncio.run(
             juridico_modulo.registrar_entrega(
                 prazo.id,
@@ -1607,7 +1612,57 @@ def test_registrar_entrega_com_documento_calcula_hash_e_persiste_via_storage() -
     assert len(documentos) == 1
     assert documentos[0].hash_documento == digest_esperado
     assert documentos[0].nome == "comprovante.pdf"
+    assert documentos[0].content_type == "application/pdf"
     assert documentos[0].tamanho_bytes == len(conteudo)
+
+
+def test_documento_entrega_valida_conteudo_real_e_extensao() -> None:
+    assert _tipo_real_documento_entrega("protocolo.pdf", b"%PDF-1.7\nconteudo") == "application/pdf"
+    assert _tipo_real_documento_entrega("imagem.png", b"\x89PNG\r\n\x1a\nrestante") == "image/png"
+    try:
+        _tipo_real_documento_entrega("executavel.pdf", b"MZconteudo")
+        raise AssertionError("Esperava rejeição do executável renomeado")
+    except HTTPException as erro:
+        assert erro.status_code == 422
+    try:
+        _tipo_real_documento_entrega("imagem.jpg", b"%PDF-1.7\nconteudo")
+        raise AssertionError("Esperava rejeição da extensão divergente")
+    except HTTPException as erro:
+        assert erro.status_code == 422
+
+
+def test_registrar_entrega_varre_anexo_antes_de_salvar(monkeypatch) -> None:
+    import app.api.juridico as juridico_modulo
+
+    chamadas: list[str] = []
+
+    async def scan_fake(conteudo: bytes) -> None:
+        chamadas.append("scan")
+        assert conteudo.startswith(b"%PDF-")
+
+    def save_fake(_key: str, _content: bytes) -> str:
+        chamadas.append("save")
+        return "data/uploads/juridico/1/9/documento.pdf"
+
+    monkeypatch.setattr(juridico_modulo, "escanear_upload_ou_rejeitar", scan_fake)
+    monkeypatch.setattr(juridico_modulo, "save_bytes", save_fake)
+    prazo = _prazo_ativo()
+    session = FakeSession([FakeResult(scalar=prazo)])
+    asyncio.run(
+        registrar_entrega(
+            prazo.id,
+            EntregaInput(
+                descricao="Comprovante conferido.",
+                documento_nome="documento.pdf",
+                documento_base64=base64.b64encode(b"%PDF-1.7\nconteudo").decode(),
+                documento_content_type="application/pdf",
+            ),
+            _request(),
+            session,
+            usuario_teste(),
+        )
+    )
+    assert chamadas == ["scan", "save"]
 
 
 def test_registrar_entrega_rejeita_base64_invalido() -> None:
@@ -1650,6 +1705,62 @@ def test_listar_documentos_entrega_retorna_lista_serializada() -> None:
     assert resultado["documentos"][0]["hash"] == "abc123"
     assert resultado["documentos"][0]["nome"] == "comprovante.pdf"
     assert resultado["documentos"][0]["tamanho_bytes"] == 321
+
+
+def test_baixar_documento_entrega_valida_hash_e_audita(monkeypatch) -> None:
+    import app.api.juridico as juridico_modulo
+
+    prazo = _prazo_ativo()
+    conteudo = b"%PDF-1.7\nevidencia"
+    documento = DocumentoEntregaJuridico(
+        id=4,
+        organizacao_id=1,
+        prazo_id=prazo.id,
+        nome="protocolo.pdf",
+        hash_documento=hashlib.sha256(conteudo).hexdigest(),
+        caminho="s3://juridico-test/1/9/protocolo.pdf",
+        content_type="application/pdf",
+        tamanho_bytes=len(conteudo),
+        criado_por="admin@teste.local",
+    )
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=documento)])
+    monkeypatch.setattr(juridico_modulo, "read_bytes", lambda _caminho: conteudo)
+
+    resposta = asyncio.run(
+        baixar_documento_entrega(prazo.id, documento.id, _request(), session, usuario_teste())
+    )
+
+    assert resposta.media_type == "application/pdf"
+    assert resposta.headers["content-disposition"] == 'attachment; filename="evidencia-juridica-4.pdf"'
+    auditorias = [item for item in session.adicionados if isinstance(item, EventoAuditoria)]
+    assert auditorias[0].acao == "baixar_evidencia"
+    assert session.commits == 1
+
+
+def test_baixar_documento_entrega_rejeita_integridade_divergente(monkeypatch) -> None:
+    import app.api.juridico as juridico_modulo
+
+    prazo = _prazo_ativo()
+    documento = DocumentoEntregaJuridico(
+        id=5,
+        organizacao_id=1,
+        prazo_id=prazo.id,
+        nome="protocolo.pdf",
+        hash_documento="0" * 64,
+        caminho="s3://juridico-test/1/9/protocolo.pdf",
+        content_type="application/pdf",
+        tamanho_bytes=10,
+        criado_por="admin@teste.local",
+    )
+    session = FakeSession([FakeResult(scalar=prazo), FakeResult(scalar=documento)])
+    monkeypatch.setattr(juridico_modulo, "read_bytes", lambda _caminho: b"%PDF-1.7\noutro")
+    try:
+        asyncio.run(
+            baixar_documento_entrega(prazo.id, documento.id, _request(), session, usuario_teste())
+        )
+        raise AssertionError("Esperava conflito de integridade")
+    except HTTPException as erro:
+        assert erro.status_code == 409
 
 
 # --- Achado 5.9 da auditoria (02/09/2026): alerta de prazo por e-mail (Fase 8) ---

@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Operação jurídica — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=67">
-  <link rel="stylesheet" href="/static/admin-juridico.css?v=19">
+  <link rel="stylesheet" href="/static/admin-juridico.css?v=20">
   <script src="/static/admin-shell.js?v=52" defer></script>
-  <script src="/static/admin-juridico.js?v=17" defer></script>
+  <script src="/static/admin-juridico.js?v=18" defer></script>
 </head>
 <body class="admin-body" data-admin-section="legal">
   <main class="admin-main legal-main">
@@ -194,10 +194,17 @@
     <form id="delivery-form">
       <header><div><p class="eyebrow">EVIDÊNCIA AUDITÁVEL</p><h2>Registrar entrega</h2></div><button type="button" data-close-delivery aria-label="Fechar">×</button></header>
       <input type="hidden" name="prazo_id">
-      <label><span>Descrição da entrega</span><textarea name="descricao" rows="4" minlength="3" maxlength="500" required></textarea></label>
-      <label><span>Número do protocolo</span><input name="protocolo" maxlength="120"></label>
-      <label><span>Documento ou referência</span><input name="documento" maxlength="500"></label>
-      <footer><button class="secondary-button" type="button" data-close-delivery>Cancelar</button><button class="primary-button" type="submit">Registrar</button></footer>
+      <div id="delivery-entry" class="delivery-entry">
+        <label><span>Descrição da entrega</span><textarea name="descricao" rows="4" minlength="3" maxlength="500" required></textarea></label>
+        <label><span>Número do protocolo</span><input name="protocolo" maxlength="120"></label>
+        <label><span>Documento ou referência</span><input name="documento" maxlength="500"></label>
+        <label><span>Anexo comprobatório</span><input name="arquivo" type="file" accept="application/pdf,image/png,image/jpeg"><small>PDF, PNG ou JPEG, até 15 MB. O conteúdo será validado e verificado pelo antivírus.</small></label>
+      </div>
+      <section class="delivery-evidence-list full" aria-labelledby="delivery-evidence-title">
+        <h3 id="delivery-evidence-title">Evidências já registradas</h3>
+        <div id="delivery-documents"></div>
+      </section>
+      <footer><button class="secondary-button" type="button" data-close-delivery>Fechar</button><button id="delivery-submit" class="primary-button" type="submit">Registrar entrega</button></footer>
     </form>
   </dialog>
 

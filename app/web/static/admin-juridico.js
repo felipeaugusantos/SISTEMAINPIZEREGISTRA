@@ -50,6 +50,14 @@ function civilDate(value) {
 function splitLines(value) {
   return String(value || "").split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
 }
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",", 2)[1] || "");
+    reader.onerror = () => reject(new Error("Não foi possível ler o anexo selecionado."));
+    reader.readAsDataURL(file);
+  });
+}
 function queryParams() {
   const query = new URLSearchParams(new FormData(document.querySelector("#legal-filter")));
   [...query].forEach(([key, value]) => { if (!value) query.delete(key); });
@@ -116,15 +124,16 @@ function deadlineTimeLabel(item) {
   return `${item.dias_restantes} dia(s) restante(s) · ${escapeHtml(item.contagem)}`;
 }
 function deadlineActions(item) {
-  if (!legalState.canManage || ["concluido", "cancelado", "dispensado", "historico", "duplicado"].includes(item.status)) return "";
+  const evidencias = `<button class="secondary-button delivery-deadline" data-id="${item.id}" type="button">Evidências</button>`;
+  if (!legalState.canManage || ["concluido", "cancelado", "dispensado", "historico", "duplicado"].includes(item.status)) return evidencias;
   if (!item.confirmado) {
     const podeConfirmar = item.prioridade !== "critica" || legalState.canConfirmCritical;
     const botaoConfirmar = podeConfirmar
       ? `<button class="primary-button confirm-deadline" data-id="${item.id}" type="button">Confirmar prazo</button>`
       : `<span class="legal-badge">Confirmação restrita a administrador/tech</span>`;
-    return `${botaoConfirmar}<button class="secondary-button cancel-deadline" data-id="${item.id}" type="button">Descartar sugestão</button>`;
+    return `${botaoConfirmar}<button class="secondary-button cancel-deadline" data-id="${item.id}" type="button">Descartar sugestão</button>${evidencias}`;
   }
-  return `<button class="primary-button complete-deadline" data-id="${item.id}" type="button">Concluir</button><button class="secondary-button progress-deadline" data-id="${item.id}" type="button">Em andamento</button><button class="secondary-button delivery-deadline" data-id="${item.id}" type="button">Registrar entrega</button>`;
+  return `<button class="primary-button complete-deadline" data-id="${item.id}" type="button">Concluir</button><button class="secondary-button progress-deadline" data-id="${item.id}" type="button">Em andamento</button>${evidencias}`;
 }
 function renderDeadlines(items) {
   const container = document.querySelector("#legal-deadlines");
@@ -261,6 +270,27 @@ async function updateDeadline(id, payload) {
   await api(`/v1/admin/juridico/prazos/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
   await loadDashboard();
 }
+function renderDeliveryDocuments(items) {
+  document.querySelector("#delivery-documents").innerHTML = items.length ? items.map((item) => `
+    <article>
+      <div><strong>${escapeHtml(item.nome)}</strong><small>${Number(item.tamanho_bytes || 0).toLocaleString("pt-BR")} bytes · ${escapeHtml(item.criado_por || "autor não informado")} · ${item.criado_em ? dateTime.format(new Date(item.criado_em)) : "data não informada"}</small><code>SHA-256 ${escapeHtml(item.hash)}</code></div>
+      <a class="secondary-button" href="/v1/admin/juridico/prazos/${deliveryForm.elements.prazo_id.value}/documentos/${item.id}/download">Baixar</a>
+    </article>`).join("") : '<div class="legal-empty">Nenhum anexo comprobatório registrado neste prazo.</div>';
+}
+async function loadDeliveryDocuments() {
+  const prazoId = deliveryForm.elements.prazo_id.value;
+  const result = await api(`/v1/admin/juridico/prazos/${prazoId}/documentos`);
+  renderDeliveryDocuments(result.documentos || []);
+}
+async function openDelivery(id) {
+  deliveryForm.reset();
+  deliveryForm.elements.prazo_id.value = id;
+  document.querySelector("#delivery-entry").hidden = !legalState.canManage;
+  document.querySelector("#delivery-submit").hidden = !legalState.canManage;
+  document.querySelector("#delivery-documents").innerHTML = '<div class="legal-empty">Carregando evidências…</div>';
+  deliveryDialog.showModal();
+  await loadDeliveryDocuments();
+}
 
 document.querySelector("#legal-filter").addEventListener("submit", (event) => { event.preventDefault(); legalState.offset = 0; loadDashboard().catch((error) => showMessage(error.message)); });
 document.querySelector("#clear-legal-filter").addEventListener("click", () => { document.querySelector("#legal-filter").reset(); legalState.offset = 0; loadDashboard().catch((error) => showMessage(error.message)); });
@@ -313,7 +343,7 @@ document.querySelector("#legal-deadlines").addEventListener("click", (event) => 
   if (cancel) updateDeadline(cancel.dataset.id, { status: "cancelado", descricao_evento: "Sugestão automática descartada após conferência" }).catch((error) => showMessage(error.message));
   if (complete) updateDeadline(complete.dataset.id, { status: "concluido" }).catch((error) => showMessage(error.message));
   if (progress) updateDeadline(progress.dataset.id, { status: "em_andamento" }).catch((error) => showMessage(error.message));
-  if (delivery) { deliveryForm.reset(); deliveryForm.elements.prazo_id.value = delivery.dataset.id; deliveryDialog.showModal(); }
+  if (delivery) openDelivery(delivery.dataset.id).catch((error) => showMessage(error.message));
   const vincular = event.target.closest(".vincular-cliente");
   if (vincular) {
     const nome = window.prompt("Nome do cliente para vincular no CRM:", vincular.dataset.sugestao || "");
@@ -346,10 +376,21 @@ deliveryForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(deliveryForm));
   const prazoId = data.prazo_id; delete data.prazo_id;
+  const arquivo = data.arquivo; delete data.arquivo;
   data.protocolo = data.protocolo || null; data.documento = data.documento || null;
   try {
+    if (arquivo?.size) {
+      if (arquivo.size > 15 * 1024 * 1024) throw new Error("O anexo excede o limite de 15 MB.");
+      if (arquivo.type && !["application/pdf", "image/png", "image/jpeg"].includes(arquivo.type)) throw new Error("Envie um arquivo PDF, PNG ou JPEG.");
+      data.documento_nome = arquivo.name;
+      data.documento_content_type = arquivo.type;
+      data.documento_base64 = await fileToBase64(arquivo);
+    }
     await api(`/v1/admin/juridico/prazos/${prazoId}/entregas`, { method: "POST", body: JSON.stringify(data) });
-    deliveryDialog.close(); showMessage("Entrega registrada na trilha auditável.", "success"); await loadDashboard();
+    deliveryForm.reset();
+    deliveryForm.elements.prazo_id.value = prazoId;
+    showMessage("Entrega registrada com evidência auditável.", "success");
+    await Promise.all([loadDeliveryDocuments(), loadDashboard()]);
   } catch (error) { showMessage(error.message); }
 });
 confirmDeadlineForm.addEventListener("submit", async (event) => {

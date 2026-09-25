@@ -2,11 +2,13 @@ import base64
 import hashlib
 import re
 from datetime import UTC, date, datetime, time, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +19,7 @@ from app.badepi.despachos_codigos import DESCRICOES_DESPACHO, codigo_numerico
 from app.crm import avancar_fase_lead, obter_ou_criar_empresa, registrar_evento_operacional
 from app.database import get_session
 from app.emailing import enviar_alerta_prazo_juridico
+from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import (
     DocumentoEntregaJuridico,
     DocumentoLead,
@@ -45,7 +48,7 @@ from app.models import (
 )
 from app.normalization import normalizar_busca
 from app.proxy import cliente_ip
-from app.storage import StorageError, save_bytes
+from app.storage import StorageError, local_root, read_bytes, save_bytes
 
 FERIADOS_NACIONAIS_FIXOS: tuple[tuple[int, int, str], ...] = (
     (1, 1, "Confraternização Universal"),
@@ -828,6 +831,11 @@ def _politica_juridica_dict(politica: PoliticaJuridica) -> dict:
 
 
 TAMANHO_MAXIMO_DOCUMENTO_ENTREGA = 15 * 1024 * 1024  # 15 MB decodificado
+TIPOS_DOCUMENTO_ENTREGA = {
+    "application/pdf": {".pdf"},
+    "image/png": {".png"},
+    "image/jpeg": {".jpg", ".jpeg"},
+}
 
 
 class EntregaInput(BaseModel):
@@ -835,7 +843,10 @@ class EntregaInput(BaseModel):
     protocolo: str | None = Field(default=None, max_length=120)
     documento: str | None = Field(default=None, max_length=500)
     documento_nome: str | None = Field(default=None, min_length=1, max_length=255)
-    documento_base64: str | None = Field(default=None, min_length=1)
+    # Base64 de 15 MiB ocupa no máximo 20.971.520 caracteres. O limite no
+    # schema evita alocar/decodificar payloads muito maiores antes da
+    # validação binária abaixo.
+    documento_base64: str | None = Field(default=None, min_length=1, max_length=20_971_520)
     documento_content_type: str | None = Field(default=None, max_length=120)
 
     @model_validator(mode="after")
@@ -843,6 +854,21 @@ class EntregaInput(BaseModel):
         if self.documento_base64 and not self.documento_nome:
             raise ValueError("Informe documento_nome ao anexar documento_base64")
         return self
+
+
+def _tipo_real_documento_entrega(nome: str, conteudo: bytes) -> str:
+    if conteudo.startswith(b"%PDF-"):
+        tipo = "application/pdf"
+    elif conteudo.startswith(b"\x89PNG\r\n\x1a\n"):
+        tipo = "image/png"
+    elif conteudo.startswith(b"\xff\xd8\xff"):
+        tipo = "image/jpeg"
+    else:
+        raise HTTPException(422, "Formato de documento não permitido; envie PDF, PNG ou JPEG")
+    extensao = Path(nome).suffix.lower()
+    if extensao not in TIPOS_DOCUMENTO_ENTREGA[tipo]:
+        raise HTTPException(422, "A extensão do arquivo não corresponde ao conteúdo enviado")
+    return tipo
 
 
 class ChecklistItemInput(BaseModel):
@@ -1978,6 +2004,10 @@ async def registrar_entrega(
             raise HTTPException(
                 422, f"Documento excede o tamanho máximo de {TAMANHO_MAXIMO_DOCUMENTO_ENTREGA // (1024 * 1024)} MB"
             )
+        if not conteudo:
+            raise HTTPException(422, "Documento vazio")
+        content_type_real = _tipo_real_documento_entrega(dados.documento_nome, conteudo)
+        await escanear_upload_ou_rejeitar(conteudo)
         digest = hashlib.sha256(conteudo).hexdigest()
         try:
             caminho = save_bytes(
@@ -1992,7 +2022,7 @@ async def registrar_entrega(
             nome=dados.documento_nome,
             hash_documento=digest,
             caminho=caminho,
-            content_type=dados.documento_content_type,
+            content_type=content_type_real,
             tamanho_bytes=len(conteudo),
             criado_por=usuario.ator,
         )
@@ -2924,6 +2954,57 @@ async def listar_execucoes_motor(
             for item in execucoes
         ]
     }
+
+
+@router.get("/prazos/{prazo_id}/documentos/{documento_id}/download")
+async def baixar_documento_entrega(
+    prazo_id: int,
+    documento_id: int,
+    request: Request,
+    session: SessionDep,
+    usuario: ViewDep,
+) -> StreamingResponse:
+    await _obter_prazo(session, usuario, prazo_id)
+    documento = (
+        await session.execute(
+            select(DocumentoEntregaJuridico).where(
+                DocumentoEntregaJuridico.id == documento_id,
+                DocumentoEntregaJuridico.prazo_id == prazo_id,
+                DocumentoEntregaJuridico.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if documento is None:
+        raise HTTPException(404, "Documento de entrega não encontrado")
+    if not documento.caminho.startswith("s3://"):
+        caminho = Path(documento.caminho).resolve()
+        base = (local_root() / "juridico" / str(usuario.organizacao_id) / str(prazo_id)).resolve()
+        if not caminho.is_file() or base not in caminho.parents:
+            raise HTTPException(404, "Documento de entrega não encontrado")
+    try:
+        conteudo = read_bytes(documento.caminho)
+    except (StorageError, OSError) as exc:
+        raise HTTPException(404, "Documento de entrega não encontrado") from exc
+    if hashlib.sha256(conteudo).hexdigest() != documento.hash_documento:
+        raise HTTPException(409, "A integridade do documento não pôde ser confirmada")
+    extensao = Path(documento.nome).suffix.lower()
+    if extensao not in {".pdf", ".png", ".jpg", ".jpeg"}:
+        extensao = ""
+    nome_download = f"evidencia-juridica-{documento.id}{extensao}"
+    _auditar(
+        session,
+        request,
+        usuario,
+        "baixar_evidencia",
+        f"documento_entrega:{documento.id}",
+        {"prazo_id": prazo_id, "hash": documento.hash_documento},
+    )
+    await session.commit()
+    return StreamingResponse(
+        iter([conteudo]),
+        media_type=documento.content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{nome_download}"'},
+    )
 
 
 async def _regra_reprocessavel(session: AsyncSession, regra_id: int) -> RegraPrazoJuridico:

@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Operação jurídica — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=67">
-  <link rel="stylesheet" href="/static/admin-juridico.css?v=21">
+  <link rel="stylesheet" href="/static/admin-juridico.css?v=22">
   <script src="/static/admin-shell.js?v=52" defer></script>
-  <script src="/static/admin-juridico.js?v=19" defer></script>
+  <script src="/static/admin-juridico.js?v=20" defer></script>
 </head>
 <body class="admin-body" data-admin-section="legal">
   <main class="admin-main legal-main">
@@ -26,6 +26,16 @@
 
     <div id="legal-message" class="status-message" role="status" aria-live="polite" hidden></div>
     <section id="legal-metrics" class="legal-metrics" aria-label="Indicadores jurídicos"></section>
+
+    <section class="legal-card legal-management-indicators">
+      <header>
+        <div><p class="eyebrow">DESEMPENHO DA EQUIPE</p><h2>Indicadores de gestão</h2></div>
+        <label class="legal-indicator-period"><span>Período</span><select id="legal-indicator-days" aria-label="Período dos indicadores jurídicos"><option value="30">30 dias</option><option value="90" selected>90 dias</option><option value="180">180 dias</option><option value="365">365 dias</option></select></label>
+      </header>
+      <p class="legal-section-help">Acompanhe cumprimento de prazos, tempo de confirmação, distribuição da carga e escalonamentos.</p>
+      <div id="legal-management-metrics" class="legal-management-metrics" aria-live="polite"><div class="legal-empty">Carregando indicadores…</div></div>
+      <div id="legal-owner-workload" class="legal-owner-workload"></div>
+    </section>
 
     <section class="legal-card legal-stabilization-card">
       <header>

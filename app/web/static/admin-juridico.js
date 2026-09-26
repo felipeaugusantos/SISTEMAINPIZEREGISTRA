@@ -75,6 +75,39 @@ function renderMetrics(metrics) {
   ];
   document.querySelector("#legal-metrics").innerHTML = values.map(([label, value, kind]) => `<article class="${kind}"><span>${label}</span><strong>${value}</strong></article>`).join("");
 }
+function formatIndicator(value, suffix = "") {
+  return value === null || value === undefined ? "—" : `${Number(value).toLocaleString("pt-BR")}${suffix}`;
+}
+function renderManagementIndicators(data) {
+  const compliance = data.taxa_cumprimento || {};
+  const escalation = data.taxa_escalonamento || {};
+  const cards = [
+    ["Cumpridos no prazo", formatIndicator(compliance.percentual_no_prazo, compliance.percentual_no_prazo == null ? "" : "%"), `${Number(compliance.concluidos_no_prazo || 0)} no prazo · ${Number(compliance.concluidos_atrasados || 0)} atrasados`],
+    ["Tempo médio de confirmação", formatIndicator(data.tempo_medio_confirmacao_horas, data.tempo_medio_confirmacao_horas == null ? "" : " h"), "Confirmação humana de novas sugestões"],
+    ["Prazos escalonados", formatIndicator(escalation.percentual, escalation.percentual == null ? "" : "%"), `${Number(escalation.escalonados || 0)} de ${Number(escalation.elegiveis || 0)} elegíveis`],
+    ["Prazos concluídos", formatIndicator(compliance.total_concluidos), `Nos últimos ${Number(data.periodo_dias || 90)} dias`],
+  ];
+  document.querySelector("#legal-management-metrics").innerHTML = cards.map(([label, value, detail]) => `
+    <article><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></article>`).join("");
+  const owners = data.carga_por_responsavel || [];
+  document.querySelector("#legal-owner-workload").innerHTML = owners.length ? `
+    <h3>Carga por responsável</h3>
+    <div class="legal-owner-table-wrap"><table class="legal-owner-table"><thead><tr><th>Responsável</th><th>Prazos ativos</th><th>Atrasados</th></tr></thead>
+    <tbody>${owners.map((owner) => `<tr><th scope="row">${escapeHtml(owner.responsavel_nome || "Responsável não identificado")}</th><td>${Number(owner.ativos || 0)}</td><td>${Number(owner.atrasados || 0)}</td></tr>`).join("")}</tbody></table></div>`
+    : '<div class="legal-empty">Sem prazos ativos atribuídos.</div>';
+}
+async function loadManagementIndicators() {
+  const days = Number(document.querySelector("#legal-indicator-days").value || 90);
+  const container = document.querySelector("#legal-management-metrics");
+  container.setAttribute("aria-busy", "true");
+  try {
+    renderManagementIndicators(await api(`/v1/admin/juridico/indicadores?dias=${days}`));
+  } catch (error) {
+    container.innerHTML = `<div class="legal-empty">${escapeHtml(error.message || "Não foi possível carregar os indicadores.")}</div>`;
+  } finally {
+    container.removeAttribute("aria-busy");
+  }
+}
 function renderStabilization(data) {
   const values = [
     ["Ativos", data.contagens.ativos],
@@ -333,6 +366,7 @@ document.querySelector("#clear-legal-filter").addEventListener("click", () => { 
 document.querySelector("#legal-prev").addEventListener("click", () => { legalState.offset = Math.max(0, legalState.offset - legalState.pageSize); loadDashboard().catch((error) => showMessage(error.message)); });
 document.querySelector("#legal-next").addEventListener("click", () => { legalState.offset += legalState.pageSize; loadDashboard().catch((error) => showMessage(error.message)); });
 document.querySelector("#new-legal-deadline").addEventListener("click", openDeadline);
+document.querySelector("#legal-indicator-days").addEventListener("change", () => loadManagementIndicators());
 document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => deadlineDialog.close()));
 document.querySelectorAll("[data-close-delivery]").forEach((button) => button.addEventListener("click", () => deliveryDialog.close()));
 document.querySelectorAll("[data-close-confirm-deadline]").forEach((button) => button.addEventListener("click", () => confirmDeadlineDialog.close()));
@@ -441,7 +475,7 @@ confirmDeadlineForm.addEventListener("submit", async (event) => {
 });
 
 Promise.all([loadReferences(), loadDashboard()])
-  .then(() => Promise.all([loadLegalPolicy(), loadGovernance(), loadOperationalHealth()]))
+  .then(() => Promise.all([loadLegalPolicy(), loadGovernance(), loadOperationalHealth(), loadManagementIndicators()]))
   .catch((error) => showMessage(error.message));
 
 document.querySelector("#legal-policy-form").addEventListener("submit", async (event) => {

@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
+import app.api.nfse as nfse_api
 from app.api.nfse import EmitirNfseInput, cancelar_nfse, emitir_nfse
 from app.models import EmpresaCRM, LancamentoFinanceiro, NotaFiscalServico
 from tests.conftest import FakeResult, FakeSession, usuario_teste
@@ -102,6 +103,36 @@ async def test_emitir_nfse_com_sucesso() -> None:
     notas_criadas = [obj for obj in session.adicionados if isinstance(obj, NotaFiscalServico)]
     assert len(notas_criadas) == 1
     assert notas_criadas[0].status == "emitida"
+    assert session.commits == 1
+
+
+async def test_emitir_nfse_nao_expoe_ou_persiste_mensagem_bruta_do_provedor(monkeypatch) -> None:
+    class AdaptadorComErro:
+        async def emitir(self, **_kwargs):
+            raise RuntimeError("token=secreto CPF=12345678901 payload interno")
+
+    monkeypatch.setattr(nfse_api, "obter_adaptador_nfse", lambda _nome: AdaptadorComErro())
+    session = FakeSession(
+        [FakeResult(scalar=_lancamento()), FakeResult(scalar=None)],
+        objetos_get=[_empresa()],
+    )
+
+    try:
+        await emitir_nfse(
+            EmitirNfseInput(lancamento_id=1), _request(), session, usuario_teste("administrador", {"finance.manage"})
+        )
+        raise AssertionError("deveria ter levantado HTTPException")
+    except HTTPException as exc:
+        assert exc.status_code == 502
+        assert "token=secreto" not in exc.detail
+        assert "12345678901" not in exc.detail
+
+    notas_erro = [obj for obj in session.adicionados if isinstance(obj, NotaFiscalServico)]
+    assert len(notas_erro) == 1
+    assert notas_erro[0].status == "erro"
+    assert notas_erro[0].erro_detalhe == "Falha de comunicação com o provedor de NFS-e."
+    assert "secreto" not in notas_erro[0].erro_detalhe
+    assert "12345678901" not in notas_erro[0].erro_detalhe
     assert session.commits == 1
 
 

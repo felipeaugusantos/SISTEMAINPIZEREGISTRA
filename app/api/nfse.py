@@ -122,7 +122,7 @@ async def emitir_nfse(dados: EmitirNfseInput, request: Request, session: Session
     try:
         adaptador_obj = obter_adaptador_nfse(dados.adaptador)
     except AdaptadorNFSeIndisponivelError as exc:
-        raise HTTPException(404, str(exc)) from exc
+        raise HTTPException(404, "Adaptador de NFS-e solicitado indisponível.") from exc
 
     try:
         emitida = await adaptador_obj.emitir(
@@ -132,19 +132,21 @@ async def emitir_nfse(dados: EmitirNfseInput, request: Request, session: Session
             tomador_nome=empresa.nome,
             competencia=lancamento.competencia,
         )
-    except Exception as exc:  # noqa: BLE001 - erro de um adaptador externo, registrado como tentativa falha
+    except Exception:  # noqa: BLE001 - provedor externo não é confiável para conteúdo de erro
         nota_erro = NotaFiscalServico(
             organizacao_id=usuario.organizacao_id,
             lancamento_id=lancamento.id,
             adaptador=dados.adaptador,
             valor=lancamento.valor_total,
             status="erro",
-            erro_detalhe=str(exc)[:2000],
+            # Não persistir texto arbitrário do provedor: pode conter dados do
+            # tomador, payloads, tokens ou detalhes internos da integração.
+            erro_detalhe="Falha de comunicação com o provedor de NFS-e.",
             emitida_por=usuario.ator,
         )
         session.add(nota_erro)
         await session.commit()
-        raise HTTPException(502, f"Falha ao emitir NFS-e: {exc}") from exc
+        raise HTTPException(502, "Não foi possível emitir a NFS-e no momento. Tente novamente mais tarde.") from None
 
     nota = NotaFiscalServico(
         organizacao_id=usuario.organizacao_id,

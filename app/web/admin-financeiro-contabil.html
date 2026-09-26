@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>Plano de contas e DRE — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=67"><link rel="stylesheet" href="/static/admin-financeiro.css?v=13">
-  <script src="/static/admin-shell.js?v=52" defer></script><script src="/static/admin-financeiro-contabil.js?v=2" defer></script>
+  <script src="/static/admin-shell.js?v=52" defer></script><script src="/static/admin-financeiro-contabil.js?v=3" defer></script>
 </head>
 <body class="admin-body" data-admin-section="finance">
   <main class="admin-main finance-main">
@@ -24,13 +24,17 @@
     </section>
 
     <section class="finance-card">
-      <header class="finance-list-heading"><div><p class="eyebrow">DEMONSTRATIVO</p><h2>DRE gerencial</h2><p>Resultado por competência, agrupado por grupo de conta contábil.</p></div></header>
+      <header class="finance-list-heading"><div><p class="eyebrow">DEMONSTRATIVO</p><h2>DRE gerencial</h2><p>Resultado por competência, agrupado por grupo de conta contábil. Valores de competência não significam que o dinheiro já entrou ou saiu.</p></div></header>
       <form id="dre-form" class="finance-period-form">
         <label><span>Competência inicial</span><input name="competencia_de" type="date" required></label>
         <label><span>Competência final</span><input name="competencia_ate" type="date" required></label>
         <button class="primary-button" type="submit">Gerar DRE</button>
       </form>
       <div id="dre-result"></div>
+    </section>
+    <section class="finance-card" aria-labelledby="caixa-title">
+      <header class="finance-list-heading"><div><p class="eyebrow">VISÃO DE CAIXA</p><h2 id="caixa-title">Realizado e vencimentos no período</h2><p>Aplica o mesmo intervalo selecionado acima: datas de baixa para o realizado e vencimentos das parcelas para os saldos em aberto. Vencimentos não são recebimentos garantidos.</p></div></header>
+      <div id="dre-caixa-result" aria-live="polite">Informe um período e gere o DRE para consultar a visão de caixa.</div>
     </section>
   </main>
 

@@ -472,6 +472,47 @@ def test_dre_intervalo_invertido_retorna_422() -> None:
     assert resposta.status_code == 422
 
 
+def test_dre_caixa_separa_realizado_de_saldo_em_aberto() -> None:
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(
+            itens=[
+                ("receber", Decimal("750"), Decimal("250")),
+                ("pagar", Decimal("100"), Decimal("50")),
+            ]
+        )
+    )
+    usuario = usuario_teste("administrador", {"finance.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).get(
+            "/v1/admin/financeiro/dre/caixa?data_de=2026-01-01&data_ate=2026-01-31"
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["recebido"] == "750"
+    assert corpo["pago"] == "100"
+    assert corpo["saldo_caixa"] == "650"
+    assert corpo["a_receber_vencimentos"] == "250"
+    assert corpo["a_pagar_vencimentos"] == "50"
+    assert corpo["saldo_previsto_vencimentos"] == "200"
+    assert "não representa previsão" in corpo["criterio"]["em_aberto"]
+
+
+def test_dre_caixa_intervalo_invertido_retorna_422() -> None:
+    app.dependency_overrides[get_session] = sessao_override()
+    usuario = usuario_teste("administrador", {"finance.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).get(
+            "/v1/admin/financeiro/dre/caixa?data_de=2026-02-01&data_ate=2026-01-01"
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 422
+
+
 # --- Achado FASE7-8/9 da auditoria (04/09/2026): custo por processo e
 # lucratividade por cliente/carteira. ---
 
@@ -547,6 +588,37 @@ def test_lucratividade_clientes_agrega_por_empresa_e_ordena_por_margem() -> None
     assert corpo["carteira"]["receita"] == "15000"
     assert corpo["carteira"]["custo"] == "9000"
     assert corpo["carteira"]["margem"] == "6000"
+
+
+def test_lucratividade_clientes_separa_competencia_de_caixa_e_inclui_cliente_so_com_movimento() -> None:
+    app.dependency_overrides[get_session] = sessao_override(
+        FakeResult(itens=[(1, "Cliente A", "receber", Decimal("1000"))]),
+        FakeResult(
+            itens=[
+                (1, "Cliente A", "receber", Decimal("700"), Decimal("300")),
+                (2, "Cliente B", "pagar", Decimal("100"), Decimal("50")),
+            ]
+        ),
+    )
+    usuario = usuario_teste("administrador", {"finance.view"})
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    try:
+        resposta = TestClient(app).get(
+            "/v1/admin/financeiro/lucratividade/clientes?competencia_de=2026-01-01&competencia_ate=2026-01-31"
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    por_nome = {item["nome"]: item for item in corpo["clientes"]}
+    assert por_nome["Cliente A"]["receita"] == "1000"
+    assert por_nome["Cliente A"]["recebido_periodo"] == "700"
+    assert por_nome["Cliente A"]["a_receber_vencimentos"] == "300"
+    assert por_nome["Cliente B"]["receita"] == "0"
+    assert por_nome["Cliente B"]["pago_periodo"] == "100"
+    assert por_nome["Cliente B"]["a_pagar_vencimentos"] == "50"
+    assert corpo["carteira"]["recebido_periodo"] == "700"
+    assert corpo["carteira"]["pago_periodo"] == "100"
 
 
 def test_lucratividade_clientes_intervalo_invertido_retorna_422() -> None:

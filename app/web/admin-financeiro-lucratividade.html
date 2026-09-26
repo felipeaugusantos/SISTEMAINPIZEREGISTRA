@@ -16,7 +16,7 @@
     <div id="lucro-message" class="status-message" hidden role="status" aria-live="polite"></div>
 
     <section class="finance-card">
-      <header class="finance-list-heading"><div><p class="eyebrow">CARTEIRA DE CLIENTES</p><h2>Margem por cliente</h2><p>Receita e custo (lançamentos financeiros) somados por período de competência.</p></div></header>
+      <header class="finance-list-heading"><div><p class="eyebrow">CARTEIRA DE CLIENTES</p><h2>Margem por cliente</h2><p>Receita e custo são por competência. Recebido/pago usam data de baixa; aberto usa vencimentos no mesmo intervalo. A margem exibida não é fluxo de caixa.</p></div></header>
       <form id="lucro-form" class="finance-period-form">
         <label><span>Competência inicial</span><input name="competencia_de" type="date" required></label>
         <label><span>Competência final</span><input name="competencia_ate" type="date" required></label>
@@ -24,8 +24,8 @@
       </form>
       <div id="lucro-carteira"></div>
       <div class="finance-table-scroll spaced"><table class="finance-table">
-        <thead><tr><th>Cliente</th><th class="num">Receita</th><th class="num">Custo</th><th class="num">Margem</th><th class="num">Margem %</th></tr></thead>
-        <tbody id="lucro-tbody"><tr><td colspan="5">Selecione um período e clique em Calcular.</td></tr></tbody>
+        <thead><tr><th>Cliente</th><th class="num">Receita competência</th><th class="num">Custo competência</th><th class="num">Margem competência</th><th class="num">Margem %</th><th class="num">Recebido</th><th class="num">Pago</th><th class="num">A receber (venc.)</th><th class="num">A pagar (venc.)</th></tr></thead>
+        <tbody id="lucro-tbody"><tr><td colspan="9">Selecione um período e clique em Calcular.</td></tr></tbody>
       </table></div>
     </section>
 

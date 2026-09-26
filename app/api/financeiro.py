@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -1111,6 +1111,84 @@ async def obter_dre(
     }
 
 
+@router.get("/dre/caixa")
+async def obter_resumo_caixa_dre(
+    session: SessionDep,
+    usuario: ViewDep,
+    data_de: Annotated[date, Query()],
+    data_ate: Annotated[date, Query()],
+) -> dict:
+    """Separação gerencial entre caixa efetivamente baixado e vencimentos.
+
+    Não é DRE fiscal: realizado usa a data de baixa; previsão usa vencimentos
+    ainda em aberto no intervalo. O escopo é sempre a organização autenticada.
+    """
+    if data_ate < data_de:
+        raise HTTPException(422, "data_ate não pode ser anterior a data_de")
+
+    linhas = (
+        await session.execute(
+            select(
+                LancamentoFinanceiro.tipo,
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                (ParcelaFinanceira.pago_em >= data_de)
+                                & (ParcelaFinanceira.pago_em <= data_ate),
+                                ParcelaFinanceira.valor_pago,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                (ParcelaFinanceira.vencimento >= data_de)
+                                & (ParcelaFinanceira.vencimento <= data_ate)
+                                & (ParcelaFinanceira.status != "cancelada"),
+                                func.greatest(ParcelaFinanceira.valor - func.coalesce(ParcelaFinanceira.valor_pago, 0), 0),
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+            )
+            .join(LancamentoFinanceiro, LancamentoFinanceiro.id == ParcelaFinanceira.lancamento_id)
+            .where(
+                ParcelaFinanceira.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.status != "cancelado",
+            )
+            .group_by(LancamentoFinanceiro.tipo)
+        )
+    ).all()
+    totais = {
+        tipo: {"realizado": Decimal(realizado), "em_aberto": Decimal(em_aberto)}
+        for tipo, realizado, em_aberto in linhas
+    }
+    receber = totais.get("receber", {"realizado": Decimal(0), "em_aberto": Decimal(0)})
+    pagar = totais.get("pagar", {"realizado": Decimal(0), "em_aberto": Decimal(0)})
+    return {
+        "data_de": data_de,
+        "data_ate": data_ate,
+        "criterio": {
+            "realizado": "Baixas registradas por data de pagamento no período",
+            "em_aberto": "Saldo de parcelas não canceladas com vencimento no período; não representa previsão de recebimento garantido",
+        },
+        "recebido": str(receber["realizado"]),
+        "pago": str(pagar["realizado"]),
+        "saldo_caixa": str(receber["realizado"] - pagar["realizado"]),
+        "a_receber_vencimentos": str(receber["em_aberto"]),
+        "a_pagar_vencimentos": str(pagar["em_aberto"]),
+        "saldo_previsto_vencimentos": str(receber["em_aberto"] - pagar["em_aberto"]),
+    }
+
+
 async def _criar_lancamento_individual(
     session: AsyncSession,
     usuario: UsuarioAutenticado,
@@ -2096,12 +2174,73 @@ async def obter_lucratividade_clientes(
                 LancamentoFinanceiro.tipo,
                 func.coalesce(func.sum(LancamentoFinanceiro.valor_total), 0),
             )
-            .outerjoin(EmpresaCRM, EmpresaCRM.id == LancamentoFinanceiro.empresa_id)
+            .outerjoin(
+                EmpresaCRM,
+                (EmpresaCRM.id == LancamentoFinanceiro.empresa_id)
+                & (EmpresaCRM.organizacao_id == usuario.organizacao_id),
+            )
             .where(
                 LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
                 LancamentoFinanceiro.status != "cancelado",
                 LancamentoFinanceiro.competencia >= competencia_de,
                 LancamentoFinanceiro.competencia <= competencia_ate,
+            )
+            .group_by(LancamentoFinanceiro.empresa_id, EmpresaCRM.nome, LancamentoFinanceiro.tipo)
+        )
+    ).all()
+
+    realizado_ate = func.coalesce(
+        func.sum(
+            case(
+                (
+                    (ParcelaFinanceira.pago_em >= competencia_de)
+                    & (ParcelaFinanceira.pago_em <= competencia_ate),
+                    ParcelaFinanceira.valor_pago,
+                ),
+                else_=0,
+            )
+        ),
+        0,
+    )
+    em_aberto_ate = func.coalesce(
+        func.sum(
+            case(
+                (
+                    (ParcelaFinanceira.vencimento >= competencia_de)
+                    & (ParcelaFinanceira.vencimento <= competencia_ate)
+                    & (ParcelaFinanceira.status != "cancelada"),
+                    func.greatest(ParcelaFinanceira.valor - func.coalesce(ParcelaFinanceira.valor_pago, 0), 0),
+                ),
+                else_=0,
+            )
+        ),
+        0,
+    )
+    linhas_caixa = (
+        await session.execute(
+            select(
+                LancamentoFinanceiro.empresa_id,
+                EmpresaCRM.nome,
+                LancamentoFinanceiro.tipo,
+                realizado_ate,
+                em_aberto_ate,
+            )
+            .outerjoin(
+                EmpresaCRM,
+                (EmpresaCRM.id == LancamentoFinanceiro.empresa_id)
+                & (EmpresaCRM.organizacao_id == usuario.organizacao_id),
+            )
+            .outerjoin(ParcelaFinanceira, ParcelaFinanceira.lancamento_id == LancamentoFinanceiro.id)
+            .where(
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+                ParcelaFinanceira.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.status != "cancelado",
+                or_(
+                    (ParcelaFinanceira.pago_em >= competencia_de)
+                    & (ParcelaFinanceira.pago_em <= competencia_ate),
+                    (ParcelaFinanceira.vencimento >= competencia_de)
+                    & (ParcelaFinanceira.vencimento <= competencia_ate),
+                ),
             )
             .group_by(LancamentoFinanceiro.empresa_id, EmpresaCRM.nome, LancamentoFinanceiro.tipo)
         )
@@ -2117,13 +2256,43 @@ async def obter_lucratividade_clientes(
         else:
             entrada["custo"] += Decimal(total)
 
+    caixa_por_cliente: dict[int | None, dict[str, Decimal]] = {}
+    for empresa_id, nome, tipo, realizado, em_aberto in linhas_caixa:
+        por_cliente.setdefault(
+            empresa_id,
+            {
+                "empresa_id": empresa_id,
+                "nome": nome or "(sem cliente vinculado)",
+                "receita": Decimal(0),
+                "custo": Decimal(0),
+            },
+        )
+        caixa = caixa_por_cliente.setdefault(
+            empresa_id,
+            {
+                "recebido": Decimal(0),
+                "pago": Decimal(0),
+                "a_receber": Decimal(0),
+                "a_pagar": Decimal(0),
+            },
+        )
+        caixa["recebido" if tipo == "receber" else "pago"] += Decimal(realizado)
+        caixa["a_receber" if tipo == "receber" else "a_pagar"] += Decimal(em_aberto)
+
     clientes = []
     receita_carteira = Decimal("0")
     custo_carteira = Decimal("0")
+    caixa_carteira = {"recebido": Decimal(0), "pago": Decimal(0), "a_receber": Decimal(0), "a_pagar": Decimal(0)}
     for entrada in por_cliente.values():
         margem, margem_pct = _margem(entrada["receita"], entrada["custo"])
         receita_carteira += entrada["receita"]
         custo_carteira += entrada["custo"]
+        caixa = caixa_por_cliente.get(
+            entrada["empresa_id"],
+            {"recebido": Decimal(0), "pago": Decimal(0), "a_receber": Decimal(0), "a_pagar": Decimal(0)},
+        )
+        for chave in caixa_carteira:
+            caixa_carteira[chave] += caixa[chave]
         clientes.append(
             {
                 "empresa_id": entrada["empresa_id"],
@@ -2132,6 +2301,10 @@ async def obter_lucratividade_clientes(
                 "custo": str(entrada["custo"]),
                 "margem": str(margem),
                 "margem_pct": margem_pct,
+                "recebido_periodo": str(caixa["recebido"]),
+                "pago_periodo": str(caixa["pago"]),
+                "a_receber_vencimentos": str(caixa["a_receber"]),
+                "a_pagar_vencimentos": str(caixa["a_pagar"]),
             }
         )
     clientes.sort(key=lambda item: Decimal(item["margem"]), reverse=True)
@@ -2146,6 +2319,10 @@ async def obter_lucratividade_clientes(
             "custo": str(custo_carteira),
             "margem": str(margem_carteira),
             "margem_pct": margem_pct_carteira,
+            "recebido_periodo": str(caixa_carteira["recebido"]),
+            "pago_periodo": str(caixa_carteira["pago"]),
+            "a_receber_vencimentos": str(caixa_carteira["a_receber"]),
+            "a_pagar_vencimentos": str(caixa_carteira["a_pagar"]),
         },
     }
 

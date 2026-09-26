@@ -1,6 +1,7 @@
 const adminSections = [
   { id: "overview", label: "Visão geral", href: "/admin", symbol: "VG", permission: "dashboard.view" },
   { id: "updates", label: "Atualizações", href: "/admin/atualizacoes", symbol: "AT", permission: "dashboard.view" },
+  { id: "reports", label: "Relatórios", href: "/admin/relatorios", symbol: "RE", permissions: ["leads.view", "crm.view", "finance.view", "legal.view", "portfolio.view"] },
   { id: "comercial", label: "Comercial", href: "/admin/consulta", symbol: "CO", permission: "leads.view" },
   { id: "consulta", label: "Consulta de marcas", href: "/admin/consulta", symbol: "CM", permission: "leads.view", parent: "comercial" },
   { id: "figurativa", label: "Busca figurativa", href: "/admin/figurativa", symbol: "BF", permission: "leads.view", parent: "comercial" },
@@ -48,6 +49,7 @@ const adminSections = [
 const ADMIN_NAV_ICONS = {
   overview: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   updates: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+  reports: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/><path d="M8 7h8M8 11h8M8 15h5"/>',
   comercial: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor"/>',
   finance: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
   juridico: '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
@@ -463,7 +465,10 @@ originalFetch("/v1/auth/me").then(async response => {
     if (section?.profiles && !section.profiles.includes(user.perfil)) link.remove();
     else if (section?.superadmin && !user.superadmin) link.remove();
     else if (link.dataset.permission === "*") { /* disponível para qualquer usuário autenticado, ex.: Assistente (IA) */ }
-    else if (!section?.superadmin && user.perfil !== "administrador" && !user.superadmin && !user.permissoes.includes(link.dataset.permission)) link.remove();
+    else if (!section?.superadmin && user.perfil !== "administrador" && !user.superadmin) {
+      const permissions = section?.permissions || [link.dataset.permission];
+      if (!permissions.some(permission => user.permissoes.includes(permission))) link.remove();
+    }
   });
   document.querySelectorAll(".admin-nav-parent-row").forEach(row => {
     if (!row.querySelector("a")) row.remove();

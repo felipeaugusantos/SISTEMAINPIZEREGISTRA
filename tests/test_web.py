@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.auth import obter_usuario_atual
 from app.main import app, web_dir
-from tests.conftest import auth_override
+from tests.conftest import auth_override, usuario_teste
 
 
 def _client_autenticado() -> TestClient:
@@ -114,6 +114,42 @@ def test_unified_admin_dashboard_requires_authentication() -> None:
     assert "Notification.requestPermission" in script.text
     assert 'id="notif-native-toggle"' in response.text
     _limpar_auth()
+
+
+def test_central_relatorios_exige_permissao_de_modulo_e_lista_mvp() -> None:
+    client = TestClient(app)
+    assert client.get("/admin/relatorios", follow_redirects=False).status_code == 303
+
+    app.dependency_overrides[obter_usuario_atual] = auth_override(
+        usuario_teste(perfil="financeiro", permissoes={"finance.view"})
+    )
+    response = client.get("/admin/relatorios")
+    assert response.status_code == 200
+    assert 'data-admin-section="reports"' in response.text
+    assert 'data-report-permissions="finance.view"' in response.text
+    assert "DRE, caixa e lucratividade" in response.text
+    assert 'href="/admin/financeiro/plano-contas"' in response.text
+    assert "CRM e produtividade" in response.text
+
+    script = client.get("/static/admin-relatorios.js")
+    assert script.status_code == 200
+    assert 'fetch("/v1/auth/me")' in script.text
+    assert 'permissions.has(link.dataset.linkPermission)' in script.text
+    estilos = client.get("/static/admin-relatorios.css")
+    assert estilos.status_code == 200
+    shell = client.get("/static/admin-shell.js")
+    assert 'id: "reports"' in shell.text
+    assert "permissions.some(permission => user.permissoes.includes(permission))" in shell.text
+    _limpar_auth()
+
+
+def test_central_relatorios_nega_usuario_sem_permissao_de_modulo() -> None:
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario_teste(perfil="operador"))
+    try:
+        response = TestClient(app).get("/admin/relatorios")
+        assert response.status_code == 403
+    finally:
+        _limpar_auth()
 
 
 def test_monitoramento_rpi_exige_autenticacao() -> None:

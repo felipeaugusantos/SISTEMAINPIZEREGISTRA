@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Relatórios — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=67">
+  <link rel="stylesheet" href="/static/admin-relatorios.css?v=1">
+  <script src="/static/admin-shell.js?v=53" defer></script>
+  <script src="/static/admin-relatorios.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="reports">
+  <main class="admin-main reports-main">
+    <section class="reports-hero">
+      <div>
+        <p class="eyebrow">GESTÃO E ACOMPANHAMENTO</p>
+        <h1>Relatórios</h1>
+        <p>Acesse os indicadores e relatórios dos módulos que você tem permissão para consultar.</p>
+      </div>
+      <span id="reports-generated-at" class="reports-generated-at">Dados carregados sob demanda nos módulos de origem</span>
+    </section>
+
+    <div class="reports-notice" role="note">
+      <strong>Sobre os números</strong>
+      <p>Os relatórios são consultados diretamente em cada módulo. Períodos, fórmulas e horários de atualização podem variar; confira a definição exibida no relatório antes de comparar indicadores de áreas diferentes.</p>
+    </div>
+
+    <section class="reports-section" aria-labelledby="reports-priority-title">
+      <header><div><p class="eyebrow">PRIMEIRA ENTREGA</p><h2 id="reports-priority-title">Relatórios prioritários</h2></div></header>
+      <div class="reports-grid">
+        <article class="report-card" data-report-permissions="leads.view,crm.view">
+          <span class="report-card-icon" aria-hidden="true">CR</span>
+          <div><p class="eyebrow">COMERCIAL</p><h3>CRM e produtividade</h3>
+            <p>Indicadores do atendimento e funil, oportunidades, pendências e produtividade. O painel de funil mostra a posição atual; a série temporal deve ser consultada separadamente.</p>
+            <small>Fonte: dashboard CRM/Leads. Não representa necessariamente uma coorte de oportunidades criadas no período.</small>
+          </div>
+          <nav aria-label="Relatórios de CRM">
+            <a class="report-link" data-link-permission="crm.view" href="/admin/crm">Abrir CRM e produtividade</a>
+            <a class="report-link" data-link-permission="leads.view" href="/admin/pesquisas">Abrir Leads e pesquisas</a>
+          </nav>
+        </article>
+
+        <article class="report-card" data-report-permissions="finance.view">
+          <span class="report-card-icon" aria-hidden="true">FI</span>
+          <div><p class="eyebrow">FINANCEIRO</p><h3>DRE, caixa e lucratividade</h3>
+            <p>Consulte o resultado gerencial por competência, caixa realizado/vencimentos e lucratividade por cliente.</p>
+            <small>A competência não equivale a recebimento. A visão de caixa depende da baixa registrada; vencimentos não são valores recebidos garantidos.</small>
+          </div>
+          <nav aria-label="Relatórios financeiros">
+            <a class="report-link" href="/admin/financeiro/plano-contas">Abrir DRE e visão de caixa</a>
+            <a class="report-link" href="/admin/financeiro/lucratividade">Abrir lucratividade por cliente</a>
+          </nav>
+        </article>
+
+        <article class="report-card" data-report-permissions="legal.view">
+          <span class="report-card-icon" aria-hidden="true">OJ</span>
+          <div><p class="eyebrow">OPERAÇÃO JURÍDICA</p><h3>Prazos e desempenho</h3>
+            <p>Acompanhe cumprimento de prazos, tempo de confirmação, carga por responsável e escalonamentos.</p>
+            <small>Os indicadores de desempenho possuem seleção de 30, 90, 180 ou 365 dias; a carga ativa é uma fotografia atual.</small>
+          </div>
+          <nav aria-label="Relatórios jurídicos">
+            <a class="report-link" href="/admin/operacao-juridica">Abrir indicadores da operação jurídica</a>
+          </nav>
+        </article>
+
+        <article class="report-card" data-report-permissions="portfolio.view">
+          <span class="report-card-icon" aria-hidden="true">PI</span>
+          <div><p class="eyebrow">CARTEIRA DE MARCAS</p><h3>Processos monitorados</h3>
+            <p>Consulte a carteira, filtre por status e situação no INPI, exporte CSV conforme sua permissão ou gere relatório individual.</p>
+            <small>A situação oficial depende da sincronização das publicações do INPI. Verifique a data da última atualização.</small>
+          </div>
+          <nav aria-label="Relatórios da carteira">
+            <a class="report-link" href="/admin/processos-monitorados">Abrir carteira e relatórios</a>
+          </nav>
+        </article>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

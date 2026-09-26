@@ -1,0 +1,21 @@
+.reports-main { display: grid; gap: 20px; }
+.reports-hero { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding: 28px; border: 1px solid var(--line); border-radius: var(--radius-md); background: linear-gradient(115deg, var(--surface), #e8f5e9); }
+.reports-hero h1 { margin: 4px 0 8px; font-size: clamp(2rem, 4vw, 3rem); }
+.reports-hero p:not(.eyebrow) { max-width: 720px; margin: 0; color: var(--muted); }
+.reports-generated-at { color: var(--muted); font-size: .82rem; text-align: right; }
+.reports-notice { padding: 16px 20px; border: 1px solid #e6d6a6; border-radius: var(--radius-md); background: #fff8df; }
+.reports-notice p { margin: 5px 0 0; color: var(--muted); }
+.reports-section { padding: 22px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.reports-section > header { margin-bottom: 18px; }
+.reports-section h2 { margin: 4px 0 0; }
+.reports-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.report-card { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-content: start; gap: 4px 14px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius-md); background: #fff; }
+.report-card-icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 11px; background: var(--mint); color: var(--forest-dark); font-size: .78rem; font-weight: 750; }
+.report-card .eyebrow { margin: 2px 0 5px; }
+.report-card h3 { margin: 0 0 8px; font-size: 1.15rem; }
+.report-card p:not(.eyebrow) { margin: 0 0 10px; color: var(--muted); line-height: 1.5; }
+.report-card small { display: block; color: var(--muted); line-height: 1.45; }
+.report-card nav { grid-column: 2; display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; }
+.report-link { color: var(--forest-dark); font-weight: 650; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.report-link:hover { color: var(--forest); }
+@media (max-width: 760px) { .reports-grid { grid-template-columns: 1fr; } .reports-hero { align-items: start; flex-direction: column; } .reports-generated-at { text-align: left; } }

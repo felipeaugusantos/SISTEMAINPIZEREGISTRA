@@ -67,7 +67,7 @@ from app.api.usuarios import router as usuarios_router
 from app.api.versoes_sistema import router as versoes_sistema_router
 from app.api.vigilancia import router as vigilancia_router
 from app.api.visual import router as visual_router
-from app.auth import exigir_permissao, obter_usuario_atual
+from app.auth import exigir_permissao, exigir_qualquer_permissao, obter_usuario_atual
 from app.database import get_session
 from app.models import EventoOperacional, RpiImportacao, RpiSyncEstado, RpiSyncExecucao
 from app.observability import observar_requisicao
@@ -254,6 +254,22 @@ async def painel_leads() -> FileResponse:
 @app.get("/admin", include_in_schema=False, dependencies=[Depends(exigir_permissao("dashboard.view"))])
 async def painel_administrativo() -> FileResponse:
     return FileResponse(web_dir / "admin.html")
+
+
+@app.get(
+    "/admin/relatorios",
+    include_in_schema=False,
+    dependencies=[
+        Depends(
+            exigir_qualquer_permissao(
+                "leads.view", "crm.view", "finance.view", "legal.view", "portfolio.view"
+            )
+        )
+    ],
+)
+async def painel_relatorios() -> FileResponse:
+    """Catálogo de relatórios; cada relatório continua protegido pelo módulo de origem."""
+    return FileResponse(web_dir / "admin-relatorios.html")
 
 
 @app.get(

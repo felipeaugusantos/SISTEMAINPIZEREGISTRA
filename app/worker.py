@@ -26,6 +26,7 @@ from app.ia_sombra import (
     indexar_embeddings_leads_pendentes,
 )
 from app.imap_polling import verificar_respostas_email
+from app.juridico_comunicacao import agendar_resumos_juridicos_diarios, processar_saidas_email_juridico
 from app.models import (
     AlertaSistema,
     Lead,
@@ -412,6 +413,10 @@ async def processar(tipo: str, payload: dict) -> None:
             ).scalars()
             for organizacao_id in organizacoes:
                 await executar_motor_organizacao(session, organizacao_id)
+        elif tipo == "juridico.agendar_resumos":
+            await agendar_resumos_juridicos_diarios(session)
+        elif tipo == "juridico.processar_comunicacoes":
+            await processar_saidas_email_juridico(session)
         elif tipo == "cadencia.enviar_emails_pendentes":
             resultado = await processar_envios_cadencia_pendentes(session)
             if resultado.get("enviados") or resultado.get("falhas"):
@@ -740,12 +745,14 @@ TAREFAS_MANUTENCAO_HORARIA: tuple[str, ...] = (
     "cadencia.verificar_respostas_email",
     "registrabilidade.reconciliar_resultados",
     "juridico.executar_motor",
+    "juridico.agendar_resumos",
     "vigilancia.executar_semanal",
     "plataforma.verificar_saude",
     "atualizacoes.lembrar_pendentes",
     "feature_flags.avaliar_circuito",
 )
 INTERVALO_MANUTENCAO_HORARIA = timedelta(hours=1)
+INTERVALO_COMUNICACAO_JURIDICA = timedelta(minutes=1)
 INTERVALO_ALTO_RENOME = timedelta(days=7)
 
 
@@ -852,6 +859,16 @@ async def _loop_manutencao(redis) -> None:
         await asyncio.sleep(30)
 
 
+async def _loop_comunicacao_juridica(redis) -> None:
+    """Entrega a caixa de saída sem esperar o próximo ciclo horário."""
+    proxima_execucao = datetime.now(UTC)
+    while True:
+        if datetime.now(UTC) >= proxima_execucao:
+            await _executar_tarefa_manutencao(redis, "juridico.processar_comunicacoes")
+            proxima_execucao = datetime.now(UTC) + INTERVALO_COMUNICACAO_JURIDICA
+        await asyncio.sleep(10)
+
+
 async def main() -> None:
     redis = cliente_redis()
     # Recupera trabalhos que ficaram em processamento apos encerramento abrupto.
@@ -859,7 +876,7 @@ async def main() -> None:
         bruto_pendente = await redis.rpop(PROCESSING_KEY)
         if bruto_pendente:
             await redis.lpush(QUEUE_KEY, bruto_pendente)
-    await asyncio.gather(_loop_fila_principal(redis), _loop_manutencao(redis))
+    await asyncio.gather(_loop_fila_principal(redis), _loop_manutencao(redis), _loop_comunicacao_juridica(redis))
 
 
 if __name__ == "__main__":

@@ -6,9 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Operação jurídica — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=67">
-  <link rel="stylesheet" href="/static/admin-juridico.css?v=20">
+  <link rel="stylesheet" href="/static/admin-juridico.css?v=21">
   <script src="/static/admin-shell.js?v=52" defer></script>
-  <script src="/static/admin-juridico.js?v=18" defer></script>
+  <script src="/static/admin-juridico.js?v=19" defer></script>
 </head>
 <body class="admin-body" data-admin-section="legal">
   <main class="admin-main legal-main">
@@ -27,10 +27,20 @@
     <div id="legal-message" class="status-message" role="status" aria-live="polite" hidden></div>
     <section id="legal-metrics" class="legal-metrics" aria-label="Indicadores jurídicos"></section>
 
+    <section class="legal-card legal-stabilization-card">
+      <header>
+        <div><p class="eyebrow">FASE 0 · ESTABILIZAÇÃO ASSISTIDA</p><h2>Fila de saneamento operacional</h2></div>
+        <span id="legal-stabilization-status" class="legal-count">Carregando…</span>
+      </header>
+      <p class="legal-section-help">O sistema apenas identifica o passivo. Confirmação, descarte, redistribuição e alteração de política continuam exigindo decisão humana.</p>
+      <div id="legal-stabilization-metrics" class="legal-stabilization-metrics"></div>
+      <div id="legal-stabilization-blockers" class="legal-stabilization-blockers"></div>
+    </section>
+
     <section class="legal-card legal-policy-card">
       <header>
         <div><p class="eyebrow">GOVERNANÇA OPERACIONAL</p><h2>Política de prazos</h2></div>
-        <span id="legal-engine-status" class="legal-count">Motor ainda não executado</span>
+        <div class="legal-header-status"><span id="legal-policy-state" class="legal-count">Política não verificada</span><span id="legal-engine-status" class="legal-count">Motor ainda não executado</span></div>
       </header>
       <form id="legal-policy-form" class="legal-policy-form">
         <label><input type="checkbox" name="exigir_responsavel_confirmacao"> <span>Exigir responsável antes da confirmação</span></label>
@@ -122,6 +132,16 @@
         <span id="legal-notification-count" class="legal-count"></span>
       </header>
       <div id="legal-notifications" class="legal-notifications"></div>
+    </section>
+
+    <section class="legal-card legal-communication-card">
+      <header>
+        <div><p class="eyebrow">FASE 3 · COMUNICAÇÃO RASTREÁVEL</p><h2>Entrega de alertas e resumos</h2></div>
+        <span id="legal-communication-period" class="legal-count">Últimos 30 dias</span>
+      </header>
+      <p class="legal-section-help">A intenção de envio é registrada junto com a notificação. O worker entrega depois do commit, alterna provedores conforme a configuração e mantém tentativas e falhas para auditoria.</p>
+      <div id="legal-communication-metrics" class="legal-stabilization-metrics"></div>
+      <div id="legal-communication-items" class="legal-communication-items"></div>
     </section>
 
     <section class="legal-card">

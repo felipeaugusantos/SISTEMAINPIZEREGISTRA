@@ -68,6 +68,7 @@ from app.models.juridico import PoliticaJuridica as PoliticaJuridica
 from app.models.juridico import PrazoJuridico as PrazoJuridico
 from app.models.juridico import RegraJuridicaVersionada as RegraJuridicaVersionada
 from app.models.juridico import RegraPrazoJuridico as RegraPrazoJuridico
+from app.models.juridico import SaidaEmailJuridico as SaidaEmailJuridico
 from app.models.marca_busca import AfinidadeClasse as AfinidadeClasse
 from app.models.marca_busca import AfinidadeViena as AfinidadeViena
 from app.models.marca_busca import AvaliacaoRiscoMarca as AvaliacaoRiscoMarca

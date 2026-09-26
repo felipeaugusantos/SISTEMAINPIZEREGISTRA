@@ -75,6 +75,39 @@ function renderMetrics(metrics) {
   ];
   document.querySelector("#legal-metrics").innerHTML = values.map(([label, value, kind]) => `<article class="${kind}"><span>${label}</span><strong>${value}</strong></article>`).join("");
 }
+function renderStabilization(data) {
+  const values = [
+    ["Ativos", data.contagens.ativos],
+    ["Sem responsável", data.contagens.sem_responsavel],
+    ["A confirmar", data.contagens.aguardando_confirmacao],
+    ["A confirmar > 7 dias", data.contagens.aguardando_confirmacao_mais_7_dias],
+    ["Vencidos", data.contagens.vencidos],
+    ["Críticos", data.contagens.criticos],
+  ];
+  document.querySelector("#legal-stabilization-metrics").innerHTML = values.map(([label, value]) => `<article><span>${escapeHtml(label)}</span><strong>${Number(value || 0)}</strong></article>`).join("");
+  const blockers = data.bloqueios || [];
+  document.querySelector("#legal-stabilization-blockers").innerHTML = blockers.length
+    ? `<strong>Pontos que exigem ação humana</strong><ul>${blockers.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+    : "<strong>Sem bloqueios operacionais detectados.</strong>";
+  const status = document.querySelector("#legal-stabilization-status");
+  status.textContent = blockers.length ? `${blockers.length} ponto(s) aberto(s)` : "Base estabilizada";
+  status.classList.toggle("warning", blockers.length > 0);
+}
+function renderCommunication(data) {
+  const labels = { pendente: "Pendentes", processando: "Processando", enviado: "Enviados", falha: "Falhas" };
+  document.querySelector("#legal-communication-metrics").innerHTML = Object.entries(labels).map(([key, label]) => `<article><span>${label}</span><strong>${Number(data.status?.[key] || 0)}</strong></article>`).join("");
+  document.querySelector("#legal-communication-items").innerHTML = data.itens?.length
+    ? data.itens.slice(0, 10).map((item) => `<article><div><strong>${escapeHtml(item.assunto)}</strong><span>${escapeHtml(item.tipo.replaceAll("_", " "))} · ${escapeHtml(item.destinatario)}</span></div><div><span class="legal-badge ${item.status === "falha" ? "critical" : ""}">${escapeHtml(item.status)}</span><small>${Number(item.tentativas || 0)} tentativa(s)${item.provedor ? ` · ${escapeHtml(item.provedor)}` : ""}</small></div></article>`).join("")
+    : '<div class="legal-empty">Nenhuma comunicação registrada no período.</div>';
+}
+async function loadOperationalHealth() {
+  const [stabilization, communication] = await Promise.all([
+    api("/v1/admin/juridico/estabilizacao"),
+    api("/v1/admin/juridico/comunicacao?dias=30"),
+  ]);
+  renderStabilization(stabilization);
+  renderCommunication(communication);
+}
 function intakeStatus(item) {
   const labels = {
     pronto: ["Pronto para iniciar", "ready"],
@@ -216,6 +249,9 @@ async function loadLegalPolicy() {
   for (const field of ["exigir_responsavel_confirmacao", "exigir_checklist_conclusao", "exigir_evidencia_conclusao", "exigir_segunda_pessoa_critico"]) {
     form.elements[field].checked = !!policy[field];
   }
+  const policyState = document.querySelector("#legal-policy-state");
+  policyState.textContent = policy.configurada ? "Política confirmada" : "Padrão implícito · confirme a política";
+  policyState.classList.toggle("warning", !policy.configurada);
   form.elements.margem_operacional_dias.value = Number(policy.margem_operacional_dias || 0);
   [...form.elements].forEach((element) => { element.disabled = !legalState.canManage; });
   const latest = engine.execucoes?.[0];
@@ -268,7 +304,7 @@ function openDeadline() {
 }
 async function updateDeadline(id, payload) {
   await api(`/v1/admin/juridico/prazos/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
-  await loadDashboard();
+  await Promise.all([loadDashboard(), loadOperationalHealth()]);
 }
 function renderDeliveryDocuments(items) {
   document.querySelector("#delivery-documents").innerHTML = items.length ? items.map((item) => `
@@ -305,7 +341,7 @@ document.querySelector("#run-legal-engine").addEventListener("click", async () =
   try {
     const result = await api("/v1/admin/juridico/motor/executar", { method: "POST" });
     showMessage(`Motor concluído: ${result.prazos_sugeridos} sugestão(ões), ${result.prazos_historicos || 0} referência(s) histórica(s), ${result.prazos_duplicados || 0} duplicidade(s) arquivada(s), ${result.prazos_reconciliados || 0} pendência(s) encerrada(s) por despacho posterior, ${result.notificacoes_criadas} notificação(ões) e ${result.escalados} escalonamento(s).`, "success");
-    await Promise.all([loadDashboard(), loadLegalPolicy()]);
+    await Promise.all([loadDashboard(), loadLegalPolicy(), loadOperationalHealth()]);
   } catch (error) { showMessage(error.message); }
 });
 deadlineForm.addEventListener("submit", async (event) => {
@@ -318,7 +354,7 @@ deadlineForm.addEventListener("submit", async (event) => {
     const result = await api("/v1/admin/juridico/prazos", { method: "POST", body: JSON.stringify(data) });
     deadlineDialog.close();
     showMessage(`Prazo salvo com vencimento em ${dateOnly.format(new Date(result.vencimento_em))}.`, "success");
-    await loadDashboard();
+    await Promise.all([loadDashboard(), loadOperationalHealth()]);
   } catch (error) { showMessage(error.message); }
 });
 document.querySelector("#legal-deadlines").addEventListener("click", (event) => {
@@ -405,7 +441,7 @@ confirmDeadlineForm.addEventListener("submit", async (event) => {
 });
 
 Promise.all([loadReferences(), loadDashboard()])
-  .then(() => Promise.all([loadLegalPolicy(), loadGovernance()]))
+  .then(() => Promise.all([loadLegalPolicy(), loadGovernance(), loadOperationalHealth()]))
   .catch((error) => showMessage(error.message));
 
 document.querySelector("#legal-policy-form").addEventListener("submit", async (event) => {
@@ -421,7 +457,7 @@ document.querySelector("#legal-policy-form").addEventListener("submit", async (e
   try {
     await api("/v1/admin/juridico/politica", { method: "PUT", body: JSON.stringify(payload) });
     showMessage("Política jurídica salva e marcos operacionais recalculados.", "success");
-    await Promise.all([loadLegalPolicy(), loadDashboard()]);
+    await Promise.all([loadLegalPolicy(), loadDashboard(), loadOperationalHealth()]);
   } catch (error) { showMessage(error.message, "error"); }
 });
 

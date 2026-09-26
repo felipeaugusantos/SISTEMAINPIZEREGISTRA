@@ -49,9 +49,12 @@ from app.api.juridico import (
     baixar_documento_entrega,
     calcular_vencimento,
     calcular_vencimento_operacional,
+    consultar_politica_juridica,
     consultar_regras_juridicas,
     criar_prazo,
     criar_regra_juridica,
+    diagnostico_comunicacao_juridica,
+    diagnostico_estabilizacao_juridica,
     editar_politica_juridica,
     executar_motor_organizacao,
     executar_reprocessamento,
@@ -79,6 +82,7 @@ from app.models import (
     PropostaComercial,
     RegraJuridicaVersionada,
     RegraPrazoJuridico,
+    SaidaEmailJuridico,
     UsuarioOperacoes,
 )
 from tests.conftest import FakeResult, FakeSession, usuario_teste
@@ -671,7 +675,7 @@ def test_tela_juridica_expoe_fluxos_principais() -> None:
     assert "Executar motor de prazos" in html
     assert "CENTRAL DE NOTIFICAÇÕES" in html
     assert "Registrar entrega" in html
-    assert "admin-juridico.css?v=20" in html
+    assert "admin-juridico.css?v=21" in html
     assert "Política de prazos" in html
     assert "margem_operacional_dias" in html
     assert "admin-juridico.js?v=" in html
@@ -1118,6 +1122,12 @@ def test_editar_politica_juridica_cria_registro_quando_inexistente() -> None:
     }
     assert session.commits == 1
     assert len(session.adicionados) == 1
+
+
+def test_consultar_politica_informa_quando_padrao_ainda_nao_foi_confirmado() -> None:
+    resultado = asyncio.run(consultar_politica_juridica(FakeSession([FakeResult(scalar=None)]), usuario_teste()))
+    assert resultado["configurada"] is False
+    assert resultado["exigir_responsavel_confirmacao"] is True
 
 
 # --- Achado 5.5 da auditoria (02/09/2026): versionamento de regras jurídicas (Fase 3) ---
@@ -1777,85 +1787,104 @@ def test_emails_usuarios_nao_consulta_o_banco_quando_nao_ha_ids() -> None:
     assert resultado == {}
 
 
-def test_notificar_envia_email_quando_e_notificacao_nova_e_ha_destinatario() -> None:
+def test_notificar_enfileira_email_na_mesma_transacao_quando_ha_destinatario() -> None:
     import app.api.juridico as juridico_modulo
 
-    chamadas: list[tuple] = []
-
-    async def _enviar_fake(destinatario: str, titulo: str, mensagem_texto: str) -> None:
-        chamadas.append((destinatario, titulo, mensagem_texto))
-
-    original = juridico_modulo.enviar_alerta_prazo_juridico
-    juridico_modulo.enviar_alerta_prazo_juridico = _enviar_fake
-    try:
-        prazo = _prazo_ativo()
-        session = FakeSession([FakeResult(scalar=None)])
-        enviado = asyncio.run(
-            juridico_modulo._notificar(
-                session,
-                prazo,
-                "vencido",
-                2,
-                "Prazo jurídico vencido",
-                "Responder exigência venceu há 3 dia(s).",
-                "responsavel@teste.local",
-            )
+    prazo = _prazo_ativo()
+    session = FakeSession([FakeResult(scalar=None)])
+    criado = asyncio.run(
+        juridico_modulo._notificar(
+            session,
+            prazo,
+            "vencido",
+            2,
+            "Prazo jurídico vencido",
+            "Responder exigência venceu há 3 dia(s).",
+            "responsavel@teste.local",
         )
-    finally:
-        juridico_modulo.enviar_alerta_prazo_juridico = original
+    )
 
-    assert enviado is True
-    assert chamadas == [
-        ("responsavel@teste.local", "Prazo jurídico vencido", "Responder exigência venceu há 3 dia(s).")
-    ]
+    assert criado is True
+    saidas = [item for item in session.adicionados if isinstance(item, SaidaEmailJuridico)]
+    assert len(saidas) == 1
+    assert saidas[0].destinatario == "responsavel@teste.local"
+    assert saidas[0].status == "pendente"
+    assert session.commits == 0
 
 
-def test_notificar_nao_reenvia_email_quando_ja_notificado() -> None:
+def test_notificar_nao_reenfileira_email_quando_ja_notificado() -> None:
     import app.api.juridico as juridico_modulo
 
-    chamadas: list[tuple] = []
-
-    async def _enviar_fake(destinatario: str, titulo: str, mensagem_texto: str) -> None:
-        chamadas.append((destinatario, titulo, mensagem_texto))
-
-    original = juridico_modulo.enviar_alerta_prazo_juridico
-    juridico_modulo.enviar_alerta_prazo_juridico = _enviar_fake
-    try:
-        prazo = _prazo_ativo()
-        session = FakeSession([FakeResult(scalar=123)])  # já existe notificação com essa chave
-        enviado = asyncio.run(
-            juridico_modulo._notificar(
-                session, prazo, "vencido", 2, "Prazo jurídico vencido", "texto", "responsavel@teste.local"
-            )
+    prazo = _prazo_ativo()
+    session = FakeSession([FakeResult(scalar=123)])  # já existe notificação com essa chave
+    criado = asyncio.run(
+        juridico_modulo._notificar(
+            session, prazo, "vencido", 2, "Prazo jurídico vencido", "texto", "responsavel@teste.local"
         )
-    finally:
-        juridico_modulo.enviar_alerta_prazo_juridico = original
+    )
 
-    assert enviado is False
-    assert chamadas == []
+    assert criado is False
+    assert not [item for item in session.adicionados if isinstance(item, SaidaEmailJuridico)]
 
 
-def test_notificar_sem_email_destinatario_nao_tenta_enviar() -> None:
+def test_notificar_sem_email_destinatario_nao_cria_saida() -> None:
     import app.api.juridico as juridico_modulo
 
-    chamadas: list[tuple] = []
+    prazo = _prazo_ativo()
+    session = FakeSession([FakeResult(scalar=None)])
+    criado = asyncio.run(
+        juridico_modulo._notificar(session, prazo, "vencido", 2, "Prazo jurídico vencido", "texto")
+    )
 
-    async def _enviar_fake(destinatario: str, titulo: str, mensagem_texto: str) -> None:
-        chamadas.append((destinatario, titulo, mensagem_texto))
+    assert criado is True
+    assert not [item for item in session.adicionados if isinstance(item, SaidaEmailJuridico)]
 
-    original = juridico_modulo.enviar_alerta_prazo_juridico
-    juridico_modulo.enviar_alerta_prazo_juridico = _enviar_fake
-    try:
-        prazo = _prazo_ativo()
-        session = FakeSession([FakeResult(scalar=None)])
-        enviado = asyncio.run(
-            juridico_modulo._notificar(session, prazo, "vencido", 2, "Prazo jurídico vencido", "texto")
-        )
-    finally:
-        juridico_modulo.enviar_alerta_prazo_juridico = original
 
-    assert enviado is True
-    assert chamadas == []
+# --- Fases 0 e 3 (25/09/2026): estabilização e rastreio de comunicação ---
+
+
+def test_diagnostico_estabilizacao_expoe_passivo_sem_executar_acao() -> None:
+    session = FakeSession(
+        [
+            FakeResult(itens=[(20, 11, 12, 9, 4, 1)]),
+            FakeResult(scalar=None),
+            FakeResult(scalar=0),
+            FakeResult(scalar=0),
+            FakeResult(scalar=0),
+        ]
+    )
+    resultado = asyncio.run(diagnostico_estabilizacao_juridica(session, usuario_teste()))
+
+    assert resultado["contagens"]["sem_responsavel"] == 11
+    assert resultado["contagens"]["aguardando_confirmacao"] == 12
+    assert resultado["contagens"]["vencidos"] == 4
+    assert resultado["governanca"]["politica_configurada"] is False
+    assert resultado["automatico"] is False
+    assert len(resultado["bloqueios"]) == 5
+    assert session.commits == 0
+
+
+def test_diagnostico_comunicacao_mascara_destinatario_e_agrega_status() -> None:
+    saida = SaidaEmailJuridico(
+        id=7,
+        organizacao_id=1,
+        chave="resumo:1",
+        tipo="resumo_diario",
+        destinatario="juridico@example.test",
+        assunto="Resumo diário",
+        mensagem="Conteúdo",
+        status="enviado",
+        tentativas=1,
+        provedor="principal",
+        criado_em=datetime.now(UTC),
+        enviado_em=datetime.now(UTC),
+    )
+    session = FakeSession([FakeResult(itens=[("enviado", 3), ("falha", 1)]), FakeResult(itens=[saida])])
+    resultado = asyncio.run(diagnostico_comunicacao_juridica(session, usuario_teste(), dias=30))
+
+    assert resultado["status"] == {"pendente": 0, "processando": 0, "enviado": 3, "falha": 1}
+    assert resultado["itens"][0]["destinatario"] == "j***@example.test"
+    assert "juridico@example.test" not in str(resultado)
 
 
 # --- Achado 5.10 da auditoria (02/09/2026): indicadores de gestão (Fase 10) ---

@@ -184,3 +184,38 @@ def test_cadencia_enviar_emails_pendentes_sem_atividade_nao_gera_alerta(monkeypa
     asyncio.run(worker_modulo.processar("cadencia.enviar_emails_pendentes", {}))
 
     assert not [obj for obj in session.adicionados if isinstance(obj, AlertaSistema)]
+
+
+# --- Fase 3 da Operação Jurídica: dispatcher da comunicação durável ---------
+
+
+def test_worker_processa_caixa_de_saida_juridica(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeSession([])
+    chamadas: list[FakeSession] = []
+    monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
+
+    async def _processar(sessao):
+        chamadas.append(sessao)
+        return {"processados": 1, "enviados": 1, "reagendados": 0, "falhas": 0}
+
+    monkeypatch.setattr(worker_modulo, "processar_saidas_email_juridico", _processar)
+    asyncio.run(worker_modulo.processar("juridico.processar_comunicacoes", {}))
+
+    assert chamadas == [session]
+    assert session.commits == 1
+
+
+def test_worker_agenda_resumo_juridico_diario(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeSession([])
+    chamadas: list[FakeSession] = []
+    monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
+
+    async def _agendar(sessao):
+        chamadas.append(sessao)
+        return 2
+
+    monkeypatch.setattr(worker_modulo, "agendar_resumos_juridicos_diarios", _agendar)
+    asyncio.run(worker_modulo.processar("juridico.agendar_resumos", {}))
+
+    assert chamadas == [session]
+    assert session.commits == 1

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import html
 import logging
 import os
@@ -172,7 +173,7 @@ async def _registrar_email_enviado(operacao: str, provedor: ProvedorSMTP) -> Non
         logger.exception("Falha ao contabilizar e-mail enviado (operacao=%s)", operacao)
 
 
-async def _enviar_smtp_contabilizado(mensagem: EmailMessage, settings: Settings, operacao: str) -> None:
+async def _enviar_smtp_contabilizado(mensagem: EmailMessage, settings: Settings, operacao: str) -> str:
     provedores = listar_provedores_email(settings, operacao)
     disponiveis = [
         provedor
@@ -192,7 +193,7 @@ async def _enviar_smtp_contabilizado(mensagem: EmailMessage, settings: Settings,
             await asyncio.to_thread(_enviar_smtp, mensagem, provedor)
             _PROVEDORES_ESGOTADOS_ATE.pop(provedor.identificador, None)
             await _registrar_email_enviado(operacao, provedor)
-            return
+            return provedor.identificador
         except Exception as exc:
             exc._zeregistra_provedor = provedor.identificador
             if not erro_cota_diaria_email(exc):
@@ -755,6 +756,38 @@ async def enviar_alerta_prazo_juridico(destinatario: str, titulo: str, mensagem_
     except Exception as exc:
         await _registrar_email_rejeitado("alerta_prazo_juridico", exc)
         logger.exception("Falha ao enviar alerta de prazo jurídico por e-mail")
+
+
+async def enviar_comunicacao_juridica_rastreada(
+    destinatario: str,
+    titulo: str,
+    mensagem_texto: str,
+    *,
+    chave: str,
+) -> str:
+    """Envia uma saída já persistida e informa qual provedor a aceitou.
+
+    Diferentemente do helper legado best-effort, esta função propaga falhas:
+    quem decide retry e registra o resultado é a caixa de saída jurídica.
+    ``Message-ID`` é determinístico para auxiliar deduplicação em uma rara
+    recuperação após o SMTP aceitar a mensagem e antes do commit do status.
+    """
+    settings = get_settings()
+    if not settings.email_enabled:
+        raise RuntimeError("Envio de e-mail não está habilitado")
+    if not destinatario:
+        raise ValueError("Destinatário jurídico não informado")
+    link = f"{settings.app_public_url.rstrip('/')}/admin/operacao-juridica"
+    mensagem = EmailMessage()
+    mensagem["Subject"] = f"[Zé Registra] {titulo}"
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    mensagem["To"] = destinatario
+    digest = hashlib.sha256(chave.encode("utf-8")).hexdigest()[:32]
+    mensagem["Message-ID"] = f"<{digest}@zeregistra.local>"
+    mensagem.set_content(
+        f"{mensagem_texto}\n\nAcesse a Operação Jurídica para ver os detalhes e confirmar:\n{link}"
+    )
+    return await _enviar_smtp_contabilizado(mensagem, settings, "comunicacao_juridica")
 
 
 async def enviar_alerta_plataforma(codigo: str, severidade: str, mensagem_texto: str) -> None:

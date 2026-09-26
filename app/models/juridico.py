@@ -372,6 +372,47 @@ class NotificacaoJuridica(Base):
     destinatario: Mapped["UsuarioOperacoes | None"] = relationship(lazy="selectin")
 
 
+class SaidaEmailJuridico(Base):
+    """Caixa de saída durável das comunicações jurídicas.
+
+    A notificação e a intenção de envio são gravadas na mesma transação. O
+    worker só conversa com o SMTP depois do commit, evitando o estado em que
+    o destinatário recebe um alerta cujo prazo acabou revertido no banco.
+    """
+
+    __tablename__ = "saidas_email_juridico"
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "chave", name="uq_saida_email_juridico_org_chave"),
+        CheckConstraint(
+            "status IN ('pendente','processando','enviado','falha')",
+            name="ck_saida_email_juridico_status",
+        ),
+        CheckConstraint("tentativas >= 0", name="ck_saida_email_juridico_tentativas"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    notificacao_id: Mapped[int | None] = mapped_column(
+        ForeignKey("notificacoes_juridicas.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    chave: Mapped[str] = mapped_column(String(180))
+    tipo: Mapped[str] = mapped_column(String(30), default="alerta_prazo", index=True)
+    destinatario: Mapped[str] = mapped_column(String(254))
+    assunto: Mapped[str] = mapped_column(String(180))
+    mensagem: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    tentativas: Mapped[int] = mapped_column(Integer, default=0)
+    provedor: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    ultimo_erro: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    disponivel_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    processando_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    enviado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class EventoJuridico(Base):
     """Trilha imutável de criação, alteração, entrega e leitura jurídica."""
 

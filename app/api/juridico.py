@@ -18,7 +18,7 @@ from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.badepi.despachos_codigos import DESCRICOES_DESPACHO, codigo_numerico
 from app.crm import avancar_fase_lead, obter_ou_criar_empresa, registrar_evento_operacional
 from app.database import get_session
-from app.emailing import enviar_alerta_prazo_juridico
+from app.juridico_comunicacao import enfileirar_alerta_juridico
 from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import (
     DocumentoEntregaJuridico,
@@ -42,6 +42,7 @@ from app.models import (
     PropostaComercial,
     RegraJuridicaVersionada,
     RegraPrazoJuridico,
+    SaidaEmailJuridico,
     Titular,
     UsuarioOperacoes,
     processo_titulares,
@@ -1943,7 +1944,22 @@ async def atualizar_prazo(
 
 @router.get("/politica")
 async def consultar_politica_juridica(session: SessionDep, usuario: ViewDep) -> dict:
-    return _politica_juridica_dict(await obter_politica_juridica(session, usuario.organizacao_id))
+    politica = (
+        await session.execute(select(PoliticaJuridica).where(PoliticaJuridica.organizacao_id == usuario.organizacao_id))
+    ).scalar_one_or_none()
+    resultado = _politica_juridica_dict(
+        politica
+        or PoliticaJuridica(
+            organizacao_id=usuario.organizacao_id,
+            exigir_evidencia_conclusao=False,
+            exigir_segunda_pessoa_critico=False,
+            exigir_responsavel_confirmacao=True,
+            exigir_checklist_conclusao=True,
+            margem_operacional_dias=0,
+        )
+    )
+    resultado["configurada"] = politica is not None
+    return resultado
 
 
 @router.put("/politica")
@@ -1978,6 +1994,168 @@ async def editar_politica_juridica(
         )
     await session.commit()
     return _politica_juridica_dict(politica)
+
+
+@router.get("/estabilizacao")
+async def diagnostico_estabilizacao_juridica(session: SessionDep, usuario: ViewDep) -> dict:
+    """Fila objetiva da Fase 0, sem confirmar ou redistribuir nada.
+
+    Os números não obedecem aos filtros da tela: representam todo o passivo
+    ativo da organização e servem para a revisão humana diária.
+    """
+    agora = datetime.now(UTC)
+    sete_dias_atras = agora - timedelta(days=7)
+    contagens = (
+        await session.execute(
+            select(
+                func.count(PrazoJuridico.id).filter(PrazoJuridico.status.in_(STATUS_ATIVOS)),
+                func.count(PrazoJuridico.id).filter(
+                    PrazoJuridico.status.in_(STATUS_ATIVOS), PrazoJuridico.responsavel_id.is_(None)
+                ),
+                func.count(PrazoJuridico.id).filter(PrazoJuridico.status == "aguardando_confirmacao"),
+                func.count(PrazoJuridico.id).filter(
+                    PrazoJuridico.status == "aguardando_confirmacao",
+                    PrazoJuridico.criado_em < sete_dias_atras,
+                ),
+                func.count(PrazoJuridico.id).filter(
+                    PrazoJuridico.status.in_(STATUS_ATIVOS), PrazoJuridico.vencimento_em < agora
+                ),
+                func.count(PrazoJuridico.id).filter(
+                    PrazoJuridico.status.in_(STATUS_ATIVOS), PrazoJuridico.prioridade == "critica"
+                ),
+            ).where(PrazoJuridico.organizacao_id == usuario.organizacao_id)
+        )
+    ).one()
+    ativos, sem_responsavel, aguardando, aguardando_antigos, vencidos, criticos = (int(v or 0) for v in contagens)
+    politica = (
+        await session.execute(
+            select(PoliticaJuridica).where(PoliticaJuridica.organizacao_id == usuario.organizacao_id)
+        )
+    ).scalar_one_or_none()
+    regras_homologadas = int(
+        (
+            await session.execute(
+                select(func.count(RegraPrazoJuridico.id)).where(
+                    RegraPrazoJuridico.ativo.is_(True), RegraPrazoJuridico.confianca == "homologada"
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    excecoes_ativas = int(
+        (
+            await session.execute(
+                select(func.count(ExcecaoCalendarioJuridico.id)).where(
+                    ExcecaoCalendarioJuridico.ativo.is_(True), ExcecaoCalendarioJuridico.data_fim >= agora.date()
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    evidencias = int(
+        (
+            await session.execute(
+                select(func.count(DocumentoEntregaJuridico.id)).where(
+                    DocumentoEntregaJuridico.organizacao_id == usuario.organizacao_id
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    bloqueios = []
+    if politica is None:
+        bloqueios.append("Política jurídica ainda não foi confirmada pela organização.")
+    if sem_responsavel:
+        bloqueios.append(f"{sem_responsavel} prazo(s) ativo(s) precisam de responsável humano.")
+    if aguardando_antigos:
+        bloqueios.append(f"{aguardando_antigos} sugestão(ões) aguardam confirmação há mais de 7 dias.")
+    if vencidos:
+        bloqueios.append(f"{vencidos} prazo(s) ativo(s) estão vencidos e exigem triagem.")
+    if regras_homologadas == 0:
+        bloqueios.append("Não há regras de despacho homologadas no catálogo versionado.")
+    return {
+        "gerado_em": agora,
+        "contagens": {
+            "ativos": ativos,
+            "sem_responsavel": sem_responsavel,
+            "aguardando_confirmacao": aguardando,
+            "aguardando_confirmacao_mais_7_dias": aguardando_antigos,
+            "vencidos": vencidos,
+            "criticos": criticos,
+        },
+        "governanca": {
+            "politica_configurada": politica is not None,
+            "regras_homologadas": regras_homologadas,
+            "excecoes_calendario_ativas": excecoes_ativas,
+            "evidencias_armazenadas": evidencias,
+        },
+        "bloqueios": bloqueios,
+        "automatico": False,
+        "acoes": {"gerenciar": usuario.pode("legal.manage")},
+    }
+
+
+def _mascarar_email_juridico(email: str) -> str:
+    local, separador, dominio = email.partition("@")
+    if not separador:
+        return "***"
+    return f"{local[:1]}***@{dominio}"
+
+
+@router.get("/comunicacao")
+async def diagnostico_comunicacao_juridica(
+    session: SessionDep,
+    usuario: ViewDep,
+    dias: int = Query(default=30, ge=1, le=365),
+) -> dict:
+    desde = datetime.now(UTC) - timedelta(days=dias)
+    por_status = {
+        status_saida: int(total or 0)
+        for status_saida, total in (
+            await session.execute(
+                select(SaidaEmailJuridico.status, func.count(SaidaEmailJuridico.id))
+                .where(
+                    SaidaEmailJuridico.organizacao_id == usuario.organizacao_id,
+                    SaidaEmailJuridico.criado_em >= desde,
+                )
+                .group_by(SaidaEmailJuridico.status)
+            )
+        ).all()
+    }
+    itens = list(
+        (
+            await session.execute(
+                select(SaidaEmailJuridico)
+                .where(
+                    SaidaEmailJuridico.organizacao_id == usuario.organizacao_id,
+                    SaidaEmailJuridico.criado_em >= desde,
+                )
+                .order_by(SaidaEmailJuridico.criado_em.desc())
+                .limit(50)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "periodo_dias": dias,
+        "status": {chave: por_status.get(chave, 0) for chave in ("pendente", "processando", "enviado", "falha")},
+        "itens": [
+            {
+                "id": item.id,
+                "tipo": item.tipo,
+                "destinatario": _mascarar_email_juridico(item.destinatario),
+                "assunto": item.assunto,
+                "status": item.status,
+                "tentativas": item.tentativas,
+                "provedor": item.provedor,
+                "ultimo_erro": item.ultimo_erro,
+                "criado_em": item.criado_em,
+                "enviado_em": item.enviado_em,
+            }
+            for item in itens
+        ],
+    }
 
 
 def _slug_documento(valor: str) -> str:
@@ -2359,24 +2537,30 @@ async def _notificar(
     ).scalar_one_or_none()
     if existe:
         return False
-    session.add(
-        NotificacaoJuridica(
+    notificacao = NotificacaoJuridica(
+        organizacao_id=prazo.organizacao_id,
+        prazo_id=prazo.id,
+        destinatario_id=destinatario_id,
+        chave=chave,
+        tipo=tipo,
+        titulo=titulo,
+        mensagem=mensagem,
+        status="nova",
+    )
+    session.add(notificacao)
+    # A notificação e a intenção de e-mail ficam na mesma transação. O SMTP
+    # é acionado posteriormente pelo worker, nunca antes do commit do motor.
+    if email_destinatario:
+        await session.flush()
+        enfileirar_alerta_juridico(
+            session,
             organizacao_id=prazo.organizacao_id,
-            prazo_id=prazo.id,
-            destinatario_id=destinatario_id,
+            notificacao_id=notificacao.id,
             chave=chave,
-            tipo=tipo,
+            destinatario=email_destinatario,
             titulo=titulo,
             mensagem=mensagem,
-            status="nova",
         )
-    )
-    # Achado 5.9 da auditoria (Fase 8): antes só o registro acima existia --
-    # ninguém era avisado de fato fora do painel. E-mail é reforço, não
-    # substitui a central de notificações (falha de envio não desfaz o
-    # registro nem interrompe o motor -- ver enviar_alerta_prazo_juridico).
-    if email_destinatario:
-        await enviar_alerta_prazo_juridico(email_destinatario, titulo, mensagem)
     return True
 
 

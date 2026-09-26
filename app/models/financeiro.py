@@ -134,7 +134,16 @@ class TransacaoBancaria(Base):
     reimportar o mesmo extrato nunca duplica (UniqueConstraint)."""
 
     __tablename__ = "transacoes_bancarias"
-    __table_args__ = (UniqueConstraint("organizacao_id", "fitid", name="uq_transacao_bancaria_fitid"),)
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "fitid", name="uq_transacao_bancaria_fitid"),
+        Index(
+            "uq_transacoes_bancarias_parcela_conciliada",
+            "parcela_id",
+            unique=True,
+            postgresql_where=text("status = 'conciliada' AND parcela_id IS NOT NULL"),
+            sqlite_where=text("status = 'conciliada' AND parcela_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)

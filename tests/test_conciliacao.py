@@ -3,6 +3,8 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import HTTPException
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.schema import CreateIndex
 from starlette.requests import Request
 
 from app.api.conciliacao import (
@@ -18,6 +20,20 @@ from app.models import ParcelaFinanceira, TransacaoBancaria
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 # --- Achado FASE7-3 da auditoria (04/09/2026): conciliação bancária. ---
+
+
+def test_indice_bloqueia_duas_transacoes_conciliadas_na_mesma_parcela() -> None:
+    indice = next(
+        indice
+        for indice in TransacaoBancaria.__table__.indexes
+        if indice.name == "uq_transacoes_bancarias_parcela_conciliada"
+    )
+
+    assert indice.unique is True
+    assert str(indice.dialect_options["postgresql"]["where"]) == "status = 'conciliada' AND parcela_id IS NOT NULL"
+    sql = str(CreateIndex(indice).compile(dialect=postgresql.dialect()))
+    assert "UNIQUE INDEX" in sql
+    assert "WHERE status = 'conciliada' AND parcela_id IS NOT NULL" in sql
 
 
 def _request() -> Request:

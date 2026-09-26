@@ -1,7 +1,7 @@
-# Financeiro — implementação das fases 4 e 5
+# Financeiro — implementação das fases 4 a 6
 
 Data: 26/09/2026  
-Escopo: indicadores de competência versus caixa e proteção de erros de NFS-e.
+Escopo: indicadores de competência versus caixa, proteção de erros de NFS-e e integridade da conciliação.
 
 ## Fase 4 — competência, caixa realizado e vencimentos
 
@@ -28,3 +28,24 @@ Limite do modelo atual: `ParcelaFinanceira` guarda um único `pago_em` e um acum
 - `tests/test_financeiro.py` e `tests/test_api_nfse.py`: 61 testes passaram.
 - Cobertura acrescentada para saldos de caixa separados no DRE e por cliente, intervalo invertido, cliente com movimento apenas no caixa e mensagem/detalhe de erro sem conteúdo potencialmente sensível.
 - Deploy não realizado nesta alteração.
+
+## Fase 6 — integridade da conciliação bancária
+
+- Adicionado índice único parcial para impedir que mais de uma transação com
+  status `conciliada` aponte para a mesma parcela. Transações pendentes,
+  ignoradas ou sem parcela não são afetadas.
+- A migration consulta os vínculos existentes antes de criar o índice. Se
+  encontrar duplicidades, aborta sem corrigir ou excluir dados e informa a
+  quantidade de grupos que precisam de revisão humana.
+- A proteção da aplicação por locks continua ativa; o índice passa a proteger
+  também gravações concorrentes e caminhos futuros que não usem a API atual.
+- O downgrade remove somente o índice e não modifica registros.
+
+### Verificação da Fase 6
+
+- Teste unitário compila e verifica o predicado do índice para PostgreSQL.
+- Migration criada após o head `zy43f8m1n602`; não foi aplicada a banco nem
+  produção nesta etapa.
+- Antes de deploy, confirmar em produção que a migration passa. Se houver
+  grupos duplicados, revisar manualmente cada vínculo e só então reaplicar;
+  não escolher automaticamente qual transação manter.

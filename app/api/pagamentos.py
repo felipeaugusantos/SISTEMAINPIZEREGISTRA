@@ -15,6 +15,7 @@ comissão quando o evento é "pago". Nunca dispara cobrança real -- Pix/boleto
 "reais" aguardam credenciais de um PSP (decisão registrada com o usuário).
 """
 
+import hashlib
 import json
 import secrets
 from datetime import UTC, datetime
@@ -27,7 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.financeiro import _cancelar_comissao_da_parcela, _gerar_comissao_se_aplicavel
+from app.api.financeiro import _atualizar_status, _cancelar_comissao_da_parcela, _gerar_comissao_se_aplicavel
 from app.api.leads_propostas import sincronizar_pagamento_proposta_por_id
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
@@ -65,13 +66,23 @@ async def receber_webhook_pagamento(
     except (ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # O ID do evento do PSP é preferido. No sandbox (ou em provedores sem ID),
+    # o hash canônico distingue estados sucessivos da mesma cobrança e mantém
+    # idempotência para reenvios do mesmo conteúdo.
+    identidade_evento = evento.evento_id or hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    if len(identidade_evento) > 220:
+        raise HTTPException(status_code=422, detail="Identificador do evento inválido")
+    chave_idempotencia = f"{adaptador}:{identidade_evento}"
+
     await aplicar_contexto_tenant(session, evento.organizacao_id)
 
     existente = (
         await session.execute(
             select(WebhookFinanceiro).where(
                 WebhookFinanceiro.organizacao_id == evento.organizacao_id,
-                WebhookFinanceiro.referencia == evento.referencia,
+                WebhookFinanceiro.chave_idempotencia == chave_idempotencia,
             )
         )
     ).scalar_one_or_none()
@@ -82,8 +93,11 @@ async def receber_webhook_pagamento(
         WebhookFinanceiro(
             organizacao_id=evento.organizacao_id,
             referencia=evento.referencia,
+            chave_idempotencia=chave_idempotencia,
             evento=f"pagamento.{evento.status}",
-            payload=payload,
+            # Persistir apenas campos normalizados necessários à auditoria;
+            # não reter o corpo arbitrário do PSP (que pode conter PII).
+            payload={"parcela_id": evento.parcela_id, "valor": str(evento.valor), "evento_id": evento.evento_id},
             status=evento.status,
         )
     )
@@ -101,15 +115,15 @@ async def receber_webhook_pagamento(
         ).scalar_one_or_none()
         if parcela is None:
             raise HTTPException(status_code=404, detail="Parcela não encontrada")
+        if parcela.lancamento.tipo != "receber":
+            raise HTTPException(status_code=422, detail="Webhook de pagamento só pode baixar conta a receber")
         if parcela.status != "paga":
             if Decimal(parcela.valor) != evento.valor:
                 raise HTTPException(status_code=422, detail="Valor do webhook diverge da parcela")
             parcela.valor_pago = evento.valor
             parcela.pago_em = datetime.now(UTC).date()
             parcela.status = "paga"
-            parcela.lancamento.status = (
-                "pago" if all(item.status == "paga" for item in parcela.lancamento.parcelas) else "parcial"
-            )
+            await _atualizar_status(parcela.lancamento)
             await _gerar_comissao_se_aplicavel(session, parcela)
             if parcela.lancamento.proposta_id:
                 await sincronizar_pagamento_proposta_por_id(
@@ -134,13 +148,13 @@ async def receber_webhook_pagamento(
         ).scalar_one_or_none()
         if parcela is None:
             raise HTTPException(status_code=404, detail="Parcela não encontrada")
+        if parcela.lancamento.tipo != "receber":
+            raise HTTPException(status_code=422, detail="Webhook de pagamento só pode estornar conta a receber")
         if parcela.status == "paga":
             parcela.valor_pago, parcela.pago_em, parcela.forma_pagamento = Decimal(0), None, None
             parcela.forma_pagamento_id = None
             parcela.status = "aberta"
-            parcela.lancamento.status = (
-                "pago" if all(item.status == "paga" for item in parcela.lancamento.parcelas) else "parcial"
-            )
+            await _atualizar_status(parcela.lancamento)
             await _cancelar_comissao_da_parcela(session, parcela.id)
             if parcela.lancamento.proposta_id:
                 await sincronizar_pagamento_proposta_por_id(
@@ -155,7 +169,7 @@ async def receber_webhook_pagamento(
             await session.execute(
                 select(WebhookFinanceiro).where(
                     WebhookFinanceiro.organizacao_id == evento.organizacao_id,
-                    WebhookFinanceiro.referencia == evento.referencia,
+                    WebhookFinanceiro.chave_idempotencia == chave_idempotencia,
                 )
             )
         ).scalar_one_or_none()
@@ -187,6 +201,8 @@ async def criar_cobranca_pagamento(
     ).scalar_one_or_none()
     if parcela is None:
         raise HTTPException(status_code=404, detail="Parcela não encontrada")
+    if parcela.lancamento.tipo != "receber":
+        raise HTTPException(status_code=422, detail="Cobrança externa só pode ser criada para conta a receber")
     if parcela.status == "paga":
         raise HTTPException(status_code=409, detail="Parcela já está paga")
 

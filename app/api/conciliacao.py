@@ -15,7 +15,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
@@ -58,30 +58,36 @@ async def _tentar_conciliar_automaticamente(
 ) -> None:
     if transacao.tipo != "credito":
         return
-    ja_vinculadas = set(
-        (
-            await session.execute(
-                select(TransacaoBancaria.parcela_id).where(
-                    TransacaoBancaria.organizacao_id == organizacao_id,
-                    TransacaoBancaria.parcela_id.is_not(None),
-                    TransacaoBancaria.id != transacao.id,
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
     candidatas = (
         await session.execute(
-            select(ParcelaFinanceira.id).where(
+            select(ParcelaFinanceira.id)
+            .where(
                 ParcelaFinanceira.organizacao_id == organizacao_id,
                 ParcelaFinanceira.status == "paga",
                 ParcelaFinanceira.valor_pago == transacao.valor,
                 ParcelaFinanceira.pago_em >= transacao.data - timedelta(days=JANELA_DIAS_CONCILIACAO),
                 ParcelaFinanceira.pago_em <= transacao.data + timedelta(days=JANELA_DIAS_CONCILIACAO),
             )
+            .with_for_update()
         )
     ).scalars().all()
+    # Buscar os vínculos depois de adquirir os locks das parcelas. Outra
+    # importação/manual que concorra pela mesma parcela termina primeiro e
+    # passa a ser visível nesta consulta antes de decidirmos o vínculo.
+    ja_vinculadas = set(
+        (
+            await session.execute(
+                select(TransacaoBancaria.parcela_id).where(
+                    TransacaoBancaria.organizacao_id == organizacao_id,
+                    TransacaoBancaria.parcela_id.in_(candidatas),
+                    TransacaoBancaria.status == "conciliada",
+                    TransacaoBancaria.id != transacao.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    ) if candidatas else set()
     disponiveis = [pid for pid in candidatas if pid not in ja_vinculadas]
     if len(disponiveis) == 1:
         transacao.parcela_id = disponiveis[0]
@@ -92,7 +98,9 @@ async def _tentar_conciliar_automaticamente(
 
 @router.post("/importar", status_code=201)
 async def importar_extrato(request: Request, session: SessionDep, usuario: ManageDep, arquivo: UploadFile) -> dict:
-    conteudo = await arquivo.read()
+    # Lê no máximo um byte além do limite para que o próprio limite proteja
+    # memória, em vez de verificar o tamanho apenas depois do upload inteiro.
+    conteudo = await arquivo.read(TAMANHO_MAXIMO_OFX + 1)
     if len(conteudo) > TAMANHO_MAXIMO_OFX:
         raise HTTPException(413, "Arquivo maior que 5 MB.")
     try:
@@ -152,14 +160,23 @@ async def listar_transacoes(
     session: SessionDep,
     usuario: ViewDep,
     status_transacao: Annotated[str | None, Query(alias="status")] = None,
+    limite: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict:
     filtros = [TransacaoBancaria.organizacao_id == usuario.organizacao_id]
     if status_transacao:
         filtros.append(TransacaoBancaria.status == status_transacao)
+    total = (
+        await session.execute(select(func.count(TransacaoBancaria.id)).where(*filtros))
+    ).scalar_one()
     itens = (
         (
             await session.execute(
-                select(TransacaoBancaria).where(*filtros).order_by(TransacaoBancaria.data.desc())
+                select(TransacaoBancaria)
+                .where(*filtros)
+                .order_by(TransacaoBancaria.data.desc(), TransacaoBancaria.id.desc())
+                .limit(limite)
+                .offset(offset)
             )
         )
         .scalars()
@@ -177,7 +194,11 @@ async def listar_transacoes(
                 "parcela_id": t.parcela_id,
             }
             for t in itens
-        ]
+        ],
+        "total": total,
+        "limite": limite,
+        "offset": offset,
+        "proximo_offset": offset + limite if offset + limite < total else None,
     }
 
 
@@ -187,30 +208,50 @@ async def conciliar_manualmente(
 ) -> dict:
     transacao = (
         await session.execute(
-            select(TransacaoBancaria).where(
+            select(TransacaoBancaria)
+            .where(
                 TransacaoBancaria.id == transacao_id, TransacaoBancaria.organizacao_id == usuario.organizacao_id
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if transacao is None:
         raise HTTPException(404, "Transação não encontrada")
     if transacao.status == "conciliada":
         raise HTTPException(409, "Transação já está conciliada")
+    if transacao.tipo != "credito":
+        raise HTTPException(422, "Somente transações de crédito podem ser conciliadas a uma parcela recebida")
     parcela = (
         await session.execute(
-            select(ParcelaFinanceira).where(
+            select(ParcelaFinanceira)
+            .where(
                 ParcelaFinanceira.id == dados.parcela_id, ParcelaFinanceira.organizacao_id == usuario.organizacao_id
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if parcela is None:
         raise HTTPException(404, "Parcela não encontrada")
+    if parcela.status != "paga":
+        raise HTTPException(422, "Somente parcelas pagas podem ser conciliadas")
     if Decimal(parcela.valor_pago or 0) != Decimal(transacao.valor):
         raise HTTPException(
             422,
             f"Valor da parcela ({parcela.valor_pago}) diverge do valor da transação ({transacao.valor}) -- "
             "confira antes de forçar a conciliação manual.",
         )
+    vinculada = (
+        await session.execute(
+            select(TransacaoBancaria.id).where(
+                TransacaoBancaria.organizacao_id == usuario.organizacao_id,
+                TransacaoBancaria.parcela_id == parcela.id,
+                TransacaoBancaria.status == "conciliada",
+                TransacaoBancaria.id != transacao.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if vinculada is not None:
+        raise HTTPException(409, "A parcela já está vinculada a outra transação conciliada")
     transacao.parcela_id = parcela.id
     transacao.status = "conciliada"
     transacao.conciliado_em = datetime.now(UTC)

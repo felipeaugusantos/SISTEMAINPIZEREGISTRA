@@ -49,6 +49,15 @@ def _assinar(corpo: bytes) -> str:
     return hmac.new(SEGREDO.encode(), corpo, hashlib.sha256).hexdigest()
 
 
+def _chave_evento(adaptador: str, payload: dict) -> str:
+    identidade = str(payload.get("event_id") or "")
+    if not identidade:
+        identidade = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+    return f"{adaptador}:{identidade}"
+
+
 def _parcela(**kwargs: object) -> ParcelaFinanceira:
     lancamento = LancamentoFinanceiro(
         id=1, organizacao_id=1, tipo="receber", lead_id=None, proposta_id=None, status="aberto"
@@ -96,9 +105,11 @@ def test_webhook_sem_assinatura_retorna_401() -> None:
 
 def test_webhook_pago_baixa_parcela_e_e_idempotente() -> None:
     parcela = _parcela()
-    corpo = json.dumps(
-        {"referencia": "ref-pagamento-1", "organizacao_id": 1, "parcela_id": 5, "status": "paid", "valor": "500.00"}
-    ).encode()
+    payload = {
+        "referencia": "ref-pagamento-1", "organizacao_id": 1, "parcela_id": 5,
+        "status": "paid", "valor": "500.00", "customer_email": "privado@example.test",
+    }
+    corpo = json.dumps(payload).encode()
     session = FakeSession(
         [
             FakeResult(scalar=None),  # dedup: nenhum WebhookFinanceiro com essa referência ainda
@@ -115,16 +126,22 @@ def test_webhook_pago_baixa_parcela_e_e_idempotente() -> None:
     assert parcela.valor_pago == Decimal("500.00")
     webhooks_criados = [obj for obj in session.adicionados if isinstance(obj, WebhookFinanceiro)]
     assert len(webhooks_criados) == 1
+    assert webhooks_criados[0].chave_idempotencia == _chave_evento("sandbox", payload)
+    assert webhooks_criados[0].payload == {"parcela_id": 5, "valor": "500.00", "evento_id": None}
+    assert "customer_email" not in webhooks_criados[0].payload
     assert session.commits == 1
 
 
 def test_webhook_repetido_e_idempotente() -> None:
+    payload = {
+        "referencia": "ref-pagamento-1", "organizacao_id": 1, "parcela_id": 5,
+        "status": "paid", "valor": "500.00",
+    }
     evento_existente = WebhookFinanceiro(
-        id=1, organizacao_id=1, referencia="ref-pagamento-1", evento="pagamento.pago", payload={}, status="pago"
+        id=1, organizacao_id=1, referencia="ref-pagamento-1",
+        chave_idempotencia=_chave_evento("sandbox", payload), evento="pagamento.pago", payload={}, status="pago"
     )
-    corpo = json.dumps(
-        {"referencia": "ref-pagamento-1", "organizacao_id": 1, "parcela_id": 5, "status": "paid", "valor": "500.00"}
-    ).encode()
+    corpo = json.dumps(payload).encode()
     session = FakeSession([FakeResult(scalar=evento_existente)])
 
     resultado = asyncio.run(
@@ -133,6 +150,43 @@ def test_webhook_repetido_e_idempotente() -> None:
 
     assert resultado == {"idempotente": True, "status": "pago"}
     assert session.adicionados == []
+
+
+def test_webhook_id_evento_estavel_mesmo_com_payload_de_entrega_diferente() -> None:
+    payload = {
+        "event_id": "evt-payment-1", "referencia": "ref-pagamento-1", "organizacao_id": 1,
+        "parcela_id": 5, "status": "paid", "valor": "500.00", "delivery_attempt": 3,
+    }
+    evento_existente = WebhookFinanceiro(
+        id=1, organizacao_id=1, referencia="ref-pagamento-1",
+        chave_idempotencia="sandbox:evt-payment-1", evento="pagamento.pago", payload={}, status="pago",
+    )
+    corpo = json.dumps(payload).encode()
+    session = FakeSession([FakeResult(scalar=evento_existente)])
+
+    resultado = asyncio.run(
+        receber_webhook_pagamento("sandbox", _request_com_corpo(corpo), session, _assinar(corpo))
+    )
+
+    assert resultado == {"idempotente": True, "status": "pago"}
+    assert session.adicionados == []
+
+
+def test_webhook_pago_nao_pode_liquidar_conta_a_pagar() -> None:
+    parcela = _parcela()
+    parcela.lancamento.tipo = "pagar"
+    payload = {
+        "event_id": "evt-invalid", "referencia": "ref-despesa", "organizacao_id": 1,
+        "parcela_id": 5, "status": "paid", "valor": "500.00",
+    }
+    corpo = json.dumps(payload).encode()
+    session = FakeSession([FakeResult(scalar=None), FakeResult(scalar=parcela)])
+
+    try:
+        asyncio.run(receber_webhook_pagamento("sandbox", _request_com_corpo(corpo), session, _assinar(corpo)))
+        raise AssertionError("deveria ter levantado HTTPException")
+    except HTTPException as exc:
+        assert exc.status_code == 422
 
 
 def test_webhook_valor_divergente_retorna_422() -> None:
@@ -164,6 +218,32 @@ def test_webhook_estornado_reverte_parcela_paga() -> None:
     assert parcela.status == "aberta"
     assert parcela.valor_pago == Decimal(0)
     assert parcela.pago_em is None
+
+
+def test_webhook_estorno_da_mesma_cobranca_e_evento_distinto_do_pagamento() -> None:
+    parcela = _parcela(status="paga", valor_pago=Decimal("500.00"), pago_em=date(2026, 1, 5))
+    payload_estorno = {
+        "event_id": "evt-refund-2", "referencia": "ref-pagamento-1", "organizacao_id": 1,
+        "parcela_id": 5, "status": "refunded", "valor": "500.00",
+    }
+    pagamento_existente = WebhookFinanceiro(
+        id=1, organizacao_id=1, referencia="ref-pagamento-1",
+        chave_idempotencia="sandbox:evt-payment-1", evento="pagamento.pago", payload={}, status="pago",
+    )
+    corpo = json.dumps(payload_estorno).encode()
+    session = FakeSession([FakeResult(scalar=None), FakeResult(scalar=parcela), FakeResult(scalar=None)])
+
+    resultado = asyncio.run(
+        receber_webhook_pagamento("sandbox", _request_com_corpo(corpo), session, _assinar(corpo))
+    )
+
+    assert resultado == {"idempotente": False, "status": "estornado"}
+    assert parcela.status == "aberta"
+    assert parcela.lancamento.status == "aberto"
+    eventos = [obj for obj in session.adicionados if isinstance(obj, WebhookFinanceiro)]
+    assert eventos[0].chave_idempotencia == "sandbox:evt-refund-2"
+    assert eventos[0].referencia == pagamento_existente.referencia
+    assert eventos[0].chave_idempotencia != pagamento_existente.chave_idempotencia
 
 
 def test_webhook_estornado_de_parcela_ja_aberta_nao_faz_nada() -> None:

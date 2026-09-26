@@ -50,6 +50,7 @@ class EventoWebhookPagamento:
     parcela_id: int
     status: str
     valor: Decimal
+    evento_id: str | None = None
 
 
 class AdaptadorIndisponivelError(Exception):
@@ -123,6 +124,7 @@ class AdaptadorSandbox(AdaptadorPagamento):
                 parcela_id=int(payload["parcela_id"]),
                 status=status,
                 valor=Decimal(str(payload["valor"])),
+                evento_id=str(payload.get("event_id") or "") or None,
             )
         except (KeyError, TypeError) as exc:
             raise ValueError(f"Payload de webhook incompleto: {exc}") from exc

@@ -233,10 +233,13 @@ class ApontamentoHoras(Base):
 
 class WebhookFinanceiro(Base):
     __tablename__ = "webhooks_financeiros"
-    __table_args__ = (UniqueConstraint("organizacao_id", "referencia", name="uq_webhook_financeiro_org_referencia"),)
+    __table_args__ = (
+        UniqueConstraint("organizacao_id", "chave_idempotencia", name="uq_webhook_financeiro_org_event_key"),
+    )
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
     referencia: Mapped[str] = mapped_column(String(150), index=True)
+    chave_idempotencia: Mapped[str] = mapped_column(String(255))
     evento: Mapped[str] = mapped_column(String(80), index=True)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(20), default="recebido", index=True)

@@ -5512,6 +5512,8 @@ h1,h2,h3,h4,h5 { font-family:var(--font-display); font-weight:var(--fw-semibold)
 #updates-create-dialog { width:min(760px,calc(100vw - 32px)); max-height:calc(100vh - 48px); overflow-y:auto; }
 .updates-dialog .filter-check { display:flex; flex-direction:row; align-items:center; gap:9px; font-weight:400; }
 .updates-dialog .filter-check input { width:18px; min-height:18px; }
+.updates-page #updates-create-form > .filter-check { display:flex; flex-direction:row; align-items:center; gap:9px; font-weight:400; }
+.updates-page #updates-create-form > .filter-check input[type="checkbox"] { appearance:auto; width:18px; height:18px; min-height:18px; padding:0; margin:0; flex:0 0 18px; accent-color:var(--forest); }
 .updates-create-modulos-label { margin:0; font-weight:700; }
 .updates-create-modulos { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; margin-top:-6px; }
 .updates-create-modulos label { display:flex; flex-direction:row; align-items:center; gap:7px; font-weight:400; font-size:.86rem; }

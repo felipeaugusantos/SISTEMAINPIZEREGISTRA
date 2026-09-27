@@ -275,19 +275,26 @@ function notificarMensagensNovas(itens) {
 }
 
 async function loadNotifications() {
-  const response = await fetch("/v1/admin/notificacoes");
+  const [response, rotinaResponse] = await Promise.all([
+    fetch("/v1/admin/notificacoes"),
+    fetch("/v1/admin/notificacoes/rotinas"),
+  ]);
   if (!response.ok) return;
-  const data = await response.json();
+  const [data, rotinas] = await Promise.all([
+    response.json(),
+    rotinaResponse.ok ? rotinaResponse.json() : Promise.resolve({ total: 0, itens: [] }),
+  ]);
   const badge = document.querySelector("#notif-badge");
   const count = document.querySelector("#notif-count");
   const list = document.querySelector("#notif-list");
-  badge.hidden = data.total === 0;
-  badge.textContent = data.total > 99 ? "99+" : String(data.total);
-  count.textContent = data.total === 0 ? "Tudo em dia" : `${data.total} pendente(s)`;
+  badge.hidden = rotinas.total === 0;
+  badge.textContent = rotinas.total > 99 ? "99+" : String(rotinas.total);
+  count.textContent = rotinas.total === 0 ? "Tudo em dia" : `${rotinas.total} alerta(s) operacional(is)`;
   // Itens montados com literais + escapeHtml; URLs vêm de constantes do backend.
-  list.innerHTML = data.total
-    ? data.itens.map(notifItem).join("")
-    : '<li class="notif-empty">Nenhuma notificação pendente. 🎉</li>';
+  list.innerHTML = rotinas.total
+    ? rotinas.itens.map(notifItem).join("")
+    : '<li class="notif-empty">Nenhum alerta operacional pendente. 🎉</li>';
+  // Mantém o aviso nativo de mensagem do portal, separado do sino operacional.
   notificarMensagensNovas(data.itens);
 }
 

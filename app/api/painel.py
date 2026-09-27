@@ -64,6 +64,7 @@ _CODIGOS_ALERTA_COMERCIAL = frozenset(
         "CADENCIA_PAUSADA_POR_RESPOSTA",
     }
 )
+_SEVERIDADES_ACIONAVEIS = frozenset({"aviso", "alerta", "critico", "critica"})
 
 
 async def _bloco_financeiro(session: AsyncSession, organizacao_id: int) -> dict:
@@ -476,6 +477,72 @@ async def listar_notificacoes(
     itens.sort(key=lambda x: x["criado_em"] or datetime.min.replace(tzinfo=UTC), reverse=True)
     pendentes = sum(1 for item in itens if not item["lida"])
     return {"total": pendentes, "total_itens": len(itens), "itens": itens}
+
+
+@router.get("/notificacoes/rotinas")
+async def listar_alertas_rotinas(
+    session: SessionDep,
+    usuario: DashboardDep,
+    limite: int = 50,
+) -> dict:
+    """Alertas operacionais ativos para o sino: somente rotinas que exigem atenção.
+
+    Histórico jurídico, mensagens do portal e eventos informativos de sucesso
+    continuam disponíveis na central completa, mas não poluem o sino.
+    """
+    organizacao_id = getattr(usuario, "organizacao_id", 1)
+    pode_producao = usuario.pode("production.manage")
+    pode_comercial = usuario.pode("leads.view")
+    if not (pode_producao or pode_comercial):
+        return {"total": 0, "itens": []}
+
+    filtros = [
+        AlertaSistema.resolvido_em.is_(None),
+        AlertaSistema.severidade.in_(_SEVERIDADES_ACIONAVEIS),
+    ]
+    if pode_producao and pode_comercial:
+        filtros.append(or_(AlertaSistema.organizacao_id == organizacao_id, AlertaSistema.organizacao_id.is_(None)))
+    elif pode_producao:
+        filtros.extend(
+            [
+                or_(AlertaSistema.organizacao_id == organizacao_id, AlertaSistema.organizacao_id.is_(None)),
+                or_(
+                    AlertaSistema.organizacao_id.is_(None),
+                    AlertaSistema.codigo.not_in(_CODIGOS_ALERTA_COMERCIAL),
+                ),
+            ]
+        )
+    else:
+        filtros.extend(
+            [
+                AlertaSistema.organizacao_id == organizacao_id,
+                AlertaSistema.codigo.in_(_CODIGOS_ALERTA_COMERCIAL),
+            ]
+        )
+
+    alertas = (
+        await session.execute(
+            select(AlertaSistema)
+            .where(*filtros)
+            .order_by(AlertaSistema.criado_em.desc())
+            .limit(limite)
+        )
+    ).scalars().all()
+    itens = [
+        {
+            "id": item.id,
+            "fonte": "sistema",
+            "severidade": item.severidade,
+            "titulo": item.codigo.replace("_", " ").capitalize(),
+            "mensagem": item.mensagem,
+            "criado_em": item.criado_em,
+            "lida": False,
+            "url": _DESTINO_ALERTA.get(item.codigo, "/admin/producao"),
+        }
+        for item in alertas
+        if item.resolvido_em is None and item.severidade in _SEVERIDADES_ACIONAVEIS
+    ]
+    return {"total": len(itens), "itens": itens}
 
 
 @router.post("/notificacoes/{fonte}/{item_id}/lida")

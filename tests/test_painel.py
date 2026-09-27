@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from app.api.painel import (
     _CODIGOS_ALERTA_COMERCIAL,
     indicadores_fluxo,
+    listar_alertas_rotinas,
     listar_notificacoes,
     marcar_notificacao_lida,
     marcar_notificacao_nao_lida,
@@ -164,6 +165,47 @@ async def test_notificacoes_unifica_e_ordena_por_data() -> None:
     assert resposta["itens"][0]["url"] == "/admin/confiabilidade"
     assert resposta["itens"][1]["severidade"] == "aviso"
     assert resposta["itens"][1]["url"] == "/admin/operacao-juridica"
+
+
+@pytest.mark.asyncio
+async def test_sino_mostra_apenas_alertas_operacionais_acionaveis() -> None:
+    agora = datetime.now(UTC)
+    aviso = SimpleNamespace(
+        id=10,
+        organizacao_id=1,
+        severidade="aviso",
+        codigo="BACKUP_AUSENTE",
+        mensagem="Backup atrasado",
+        criado_em=agora,
+        resolvido_em=None,
+    )
+    informativo = SimpleNamespace(
+        id=11,
+        organizacao_id=1,
+        severidade="info",
+        codigo="RENOVACOES_GERADAS",
+        mensagem="Renovações geradas com sucesso",
+        criado_em=agora,
+        resolvido_em=None,
+    )
+    resolvido = SimpleNamespace(
+        id=12,
+        organizacao_id=1,
+        severidade="critico",
+        codigo="FILA_INDISPONIVEL",
+        mensagem="Fila indisponível",
+        criado_em=agora,
+        resolvido_em=agora,
+    )
+    session = FakeSession([FakeResult(itens=[aviso, informativo, resolvido])])
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+
+    resposta = await listar_alertas_rotinas(session, usuario)
+
+    assert resposta["total"] == 1
+    assert resposta["itens"][0]["id"] == 10
+    assert resposta["itens"][0]["fonte"] == "sistema"
+    assert resposta["itens"][0]["url"] == "/admin/producao"
 
 
 @pytest.mark.asyncio

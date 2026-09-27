@@ -111,6 +111,8 @@ def test_unified_admin_dashboard_requires_authentication() -> None:
     # do navegador/sistema avisa quando chega mensagem nova do cliente --
     # reaproveita o polling de 60s já existente pro sino.
     assert "function notificarMensagensNovas" in script.text
+    assert 'fetch("/v1/admin/notificacoes/rotinas")' in script.text
+    assert "alerta(s) operacional(is)" in script.text
     assert "Notification.requestPermission" in script.text
     assert 'id="notif-native-toggle"' in response.text
     _limpar_auth()

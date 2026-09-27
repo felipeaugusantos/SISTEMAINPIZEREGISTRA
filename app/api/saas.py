@@ -1,5 +1,7 @@
 import asyncio
 import hashlib
+import hmac
+import json
 import re
 import secrets
 import string
@@ -7,9 +9,11 @@ import unicodedata
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+import httpx
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -27,6 +31,7 @@ from app.models import (
     ConviteOrganizacao,
     CredencialIntegracao,
     DominioOrganizacao,
+    EventoAssinaturaStripe,
     EventoCobrancaSandbox,
     Lead,
     Organizacao,
@@ -52,12 +57,40 @@ async def exigir_superadmin(request: Request, usuario: UsuarioAtualDep) -> Usuar
 SuperAdminDep = Annotated[UsuarioAutenticado, Depends(exigir_superadmin)]
 
 
+def _stripe_checkout_configurado() -> bool:
+    from app.settings import get_settings
+
+    cfg = get_settings()
+    return bool(cfg.stripe_saas_enabled and cfg.stripe_saas_secret_key and cfg.stripe_saas_webhook_secret)
+
+
 class PlanoInput(BaseModel):
     nome: str = Field(min_length=2, max_length=100)
     codigo: str = Field(pattern=r"^[a-z0-9-]{2,50}$")
     descricao: str | None = Field(default=None, max_length=500)
-    modulos: list[str] = []
-    limites: dict[str, int] = {}
+    modulos: list[str] = Field(default_factory=list)
+    # Somente limites que o produto realmente aplica podem ser configurados.
+    # Zero mantém a semântica legada de ilimitado; negativos são inválidos.
+    limites: dict[str, int] = Field(default_factory=dict)
+    stripe_price_mensal_id: str | None = Field(default=None, max_length=150)
+    stripe_price_anual_id: str | None = Field(default=None, max_length=150)
+
+    @field_validator("limites")
+    @classmethod
+    def validar_limites_implementados(cls, valor: dict[str, int]) -> dict[str, int]:
+        suportados = {"usuarios", "pesquisas_mes"}
+        desconhecidos = sorted(set(valor) - suportados)
+        if desconhecidos:
+            raise ValueError(f"Limites ainda não implementados: {', '.join(desconhecidos)}")
+        invalidos = sorted(chave for chave, limite in valor.items() if limite < 0)
+        if invalidos:
+            raise ValueError(f"Limites não podem ser negativos: {', '.join(invalidos)}")
+        return valor
+
+
+class PlanoPrecosInput(BaseModel):
+    stripe_price_mensal_id: str | None = Field(default=None, max_length=150)
+    stripe_price_anual_id: str | None = Field(default=None, max_length=150)
 
 
 class OrganizacaoInput(BaseModel):
@@ -226,6 +259,8 @@ async def painel(session: SessionDep, _: SuperAdminDep) -> dict:
                 "modulos": sorted(normalizar_modulos_plano(p.modulos)),
                 "limites": p.limites,
                 "ativo": p.ativo,
+                "stripe_price_mensal_id": p.stripe_price_mensal_id,
+                "stripe_price_anual_id": p.stripe_price_anual_id,
             }
             for p in planos
         ],
@@ -242,6 +277,26 @@ async def criar_plano(dados: PlanoInput, session: SessionDep, ator: SuperAdminDe
     await _auditar(session, ator, "CRIAR_PLANO", f"plano:{plano.id}", dados.model_dump())
     await session.commit()
     return {"id": plano.id, "codigo": plano.codigo}
+
+
+@router.patch("/planos/{plano_id}/precos-stripe")
+async def configurar_precos_stripe(
+    plano_id: int, dados: PlanoPrecosInput, session: SessionDep, ator: SuperAdminDep
+) -> dict:
+    plano = await session.get(PlanoSaas, plano_id)
+    if plano is None:
+        raise HTTPException(404, "Plano não encontrado")
+    plano.stripe_price_mensal_id = dados.stripe_price_mensal_id.strip() if dados.stripe_price_mensal_id else None
+    plano.stripe_price_anual_id = dados.stripe_price_anual_id.strip() if dados.stripe_price_anual_id else None
+    await _auditar(
+        session,
+        ator,
+        "PRECOS_STRIPE",
+        f"plano:{plano.id}",
+        {"mensal_configurado": bool(plano.stripe_price_mensal_id), "anual_configurado": bool(plano.stripe_price_anual_id)},
+    )
+    await session.commit()
+    return {"id": plano.id, "mensal_configurado": bool(plano.stripe_price_mensal_id), "anual_configurado": bool(plano.stripe_price_anual_id)}
 
 
 @router.post("/organizacoes", status_code=status.HTTP_201_CREATED)
@@ -281,8 +336,9 @@ async def criar_organizacao(dados: OrganizacaoInput, session: SessionDep, ator: 
         email_contato=dados.email_contato,
         telefone_contato=dados.telefone_contato,
         modulos_liberados=dados.modulos_liberados,
-        status="ativa",
-        assinatura_status="manual",
+        status="suspensa" if _stripe_checkout_configurado() else "ativa",
+        assinatura_status="aguardando_pagamento" if _stripe_checkout_configurado() else "manual",
+        billing_provider="stripe" if _stripe_checkout_configurado() else None,
     )
     session.add(org)
     await session.flush()
@@ -379,6 +435,7 @@ async def status_onboarding(organizacao_id: int, session: SessionDep, ator: Supe
         .where(
             DominioOrganizacao.organizacao_id == organizacao_id,
             DominioOrganizacao.ativo.is_(True),
+            DominioOrganizacao.verificado_em.is_not(None),
         )
     )
     itens = {
@@ -467,7 +524,9 @@ async def adicionar_dominio(
     item = DominioOrganizacao(
         organizacao_id=organizacao_id,
         dominio=dados.dominio,
-        ativo=True,
+        # O domínio não passa a resolver tenants até a propriedade ser
+        # comprovada pelo TXT; evitar associação acidental de host não verificado.
+        ativo=False,
         codigo_verificacao=codigo,
     )
     session.add(item)
@@ -613,6 +672,7 @@ async def verificar_dominio(
     if esperado not in valores:
         raise HTTPException(422, "Registro TXT não corresponde ao código esperado")
     item.verificado_em = datetime.now(UTC)
+    item.ativo = True
     await _auditar(session, ator, "VERIFICAR_DOMINIO", f"dominio:{item.id}", {})
     await session.commit()
     return {"status": "verificado", "verificado_em": item.verificado_em}
@@ -652,6 +712,170 @@ async def simular_cobranca(
         "assinatura_status": org.assinatura_status,
         "trial_ate": org.trial_ate,
     }
+
+
+class CheckoutSaasInput(BaseModel):
+    intervalo: str = Field(pattern=r"^(mensal|anual)$")
+
+
+def _validar_assinatura_stripe(corpo: bytes, assinatura: str, segredo: str, agora: int) -> bool:
+    partes = {}
+    for item in assinatura.split(","):
+        chave, separador, valor = item.partition("=")
+        if separador:
+            partes.setdefault(chave, []).append(valor)
+    try:
+        timestamp = int(partes["t"][0])
+    except (KeyError, ValueError, IndexError):
+        return False
+    if abs(agora - timestamp) > 300:
+        return False
+    signed = str(timestamp).encode() + b"." + corpo
+    esperado = hmac.new(segredo.encode(), signed, hashlib.sha256).hexdigest()
+    return any(hmac.compare_digest(esperado, valor) for valor in partes.get("v1", []))
+
+
+@router.post("/organizacoes/{organizacao_id}/checkout")
+async def criar_checkout_saas(
+    organizacao_id: int,
+    dados: CheckoutSaasInput,
+    session: SessionDep,
+    ator: SuperAdminDep,
+) -> dict:
+    """Gera link Stripe Checkout para contratação assistida pela equipe."""
+    from app.settings import get_settings
+
+    cfg = get_settings()
+    if not cfg.stripe_saas_enabled or not cfg.stripe_saas_secret_key:
+        raise HTTPException(503, "Cobrança Stripe do SaaS não está configurada")
+    org = (
+        await session.execute(select(Organizacao).options(selectinload(Organizacao.plano)).where(Organizacao.id == organizacao_id))
+    ).scalar_one_or_none()
+    if org is None:
+        raise HTTPException(404, "Organização não encontrada")
+    price_id = org.plano.stripe_price_mensal_id if dados.intervalo == "mensal" else org.plano.stripe_price_anual_id
+    if not price_id:
+        raise HTTPException(422, f"O plano não possui preço Stripe {dados.intervalo} configurado")
+    campos = {
+        "mode": "subscription",
+        "line_items[0][price]": price_id,
+        "line_items[0][quantity]": "1",
+        "success_url": cfg.stripe_saas_success_url,
+        "cancel_url": cfg.stripe_saas_cancel_url,
+        "client_reference_id": str(org.id),
+        "metadata[organization_id]": str(org.id),
+        "metadata[billing_interval]": dados.intervalo,
+        "subscription_data[metadata][organization_id]": str(org.id),
+        "subscription_data[metadata][billing_interval]": dados.intervalo,
+    }
+    if org.billing_customer_id:
+        campos["customer"] = org.billing_customer_id
+    else:
+        campos["customer_email"] = org.email_contato or ""
+    campos = {k: v for k, v in campos.items() if v}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resposta = await client.post(
+                "https://api.stripe.com/v1/checkout/sessions",
+                data=campos,
+                auth=(cfg.stripe_saas_secret_key, ""),
+                headers={"Idempotency-Key": f"zeregistra-org-{org.id}-{dados.intervalo}-{int(datetime.now(UTC).timestamp() // 3600)}"},
+            )
+        resposta.raise_for_status()
+        checkout = resposta.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(502, "Não foi possível criar a sessão de pagamento no Stripe") from exc
+    if not checkout.get("url") or not checkout.get("id"):
+        raise HTTPException(502, "Stripe não retornou uma sessão Checkout válida")
+    org.billing_provider = "stripe"
+    org.billing_intervalo = dados.intervalo
+    org.assinatura_status = "checkout_pendente"
+    await _auditar(session, ator, "CRIAR_CHECKOUT", f"organizacao:{org.id}", {"intervalo": dados.intervalo})
+    await session.commit()
+    return {"checkout_url": checkout["url"], "session_id": checkout["id"]}
+
+
+@router.post("/webhooks/stripe", include_in_schema=False)
+async def webhook_assinatura_stripe(
+    request: Request,
+    session: SessionDep,
+    stripe_signature: Annotated[str | None, Header(alias="Stripe-Signature")] = None,
+) -> dict:
+    """Webhook sem sessão; valida HMAC Stripe e deduplica por event id."""
+    from app.settings import get_settings
+
+    cfg = get_settings()
+    if not cfg.stripe_saas_enabled or not cfg.stripe_saas_webhook_secret:
+        raise HTTPException(503, "Webhook Stripe do SaaS não está configurado")
+    corpo = await request.body()
+    if not stripe_signature or not _validar_assinatura_stripe(
+        corpo, stripe_signature, cfg.stripe_saas_webhook_secret, int(datetime.now(UTC).timestamp())
+    ):
+        raise HTTPException(400, "Assinatura Stripe inválida")
+    # This exact route is authenticated by Stripe's HMAC signature instead
+    # of an operator session; set the DB RLS context only after verification.
+    session.info["superadmin"] = True
+    try:
+        evento = json.loads(corpo)
+        event_id, tipo = str(evento["id"]), str(evento["type"])
+        objeto = evento["data"]["object"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(400, "Evento Stripe inválido") from exc
+    if await session.get(EventoAssinaturaStripe, event_id):
+        return {"status": "duplicado"}
+    item = EventoAssinaturaStripe(id=event_id, tipo=tipo)
+    session.add(item)
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        return {"status": "duplicado"}
+    metadata = objeto.get("metadata") or {}
+    org_id = metadata.get("organization_id") or objeto.get("client_reference_id")
+    org = None
+    if org_id:
+        org = (
+            await session.execute(select(Organizacao).where(Organizacao.id == int(org_id)).with_for_update())
+        ).scalar_one_or_none()
+    if org is None and objeto.get("customer"):
+        org = (
+            await session.execute(
+                select(Organizacao).where(Organizacao.billing_customer_id == objeto["customer"]).with_for_update()
+            )
+        ).scalar_one_or_none()
+    if org is None:
+        # Retain no raw payload/PII; acknowledge unrelated events to avoid retries.
+        await session.commit()
+        return {"status": "ignorado"}
+    customer_id = objeto.get("customer")
+    if customer_id:
+        org.billing_customer_id = customer_id
+    subscription_id = objeto.get("subscription") if tipo.startswith("checkout.session.") else objeto.get("id")
+    if tipo in {"checkout.session.completed", "customer.subscription.created", "customer.subscription.updated"}:
+        if subscription_id and tipo.startswith("checkout.session."):
+            org.billing_subscription_id = subscription_id
+            org.assinatura_status = "ativa" if objeto.get("payment_status") == "paid" else "checkout_concluido"
+            org.billing_intervalo = metadata.get("billing_interval") or org.billing_intervalo
+            if objeto.get("payment_status") == "paid":
+                org.status = "ativa"
+        elif tipo.startswith("customer.subscription."):
+            org.billing_subscription_id = subscription_id
+            status_remoto = objeto.get("status", "unknown")
+            org.assinatura_status = status_remoto[:30]
+            if status_remoto in {"active", "trialing"}:
+                org.status = "ativa"
+            # past_due/canceled/unpaid do not automatically suspend the tenant;
+            # suspension policy/grace period requires an explicit product decision.
+            org.billing_intervalo = metadata.get("billing_interval") or org.billing_intervalo
+    elif tipo == "invoice.paid":
+        org.assinatura_status = "ativa"
+        org.status = "ativa"
+    elif tipo == "invoice.payment_failed":
+        org.assinatura_status = "past_due"
+    elif tipo == "customer.subscription.deleted":
+        org.assinatura_status = "canceled"
+    await session.commit()
+    return {"status": "processado"}
 
 
 @router.post("/assinaturas/verificar")

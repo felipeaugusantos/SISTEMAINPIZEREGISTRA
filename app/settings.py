@@ -137,6 +137,13 @@ class Settings(BaseSettings):
     apple_key_id: str = ""
     apple_private_key: str = ""
     gateway_webhook_secret: str = ""
+    # SaaS B2B subscriptions use Stripe Checkout. Credentials are injected
+    # through deployment secrets; never returned by admin APIs.
+    stripe_saas_enabled: bool = False
+    stripe_saas_secret_key: str = ""
+    stripe_saas_webhook_secret: str = ""
+    stripe_saas_success_url: str = "https://app.zeregistra.com.br/contratacao/retorno?status=sucesso"
+    stripe_saas_cancel_url: str = "https://app.zeregistra.com.br/contratacao/retorno?status=cancelado"
     clicksign_enabled: bool = False
     clicksign_base_url: str = "https://sandbox.clicksign.com/api/v3"
     clicksign_api_token: str = ""
@@ -247,6 +254,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def exigir_senha_forte_em_producao(self) -> "Settings":
+        if self.stripe_saas_enabled and not (self.stripe_saas_secret_key and self.stripe_saas_webhook_secret):
+            raise ValueError(
+                "STRIPE_SAAS_SECRET_KEY e STRIPE_SAAS_WEBHOOK_SECRET são obrigatórios "
+                "quando STRIPE_SAAS_ENABLED estiver ativo."
+            )
         if self.google_oauth_enabled and not (self.google_client_id and self.google_client_secret):
             raise ValueError(
                 "GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET sao obrigatorios quando o Google OAuth estiver ativo."

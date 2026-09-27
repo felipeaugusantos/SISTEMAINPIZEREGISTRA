@@ -115,6 +115,7 @@ async def resolver_organizacao_publica(
                 select(DominioOrganizacao).where(
                     DominioOrganizacao.dominio == host,
                     DominioOrganizacao.ativo.is_(True),
+                    DominioOrganizacao.verificado_em.is_not(None),
                 )
             )
         ).scalar_one_or_none()
@@ -194,6 +195,9 @@ async def validar_limite_pesquisas(session: AsyncSession, organizacao: Organizac
     limite = int(organizacao.limites.get("pesquisas_mes", 0) or 0)
     if limite <= 0:
         return
+    # Serializa as criações concorrentes do mesmo tenant. Sem o lock, duas
+    # requisições poderiam observar a última vaga ao mesmo tempo e exceder a cota.
+    await session.execute(select(Organizacao.id).where(Organizacao.id == organizacao.id).with_for_update())
     agora = datetime.now(UTC)
     inicio = datetime(agora.year, agora.month, 1, tzinfo=UTC)
     total = (
@@ -213,7 +217,10 @@ async def validar_limite_pesquisas(session: AsyncSession, organizacao: Organizac
 async def validar_limite_usuarios(session: AsyncSession, organizacao_id: int) -> None:
     organizacao = (
         await session.execute(
-            select(Organizacao).options(selectinload(Organizacao.plano)).where(Organizacao.id == organizacao_id)
+            select(Organizacao)
+            .options(selectinload(Organizacao.plano))
+            .where(Organizacao.id == organizacao_id)
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if organizacao is None:

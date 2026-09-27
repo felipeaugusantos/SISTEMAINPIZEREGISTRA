@@ -8,7 +8,7 @@ from app.api.pesquisas import construir_resumo_publico
 from app.ratelimit import RateLimiter
 from app.schemas import BrandingConfig
 from app.security_ext import validar_forca_senha
-from app.tenancy import validar_limite_usuarios
+from app.tenancy import OrganizacaoAtual, validar_limite_pesquisas, validar_limite_usuarios
 from app.trademarks.affinity import avaliar_afinidade
 from app.trademarks.learning import validar_modelo_para_cliente
 from app.trademarks.nice import mapear_atividade
@@ -49,6 +49,25 @@ async def test_limite_de_usuarios_do_plano_e_aplicado() -> None:
         await validar_limite_usuarios(session, 1)
 
     assert erro.value.status_code == 409
+    assert "FOR UPDATE" in str(session.executados[0]).upper()
+
+
+@pytest.mark.asyncio
+async def test_limite_de_pesquisas_serializa_criacoes_do_mes() -> None:
+    organizacao = OrganizacaoAtual(
+        id=42,
+        nome="Empresa",
+        slug="empresa",
+        plano="basico",
+        modulos=frozenset({"consulta"}),
+        limites={"pesquisas_mes": 10},
+        branding={},
+    )
+    session = FakeSession([FakeResult(scalar=42), FakeResult(scalar=2)])
+
+    await validar_limite_pesquisas(session, organizacao)
+
+    assert "FOR UPDATE" in str(session.executados[0]).upper()
 
 
 def test_afinidade_media_e_normalizada_como_moderada() -> None:

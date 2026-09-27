@@ -1,9 +1,15 @@
+from types import SimpleNamespace
+
 import pytest
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.api.leads import listar_leads
+from app.api.saas import PlanoInput
 from app.auth import UsuarioAutenticado, obter_usuario_atual
 from app.main import app
+from app.tenancy import resolver_organizacao_publica
 from tests.conftest import FakeResult, FakeSession, auth_override, usuario_teste
 
 
@@ -108,3 +114,49 @@ def test_preflight_permite_integracao_publica_sem_credenciais_de_cookie() -> Non
     assert resposta.status_code == 200
     assert resposta.headers["access-control-allow-origin"] == "*"
     assert "access-control-allow-credentials" not in resposta.headers
+
+
+def test_plano_rejeita_limite_nao_aplicado_e_valor_negativo() -> None:
+    valido = PlanoInput(nome="Básico", codigo="basico", limites={"usuarios": 5, "pesquisas_mes": 100})
+    assert valido.limites["usuarios"] == 5
+
+    with pytest.raises(ValidationError, match="não implementados"):
+        PlanoInput(nome="Básico", codigo="basico", limites={"armazenamento_mb": 500})
+    with pytest.raises(ValidationError, match="negativos"):
+        PlanoInput(nome="Básico", codigo="basico", limites={"usuarios": -1})
+
+
+@pytest.mark.asyncio
+async def test_dominio_nao_verificado_nao_resolve_tenant(monkeypatch: pytest.MonkeyPatch) -> None:
+    class RecordingSession(FakeSession):
+        def __init__(self) -> None:
+            super().__init__([FakeResult(), FakeResult()])
+
+    session = RecordingSession()
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "https",
+            "path": "/",
+            "query_string": b"",
+            "headers": [(b"host", b"tenant.example.test")],
+            "server": ("tenant.example.test", 443),
+            "client": ("127.0.0.1", 12345),
+        }
+    )
+    monkeypatch.setattr(
+        "app.tenancy.get_settings",
+        lambda: SimpleNamespace(
+            integration_auth_enabled=False,
+            inpi_integration_token="",
+            app_env="production",
+        ),
+    )
+
+    with pytest.raises(HTTPException) as erro:
+        await resolver_organizacao_publica(request, session)
+
+    assert erro.value.status_code == 404
+    consulta_dominio = next(stmt for stmt in session.executados if "dominios_organizacao" in str(stmt))
+    assert "verificado_em IS NOT NULL" in str(consulta_dominio)

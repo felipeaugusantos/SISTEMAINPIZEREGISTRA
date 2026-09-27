@@ -16,6 +16,13 @@ services:
       SECURITY_MASTER_KEY: ${SECURITY_MASTER_KEY:?configure SECURITY_MASTER_KEY}
       AUDIT_IP_SALT: ${AUDIT_IP_SALT:?configure AUDIT_IP_SALT}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?configure ADMIN_PASSWORD}
+      # SaaS Stripe permanece desligado até cadastro de credenciais e preços
+      # de produção. Segredos devem existir apenas no .env do VPS.
+      STRIPE_SAAS_ENABLED: ${STRIPE_SAAS_ENABLED:-false}
+      STRIPE_SAAS_SECRET_KEY: ${STRIPE_SAAS_SECRET_KEY:-}
+      STRIPE_SAAS_WEBHOOK_SECRET: ${STRIPE_SAAS_WEBHOOK_SECRET:-}
+      STRIPE_SAAS_SUCCESS_URL: ${STRIPE_SAAS_SUCCESS_URL:-https://app.zeregistra.com.br/contratacao/retorno?status=sucesso}
+      STRIPE_SAAS_CANCEL_URL: ${STRIPE_SAAS_CANCEL_URL:-https://app.zeregistra.com.br/contratacao/retorno?status=cancelado}
       # Achado baixo da auditoria do Portal do Cliente (Fase 9, 21/09/2026):
       # CLAMAV_ENABLED tem default "false" em compose.yaml (decisão para o
       # dev local, ver o comentário no serviço clamav -- o primeiro boot

@@ -196,6 +196,12 @@ async def pagina_inicial() -> FileResponse:
     return FileResponse(web_dir / "index.html")
 
 
+@app.get("/contratacao/retorno", include_in_schema=False)
+async def retorno_checkout_contratacao() -> FileResponse:
+    """Página pública de retorno do Checkout para contratação assistida."""
+    return FileResponse(web_dir / "checkout-retorno.html")
+
+
 @app.get("/buscar-gratuita", include_in_schema=False)
 async def pagina_busca_gratuita() -> FileResponse:
     return FileResponse(web_dir / "buscar-gratuita.html")

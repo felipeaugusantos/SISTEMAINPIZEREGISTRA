@@ -23,6 +23,7 @@ def test_contratar_servico_com_proposta_ja_contratada_devolve_idempotente() -> N
     session = FakeSession(
         [
             FakeResult(scalar=None),  # idempotency_key: nenhum lançamento com essa chave ainda
+            FakeResult(scalar=1),  # conta contábil de receita da organização
             FakeResult(scalar=servico),
             FakeResult(scalar=proposta),
         ]
@@ -36,7 +37,7 @@ def test_contratar_servico_com_proposta_ja_contratada_devolve_idempotente() -> N
 
     resultado = asyncio.run(
         contratar_servico(
-            ContratacaoInput(servico_id=1, proposta_id=7, idempotency_key="chave-nova-diferente"),
+            ContratacaoInput(servico_id=1, proposta_id=7, conta_contabil_id=1, idempotency_key="chave-nova-diferente"),
             session,
             usuario_teste(),
         )

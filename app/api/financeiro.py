@@ -45,6 +45,7 @@ ViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("finance.view")
 ManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("finance.manage"))]
 ApproveDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("finance.approve"))]
 ExportDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("finance.export"))]
+LeadsManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.manage"))]
 STATUS_CLIENTE = frozenset({StatusLead.PROPOSTA_ENVIADA, StatusLead.CONVERTIDO})
 PERFIS_LOG_FINANCEIRO = frozenset({"administrador", "tech", "ceo", "financeiro"})
 
@@ -94,7 +95,7 @@ class LancamentoCreate(BaseModel):
     quantidade_parcelas: int = Field(default=1, ge=1, le=120)
     empresa_id: int | None = None
     categoria_id: int | None = None
-    conta_contabil_id: int | None = None
+    conta_contabil_id: int = Field(ge=1)
     forma_pagamento_id: int | None = None
     observacoes: str | None = Field(default=None, max_length=4000)
 
@@ -112,6 +113,7 @@ class LancamentoLoteItem(BaseModel):
     quantidade_parcelas: int = Field(default=1, ge=1, le=120)
     empresa_id: int | None = None
     categoria_id: int | None = None
+    conta_contabil_id: int = Field(ge=1)
     forma_pagamento_id: int | None = None
     observacoes: str | None = Field(default=None, max_length=4000)
 
@@ -139,9 +141,26 @@ class LancamentoUpdate(BaseModel):
     quantidade_parcelas: int = Field(default=1, ge=1, le=120)
     empresa_id: int | None = None
     categoria_id: int | None = None
-    conta_contabil_id: int | None = None
+    conta_contabil_id: int = Field(ge=1)
     forma_pagamento_id: int | None = None
     observacoes: str | None = Field(default=None, max_length=4000)
+
+
+class GeracaoTitulosInput(BaseModel):
+    tipo: Literal["pagar", "receber"]
+    descricao: str = Field(min_length=3, max_length=240)
+    empresa_id: int = Field(ge=1)
+    valor: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    modo_valor: Literal["total", "por_titulo"]
+    quantidade_parcelas: int | None = Field(default=None, ge=1, le=120)
+    duracao_meses: int | None = Field(default=None, ge=1, le=120)
+    primeiro_vencimento: date
+    regra_vencimento: Literal["dia_fixo", "intervalo"]
+    dia_fixo: int | None = Field(default=None, ge=1, le=31)
+    intervalo_dias: int | None = Field(default=None, ge=1, le=365)
+    categoria_id: int | None = Field(default=None, ge=1)
+    conta_contabil_id: int = Field(ge=1)
+    chave_requisicao: str = Field(min_length=16, max_length=64)
 
 
 class BaixaCreate(BaseModel):
@@ -307,17 +326,21 @@ async def _validar_referencias(
             raise HTTPException(404, "Categoria não encontrada")
         if categoria.tipo not in {"ambos", tipo}:
             raise HTTPException(422, "Categoria incompatível com o tipo do lançamento")
-    if conta_contabil_id:
-        conta = (
-            await session.execute(
-                select(PlanoContas.id).where(
-                    PlanoContas.id == conta_contabil_id,
-                    PlanoContas.organizacao_id == usuario.organizacao_id,
-                )
+    if conta_contabil_id is None:
+        raise HTTPException(422, "Informe o plano contábil do lançamento")
+    natureza_contabil = "receita" if tipo == "receber" else "despesa"
+    conta = (
+        await session.execute(
+            select(PlanoContas.id).where(
+                PlanoContas.id == conta_contabil_id,
+                PlanoContas.organizacao_id == usuario.organizacao_id,
+                PlanoContas.natureza == natureza_contabil,
+                PlanoContas.ativo.is_(True),
             )
-        ).scalar_one_or_none()
-        if not conta:
-            raise HTTPException(404, "Conta contábil não encontrada")
+        )
+    ).scalar_one_or_none()
+    if not conta:
+        raise HTTPException(422, "Conta contábil inexistente, inativa ou incompatível com o tipo do lançamento")
 
 
 async def _atualizar_status(lancamento: LancamentoFinanceiro) -> None:
@@ -358,6 +381,8 @@ def _serializar(lancamento: LancamentoFinanceiro) -> dict:
         "empresa": lancamento.empresa_registro.nome if lancamento.empresa_registro else None,
         "categoria_id": lancamento.categoria_id,
         "categoria": lancamento.categoria.nome if lancamento.categoria else None,
+        "conta_contabil_id": lancamento.conta_contabil_id,
+        "conta_contabil": lancamento.conta_contabil.nome if lancamento.conta_contabil else None,
         "forma_pagamento_id": lancamento.forma_pagamento_id,
         "forma_pagamento": lancamento.forma_pagamento.nome if lancamento.forma_pagamento else None,
         "observacoes": lancamento.observacoes,
@@ -478,18 +503,6 @@ async def referencias(
     usuario: ViewDep,
     tipo: Literal["pagar", "receber"] = "receber",
 ) -> dict:
-    filtros_empresas = [EmpresaCRM.organizacao_id == usuario.organizacao_id]
-    if tipo == "receber":
-        filtros_empresas.append(_empresa_cliente(usuario))
-    empresas = (
-        (
-            await session.execute(
-                select(EmpresaCRM).where(*filtros_empresas).distinct().order_by(EmpresaCRM.nome).limit(300)
-            )
-        )
-        .scalars()
-        .all()
-    )
     categorias = (
         (
             await session.execute(
@@ -518,8 +531,23 @@ async def referencias(
         .scalars()
         .all()
     )
+    natureza_contabil = "receita" if tipo == "receber" else "despesa"
+    contas_contabeis = (
+        await session.execute(
+            select(PlanoContas)
+            .where(
+                PlanoContas.organizacao_id == usuario.organizacao_id,
+                PlanoContas.natureza == natureza_contabil,
+                PlanoContas.ativo.is_(True),
+            )
+            .order_by(PlanoContas.codigo)
+        )
+    ).scalars().all()
     return {
-        "empresas": [{"id": x.id, "nome": x.nome} for x in empresas],
+        "empresas": [],
+        "contas_contabeis": [
+            {"id": x.id, "codigo": x.codigo, "nome": x.nome, "natureza": x.natureza} for x in contas_contabeis
+        ],
         "categorias": [
             {"id": x.id, "nome": x.nome, "tipo": x.tipo, "categoria_pai_id": x.categoria_pai_id} for x in categorias
         ],
@@ -1111,6 +1139,60 @@ async def obter_dre(
     }
 
 
+@router.get("/planos-contabeis-receita")
+async def listar_contas_contabeis_de_receita(session: SessionDep, usuario: LeadsManageDep) -> dict:
+    """Opções mínimas para classificar as receitas futuras da proposta, sem
+    exigir permissão de leitura do restante do módulo financeiro."""
+    contas = (
+        await session.execute(
+            select(PlanoContas.id, PlanoContas.codigo, PlanoContas.nome)
+            .where(
+                PlanoContas.organizacao_id == usuario.organizacao_id,
+                PlanoContas.natureza == "receita",
+                PlanoContas.ativo.is_(True),
+            )
+            .order_by(PlanoContas.codigo)
+        )
+    ).all()
+    return {"itens": [{"id": item.id, "codigo": item.codigo, "nome": item.nome} for item in contas]}
+
+
+@router.get("/empresas/pesquisar")
+async def pesquisar_empresas_financeiras(
+    session: SessionDep,
+    usuario: ViewDep,
+    busca: Annotated[str, Query(min_length=1, max_length=120)],
+    tipo: Literal["pagar", "receber"] = "receber",
+    deslocamento: Annotated[int, Query(ge=0, le=10000)] = 0,
+) -> dict:
+    """Busca sob demanda; '/' solicita a lista completa paginada em vez de
+    carregar centenas de opções em todos os formulários por padrão."""
+    filtros = [EmpresaCRM.organizacao_id == usuario.organizacao_id]
+    if tipo == "receber":
+        filtros.append(_empresa_cliente(usuario))
+    termo = busca.strip()
+    if termo != "/":
+        if len(termo) < 2:
+            raise HTTPException(422, "Informe ao menos 2 caracteres ou '/' para listar empresas")
+        filtros.append(EmpresaCRM.nome.ilike(f"%{termo}%"))
+    total = (await session.execute(select(func.count()).select_from(EmpresaCRM).where(*filtros))).scalar_one()
+    empresas = (
+        await session.execute(
+            select(EmpresaCRM)
+            .where(*filtros)
+            .order_by(EmpresaCRM.nome)
+            .offset(deslocamento)
+            .limit(100)
+        )
+    ).scalars().all()
+    return {
+        "itens": [{"id": item.id, "nome": item.nome} for item in empresas],
+        "total": total,
+        "deslocamento": deslocamento,
+        "tem_mais": deslocamento + len(empresas) < total,
+    }
+
+
 @router.get("/dre/caixa")
 async def obter_resumo_caixa_dre(
     session: SessionDep,
@@ -1385,6 +1467,110 @@ async def editar_lancamento(
     return {"id": lancamento.id, "status": "atualizado"}
 
 
+def _datas_geracao_titulos(dados: GeracaoTitulosInput, quantidade: int) -> list[date]:
+    if dados.regra_vencimento == "dia_fixo":
+        if dados.dia_fixo is None:
+            raise HTTPException(422, "Informe o dia fixo de vencimento")
+        datas = []
+        for indice in range(quantidade):
+            mes = _mes_seguinte(dados.primeiro_vencimento.replace(day=1), indice)
+            datas.append(
+                dados.primeiro_vencimento
+                if indice == 0
+                else date(mes.year, mes.month, min(dados.dia_fixo, calendar.monthrange(mes.year, mes.month)[1]))
+            )
+        return datas
+    if dados.intervalo_dias is None:
+        raise HTTPException(422, "Informe o intervalo em dias")
+    return [dados.primeiro_vencimento + timedelta(days=dados.intervalo_dias * indice) for indice in range(quantidade)]
+
+
+def _quantidade_geracao_titulos(dados: GeracaoTitulosInput) -> int:
+    if dados.modo_valor == "total":
+        if dados.quantidade_parcelas is None:
+            raise HTTPException(422, "Informe a quantidade de parcelas para dividir o valor total")
+        return dados.quantidade_parcelas
+    if dados.duracao_meses is None:
+        raise HTTPException(422, "Informe a duração em meses para gerar títulos pelo valor de cada título")
+    if dados.regra_vencimento == "dia_fixo":
+        return dados.duracao_meses
+    if dados.intervalo_dias is None:
+        raise HTTPException(422, "Informe o intervalo em dias")
+    horizonte = _mes_seguinte(dados.primeiro_vencimento, dados.duracao_meses)
+    dias_no_periodo = (horizonte - dados.primeiro_vencimento - timedelta(days=1)).days
+    return max(0, dias_no_periodo // dados.intervalo_dias + 1)
+
+
+@router.post("/lancamentos/gerar", status_code=201)
+async def gerar_titulos_recorrentes(
+    dados: GeracaoTitulosInput, request: Request, session: SessionDep, usuario: ManageDep
+) -> dict:
+    """Gera títulos independentes em uma única transação, com datas e conta
+    contábil explícitas. A chave torna reenvios idempotentes após timeout."""
+    quantidade = _quantidade_geracao_titulos(dados)
+    if not 1 <= quantidade <= 120:
+        raise HTTPException(422, "A regra escolhida geraria mais de 120 títulos; reduza a duração ou aumente o intervalo")
+    valores = _parcelar(dados.valor, quantidade) if dados.modo_valor == "total" else [dados.valor] * quantidade
+    vencimentos = _datas_geracao_titulos(dados, quantidade)
+    chaves = [f"geracao-financeira:{dados.chave_requisicao}:{indice + 1}" for indice in range(quantidade)]
+    existentes = (
+        await session.execute(
+            select(LancamentoFinanceiro.id).where(
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.idempotency_key.in_(chaves),
+            )
+        )
+    ).scalars().all()
+    if existentes:
+        if len(existentes) == len(chaves):
+            return {"criados": 0, "ids": list(existentes), "idempotente": True}
+        raise HTTPException(409, "Geração anterior incompleta; revise o financeiro antes de tentar novamente")
+
+    itens_criados: list[LancamentoFinanceiro] = []
+    for indice, (valor, vencimento, chave) in enumerate(zip(valores, vencimentos, chaves, strict=True), start=1):
+        item = LancamentoLoteItem(
+            descricao=f"{dados.descricao.strip()} ({indice}/{quantidade})",
+            competencia=vencimento.replace(day=1),
+            valor_total=valor,
+            primeiro_vencimento=vencimento,
+            quantidade_parcelas=1,
+            empresa_id=dados.empresa_id,
+            categoria_id=dados.categoria_id,
+            conta_contabil_id=dados.conta_contabil_id,
+        )
+        lancamento = await _criar_lancamento_individual(
+            session, usuario, dados.tipo, item, item.competencia, dados.conta_contabil_id
+        )
+        lancamento.idempotency_key = chave
+        itens_criados.append(lancamento)
+        _registrar_historico(
+            session,
+            usuario,
+            lancamento.id,
+            "criacao",
+            "Título gerado pela ferramenta de recorrência",
+            {"tipo": dados.tipo, "valor": str(valor), "vencimento": vencimento.isoformat(), "conta_contabil_id": dados.conta_contabil_id},
+        )
+    _auditar(
+        session,
+        request,
+        usuario,
+        "gerar_titulos_recorrentes",
+        "lancamento-financeiro:geracao",
+        {
+            "tipo": dados.tipo,
+            "quantidade": len(itens_criados),
+            "modo_valor": dados.modo_valor,
+            "quantidade_parcelas": dados.quantidade_parcelas,
+            "duracao_meses": dados.duracao_meses,
+            "conta_contabil_id": dados.conta_contabil_id,
+            "chave_requisicao": dados.chave_requisicao,
+        },
+    )
+    await session.commit()
+    return {"criados": len(itens_criados), "ids": [item.id for item in itens_criados], "idempotente": False}
+
+
 @router.post("/lancamentos/lote", status_code=201)
 async def criar_lancamentos_lote(
     dados: LancamentoLote, request: Request, session: SessionDep, usuario: ManageDep
@@ -1397,7 +1583,9 @@ async def criar_lancamentos_lote(
     for indice, item in enumerate(dados.itens, start=1):
         competencia = item.competencia or item.primeiro_vencimento.replace(day=1)
         try:
-            lancamento = await _criar_lancamento_individual(session, usuario, dados.tipo, item, competencia)
+            lancamento = await _criar_lancamento_individual(
+                session, usuario, dados.tipo, item, competencia, item.conta_contabil_id
+            )
         except HTTPException as erro:
             erros.append(f"Linha {indice}: {erro.detail}")
             continue
@@ -1441,6 +1629,7 @@ COLUNAS_COMPETENCIA_LANCTO = ("competencia",)
 COLUNAS_PARCELAS_LANCTO = ("parcela",)
 COLUNAS_EMPRESA_LANCTO = ("empresa", "cliente", "fornecedor", "razaosocial")
 COLUNAS_CATEGORIA_LANCTO = ("categoria",)
+COLUNAS_CONTA_CONTABIL_LANCTO = ("planocontabil", "contacontabil", "conta", "codigocontabil")
 COLUNAS_FORMA_LANCTO = ("forma", "pagamento")
 COLUNAS_DOCUMENTO_LANCTO = ("documento", "nota", "nf")
 COLUNAS_OBS_LANCTO = ("observ", "obs", "notas")
@@ -1490,6 +1679,7 @@ async def modelo_importacao_lancamentos(
             "Parcelas",
             "Empresa",
             "Categoria",
+            "Plano contábil (código ou nome)",
             "Forma de pagamento",
             "Documento",
             "Observações",
@@ -1498,7 +1688,7 @@ async def modelo_importacao_lancamentos(
     empresa_exemplo = "Fornecedor Exemplo Ltda" if tipo == "pagar" else "Cliente Exemplo Ltda"
     descricao_exemplo = "Aluguel do escritório" if tipo != "receber" else "Honorários de acompanhamento"
     writer.writerow(
-        [descricao_exemplo, "1500,00", "05/10/2026", "", "1", empresa_exemplo, "", "Pix", "", ""]
+        [descricao_exemplo, "1500,00", "05/10/2026", "", "1", empresa_exemplo, "", "7.1", "Pix", "", ""]
     )
     return StreamingResponse(
         iter(("﻿" + arquivo.getvalue(),)),
@@ -1563,6 +1753,21 @@ async def importar_lancamentos(
         .scalars()
         .all()
     }
+    contas_contabeis = {
+        chave: conta
+        for conta in (
+            await session.execute(
+                select(PlanoContas).where(
+                    PlanoContas.organizacao_id == usuario.organizacao_id,
+                    PlanoContas.ativo.is_(True),
+                    PlanoContas.natureza == ("receita" if tipo == "receber" else "despesa"),
+                )
+            )
+        )
+        .scalars()
+        .all()
+        for chave in {conta.codigo.strip().lower(), conta.nome.strip().lower()}
+    }
 
     criados = 0
     avisos: list[str] = []
@@ -1601,6 +1806,14 @@ async def importar_lancamentos(
                 continue
         if not 1 <= quantidade_parcelas <= 120:
             erros.append(f"Linha {indice}: quantidade de parcelas fora do intervalo permitido (1 a 120).")
+            continue
+
+        conta_contabil_nome = valor_coluna(registro, COLUNAS_CONTA_CONTABIL_LANCTO)
+        conta_contabil = contas_contabeis.get((conta_contabil_nome or "").strip().lower())
+        if conta_contabil is None:
+            erros.append(
+                f"Linha {indice}: informe um código ou nome de conta contábil ativa e compatível com {tipo}."
+            )
             continue
 
         empresa_id = None
@@ -1656,6 +1869,7 @@ async def importar_lancamentos(
             organizacao_id=usuario.organizacao_id,
             empresa_id=empresa_id,
             categoria_id=categoria_id,
+            conta_contabil_id=conta_contabil.id,
             forma_pagamento_id=forma.id if forma else None,
             tipo=tipo,
             descricao=descricao[:240],

@@ -40,6 +40,7 @@ from app.models import (
     LancamentoFinanceiro,
     Lead,
     Organizacao,
+    PlanoContas,
     ParcelaFinanceira,
     PesquisaMarca,
     Processo,
@@ -106,6 +107,7 @@ class PropostaInput(BaseModel):
     escopo: str = Field(default="Registro de marca no INPI", min_length=5, max_length=4000)
     honorarios: Decimal | None = Field(default=None, ge=0)
     taxa_gru: Decimal | None = Field(default=None, ge=0)
+    conta_contabil_id: int = Field(ge=1)
     condicoes_pagamento: str | None = Field(default=None, max_length=2000)
     observacoes: str | None = Field(default=None, max_length=4000)
 
@@ -268,6 +270,18 @@ async def criar_proposta(lead_id: int, dados: PropostaInput, session: SessionDep
     lead_obj = (
         await session.execute(select(Lead).where(Lead.id == lead, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one()
+    conta_contabil = (
+        await session.execute(
+            select(PlanoContas.id).where(
+                PlanoContas.id == dados.conta_contabil_id,
+                PlanoContas.organizacao_id == usuario.organizacao_id,
+                PlanoContas.natureza == "receita",
+                PlanoContas.ativo.is_(True),
+            )
+        )
+    ).scalar_one_or_none()
+    if conta_contabil is None:
+        raise HTTPException(status_code=422, detail="Selecione uma conta contábil ativa de receita")
     ids = list(dict.fromkeys([item for item in dados.pesquisa_ids if item]))
     if dados.pesquisa_id and dados.pesquisa_id not in ids:
         ids.insert(0, dados.pesquisa_id)
@@ -304,6 +318,7 @@ async def criar_proposta(lead_id: int, dados: PropostaInput, session: SessionDep
             "email": lead_obj.email,
             "pesquisas": [{"id": item.id, "marca": item.marca, "classes": item.classe_nice} for item in pesquisas],
             "protocolo_prazo": "24 horas úteis",
+            "conta_contabil_id": dados.conta_contabil_id,
         },
     )
     session.add(proposta)
@@ -662,11 +677,18 @@ async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta:
         )
     ).scalar_one_or_none()
     if existente is None:
+        conta_contabil_id = (proposta.dados or {}).get("conta_contabil_id")
+        if not conta_contabil_id:
+            raise HTTPException(
+                status_code=422,
+                detail="Esta proposta não possui plano contábil vinculado. Atualize a classificação antes do aceite.",
+            )
         lancamento = LancamentoFinanceiro(
             organizacao_id=proposta.organizacao_id,
             lead_id=proposta.lead_id,
             proposta_id=proposta.id,
             idempotency_key=f"proposta-aceite:{proposta.id}",
+            conta_contabil_id=conta_contabil_id,
             tipo="receber",
             descricao=f"Honorários — Proposta {proposta.numero}",
             competencia=date.today(),

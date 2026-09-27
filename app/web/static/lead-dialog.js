@@ -1586,7 +1586,7 @@ function formatCurrency(value) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
 }
 
-function criarProposta(lead, box) {
+async function criarProposta(lead, box) {
   // Abre o diálogo de revisão em vez de gerar direto com valores fixos --
   // honorários e taxa GRU não podem mais ser alterados depois de criada a
   // proposta (só numa nova versão), então precisam de conferência antes.
@@ -1598,6 +1598,24 @@ function criarProposta(lead, box) {
   proposalForm.elements.condicoes_pagamento.value = "50% na contratação e 50% no protocolo";
   proposalForm.elements.validade_em.value = "";
   proposalForm.elements.escopo.value = "Pesquisa, preparação e protocolo de registro de marca no INPI";
+  const accountSelect = proposalForm.elements.conta_contabil_id;
+  accountSelect.innerHTML = '<option value="">Carregando contas de receita…</option>';
+  accountSelect.disabled = true;
+  try {
+    const response = await fetch("/v1/admin/financeiro/planos-contabeis-receita");
+    const body = await responsePayload(response);
+    accountSelect.innerHTML = '<option value="">Selecione o plano contábil da receita</option>' +
+      (body.itens || []).map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.codigo)} · ${escapeHtml(item.nome)}</option>`).join("");
+  } catch (error) {
+    accountSelect.innerHTML = '<option value="">Não foi possível carregar as contas</option>';
+    const statusBox = root.querySelector("#proposal-message");
+    statusBox.hidden = false;
+    statusBox.className = "status-message error";
+    statusBox.textContent = error.message || "Não foi possível carregar os planos contábeis de receita.";
+    return;
+  } finally {
+    accountSelect.disabled = false;
+  }
   const opcoes = root.querySelector("#proposal-research-options");
   opcoes.innerHTML = (lead.pesquisas || []).map(item => `
     <label>
@@ -1635,6 +1653,7 @@ proposalForm.addEventListener("submit", async event => {
     escopo: dados.escopo,
     honorarios: Number(dados.honorarios),
     taxa_gru: Number(dados.taxa_gru),
+    conta_contabil_id: Number(dados.conta_contabil_id),
     condicoes_pagamento: dados.condicoes_pagamento || null,
   };
   try {

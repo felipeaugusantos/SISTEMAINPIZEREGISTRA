@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>CRM — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=67"><link rel="stylesheet" href="/static/ze-brand.css?v=1"><link rel="stylesheet" href="/static/admin-crm.css?v=4"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=8"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=7"><link rel="stylesheet" href="/static/admin-leads.css?v=33">
+  <link rel="stylesheet" href="/static/styles.css?v=67"><link rel="stylesheet" href="/static/ze-brand.css?v=1"><link rel="stylesheet" href="/static/admin-crm.css?v=5"><link rel="stylesheet" href="/static/admin-company-search.css?v=1"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=8"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=7"><link rel="stylesheet" href="/static/admin-leads.css?v=33">
 
-  <script src="/static/admin-shell.js?v=53" defer></script><script src="/static/lead-dialog.js?v=3" defer></script><script src="/static/admin-crm.js?v=20" defer></script>
+  <script src="/static/admin-shell.js?v=53" defer></script><script src="/static/lead-dialog.js?v=3" defer></script><script src="/static/admin-crm.js?v=21" defer></script>
 </head>
 <body class="admin-body ze-brand-theme" data-admin-section="crm">
   <main class="admin-main crm-main">
@@ -51,7 +51,10 @@
   <dialog id="reminder-dialog" class="crm-reminder-dialog">
     <form id="reminder-form" method="dialog">
       <header><div><p class="eyebrow">AGENDA DO CRM</p><h2>Novo lembrete</h2></div><button id="close-reminder" class="dialog-close" type="button" aria-label="Fechar">×</button></header>
-      <label class="wide"><span>Cliente</span><select name="lead_id" required><option value="">Selecione</option></select></label>
+      <label class="wide"><span>Pesquisar cliente ou empresa</span><input id="crm-client-search" type="search" autocomplete="off" maxlength="120" placeholder="Digite o nome ou / para listar clientes"></label>
+      <div id="crm-client-results" class="company-search-results" role="listbox" aria-label="Resultados de clientes" hidden></div>
+      <p id="crm-selected-client" class="crm-form-hint">Digite ao menos 2 caracteres ou / para carregar a lista.</p>
+      <input name="lead_id" type="hidden" required>
       <label><span>Tipo</span><select name="tipo" required></select></label>
       <label><span>Prioridade</span><select name="prioridade" required></select></label>
       <label><span>Responsável</span><select name="responsavel_id"><option value="">Não atribuído</option></select></label>

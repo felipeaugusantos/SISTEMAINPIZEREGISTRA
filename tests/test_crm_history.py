@@ -6,11 +6,31 @@ from typing import Any
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
+from app.api.crm_admin import pesquisar_clientes_crm
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
 from app.models import CanalContato, ContatoLead, Lead, LembreteCRM, StatusLead
 from tests.conftest import FakeResult, FakeSession, auth_override, sessao_override, usuario_teste
+
+
+async def test_pesquisar_clientes_crm_retorna_apenas_resultados_da_pagina() -> None:
+    lead = Lead(
+        id=33,
+        organizacao_id=1,
+        nome="Maria Cliente",
+        empresa="Empresa Busca Ltda.",
+        status=StatusLead.EM_CONTATO,
+    )
+    session = FakeSession([FakeResult(scalar=1), FakeResult(itens=[lead])])
+
+    resultado = await pesquisar_clientes_crm(
+        session, usuario_teste("operador", {"crm.view"}), busca="Empresa", deslocamento=0
+    )
+
+    assert resultado["total"] == 1
+    assert resultado["itens"] == [{"id": 33, "nome": "Maria Cliente", "empresa": "Empresa Busca Ltda.", "status": StatusLead.EM_CONTATO}]
+    assert resultado["tem_mais"] is False
 
 
 def _registros() -> tuple[ContatoLead, Lead]:
@@ -79,6 +99,7 @@ def test_interface_crm_tem_menu_filtros_timeline_e_deeplink() -> None:
     script = Path("app/web/static/admin-crm.js").read_text(encoding="utf-8")
     shell = Path("app/web/static/admin-shell.js").read_text(encoding="utf-8")
     leads = Path("app/web/static/admin-leads.js").read_text(encoding="utf-8")
+    lead_dialog = Path("app/web/static/lead-dialog.js").read_text(encoding="utf-8")
     assert 'data-admin-section="crm"' in pagina
     assert 'name="operador_id"' in pagina
     assert 'name="status_cliente"' in pagina
@@ -90,9 +111,9 @@ def test_interface_crm_tem_menu_filtros_timeline_e_deeplink() -> None:
     assert '["Atendimentos", data.por_canal.outro || 0]' in script
     assert 'label: "CRM"' in shell
     assert 'get("lead_id")' in leads
-    assert "registrar_contato: true" in leads
-    assert 'name="documento"' in leads
-    assert "/admin/crm?lead_id=" in leads
+    assert "registrar_contato: true" in lead_dialog
+    assert 'name="documento"' in lead_dialog
+    assert "/admin/crm?lead_id=" in lead_dialog
 
 
 def test_listar_lembretes_expoe_alertas_prazos_e_cadastros_antigos() -> None:

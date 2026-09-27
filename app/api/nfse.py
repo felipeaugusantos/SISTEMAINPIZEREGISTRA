@@ -7,9 +7,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,12 +51,13 @@ async def listar_nfse(session: SessionDep, usuario: ViewDep) -> dict:
     itens = (
         (
             await session.execute(
-                select(NotaFiscalServico)
+                select(NotaFiscalServico, LancamentoFinanceiro, EmpresaCRM)
+                .join(LancamentoFinanceiro, LancamentoFinanceiro.id == NotaFiscalServico.lancamento_id)
+                .outerjoin(EmpresaCRM, EmpresaCRM.id == LancamentoFinanceiro.empresa_id)
                 .where(NotaFiscalServico.organizacao_id == usuario.organizacao_id)
                 .order_by(NotaFiscalServico.emitida_em.desc())
             )
         )
-        .scalars()
         .all()
     )
     return {
@@ -64,13 +65,68 @@ async def listar_nfse(session: SessionDep, usuario: ViewDep) -> dict:
             {
                 "id": n.id,
                 "lancamento_id": n.lancamento_id,
+                "descricao_lancamento": lancamento.descricao,
+                "cliente": empresa.nome if empresa else None,
                 "numero": n.numero,
                 "codigo_verificacao": n.codigo_verificacao,
                 "valor": str(n.valor),
                 "status": n.status,
                 "emitida_em": n.emitida_em,
             }
-            for n in itens
+            for n, lancamento, empresa in itens
+        ]
+    }
+
+
+@router.get("/lancamentos-disponiveis")
+async def listar_lancamentos_disponiveis_nfse(
+    session: SessionDep, usuario: ViewDep, empresa_id: int = Query(ge=1)
+) -> dict:
+    """Lista títulos a receber do cliente escolhido, sem expor o ID como
+    única forma de pesquisa nem permitir NFS-e duplicada para nota emitida."""
+    empresa = (
+        await session.execute(
+            select(EmpresaCRM.id).where(
+                EmpresaCRM.id == empresa_id,
+                EmpresaCRM.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if empresa is None:
+        raise HTTPException(404, "Cliente não encontrado")
+    itens = (
+        await session.execute(
+            select(
+                LancamentoFinanceiro.id,
+                LancamentoFinanceiro.descricao,
+                LancamentoFinanceiro.valor_total,
+                LancamentoFinanceiro.competencia,
+            )
+            .where(
+                LancamentoFinanceiro.organizacao_id == usuario.organizacao_id,
+                LancamentoFinanceiro.empresa_id == empresa_id,
+                LancamentoFinanceiro.tipo == "receber",
+                LancamentoFinanceiro.status != "cancelado",
+                ~exists(
+                    select(NotaFiscalServico.id).where(
+                        NotaFiscalServico.lancamento_id == LancamentoFinanceiro.id,
+                        NotaFiscalServico.status == "emitida",
+                    )
+                ),
+            )
+            .order_by(LancamentoFinanceiro.competencia.desc(), LancamentoFinanceiro.id.desc())
+            .limit(100)
+        )
+    ).all()
+    return {
+        "itens": [
+            {
+                "id": item[0],
+                "descricao": item[1],
+                "valor": str(item[2]),
+                "competencia": item[3],
+            }
+            for item in itens
         ]
     }
 

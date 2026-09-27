@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>Notas fiscais de serviço — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=67"><link rel="stylesheet" href="/static/admin-financeiro.css?v=13">
-  <script src="/static/admin-shell.js?v=53" defer></script><script src="/static/admin-financeiro-nfse.js?v=1" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=67"><link rel="stylesheet" href="/static/admin-financeiro.css?v=14"><link rel="stylesheet" href="/static/admin-company-search.css?v=1">
+  <script src="/static/admin-shell.js?v=53" defer></script><script src="/static/admin-financeiro-nfse.js?v=2" defer></script>
 </head>
 <body class="admin-body" data-admin-section="finance">
   <main class="admin-main finance-main">
@@ -18,7 +18,7 @@
     <section class="finance-card">
       <header class="finance-list-heading"><div><p class="eyebrow">NOTAS EMITIDAS</p><h2>Histórico</h2></div><strong id="nfse-count">0 registros</strong></header>
       <div class="finance-table-scroll"><table class="finance-table">
-        <thead><tr><th>Número</th><th>Lançamento</th><th class="num">Valor</th><th>Status</th><th>Emitida em</th><th></th></tr></thead>
+        <thead><tr><th>Número</th><th>Cliente / lançamento</th><th class="num">Valor</th><th>Status</th><th>Emitida em</th><th></th></tr></thead>
         <tbody id="nfse-tbody"><tr><td colspan="6">Carregando…</td></tr></tbody>
       </table></div>
     </section>
@@ -26,7 +26,10 @@
 
   <dialog id="nota-dialog" class="finance-dialog compact"><form id="nota-form">
     <header><div><p class="eyebrow">NFS-e</p><h2>Emitir nota</h2></div><button type="button" data-close="nota-dialog" aria-label="Fechar">×</button></header>
-    <label><span>ID do lançamento (tipo "a receber")</span><input name="lancamento_id" type="number" min="1" required></label>
+    <label class="wide"><span>Pesquisar cliente ou empresa</span><input id="nfse-client-search" type="search" autocomplete="off" maxlength="120" placeholder="Digite o nome ou / para listar clientes"></label>
+    <div id="nfse-client-results" class="company-search-results" role="listbox" aria-label="Resultados de clientes" hidden></div>
+    <p id="nfse-selected-client" class="finance-dialog-help">Selecione primeiro o cliente; depois escolha o título a receber.</p>
+    <label class="wide"><span>Título a receber</span><select name="lancamento_id" id="nfse-launch-select" required disabled><option value="">Pesquise e selecione um cliente</option></select></label>
     <p class="finance-dialog-help">O cliente vinculado ao lançamento precisa ter CPF/CNPJ cadastrado.</p>
     <footer><button class="secondary-button" type="button" data-close="nota-dialog">Cancelar</button><button class="primary-button" type="submit">Emitir</button></footer>
   </form></dialog>

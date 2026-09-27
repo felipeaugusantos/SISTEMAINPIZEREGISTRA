@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 import app.api.nfse as nfse_api
-from app.api.nfse import EmitirNfseInput, cancelar_nfse, emitir_nfse
+from app.api.nfse import EmitirNfseInput, cancelar_nfse, emitir_nfse, listar_lancamentos_disponiveis_nfse, listar_nfse
 from app.models import EmpresaCRM, LancamentoFinanceiro, NotaFiscalServico
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
@@ -104,6 +104,52 @@ async def test_emitir_nfse_com_sucesso() -> None:
     assert len(notas_criadas) == 1
     assert notas_criadas[0].status == "emitida"
     assert session.commits == 1
+
+
+async def test_listar_nfse_apresenta_cliente_e_descricao_do_lancamento() -> None:
+    nota = NotaFiscalServico(
+        id=7, organizacao_id=1, lancamento_id=1, adaptador="sandbox", numero="SANDBOX-7",
+        valor=Decimal("1500"), status="emitida", emitida_por="op", emitida_em=datetime.now(UTC),
+    )
+    lancamento = _lancamento(descricao="Honorários de registro")
+    empresa = _empresa(nome="Marca Exemplo Ltda.")
+    session = FakeSession([FakeResult(itens=[(nota, lancamento, empresa)])])
+
+    resultado = await listar_nfse(session, usuario_teste("administrador", {"finance.view"}))
+
+    assert resultado["itens"][0]["cliente"] == "Marca Exemplo Ltda."
+    assert resultado["itens"][0]["descricao_lancamento"] == "Honorários de registro"
+    assert resultado["itens"][0]["lancamento_id"] == 1
+
+
+async def test_lancamentos_disponiveis_nfse_exige_empresa_da_organizacao() -> None:
+    from fastapi import HTTPException
+
+    session = FakeSession([FakeResult(scalar=None)])
+    try:
+        await listar_lancamentos_disponiveis_nfse(
+            session, usuario_teste("administrador", {"finance.view"}), empresa_id=999
+        )
+        raise AssertionError("deveria ter levantado HTTPException")
+    except HTTPException as exc:
+        assert exc.status_code == 404
+
+
+async def test_lancamentos_disponiveis_nfse_lista_titulos_do_cliente() -> None:
+    session = FakeSession(
+        [
+            FakeResult(scalar=9),
+            FakeResult(itens=[(1, "Honorários de registro", Decimal("1500"), date(2026, 1, 1))]),
+        ]
+    )
+
+    resultado = await listar_lancamentos_disponiveis_nfse(
+        session, usuario_teste("administrador", {"finance.view"}), empresa_id=9
+    )
+
+    assert resultado["itens"] == [
+        {"id": 1, "descricao": "Honorários de registro", "valor": "1500", "competencia": date(2026, 1, 1)}
+    ]
 
 
 async def test_emitir_nfse_nao_expoe_ou_persiste_mensagem_bruta_do_provedor(monkeypatch) -> None:

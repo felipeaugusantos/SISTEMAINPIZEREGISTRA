@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/admin-leads.css?v=33" />
     <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=12 -->
     <script src="/static/admin-shell.js?v=53" defer></script>
-    <script src="/static/lead-dialog.js?v=3" defer></script>
+    <script src="/static/lead-dialog.js?v=4" defer></script>
     <script src="/static/admin-leads.js?v=76" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
@@ -225,6 +225,9 @@
         </label>
         <label>Taxa GRU / INPI (R$)
           <input name="taxa_gru" type="number" min="0" step="0.01" required>
+        </label>
+        <label>Plano contábil da receita
+          <select name="conta_contabil_id" required><option value="">Carregando contas de receita…</option></select>
         </label>
         <label>Condições de pagamento
           <input name="condicoes_pagamento" type="text" maxlength="2000">

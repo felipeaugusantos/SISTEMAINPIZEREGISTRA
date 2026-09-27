@@ -227,3 +227,8 @@
 .batch-grid select{min-width:110px}
 .batch-remove-row{border:0;background:transparent;color:#a83e2c;font-size:1.1rem;cursor:pointer;padding:2px 6px}
 .finance-pagination{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1rem 0 0;color:var(--muted,#667085)}.finance-pagination>div{display:flex;gap:.5rem}.finance-pagination button:disabled{opacity:.5;cursor:not-allowed}
+.company-search-results{display:grid;gap:4px;max-height:240px;overflow:auto;padding:5px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.company-search-option{display:block;width:100%;padding:10px 12px;border:0;border-radius:7px;background:transparent;color:var(--ink);text-align:left;cursor:pointer;font:inherit}
+.company-search-option:hover,.company-search-option:focus-visible{background:#eef6f1;outline:2px solid #85b99e;outline-offset:-2px}
+.company-search-empty{margin:0;padding:10px 12px;color:var(--muted);font-size:.82rem}
+.nfse-entry-description{display:block;margin-top:3px;color:var(--muted);font-size:.72rem}

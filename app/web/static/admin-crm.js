@@ -7,6 +7,7 @@ const reminderForm = document.querySelector("#reminder-form");
 const postponeDialog = document.querySelector("#postpone-dialog");
 const postponeForm = document.querySelector("#postpone-form");
 let postponeReminderId = null;
+let crmClientSearchTimer = null;
 const crmMessage = document.querySelector("#crm-message");
 const channels = { telefone: "Telefone", whatsapp: "WhatsApp", email: "E-mail", reuniao: "Reunião", outro: "Atendimento" };
 const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
@@ -174,7 +175,6 @@ async function references() {
   form.elements.status_cliente.innerHTML = '<option value="">Todos</option>' + options(data.status_clientes);
   reminderFilter.elements.tipo.innerHTML = '<option value="">Todos</option>' + options(data.tipos_lembrete);
   reminderFilter.elements.responsavel_id.innerHTML = '<option value="">Todos</option>' + options(data.operadores);
-  reminderForm.elements.lead_id.innerHTML = '<option value="">Selecione</option>' + data.clientes.map(item => `<option value="${item.id}">${esc(item.nome)}${item.empresa ? ` · ${esc(item.empresa)}` : ""}</option>`).join("");
   reminderForm.elements.tipo.innerHTML = options(data.tipos_lembrete);
   reminderForm.elements.prioridade.innerHTML = options(data.prioridades, "media");
   reminderForm.elements.responsavel_id.innerHTML = '<option value="">Não atribuído</option>' + options(data.operadores);
@@ -183,11 +183,30 @@ function openPostpone(id) {
   postponeReminderId = id; postponeForm.reset();
   document.querySelector("#postpone-message").hidden = true; postponeDialog.showModal();
 }
-function openReminder(leadId = "", type = "retorno") {
+function openReminder(leadId = "", type = "retorno", clienteNome = "") {
   reminderForm.reset(); reminderForm.elements.lead_id.value = leadId; reminderForm.elements.tipo.value = type; reminderForm.elements.prioridade.value = "media";
+  document.querySelector("#crm-client-search").value = clienteNome;
+  document.querySelector("#crm-client-results").hidden = true;
+  document.querySelector("#crm-client-results").replaceChildren();
+  document.querySelector("#crm-selected-client").textContent = leadId
+    ? `Cliente selecionado: ${clienteNome || `oportunidade #${leadId}`}`
+    : "Digite ao menos 2 caracteres ou / para carregar a lista.";
   const due = new Date(Date.now() + 24 * 60 * 60 * 1000); due.setMinutes(due.getMinutes() - due.getTimezoneOffset()); reminderForm.elements.lembrar_em.value = due.toISOString().slice(0, 16);
   if (type === "atualizar_cadastro") reminderForm.elements.titulo.value = "Atualizar dados cadastrais do cliente";
   document.querySelector("#reminder-message").hidden = true; reminderDialog.showModal();
+}
+async function pesquisarClientesLembrete(termo) {
+  const resultados = document.querySelector("#crm-client-results"), valor = termo.trim();
+  if (valor !== "/" && valor.length < 2) { resultados.hidden = true; resultados.replaceChildren(); return; }
+  resultados.hidden = false; resultados.innerHTML = '<p class="company-search-empty">Pesquisando clientes…</p>';
+  try {
+    const query = new URLSearchParams({ busca: valor });
+    const data = await api(`/v1/admin/crm/clientes/pesquisar?${query}`);
+    resultados.innerHTML = data.itens.length
+      ? data.itens.map(item => `<button type="button" class="company-search-option" role="option" data-lead-id="${item.id}"><strong>${esc(item.nome)}</strong>${item.empresa ? `<small>${esc(item.empresa)}</small>` : ""}</button>`).join("")
+        + (data.tem_mais ? `<p class="company-search-empty">Mostrando ${data.itens.length} de ${data.total}. Refine a pesquisa para localizar o restante.</p>` : "")
+      : '<p class="company-search-empty">Nenhum cliente encontrado.</p>';
+  } catch (error) { resultados.innerHTML = `<p class="company-search-empty">${esc(error.message)}</p>`; }
 }
 async function updateReminder(id, payload) { await api(`/v1/admin/crm/lembretes/${id}`, { method: "PATCH", body: JSON.stringify(payload) }); await loadReminders(); }
 
@@ -199,6 +218,19 @@ document.querySelector("#crm-clear").addEventListener("click", () => { form.rese
 document.querySelector("#crm-prev").addEventListener("click", () => { crmState.offset = Math.max(0, crmState.offset - crmState.limit); loadHistory().catch(error => show(error.message)); });
 document.querySelector("#crm-next").addEventListener("click", () => { if (crmState.offset + crmState.limit < crmState.total) { crmState.offset += crmState.limit; loadHistory().catch(error => show(error.message)); } });
 document.querySelector("#new-reminder").addEventListener("click", () => openReminder());
+document.querySelector("#crm-client-search").addEventListener("input", event => {
+  clearTimeout(crmClientSearchTimer);
+  crmClientSearchTimer = setTimeout(() => pesquisarClientesLembrete(event.currentTarget.value), 250);
+});
+document.querySelector("#crm-client-results").addEventListener("click", event => {
+  const option = event.target.closest("[data-lead-id]"); if (!option) return;
+  const nome = option.querySelector("strong").textContent;
+  const empresa = option.querySelector("small")?.textContent;
+  reminderForm.elements.lead_id.value = option.dataset.leadId;
+  document.querySelector("#crm-client-search").value = nome;
+  document.querySelector("#crm-client-results").hidden = true;
+  document.querySelector("#crm-selected-client").textContent = `Cliente selecionado: ${nome}${empresa ? ` · ${empresa}` : ""}`;
+});
 document.querySelector("#crm-kanban-refresh")?.addEventListener("click", () => loadKanban().catch(error => show(error.message)));
 document.querySelector("#crm-kanban-distribuir")?.addEventListener("click", async event => {
   const botao = event.currentTarget;
@@ -213,7 +245,7 @@ document.querySelector("#crm-kanban-distribuir")?.addEventListener("click", asyn
 });
 document.querySelector("#close-reminder").addEventListener("click", () => reminderDialog.close());
 document.querySelector("#cancel-reminder").addEventListener("click", () => reminderDialog.close());
-document.querySelector("#crm-customer-alerts").addEventListener("click", event => { const button = event.target.closest(".create-update-reminder"); if (button) openReminder(button.dataset.leadId, "atualizar_cadastro"); });
+document.querySelector("#crm-customer-alerts").addEventListener("click", event => { const button = event.target.closest(".create-update-reminder"); if (button) openReminder(button.dataset.leadId, "atualizar_cadastro", button.closest("article")?.querySelector("strong")?.textContent || ""); });
 document.querySelector("#crm-reminders").addEventListener("click", event => {
   const complete = event.target.closest(".complete-reminder"), postpone = event.target.closest(".postpone-reminder"), cancel = event.target.closest(".cancel-reminder-item");
   if (complete) updateReminder(complete.dataset.id, { status: "concluido" }).catch(error => show(error.message));

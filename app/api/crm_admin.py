@@ -231,32 +231,51 @@ async def referencias_crm(session: SessionDep, usuario: CRMViewDep) -> dict:
             .order_by(UsuarioOperacoes.nome)
         )
     ).all()
-    clientes = (
-        await session.execute(
-            select(Lead.id, Lead.nome, Lead.empresa, Lead.status)
-            .where(
-                Lead.organizacao_id == usuario.organizacao_id,
-                Lead.arquivado_em.is_(None),
-            )
-            .order_by(Lead.nome)
-            .limit(500)
-        )
-    ).all()
     return {
         "canais": [{"id": item.value, "nome": item.value.title()} for item in CanalContato],
         "operadores": [{"id": item.id, "nome": item.nome} for item in operadores],
         "status_clientes": [{"id": item.value, "nome": item.value.replace("_", " ").title()} for item in StatusLead],
         "tipos_lembrete": [{"id": chave, "nome": nome} for chave, nome in TIPOS_LEMBRETE.items()],
         "prioridades": [{"id": chave, "nome": nome} for chave, nome in PRIORIDADES.items()],
-        "clientes": [
-            {
-                "id": item.id,
-                "nome": item.nome,
-                "empresa": item.empresa,
-                "status": item.status,
-            }
+        # Os clientes são carregados sob demanda por /clientes/pesquisar.
+        # Evita baixar centenas de opções ao abrir a tela do CRM.
+        "clientes": [],
+    }
+
+
+@router.get("/clientes/pesquisar")
+async def pesquisar_clientes_crm(
+    session: SessionDep,
+    usuario: CRMViewDep,
+    busca: Annotated[str, Query(min_length=1, max_length=120)],
+    deslocamento: Annotated[int, Query(ge=0, le=10000)] = 0,
+) -> dict:
+    """Pesquisa clientes/leads ativos pelo nome ou empresa. '/' lista em
+    páginas; não envia toda a base de clientes ao carregar a tela."""
+    filtros = [Lead.organizacao_id == usuario.organizacao_id, Lead.arquivado_em.is_(None)]
+    termo = busca.strip()
+    if termo != "/":
+        if len(termo) < 2:
+            raise HTTPException(422, "Informe ao menos 2 caracteres ou '/' para listar clientes")
+        filtros.append(or_(Lead.nome.ilike(f"%{termo}%"), Lead.empresa.ilike(f"%{termo}%")))
+    total = (await session.execute(select(func.count()).select_from(Lead).where(*filtros))).scalar_one()
+    clientes = (
+        await session.execute(
+            select(Lead.id, Lead.nome, Lead.empresa, Lead.status)
+            .where(*filtros)
+            .order_by(Lead.nome, Lead.id)
+            .offset(deslocamento)
+            .limit(100)
+        )
+    ).all()
+    return {
+        "itens": [
+            {"id": item.id, "nome": item.nome, "empresa": item.empresa, "status": item.status}
             for item in clientes
         ],
+        "total": total,
+        "deslocamento": deslocamento,
+        "tem_mais": deslocamento + len(clientes) < total,
     }
 
 

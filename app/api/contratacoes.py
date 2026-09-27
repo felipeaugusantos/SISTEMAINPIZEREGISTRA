@@ -16,6 +16,7 @@ from app.models import (
     GuiaInpi,
     LancamentoFinanceiro,
     ParcelaFinanceira,
+    PlanoContas,
     PropostaComercial,
     ReciboFinanceiro,
     RenovacaoFinanceira,
@@ -43,6 +44,7 @@ class ContratacaoInput(BaseModel):
     proposta_id: int | None = None
     parcelas: int = Field(default=1, ge=1, le=60)
     primeiro_vencimento: date | None = None
+    conta_contabil_id: int | None = Field(default=None, ge=1)
     idempotency_key: str = Field(min_length=8, max_length=120)
 
 
@@ -122,6 +124,20 @@ async def contratar_servico(dados: ContratacaoInput, session: SessionDep, usuari
             "lancamento_id": existente.id,
             "parcelas": len(existente.parcelas),
         }
+    if dados.conta_contabil_id is None:
+        raise HTTPException(status_code=422, detail="Informe o plano contábil de receita para a contratação")
+    conta_contabil_id = (
+        await session.execute(
+            select(PlanoContas.id).where(
+                PlanoContas.id == dados.conta_contabil_id,
+                PlanoContas.organizacao_id == usuario.organizacao_id,
+                PlanoContas.natureza == "receita",
+                PlanoContas.ativo.is_(True),
+            )
+        )
+    ).scalar_one_or_none()
+    if conta_contabil_id is None:
+        raise HTTPException(status_code=422, detail="Conta contábil de receita inválida ou inativa")
     servico = (
         await session.execute(
             select(ServicoFinanceiro).where(
@@ -153,6 +169,7 @@ async def contratar_servico(dados: ContratacaoInput, session: SessionDep, usuari
         processo_id=dados.processo_id,
         proposta_id=dados.proposta_id,
         idempotency_key=dados.idempotency_key,
+        conta_contabil_id=conta_contabil_id,
         tipo="receber",
         descricao=servico.nome,
         competencia=date.today(),

@@ -49,6 +49,7 @@ def _proposta(**kwargs: object) -> PropostaComercial:
         "lead_id": 1,
         "numero": "PROP-TEST",
         "escopo": "Registro de marca no INPI",
+        "dados": {"conta_contabil_id": 1},
     }
     base.update(kwargs)
     return PropostaComercial(**base)

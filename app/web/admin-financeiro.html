@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>Financeiro — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=67"><link rel="stylesheet" href="/static/admin-financeiro.css?v=13">
-  <script src="/static/admin-shell.js?v=53" defer></script><script src="/static/admin-financeiro.js?v=14" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=67"><link rel="stylesheet" href="/static/admin-financeiro.css?v=14"><link rel="stylesheet" href="/static/admin-company-search.css?v=1">
+  <script src="/static/admin-shell.js?v=53" defer></script><script src="/static/admin-financeiro.js?v=16" defer></script>
 </head>
 <body class="admin-body" data-admin-section="finance">
   <main class="admin-main finance-main">
     <section class="finance-hero">
       <div><p class="eyebrow">GESTÃO OPERACIONAL</p><h1 id="finance-title">Financeiro</h1><p id="finance-description">Controle contas a pagar e receber, vencimentos e baixas. Este módulo não substitui a contabilidade fiscal.</p></div>
-      <div class="hero-actions"><a id="finance-back" class="secondary-button" href="/admin/financeiro" hidden>← Voltar ao painel</a><a id="finance-export" class="secondary-button" href="/v1/admin/financeiro/exportar.csv">Exportar CSV</a><button id="new-company" class="secondary-button" type="button">Cadastrar empresa</button><button id="new-category" class="secondary-button" type="button">Nova categoria</button><button id="import-entries" class="secondary-button" type="button" hidden>Importar planilha</button><button id="batch-entries" class="secondary-button" type="button" hidden>Adicionar em lote</button><button id="new-entry" class="primary-button" type="button">Novo lançamento</button></div>
+      <div class="hero-actions"><a id="finance-back" class="secondary-button" href="/admin/financeiro" hidden>← Voltar ao painel</a><a id="finance-export" class="secondary-button" href="/v1/admin/financeiro/exportar.csv">Exportar CSV</a><button id="new-company" class="secondary-button" type="button">Cadastrar empresa</button><button id="new-category" class="secondary-button" type="button">Nova categoria</button><button id="import-entries" class="secondary-button" type="button" hidden>Importar planilha</button><button id="batch-entries" class="secondary-button" type="button" hidden>Adicionar em lote</button><button id="generate-entries" class="secondary-button" type="button" hidden>Gerar títulos</button><button id="new-entry" class="primary-button" type="button">Novo lançamento</button></div>
     </section>
     <nav class="finance-tabs" aria-label="Áreas do financeiro"><a href="/admin/financeiro" data-finance-tab="overview">Visão geral</a><a href="/admin/financeiro/contas-a-pagar" data-finance-tab="pagar">Contas a pagar</a><a href="/admin/financeiro/contas-a-receber" data-finance-tab="receber">Contas a receber</a><a href="/admin/financeiro/categorias">Categorias</a><a href="/admin/financeiro/formas-pagamento">Formas de pagamento</a><a href="/admin/financeiro/plano-contas">Plano de contas &amp; DRE</a><a href="/admin/financeiro/lucratividade">Lucratividade</a><a href="/admin/financeiro/comissoes">Comissões</a><a href="/admin/financeiro/conciliacao">Conciliação</a><a href="/admin/financeiro/nfse">NFS-e</a></nav>
     <div id="finance-message" class="status-message" hidden role="status" aria-live="polite"></div>
@@ -35,9 +35,10 @@
     <div class="dialog-grid">
       <label id="entry-type-field"><span>Tipo</span><select name="tipo" required><option value="receber">Conta a receber</option><option value="pagar">Conta a pagar</option></select></label>
       <label class="wide"><span>Descrição</span><input name="descricao" minlength="3" maxlength="240" required></label>
-      <label><span>Empresa relacionada</span><select name="empresa_id"><option value="">Não vinculado</option></select><small id="entry-company-help">Para contas a receber, somente clientes qualificados ou monitorados.</small></label>
+      <label class="wide"><span>Empresa relacionada</span><div class="company-picker"><input name="empresa_id" type="hidden"><button class="secondary-button company-picker-open" type="button" data-company-type="receber">Pesquisar cliente ou empresa</button><small class="company-picker-selection">Nenhuma selecionada</small></div><small id="entry-company-help">Para contas a receber, somente clientes qualificados ou monitorados.</small></label>
       <label><span>Categoria</span><select name="categoria_id"><option value="">Sem categoria</option></select></label>
       <label><span>Forma de pagamento prevista</span><select name="forma_pagamento_id"><option value="">Não definida</option></select><small id="entry-payment-help">Selecione para aplicar o limite de parcelas configurado.</small></label>
+      <label class="wide"><span>Plano contábil <b aria-hidden="true">*</b></span><select name="conta_contabil_id" required><option value="">Selecione a conta contábil</option></select></label>
       <label><span>Documento</span><input name="documento" maxlength="80"></label>
       <label><span>Competência</span><input name="competencia" type="date" required></label>
       <label><span>Valor total (R$)</span><input name="valor_total" type="number" min="0.01" step="0.01" required></label>
@@ -92,15 +93,43 @@
 
   <dialog id="batch-dialog" class="finance-dialog wide"><form id="batch-form">
     <header><div><p class="eyebrow">GRADE EM LOTE</p><h2 id="batch-title">Adicionar lançamentos em lote</h2></div><button type="button" data-close="batch-dialog" aria-label="Fechar">×</button></header>
-    <p class="finance-dialog-help">Preencha uma linha por lançamento -- linhas em branco são ignoradas. Empresa, categoria e forma de pagamento são opcionais.</p>
+    <p class="finance-dialog-help">Preencha uma linha por lançamento -- linhas em branco são ignoradas. Plano contábil é obrigatório; empresa, categoria e forma de pagamento são opcionais.</p>
     <div class="batch-grid-wrap">
       <table class="batch-grid">
-        <thead><tr><th>Descrição</th><th>Valor (R$)</th><th>Vencimento</th><th>Parcelas</th><th>Empresa</th><th>Categoria</th><th>Forma</th><th></th></tr></thead>
+        <thead><tr><th>Descrição</th><th>Valor (R$)</th><th>Vencimento</th><th>Parcelas</th><th>Empresa</th><th>Categoria</th><th>Plano contábil</th><th>Forma</th><th></th></tr></thead>
         <tbody id="batch-rows"></tbody>
       </table>
     </div>
     <button id="batch-add-row" class="secondary-button" type="button">+ Adicionar linha</button>
     <div id="batch-result" class="finance-import-result" hidden></div>
     <footer><button class="secondary-button" type="button" data-close="batch-dialog">Cancelar</button><button id="batch-submit" class="primary-button" type="submit">Salvar lançamentos</button></footer>
+  </form></dialog>
+  <dialog id="generator-dialog" class="finance-dialog wide"><form id="generator-form">
+    <header><div><p class="eyebrow">GERAÇÃO DE TÍTULOS</p><h2 id="generator-title">Gerar contas</h2></div><button type="button" data-close="generator-dialog" aria-label="Fechar">×</button></header>
+    <p class="finance-dialog-help">Cada título será criado separadamente, vinculado à empresa e à conta contábil selecionadas. Limite de 120 títulos por geração.</p>
+    <div class="dialog-grid">
+      <label class="wide"><span>Descrição</span><input name="descricao" minlength="3" maxlength="240" required></label>
+      <label class="wide"><span>Empresa relacionada</span><div class="company-picker"><input name="empresa_id" type="hidden" required><button class="secondary-button company-picker-open" type="button" data-company-type="receber">Pesquisar cliente ou empresa</button><small class="company-picker-selection">Nenhuma selecionada</small></div></label>
+      <label><span>Modo do valor</span><select name="modo_valor" required><option value="total">Informar valor total e parcelas</option><option value="por_titulo">Informar valor por título e duração</option></select></label>
+      <label><span id="generator-value-label">Valor total (R$)</span><input name="valor" type="number" min="0.01" step="0.01" required></label>
+      <label id="generator-quantity-field"><span>Quantidade de parcelas</span><input name="quantidade_parcelas" type="number" min="1" max="120" value="1"></label>
+      <label id="generator-duration-field" hidden><span>Duração (meses)</span><input name="duracao_meses" type="number" min="1" max="120" value="12"></label>
+      <label><span>Primeiro vencimento</span><input name="primeiro_vencimento" type="date" required></label>
+      <label><span>Regra de vencimento</span><select name="regra_vencimento" required><option value="dia_fixo">Dia fixo mensal</option><option value="intervalo">Intervalo em dias</option></select></label>
+      <label id="fixed-day-field"><span>Dia do mês</span><input name="dia_fixo" type="number" min="1" max="31" value="10"></label>
+      <label id="interval-field" hidden><span>Intervalo (dias)</span><input name="intervalo_dias" type="number" min="1" max="365" value="30"></label>
+      <label class="wide"><span>Plano contábil <b aria-hidden="true">*</b></span><select name="conta_contabil_id" required><option value="">Selecione a conta contábil</option></select></label>
+      <label><span>Categoria</span><select name="categoria_id"><option value="">Sem categoria</option></select></label>
+    </div>
+    <input name="chave_requisicao" type="hidden">
+    <div id="generator-preview" class="finance-dialog-help" aria-live="polite"></div>
+    <footer><button class="secondary-button" type="button" data-close="generator-dialog">Cancelar</button><button id="generator-submit" class="primary-button" type="submit">Gerar títulos</button></footer>
+  </form></dialog>
+  <dialog id="company-search-dialog" class="finance-dialog compact"><form method="dialog">
+    <header><div><p class="eyebrow">PESQUISA</p><h2>Selecionar cliente ou empresa</h2></div><button type="button" data-close="company-search-dialog" aria-label="Fechar">×</button></header>
+    <label><span>Nome ou razão social</span><input id="company-search-query" type="search" maxlength="120" autocomplete="off" placeholder="Digite o nome ou / para carregar a lista"></label>
+    <p class="finance-dialog-help">Digite ao menos 2 caracteres. Use “/” para abrir a lista completa em páginas.</p>
+    <div id="company-search-results" class="company-search-results" role="listbox" aria-label="Resultados de empresas" hidden></div>
+    <footer><button id="company-search-clear" class="text-button" type="button" hidden>Remover vínculo</button><button class="secondary-button" type="button" data-close="company-search-dialog">Fechar</button></footer>
   </form></dialog>
 </body></html>

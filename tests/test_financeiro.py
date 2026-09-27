@@ -6,11 +6,15 @@ from fastapi.testclient import TestClient
 from app.api.financeiro import (
     STATUS_CLIENTE,
     _cancelar_comissao_da_parcela,
+    _datas_geracao_titulos,
     _empresa_cliente,
     _gerar_comissao_se_aplicavel,
     _mes_seguinte,
     _parcelar,
+    _quantidade_geracao_titulos,
     _validar_parcelamento,
+    GeracaoTitulosInput,
+    pesquisar_empresas_financeiras,
 )
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
@@ -18,6 +22,7 @@ from app.main import app
 from app.models import (
     CategoriaFinanceira,
     ComissaoFinanceira,
+    EmpresaCRM,
     FormaPagamentoFinanceira,
     LancamentoFinanceiro,
     Lead,
@@ -32,12 +37,46 @@ from app.plano_contas import CONTAS_PADRAO
 from tests.conftest import FakeResult, FakeSession, auth_override, sessao_override, usuario_teste
 
 
+async def test_pesquisar_empresas_financeiras_lista_somente_quando_solicitado() -> None:
+    session = FakeSession(
+        [
+            FakeResult(scalar=2),
+            FakeResult(itens=[EmpresaCRM(id=1, organizacao_id=1, nome="Alpha Ltda."), EmpresaCRM(id=2, organizacao_id=1, nome="Beta Ltda.")]),
+        ]
+    )
+    resultado = await pesquisar_empresas_financeiras(
+        session, usuario_teste("administrador", {"finance.view"}), busca="/", tipo="pagar", deslocamento=0
+    )
+    assert resultado["total"] == 2
+    assert resultado["tem_mais"] is False
+    assert resultado["itens"] == [{"id": 1, "nome": "Alpha Ltda."}, {"id": 2, "nome": "Beta Ltda."}]
+
+
 def test_parcelamento_preserva_total_e_corre_datas() -> None:
     parcelas = _parcelar(Decimal("100.00"), 3)
     assert parcelas == [Decimal("33.33"), Decimal("33.33"), Decimal("33.34")]
     assert sum(parcelas) == Decimal("100.00")
     assert _mes_seguinte(date(2026, 1, 31), 1) == date(2026, 2, 28)
     assert _mes_seguinte(date(2026, 1, 31), 2) == date(2026, 3, 31)
+
+
+def test_geracao_titulos_suporta_valor_total_e_valor_por_titulo() -> None:
+    total = GeracaoTitulosInput(
+        tipo="pagar", descricao="Serviço", empresa_id=1, valor=Decimal("100"), modo_valor="total",
+        quantidade_parcelas=3, primeiro_vencimento=date(2026, 1, 31), regra_vencimento="dia_fixo",
+        dia_fixo=31, conta_contabil_id=1, chave_requisicao="a" * 24,
+    )
+    assert _quantidade_geracao_titulos(total) == 3
+    assert _parcelar(total.valor, 3) == [Decimal("33.33"), Decimal("33.33"), Decimal("33.34")]
+    assert _datas_geracao_titulos(total, 3) == [date(2026, 1, 31), date(2026, 2, 28), date(2026, 3, 31)]
+
+    por_titulo = GeracaoTitulosInput(
+        tipo="receber", descricao="Honorários", empresa_id=1, valor=Decimal("150"), modo_valor="por_titulo",
+        duracao_meses=1, primeiro_vencimento=date(2026, 9, 1), regra_vencimento="intervalo",
+        intervalo_dias=15, conta_contabil_id=2, chave_requisicao="b" * 24,
+    )
+    assert _quantidade_geracao_titulos(por_titulo) == 2
+    assert _datas_geracao_titulos(por_titulo, 2) == [date(2026, 9, 1), date(2026, 9, 16)]
 
 
 def test_pagina_financeira_e_protegida_por_permissao() -> None:
@@ -50,8 +89,10 @@ def test_pagina_financeira_e_protegida_por_permissao() -> None:
         assert response.status_code == 200
         assert "Controle contas a pagar e receber" in response.text
         assert "Novo lançamento" in response.text
-        assert "admin-financeiro.css?v=13" in response.text
-        assert "admin-financeiro.js?v=14" in response.text
+        assert "admin-financeiro.css?v=14" in response.text
+        assert "admin-financeiro.js?v=16" in response.text
+        assert 'id="company-search-query"' in response.text
+        assert 'placeholder="Digite o nome ou / para carregar a lista"' in response.text
     finally:
         app.dependency_overrides.pop(obter_usuario_atual, None)
 
@@ -316,7 +357,7 @@ def _lancamento_teste(status_parcela: str = "aberta") -> LancamentoFinanceiro:
 
 def test_edicao_de_conta_financeira_e_auditada() -> None:
     lancamento = _lancamento_teste()
-    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lancamento))
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lancamento), FakeResult(scalar=1))
     usuario = usuario_teste(perfil="financeiro", permissoes={"finance.manage"})
     object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
     app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
@@ -329,6 +370,7 @@ def test_edicao_de_conta_financeira_e_auditada() -> None:
         "quantidade_parcelas": 1,
         "empresa_id": None,
         "categoria_id": None,
+        "conta_contabil_id": 1,
         "observacoes": "Conferido",
     }
     try:
@@ -348,7 +390,7 @@ def test_edicao_de_conta_financeira_e_auditada() -> None:
 
 def test_edicao_nao_reparcela_conta_que_ja_tem_baixa() -> None:
     lancamento = _lancamento_teste("paga")
-    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lancamento))
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=lancamento), FakeResult(scalar=1))
     usuario = usuario_teste(perfil="financeiro", permissoes={"finance.manage"})
     object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
     app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
@@ -358,6 +400,7 @@ def test_edicao_nao_reparcela_conta_que_ja_tem_baixa() -> None:
         "valor_total": 200,
         "primeiro_vencimento": "2026-08-20",
         "quantidade_parcelas": 1,
+        "conta_contabil_id": 1,
     }
     try:
         resposta = TestClient(app).put(
@@ -918,15 +961,15 @@ def test_editar_categoria_inexistente_retorna_404() -> None:
 
 
 def test_criar_lancamentos_em_lote_com_sucesso() -> None:
-    app.dependency_overrides[get_session] = sessao_override()
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=1), FakeResult(scalar=1))
     usuario = usuario_teste("administrador", {"finance.manage"})
     object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
     app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
     payload = {
         "tipo": "pagar",
         "itens": [
-            {"descricao": "Aluguel", "valor_total": 100, "primeiro_vencimento": "2026-10-05", "quantidade_parcelas": 1},
-            {"descricao": "Luz", "valor_total": 200, "primeiro_vencimento": "2026-10-10", "quantidade_parcelas": 1},
+            {"descricao": "Aluguel", "valor_total": 100, "primeiro_vencimento": "2026-10-05", "quantidade_parcelas": 1, "conta_contabil_id": 1},
+            {"descricao": "Luz", "valor_total": 200, "primeiro_vencimento": "2026-10-10", "quantidade_parcelas": 1, "conta_contabil_id": 1},
         ],
     }
     try:
@@ -949,7 +992,7 @@ def test_criar_lancamentos_em_lote_reporta_linha_com_parcelamento_invalido() -> 
     forma = FormaPagamentoFinanceira(
         id=5, organizacao_id=1, nome="Boleto", tipo="boleto", permite_parcelamento=False, maximo_parcelas=1, ativo=True
     )
-    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=forma))
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=1), FakeResult(scalar=forma))
     usuario = usuario_teste("administrador", {"finance.manage"})
     object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
     app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
@@ -962,6 +1005,7 @@ def test_criar_lancamentos_em_lote_reporta_linha_com_parcelamento_invalido() -> 
                 "primeiro_vencimento": "2026-10-05",
                 "quantidade_parcelas": 3,
                 "forma_pagamento_id": 5,
+                "conta_contabil_id": 1,
             },
         ],
     }
@@ -981,14 +1025,14 @@ def test_criar_lancamentos_em_lote_reporta_linha_com_parcelamento_invalido() -> 
 
 
 def test_criar_lancamentos_em_lote_infere_competencia_do_vencimento() -> None:
-    app.dependency_overrides[get_session] = sessao_override()
+    app.dependency_overrides[get_session] = sessao_override(FakeResult(scalar=1))
     usuario = usuario_teste("administrador", {"finance.manage"})
     object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
     app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
     payload = {
         "tipo": "receber",
         "itens": [
-            {"descricao": "Honorários", "valor_total": 500, "primeiro_vencimento": "2026-11-20", "quantidade_parcelas": 1},
+            {"descricao": "Honorários", "valor_total": 500, "primeiro_vencimento": "2026-11-20", "quantidade_parcelas": 1, "conta_contabil_id": 1},
         ],
     }
     try:

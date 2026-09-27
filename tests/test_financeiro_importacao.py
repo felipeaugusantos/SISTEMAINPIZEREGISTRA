@@ -10,6 +10,7 @@ import app.api.financeiro as modulo_financeiro
 from app.api.financeiro import (
     CategoriaFinanceira,
     FormaPagamentoFinanceira,
+    PlanoContas,
     _parse_data_planilha,
     _parse_valor_planilha,
     importar_lancamentos,
@@ -69,16 +70,29 @@ async def _sem_virus(_conteudo: bytes) -> None:
     return None
 
 
+def _conta(tipo: str = "pagar") -> PlanoContas:
+    return PlanoContas(
+        id=1,
+        organizacao_id=1,
+        codigo="7.1" if tipo == "pagar" else "3.1",
+        nome="Despesa operacional" if tipo == "pagar" else "Serviços prestados",
+        natureza="despesa" if tipo == "pagar" else "receita",
+        grupo_dre="despesas_administrativas" if tipo == "pagar" else "receita_bruta",
+        ativo=True,
+    )
+
+
 def test_importar_lancamentos_cria_conta_a_pagar_com_sucesso(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(modulo_financeiro, "escanear_upload_ou_rejeitar", _sem_virus)
     session = FakeSession(
         [
             FakeResult(itens=[]),  # categorias da organização
             FakeResult(itens=[]),  # formas de pagamento da organização
+            FakeResult(itens=[_conta()]),  # contas contábeis compatíveis
         ]
     )
     usuario = usuario_teste("administrador", {"finance.manage"})
-    conteudo = b"descricao;valor;vencimento\nAluguel do escritorio;1500,00;05/10/2026\n"
+    conteudo = b"descricao;valor;vencimento;plano_contabil\nAluguel do escritorio;1500,00;05/10/2026;7.1\n"
 
     resultado = asyncio.run(
         importar_lancamentos(_request(), session, usuario, _ArquivoFake(conteudo), tipo="pagar")
@@ -133,11 +147,12 @@ def test_importar_lancamentos_receber_sem_cliente_elegivel_cria_sem_vinculo(
         [
             FakeResult(itens=[]),  # categorias
             FakeResult(itens=[]),  # formas
+            FakeResult(itens=[_conta("receber")]),  # contas contábeis
             FakeResult(scalar=None),  # empresa não encontrada/elegível
         ]
     )
     usuario = usuario_teste("administrador", {"finance.manage"})
-    conteudo = b"descricao;valor;vencimento;empresa\nHonorarios;800,00;10/10/2026;Empresa Desconhecida\n"
+    conteudo = b"descricao;valor;vencimento;empresa;plano_contabil\nHonorarios;800,00;10/10/2026;Empresa Desconhecida;3.1\n"
 
     resultado = asyncio.run(
         importar_lancamentos(_request(), session, usuario, _ArquivoFake(conteudo), tipo="receber")
@@ -159,13 +174,14 @@ def test_importar_lancamentos_resolve_categoria_por_nome_e_avisa_se_nao_achar(
         [
             FakeResult(itens=[categoria]),  # categorias
             FakeResult(itens=[]),  # formas
+            FakeResult(itens=[_conta()]),  # contas contábeis
         ]
     )
     usuario = usuario_teste("administrador", {"finance.manage"})
     conteudo = (
-        b"descricao;valor;vencimento;categoria\n"
-        b"Aluguel sede;1200,00;05/10/2026;Aluguel\n"
-        b"Outra conta;300,00;05/10/2026;Categoria Inexistente\n"
+        b"descricao;valor;vencimento;categoria;plano_contabil\n"
+        b"Aluguel sede;1200,00;05/10/2026;Aluguel;7.1\n"
+        b"Outra conta;300,00;05/10/2026;Categoria Inexistente;7.1\n"
     )
 
     resultado = asyncio.run(
@@ -191,10 +207,11 @@ def test_importar_lancamentos_rejeita_parcelas_acima_do_limite_da_forma(
         [
             FakeResult(itens=[]),  # categorias
             FakeResult(itens=[forma]),  # formas
+            FakeResult(itens=[_conta()]),  # contas contábeis
         ]
     )
     usuario = usuario_teste("administrador", {"finance.manage"})
-    conteudo = "descricao;valor;vencimento;parcelas;forma\nCompra;900,00;05/10/2026;6;Cartão\n".encode()
+    conteudo = "descricao;valor;vencimento;parcelas;forma;plano_contabil\nCompra;900,00;05/10/2026;6;Cartão;7.1\n".encode()
 
     resultado = asyncio.run(
         importar_lancamentos(_request(), session, usuario, _ArquivoFake(conteudo), tipo="pagar")

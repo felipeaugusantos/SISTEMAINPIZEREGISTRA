@@ -15,6 +15,19 @@ const cadenciaDialog = document.querySelector("#cadencia-dialog");
 const cadenciaForm = document.querySelector("#cadencia-form");
 const canais = { email: "E-mail", whatsapp: "WhatsApp", ligacao: "Ligação", reuniao: "Reunião", outro: "Outro" };
 const escCad = value => { const node = document.createElement("span"); node.textContent = value ?? ""; return node.innerHTML; };
+// Achado 17.3: disparo automático (Cadencia.gatilho_evento/gatilho_valor).
+// Mesmo vocabulário validado no backend (app/api/crm_admin.py::VALORES_GATILHO_CADENCIA).
+const gatilhosCadencia = {
+  status: { rotulo: "Quando o status mudar para", valores: { novo: "Novo", em_contato: "Em contato", qualificado: "Qualificado", proposta_enviada: "Proposta enviada", sem_retorno: "Sem retorno", convertido: "Convertido", descartado: "Descartado" } },
+  fase: { rotulo: "Quando a fase mudar para", valores: { contato_inicial: "Contato inicial", qualificado: "Qualificado", relatorio_enviado: "Relatório enviado", proposta_enviada: "Proposta enviada", proposta_aceita: "Proposta aceita", aguardando_pagamento: "Aguardando pagamento", pagamento_confirmado: "Pagamento confirmado", ganho: "Ganho", protocolo_inpi: "Protocolo no INPI", processo_inpi: "Processo no INPI" } },
+};
+const gatilhoSelect = document.querySelector("#cadencia-gatilho");
+gatilhoSelect.innerHTML = `<option value="">Somente manual</option>` + Object.entries(gatilhosCadencia).map(([evento, grupo]) => `<optgroup label="${escCad(grupo.rotulo)}">${Object.entries(grupo.valores).map(([valor, label]) => `<option value="${evento}:${valor}">${escCad(label)}</option>`).join("")}</optgroup>`).join("");
+const descreverGatilho = item => {
+  const grupo = gatilhosCadencia[item.gatilho_evento];
+  if (!grupo || !item.gatilho_valor) return "";
+  return `${grupo.rotulo.toLowerCase()} “${grupo.valores[item.gatilho_valor] || item.gatilho_valor}”`;
+};
 
 function passoRow(p = {}) {
   const options = Object.entries(canais).map(([value, label]) => `<option value="${value}" ${p.canal === value ? "selected" : ""}>${label}</option>`).join("");
@@ -26,7 +39,7 @@ function passoRow(p = {}) {
 
 function renderCadencias() {
   const box = document.querySelector("#crm-cadencias");
-  box.innerHTML = cadencias.length ? cadencias.map(item => `<div class="crm-cadencia" data-id="${item.id}"><div><strong>${escCad(item.nome)}</strong>${item.ativo ? "" : " <span class=\"crm-cad-inativa\">inativa</span>"}<br><small>${item.passos.length} passo(s)${item.passos.length ? " · " + escCad(item.passos.map(p => `dia ${p.dia} ${canais[p.canal] || p.canal}`).join(", ")) : ""}</small></div><div class="crm-cad-acts"><button class="cad-edit secondary-button" data-id="${item.id}" type="button">Editar</button><button class="cad-del secondary-button" data-id="${item.id}" type="button" aria-label="Excluir">×</button></div></div>`).join("") : `<p class="crm-cad-empty">Nenhuma sequência criada.</p>`;
+  box.innerHTML = cadencias.length ? cadencias.map(item => `<div class="crm-cadencia" data-id="${item.id}"><div><strong>${escCad(item.nome)}</strong>${item.ativo ? "" : " <span class=\"crm-cad-inativa\">inativa</span>"}<br><small>${item.passos.length} passo(s)${item.passos.length ? " · " + escCad(item.passos.map(p => `dia ${p.dia} ${canais[p.canal] || p.canal}`).join(", ")) : ""}</small>${descreverGatilho(item) ? "<br><small>Automática: " + escCad(descreverGatilho(item)) + "</small>" : ""}</div><div class="crm-cad-acts"><button class="cad-edit secondary-button" data-id="${item.id}" type="button">Editar</button><button class="cad-del secondary-button" data-id="${item.id}" type="button" aria-label="Excluir">×</button></div></div>`).join("") : `<p class="crm-cad-empty">Nenhuma sequência criada.</p>`;
 }
 
 async function loadCadencias() {
@@ -41,6 +54,8 @@ function openCadencia(item = null) {
   cadenciaForm.elements.nome.value = item?.nome || "";
   cadenciaForm.elements.descricao.value = item?.descricao || "";
   cadenciaForm.elements.ativo.checked = item ? item.ativo : true;
+  gatilhoSelect.value = item?.gatilho_evento && item?.gatilho_valor ? `${item.gatilho_evento}:${item.gatilho_valor}` : "";
+  document.querySelector("#cadencia-message").hidden = true;
   const box = document.querySelector("#cadencia-passos");
   box.innerHTML = "";
   (item?.passos?.length ? item.passos : [{ dia: 0, canal: "email", titulo: "" }]).forEach(passo => box.appendChild(passoRow(passo)));
@@ -62,7 +77,8 @@ document.querySelector("#crm-cadencias").addEventListener("click", event => {
 cadenciaForm.addEventListener("submit", async event => {
   event.preventDefault();
   const passos = [...document.querySelectorAll("#cadencia-passos .crm-cad-passo")].map(row => ({ dia: Number(row.querySelector(".passo-dia").value) || 0, canal: row.querySelector(".passo-canal").value, titulo: row.querySelector(".passo-titulo").value.trim() })).filter(passo => passo.titulo);
-  const payload = { nome: cadenciaForm.elements.nome.value.trim(), descricao: cadenciaForm.elements.descricao.value || null, ativo: cadenciaForm.elements.ativo.checked, passos };
+  const [gatilhoEvento, gatilhoValor] = gatilhoSelect.value ? gatilhoSelect.value.split(":") : [null, null];
+  const payload = { nome: cadenciaForm.elements.nome.value.trim(), descricao: cadenciaForm.elements.descricao.value || null, ativo: cadenciaForm.elements.ativo.checked, passos, gatilho_evento: gatilhoEvento, gatilho_valor: gatilhoValor };
   const id = cadenciaForm.elements.id.value;
   try { await api(id ? `/v1/admin/crm/cadencias/${id}` : "/v1/admin/crm/cadencias", { method: id ? "PUT" : "POST", body: JSON.stringify(payload) }); cadenciaDialog.close(); await loadCadencias(); } catch (error) { const message = document.querySelector("#cadencia-message"); message.hidden = false; message.className = "status-message error"; message.textContent = error.message; }
 });

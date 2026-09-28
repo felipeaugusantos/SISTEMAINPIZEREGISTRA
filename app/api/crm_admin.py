@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -936,11 +936,36 @@ class PassoInput(BaseModel):
     descricao: str | None = Field(default=None, max_length=2000)
 
 
+# Achado 17.3: Cadencia.gatilho_evento/gatilho_valor existiam no modelo e
+# app.crm.aplicar_cadencias_automaticas já os consumia (mudança de status no
+# PATCH do lead e de fase em avancar_fase_lead), mas nenhuma API nem tela
+# permitia preenchê-los -- o disparo automático de cadência era inalcançável.
+# O vocabulário é o mesmo dos chamadores: evento "status" com um StatusLead,
+# ou evento "fase" com uma FaseLead.
+VALORES_GATILHO_CADENCIA: dict[str, frozenset[str]] = {
+    "status": frozenset(item.value for item in StatusLead),
+    "fase": frozenset(item.value for item in FaseLead),
+}
+
+
 class CadenciaInput(BaseModel):
     nome: str = Field(min_length=1, max_length=120)
     descricao: str | None = Field(default=None, max_length=2000)
     ativo: bool = True
     passos: list[PassoInput] = Field(default_factory=list, max_length=30)
+    gatilho_evento: Literal["status", "fase"] | None = None
+    gatilho_valor: str | None = Field(default=None, max_length=30)
+
+    @model_validator(mode="after")
+    def _validar_gatilho(self) -> "CadenciaInput":
+        if self.gatilho_evento is None and not self.gatilho_valor:
+            self.gatilho_valor = None
+            return self
+        if self.gatilho_evento is None or not self.gatilho_valor:
+            raise ValueError("Informe o evento e o valor do disparo automático, ou nenhum dos dois.")
+        if self.gatilho_valor not in VALORES_GATILHO_CADENCIA[self.gatilho_evento]:
+            raise ValueError(f"Valor de disparo inválido para o evento {self.gatilho_evento}.")
+        return self
 
 
 def _cadencia_dict(c: Cadencia) -> dict:
@@ -949,6 +974,8 @@ def _cadencia_dict(c: Cadencia) -> dict:
         "nome": c.nome,
         "descricao": c.descricao,
         "ativo": c.ativo,
+        "gatilho_evento": c.gatilho_evento,
+        "gatilho_valor": c.gatilho_valor,
         "passos": [
             {
                 "id": p.id,
@@ -1001,6 +1028,8 @@ async def criar_cadencia(dados: CadenciaInput, session: SessionDep, usuario: CRM
         nome=dados.nome.strip(),
         descricao=dados.descricao or None,
         ativo=dados.ativo,
+        gatilho_evento=dados.gatilho_evento,
+        gatilho_valor=dados.gatilho_valor,
     )
     _montar_passos(cadencia, dados.passos, usuario.organizacao_id)
     session.add(cadencia)
@@ -1022,6 +1051,8 @@ async def editar_cadencia(cadencia_id: int, dados: CadenciaInput, session: Sessi
     cadencia.nome = dados.nome.strip()
     cadencia.descricao = dados.descricao or None
     cadencia.ativo = dados.ativo
+    cadencia.gatilho_evento = dados.gatilho_evento
+    cadencia.gatilho_valor = dados.gatilho_valor
     cadencia.passos.clear()
     await session.flush()
     _montar_passos(cadencia, dados.passos, usuario.organizacao_id)

@@ -1,3 +1,5 @@
+import re
+
 from fastapi.testclient import TestClient
 
 from app.auth import obter_usuario_atual
@@ -1035,6 +1037,27 @@ def test_privacy_page() -> None:
 
     assert response.status_code == 200
     assert "Aviso de privacidade" in response.text
+
+
+def test_paginas_html_nao_usam_script_inline() -> None:
+    """O CSP padrao (script-src 'self') bloqueia <script> embutido: todo JS
+    das paginas precisa vir de arquivo em /static."""
+    inline = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>", re.IGNORECASE)
+    ofensoras = sorted(p.name for p in web_dir.glob("*.html") if inline.search(p.read_text(encoding="utf-8")))
+    assert ofensoras == []
+
+
+def test_paginas_exclusao_lgpd_carregam_script_externo() -> None:
+    client = TestClient(app)
+    for rota, script in (
+        ("/privacidade/excluir-meus-dados", "/static/privacidade-solicitar-exclusao.js"),
+        ("/privacidade/confirmar-exclusao", "/static/privacidade-confirmar-exclusao.js"),
+    ):
+        pagina = client.get(rota)
+        assert pagina.status_code == 200
+        assert "script-src 'self'" in pagina.headers["content-security-policy"]
+        assert f'<script src="{script}"' in pagina.text
+        assert client.get(script).status_code == 200
 
 
 def test_institutional_pages() -> None:

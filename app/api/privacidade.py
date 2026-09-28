@@ -3,6 +3,7 @@ depender de um atendente. Mesmo padrão de app/api/auth_routes.py::recuperar_sen
 -- token opaco, hash em repouso, expira, resposta sempre genérica (não revela
 se o e-mail existe na base)."""
 
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -26,6 +27,7 @@ from app.tenancy import OrganizacaoPublicaDep
 router = APIRouter(tags=["privacidade"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 LeadsDeleteDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.delete"))]
+logger = logging.getLogger(__name__)
 limitar_privacidade = RateLimiter(limite=5, janela_segundos=300, escopo="privacidade")
 
 RESPOSTA_GENERICA = {"status": "ok", "mensagem": "Se o e-mail existir na nossa base, você vai receber instruções."}
@@ -92,7 +94,9 @@ async def solicitar_exclusao(
             try:
                 await enviar_confirmacao_exclusao(email, token)
             except Exception:
-                pass
+                # A resposta continua genérica para não revelar se o e-mail existe.
+                # O token nunca é incluído no log.
+                logger.exception("Falha ao enviar e-mail de confirmação de exclusão LGPD")
         elif settings.app_env.lower() != "production":
             return {**RESPOSTA_GENERICA, "token_teste_local": token}
     return RESPOSTA_GENERICA

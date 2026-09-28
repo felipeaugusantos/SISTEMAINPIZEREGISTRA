@@ -79,6 +79,11 @@ def test_interface_crm_tem_menu_filtros_timeline_e_deeplink() -> None:
     script = Path("app/web/static/admin-crm.js").read_text(encoding="utf-8")
     shell = Path("app/web/static/admin-shell.js").read_text(encoding="utf-8")
     leads = Path("app/web/static/admin-leads.js").read_text(encoding="utf-8")
+    # Achado 17.2 da auditoria fina do CRM (24/09/2026): o diálogo do lead
+    # (formulário de atendimento, link "Criar lembrete" etc.) foi extraído
+    # pra admin-lead-dialog.js -- admin-crm.html carrega só ele, não mais
+    # admin-leads.js.
+    dialog = Path("app/web/static/admin-lead-dialog.js").read_text(encoding="utf-8")
     assert 'data-admin-section="crm"' in pagina
     assert 'name="operador_id"' in pagina
     assert 'name="status_cliente"' in pagina
@@ -90,9 +95,9 @@ def test_interface_crm_tem_menu_filtros_timeline_e_deeplink() -> None:
     assert '["Atendimentos", data.por_canal.outro || 0]' in script
     assert 'label: "CRM"' in shell
     assert 'get("lead_id")' in leads
-    assert "registrar_contato: true" in leads
-    assert 'name="documento"' in leads
-    assert "/admin/crm?lead_id=" in leads
+    assert "registrar_contato: true" in dialog
+    assert 'name="documento"' in dialog
+    assert "/admin/crm?lead_id=" in dialog
 
 
 def test_listar_lembretes_expoe_alertas_prazos_e_cadastros_antigos() -> None:

@@ -10,7 +10,11 @@
     <link rel="stylesheet" href="/static/admin-leads.css?v=31" />
     <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=12 -->
     <script src="/static/admin-shell.js?v=52" defer></script>
-    <script src="/static/admin-leads.js?v=75" defer></script>
+    <!-- Achado 17.2 da auditoria fina do CRM (24/09/2026): o diálogo do lead
+         (openLead() e tudo que roda dentro de #lead-dialog) foi extraído pra
+         cá -- precisa carregar antes de admin-leads.js, que depende dele. -->
+    <script src="/static/admin-lead-dialog.js?v=1" defer></script>
+    <script src="/static/admin-leads.js?v=76" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
     <header class="topbar">

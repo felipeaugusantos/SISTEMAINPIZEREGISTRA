@@ -212,6 +212,10 @@ def test_telas_expoem_exclusao_protegida_e_fila_administrativa() -> None:
     consulta = Path("app/web/admin-consulta.html").read_text(encoding="utf-8")
     leads = Path("app/web/admin-leads.html").read_text(encoding="utf-8")
     script = Path("app/web/static/admin-leads.js").read_text(encoding="utf-8")
+    # Achado 17.2 da auditoria fina do CRM (24/09/2026): o diálogo de
+    # exclusão de pesquisa (openResearchDelete, POST .../solicitar-exclusao)
+    # foi extraído pra admin-lead-dialog.js.
+    dialog = Path("app/web/static/admin-lead-dialog.js").read_text(encoding="utf-8")
 
     assert 'id="delete-research"' in consulta
     assert 'autocomplete="current-password"' in consulta
@@ -219,4 +223,4 @@ def test_telas_expoem_exclusao_protegida_e_fila_administrativa() -> None:
     assert "deletion-requests-section" in leads
     assert "deletion-requests-empty" in script
     assert "Aprovar e excluir" in script
-    assert "solicitar-exclusao" in script
+    assert "solicitar-exclusao" in dialog

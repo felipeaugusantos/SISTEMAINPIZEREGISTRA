@@ -134,6 +134,9 @@ async def verificar_respostas_email(session: AsyncSession) -> dict:
 
     pausados = 0
     registradas = 0
+    # Achado 17.4: quebra por organização para o worker gravar um
+    # AlertaSistema por tenant, em vez do total agregado fixo na org 1.
+    pausados_por_organizacao: dict[int, int] = {}
     for mensagem in mensagens:
         leads = (
             await session.execute(
@@ -155,10 +158,14 @@ async def verificar_respostas_email(session: AsyncSession) -> dict:
                 )
             )
             registradas += 1
-            pausados += await pausar_envios_pendentes_do_lead(session, organizacao_id, lead_id)
+            pausados_lead = await pausar_envios_pendentes_do_lead(session, organizacao_id, lead_id)
+            pausados += pausados_lead
+            if pausados_lead:
+                pausados_por_organizacao[organizacao_id] = pausados_por_organizacao.get(organizacao_id, 0) + pausados_lead
     return {
         "verificado": True,
         "remetentes": len({m.endereco for m in mensagens}),
         "registradas": registradas,
         "pausados": pausados,
+        "pausados_por_organizacao": pausados_por_organizacao,
     }

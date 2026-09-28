@@ -148,7 +148,7 @@ def test_sla_primeiro_atendimento_cria_lembrete_quando_prazo_vencido() -> None:
 
     criados = asyncio.run(gerar_lembretes_sla_primeiro_atendimento(session))
 
-    assert criados == 1
+    assert criados == {1: 1}
 
 
 def test_sla_primeiro_atendimento_nao_conta_insercao_idempotente_ignorada() -> None:
@@ -160,7 +160,7 @@ def test_sla_primeiro_atendimento_nao_conta_insercao_idempotente_ignorada() -> N
 
     criados = asyncio.run(gerar_lembretes_sla_primeiro_atendimento(session))
 
-    assert criados == 0
+    assert criados == {}
 
 
 def test_sla_primeiro_atendimento_processa_varias_organizacoes() -> None:
@@ -183,7 +183,8 @@ def test_sla_primeiro_atendimento_processa_varias_organizacoes() -> None:
 
     criados = asyncio.run(gerar_lembretes_sla_primeiro_atendimento(session))
 
-    assert criados == 2
+    # Achado 17.4: contagem separada por organização (antes, total agregado).
+    assert criados == {1: 1, 2: 1}
 
 
 def test_sla_primeiro_atendimento_sem_politica_configurada_nao_faz_nada() -> None:
@@ -191,7 +192,7 @@ def test_sla_primeiro_atendimento_sem_politica_configurada_nao_faz_nada() -> Non
 
     criados = asyncio.run(gerar_lembretes_sla_primeiro_atendimento(session))
 
-    assert criados == 0
+    assert criados == {}
 
 
 def test_automacao_reprocessada_nao_duplica_lembrete() -> None:

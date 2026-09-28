@@ -68,12 +68,23 @@ async def processar_envios_cadencia_pendentes(session: AsyncSession) -> dict:
     )
     enviados = 0
     falhas = 0
+    # Achado 17.4: o worker gravava o total agregado de TODAS as
+    # organizações num AlertaSistema fixo da organização 1 (visível ao
+    # comercial dela). Com a quebra por organização, cada uma recebe só os
+    # próprios números.
+    por_organizacao: dict[int, dict[str, int]] = {}
+
+    def _contar(organizacao_id: int, chave: str) -> None:
+        contagem = por_organizacao.setdefault(organizacao_id, {"enviados": 0, "falhas": 0})
+        contagem[chave] += 1
+
     for envio in pendentes:
         lead = await session.get(Lead, envio.lead_id)
         if lead is None or lead.anonimizado_em is not None or lead.arquivado_em is not None or not lead.email:
             envio.status = "falhou"
             envio.ultimo_erro = "lead indisponível, anonimizado, arquivado ou sem e-mail"
             falhas += 1
+            _contar(envio.organizacao_id, "falhas")
             continue
         # Achado da auditoria completa do CRM (06/09/2026): antes não havia
         # como um titular parar de receber cadência sem responder o e-mail
@@ -89,6 +100,7 @@ async def processar_envios_cadencia_pendentes(session: AsyncSession) -> dict:
             envio.status = "falhou"
             envio.ultimo_erro = "passo da cadência não existe mais"
             falhas += 1
+            _contar(envio.organizacao_id, "falhas")
             continue
         # O token bruto só existe agora -- gerar no agendamento seria inútil
         # (nada pode reconstruí-lo a partir do hash mais tarde). Reaproveitado
@@ -105,14 +117,16 @@ async def processar_envios_cadencia_pendentes(session: AsyncSession) -> dict:
             envio.enviado_em = agora
             envio.rastreio_token_hash = token_hash
             enviados += 1
+            _contar(envio.organizacao_id, "enviados")
         except Exception as exc:
             envio.tentativas += 1
             envio.ultimo_erro = str(exc)[:300]
             if envio.tentativas >= settings.cadencia_email_max_tentativas:
                 envio.status = "falhou"
             falhas += 1
+            _contar(envio.organizacao_id, "falhas")
             logger.warning("Falha ao enviar passo de cadência (envio_id=%s): %s", envio.id, exc)
-    return {"enviados": enviados, "falhas": falhas}
+    return {"enviados": enviados, "falhas": falhas, "por_organizacao": por_organizacao}
 
 
 async def registrar_abertura(session: AsyncSession, token: str) -> None:

@@ -145,6 +145,20 @@ def _resumir_pesquisas_proposta(pesquisas: list[PesquisaMarca]) -> tuple[str | N
     return "; ".join(marcas), "; ".join(resumo_classes)
 
 
+def _resolver_planos_contabeis_proposta(organizacao: Organizacao | None, dados: PropostaInput) -> tuple[int | None, int | None]:
+    planos = ((organizacao.branding or {}).get("proposta_planos_contabeis") or {}) if organizacao else {}
+    honorarios = planos.get("conta_contabil_honorarios_id")
+    taxa_gru = planos.get("conta_contabil_taxa_gru_id")
+    if honorarios or taxa_gru:
+        return honorarios, taxa_gru
+    # Compatibilidade com integrações/clientes anteriores enquanto as
+    # organizações ainda definem seus padrões no Financeiro.
+    return (
+        dados.conta_contabil_honorarios_id or dados.conta_contabil_id,
+        dados.conta_contabil_taxa_gru_id or dados.conta_contabil_id,
+    )
+
+
 class PropostaStatusInput(BaseModel):
     status: Literal["rascunho", "enviada", "visualizada", "aceita", "recusada", "expirada", "cancelada"]
     motivo: str | None = Field(default=None, max_length=500)
@@ -273,10 +287,17 @@ async def criar_proposta(lead_id: int, dados: PropostaInput, session: SessionDep
     lead_obj = (
         await session.execute(select(Lead).where(Lead.id == lead, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one()
-    conta_honorarios_id = dados.conta_contabil_honorarios_id or dados.conta_contabil_id
-    conta_taxa_gru_id = dados.conta_contabil_taxa_gru_id or dados.conta_contabil_id
+    organizacao = await session.get(Organizacao, usuario.organizacao_id)
+    # O padrão salvo pela equipe financeira sempre tem precedência sobre
+    # qualquer ID enviado pelo navegador; cada proposta preserva a cópia usada.
+    conta_honorarios_id, conta_taxa_gru_id = _resolver_planos_contabeis_proposta(organizacao, dados)
     if not conta_honorarios_id or not conta_taxa_gru_id:
-        raise HTTPException(status_code=422, detail="Selecione os planos contábeis de honorários e de taxa GRU/INPI")
+        raise HTTPException(
+            status_code=422,
+            detail="Configure os planos contábeis padrão de honorários e GRU/INPI em Financeiro > Configuração de propostas.",
+        )
+    if conta_honorarios_id == conta_taxa_gru_id:
+        raise HTTPException(status_code=422, detail="Honorários e taxa GRU/INPI precisam usar planos contábeis diferentes.")
     ids_contabeis = {conta_honorarios_id, conta_taxa_gru_id}
     contas_contabeis = (
         await session.execute(

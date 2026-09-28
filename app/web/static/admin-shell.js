@@ -16,6 +16,7 @@ const adminSections = [
   { id: "finance-payment-methods", label: "Formas de pagamento", href: "/admin/financeiro/formas-pagamento", symbol: "FP", permission: "finance.view", parent: "finance" },
   { id: "finance-retribuicoes", label: "Retribuições INPI", href: "/admin/financeiro/retribuicoes", symbol: "RI", permission: "finance.view", parent: "finance" },
   { id: "finance-plano-contas", label: "Plano de contas & DRE", href: "/admin/financeiro/plano-contas", symbol: "PC", permission: "finance.view", parent: "finance" },
+  { id: "finance-proposta-planos", label: "Padrões contábeis de propostas", href: "/admin/financeiro/configuracao-propostas", symbol: "PP", permission: "finance.manage", parent: "finance" },
   { id: "finance-lucratividade", label: "Lucratividade", href: "/admin/financeiro/lucratividade", symbol: "LU", permission: "finance.view", parent: "finance" },
   { id: "finance-comissoes", label: "Comissões", href: "/admin/financeiro/comissoes", symbol: "CS", permission: "finance.view", parent: "finance" },
   { id: "finance-conciliacao", label: "Conciliação bancária", href: "/admin/financeiro/conciliacao", symbol: "CB", permission: "finance.view", parent: "finance" },

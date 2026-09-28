@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+  <title>Padrões contábeis de propostas — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=67"><link rel="stylesheet" href="/static/admin-financeiro.css?v=13">
+  <script src="/static/admin-shell.js?v=54" defer></script><script src="/static/admin-financeiro-proposta-planos.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="finance">
+  <main class="admin-main finance-main">
+    <section class="finance-hero"><div><p class="eyebrow">CONFIGURAÇÃO FINANCEIRA</p><h1>Padrões contábeis de propostas</h1><p>Defina uma vez as contas de receita usadas para honorários e taxas GRU/INPI. A equipe comercial não precisará selecioná-las ao gerar cada proposta.</p></div></section>
+    <nav class="finance-tabs" aria-label="Áreas do financeiro"><a href="/admin/financeiro">Visão geral</a><a href="/admin/financeiro/plano-contas">Plano de contas &amp; DRE</a><a class="active" href="/admin/financeiro/configuracao-propostas" aria-current="page">Padrões de propostas</a></nav>
+    <div id="proposal-plans-message" class="status-message loading" role="status" aria-live="polite">Carregando planos contábeis…</div>
+    <section class="finance-card"><header class="finance-list-heading"><div><p class="eyebrow">NOVAS PROPOSTAS</p><h2>Classificação automática</h2><p>A alteração vale apenas para propostas criadas depois de salvar. Propostas já emitidas mantêm os planos registrados nelas.</p></div></header>
+      <form id="proposal-plans-form" class="config-form">
+        <label>Honorários advocatícios<select name="conta_contabil_honorarios_id" required><option value="">Carregando…</option></select></label>
+        <label>Taxa GRU / INPI<select name="conta_contabil_taxa_gru_id" required><option value="">Carregando…</option></select></label>
+        <p class="form-hint">Escolha duas contas de receita diferentes e ativas. As contas disponíveis pertencem à organização atual.</p>
+        <footer><button id="save-proposal-plans" class="primary-button" type="submit">Salvar padrões</button></footer>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

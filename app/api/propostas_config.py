@@ -6,16 +6,19 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
 from app.malware_scan import escanear_upload_ou_rejeitar
-from app.models import Organizacao
+from app.models import EventoAuditoria, Organizacao, PlanoContas
 
 router = APIRouter(prefix="/v1/admin/configuracao/propostas", tags=["configuração de propostas"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.manage"))]
+FinanceViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("finance.view"))]
+FinanceManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("finance.manage"))]
 
 DEFAULTS = {
     "titulo": "PROPOSTA DE REGISTRO DE MARCA",
@@ -32,6 +35,91 @@ class PropostaConfigInput(BaseModel):
     prazo_texto: str = Field(min_length=10, max_length=3000)
     condicoes_texto: str = Field(min_length=10, max_length=4000)
     rodape: str = Field(min_length=3, max_length=500)
+
+
+class PropostaPlanosContabeisInput(BaseModel):
+    conta_contabil_honorarios_id: int = Field(ge=1)
+    conta_contabil_taxa_gru_id: int = Field(ge=1)
+
+
+def _config_planos(org: Organizacao | None) -> dict:
+    if org is None:
+        return {"conta_contabil_honorarios_id": None, "conta_contabil_taxa_gru_id": None}
+    atual = (org.branding or {}).get("proposta_planos_contabeis") or {}
+    return {
+        "conta_contabil_honorarios_id": atual.get("conta_contabil_honorarios_id"),
+        "conta_contabil_taxa_gru_id": atual.get("conta_contabil_taxa_gru_id"),
+    }
+
+
+async def _planos_receita(session: AsyncSession, organizacao_id: int) -> list[dict]:
+    itens = (
+        await session.execute(
+            select(PlanoContas.id, PlanoContas.codigo, PlanoContas.nome)
+            .where(
+                PlanoContas.organizacao_id == organizacao_id,
+                PlanoContas.natureza == "receita",
+                PlanoContas.ativo.is_(True),
+            )
+            .order_by(PlanoContas.codigo)
+        )
+    ).all()
+    return [{"id": item.id, "codigo": item.codigo, "nome": item.nome} for item in itens]
+
+
+@router.get("/planos-contabeis")
+async def obter_planos_contabeis_propostas(session: SessionDep, usuario: FinanceViewDep) -> dict:
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    return {**_config_planos(org), "itens": await _planos_receita(session, usuario.organizacao_id)}
+
+
+@router.put("/planos-contabeis")
+async def salvar_planos_contabeis_propostas(
+    dados: PropostaPlanosContabeisInput,
+    session: SessionDep,
+    usuario: FinanceManageDep,
+) -> dict:
+    if dados.conta_contabil_honorarios_id == dados.conta_contabil_taxa_gru_id:
+        raise HTTPException(422, "Selecione contas contábeis diferentes para honorários e taxa GRU/INPI.")
+    ids = {dados.conta_contabil_honorarios_id, dados.conta_contabil_taxa_gru_id}
+    encontrados = set(
+        (
+            await session.execute(
+                select(PlanoContas.id).where(
+                    PlanoContas.id.in_(ids),
+                    PlanoContas.organizacao_id == usuario.organizacao_id,
+                    PlanoContas.natureza == "receita",
+                    PlanoContas.ativo.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if encontrados != ids:
+        raise HTTPException(422, "Os dois planos precisam ser contas ativas de receita da organização.")
+    org = await session.get(Organizacao, usuario.organizacao_id)
+    if org is None:
+        raise HTTPException(404, "Organização não encontrada.")
+    branding = dict(org.branding or {})
+    anterior = _config_planos(org)
+    configuracao = dados.model_dump()
+    branding["proposta_planos_contabeis"] = configuracao
+    org.branding = branding
+    session.add(
+        EventoAuditoria(
+            organizacao_id=org.id,
+            actor_id=usuario.id,
+            ator=usuario.email,
+            acao="ALTERAR_CONFIGURACAO",
+            recurso="organizacao:proposta_planos_contabeis",
+            sucesso=True,
+            status_http=200,
+            detalhes={"anterior": anterior, "novo": configuracao},
+        )
+    )
+    await session.commit()
+    return {"status": "ok", **configuracao}
 
 
 def _config(org: Organizacao) -> dict:

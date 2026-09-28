@@ -451,6 +451,15 @@ async def painel_plano_contas() -> FileResponse:
 
 
 @app.get(
+    "/admin/financeiro/configuracao-propostas",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("finance.manage"))],
+)
+async def painel_configuracao_planos_propostas() -> FileResponse:
+    return FileResponse(web_dir / "admin-financeiro-proposta-planos.html")
+
+
+@app.get(
     "/admin/financeiro/lucratividade",
     include_in_schema=False,
     dependencies=[Depends(exigir_permissao("finance.view"))],

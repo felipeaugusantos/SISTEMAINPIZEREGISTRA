@@ -7,9 +7,11 @@ from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 from app.api.leads_propostas import (
+    PropostaInput,
     PropostaStatusInput,
     _atualizar_sla_proposta,
     _prazo_sla_24h,
+    _resolver_planos_contabeis_proposta,
     _resumir_pesquisas_proposta,
     _tentar_vincular_processo_ao_protocolar,
     aceitar_proposta_publica,
@@ -131,6 +133,18 @@ def test_proposta_de_uma_marca_preserva_formato_simples() -> None:
 
     assert marcas == "NORTE STUDIO"
     assert classes == "25"
+
+
+def test_plano_padrao_da_organizacao_tem_precedencia_sobre_payload_da_proposta() -> None:
+    org = Organizacao(
+        id=1,
+        nome="Org",
+        slug="org",
+        plano_id=1,
+        branding={"proposta_planos_contabeis": {"conta_contabil_honorarios_id": 10, "conta_contabil_taxa_gru_id": 20}},
+    )
+    dados = PropostaInput(conta_contabil_honorarios_id=30, conta_contabil_taxa_gru_id=40)
+    assert _resolver_planos_contabeis_proposta(org, dados) == (10, 20)
 
 
 # --- Fase 1 do plano proposta-financeiro (03/09/2026): blindar o aceite ---

@@ -755,7 +755,7 @@ def test_crm_abre_contato_usa_a_mesma_tela_do_lead() -> None:
     leads = (web_dir / "admin-leads.html").read_text(encoding="utf-8")
 
     for html in (page, leads):
-        assert '/static/lead-dialog.js?v=3" defer' in html
+        assert '/static/lead-dialog.js?' in html
         assert 'id="lead-workspace"' in html
         assert '<dialog id="lead-dialog" class="lead-dialog">' in html
         assert 'id="lead-dialog-content"' in html

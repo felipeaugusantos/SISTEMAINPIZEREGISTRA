@@ -321,7 +321,7 @@ def test_tela_expoe_cadastro_e_vinculo_por_procurador() -> None:
 
     assert "Pesquisar por procurador" in html
     assert "Cadastrar processo" in html
-    assert "admin-carteira.css?v=14" in html
+    assert "admin-carteira.css?v=15" in html
     assert "admin-carteira.js?v=" in html
     assert "Incluir variações do nome" in html
     assert "titular" in javascript
@@ -367,7 +367,7 @@ def test_tela_permite_vincular_processo_ja_monitorado_a_um_lead() -> None:
     with open(script, encoding="utf-8") as arquivo:
         javascript = arquivo.read()
 
-    assert "admin-carteira.css?v=14" in html
+    assert "admin-carteira.css?v=15" in html
     assert "data-lead-search" in javascript
     assert "data-lead-query" in javascript
     assert "data-vincular-lead-id" in javascript

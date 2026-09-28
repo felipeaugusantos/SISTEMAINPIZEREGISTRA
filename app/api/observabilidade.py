@@ -451,13 +451,15 @@ def _recursos_host() -> dict:
     os campos de cpu/memória voltam None em vez de quebrar o painel.
     """
     cpu: dict = {"carga_1min": None, "carga_5min": None, "carga_15min": None, "nucleos": os.cpu_count()}
-    try:
-        carga_1, carga_5, carga_15 = os.getloadavg()
-        cpu["carga_1min"] = round(carga_1, 2)
-        cpu["carga_5min"] = round(carga_5, 2)
-        cpu["carga_15min"] = round(carga_15, 2)
-    except OSError:
-        pass
+    obter_carga = getattr(os, "getloadavg", None)
+    if callable(obter_carga):
+        try:
+            carga_1, carga_5, carga_15 = obter_carga()
+            cpu["carga_1min"] = round(carga_1, 2)
+            cpu["carga_5min"] = round(carga_5, 2)
+            cpu["carga_15min"] = round(carga_15, 2)
+        except OSError:
+            pass
 
     memoria: dict = {"total_bytes": None, "disponivel_bytes": None, "percentual_uso": None}
     try:

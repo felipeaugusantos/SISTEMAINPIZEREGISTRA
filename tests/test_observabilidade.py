@@ -248,6 +248,16 @@ def test_recursos_host_devolve_disco_sempre_e_nao_quebra_fora_do_linux() -> None
     assert set(resultado["memoria"]) == {"total_bytes", "disponivel_bytes", "percentual_uso"}
 
 
+def test_recursos_host_nao_quebra_quando_so_nao_disponibiliza_getloadavg(monkeypatch) -> None:
+    monkeypatch.delattr("app.api.observabilidade.os.getloadavg", raising=False)
+
+    resultado = _recursos_host()
+
+    assert resultado["cpu"]["carga_1min"] is None
+    assert resultado["cpu"]["carga_5min"] is None
+    assert resultado["cpu"]["carga_15min"] is None
+
+
 def test_emails_rejeitados_24h_agrupa_por_operacao() -> None:
     ultima_em = datetime.now(UTC) - timedelta(hours=1)
     session = FakeSession([FakeResult(itens=[("recuperacao_senha", 3, ultima_em)])])

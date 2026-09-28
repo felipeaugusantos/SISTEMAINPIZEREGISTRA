@@ -675,7 +675,7 @@ def test_tela_juridica_expoe_fluxos_principais() -> None:
     assert "Executar motor de prazos" in html
     assert "CENTRAL DE NOTIFICAÇÕES" in html
     assert "Registrar entrega" in html
-    assert "admin-juridico.css?v=21" in html
+    assert "admin-juridico.css?v=22" in html
     assert "Política de prazos" in html
     assert "margem_operacional_dias" in html
     assert "admin-juridico.js?v=" in html

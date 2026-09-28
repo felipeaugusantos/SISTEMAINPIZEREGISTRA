@@ -77,6 +77,23 @@ async def test_emitir_nfse_lancamento_cancelado_retorna_422() -> None:
         assert exc.status_code == 422
 
 
+async def test_emitir_nfse_rejeita_componente_de_taxa_gru_da_proposta() -> None:
+    lancamento = _lancamento(idempotency_key="proposta-aceite:12:taxa-gru")
+    session = FakeSession([FakeResult(scalar=lancamento)])
+
+    try:
+        await emitir_nfse(
+            EmitirNfseInput(lancamento_id=1),
+            _request(),
+            session,
+            usuario_teste("administrador", {"finance.manage"}),
+        )
+        raise AssertionError("a taxa GRU/INPI não deve receber NFS-e neste fluxo")
+    except HTTPException as exc:
+        assert exc.status_code == 422
+        assert "GRU/INPI" in exc.detail
+
+
 async def test_emitir_nfse_sem_documento_do_cliente_retorna_422() -> None:
     lancamento = _lancamento()
     empresa_sem_documento = _empresa(documento=None)

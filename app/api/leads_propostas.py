@@ -40,9 +40,9 @@ from app.models import (
     LancamentoFinanceiro,
     Lead,
     Organizacao,
-    PlanoContas,
     ParcelaFinanceira,
     PesquisaMarca,
+    PlanoContas,
     Processo,
     ProcessoMonitorado,
     PropostaComercial,
@@ -107,7 +107,10 @@ class PropostaInput(BaseModel):
     escopo: str = Field(default="Registro de marca no INPI", min_length=5, max_length=4000)
     honorarios: Decimal | None = Field(default=None, ge=0)
     taxa_gru: Decimal | None = Field(default=None, ge=0)
-    conta_contabil_id: int = Field(ge=1)
+    conta_contabil_honorarios_id: int | None = Field(default=None, ge=1)
+    conta_contabil_taxa_gru_id: int | None = Field(default=None, ge=1)
+    # Compatibilidade com clientes antigos da API e propostas migradas.
+    conta_contabil_id: int | None = Field(default=None, ge=1)
     condicoes_pagamento: str | None = Field(default=None, max_length=2000)
     observacoes: str | None = Field(default=None, max_length=4000)
 
@@ -270,18 +273,23 @@ async def criar_proposta(lead_id: int, dados: PropostaInput, session: SessionDep
     lead_obj = (
         await session.execute(select(Lead).where(Lead.id == lead, Lead.organizacao_id == usuario.organizacao_id))
     ).scalar_one()
-    conta_contabil = (
+    conta_honorarios_id = dados.conta_contabil_honorarios_id or dados.conta_contabil_id
+    conta_taxa_gru_id = dados.conta_contabil_taxa_gru_id or dados.conta_contabil_id
+    if not conta_honorarios_id or not conta_taxa_gru_id:
+        raise HTTPException(status_code=422, detail="Selecione os planos contábeis de honorários e de taxa GRU/INPI")
+    ids_contabeis = {conta_honorarios_id, conta_taxa_gru_id}
+    contas_contabeis = (
         await session.execute(
             select(PlanoContas.id).where(
-                PlanoContas.id == dados.conta_contabil_id,
+                PlanoContas.id.in_(ids_contabeis),
                 PlanoContas.organizacao_id == usuario.organizacao_id,
                 PlanoContas.natureza == "receita",
                 PlanoContas.ativo.is_(True),
             )
         )
-    ).scalar_one_or_none()
-    if conta_contabil is None:
-        raise HTTPException(status_code=422, detail="Selecione uma conta contábil ativa de receita")
+    ).scalars().all()
+    if set(contas_contabeis) != ids_contabeis:
+        raise HTTPException(status_code=422, detail="Selecione planos contábeis ativos de receita da organização")
     ids = list(dict.fromkeys([item for item in dados.pesquisa_ids if item]))
     if dados.pesquisa_id and dados.pesquisa_id not in ids:
         ids.insert(0, dados.pesquisa_id)
@@ -316,9 +324,11 @@ async def criar_proposta(lead_id: int, dados: PropostaInput, session: SessionDep
         dados={
             "cliente": lead_obj.nome,
             "email": lead_obj.email,
+            "empresa_id": lead_obj.empresa_id,
             "pesquisas": [{"id": item.id, "marca": item.marca, "classes": item.classe_nice} for item in pesquisas],
             "protocolo_prazo": "24 horas úteis",
-            "conta_contabil_id": dados.conta_contabil_id,
+            "conta_contabil_honorarios_id": conta_honorarios_id,
+            "conta_contabil_taxa_gru_id": conta_taxa_gru_id,
         },
     )
     session.add(proposta)
@@ -632,17 +642,16 @@ async def sincronizar_pagamento_proposta_por_id(
 
 
 async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta: PropostaComercial, origem: str) -> None:
-    """Gera a contratação financeira do aceite (``ContratacaoServico`` +
-    ``LancamentoFinanceiro`` + 1 parcela), usando o valor ASSINADO da
-    proposta (honorários + taxa GRU) -- nunca um preço de catálogo.
+    """Gera a contratação financeira do aceite, separando honorários e GRU
+    por plano contábil e preservando os valores assinados da proposta.
 
     Achados 4 e 5 do plano proposta-financeiro (Fase 4, 03/09/2026):
     ``POST /financeiro/contratacoes`` sempre usava ``ServicoFinanceiro.valor``,
     e nada impedia duas contratações para a mesma proposta. Idempotente (não
     cria uma segunda linha se já existir uma para esta proposta) e protegido
     também por constraint de unicidade em ``contratacoes_servicos.proposta_id``.
-    A condição de pagamento é texto livre, não estruturado -- gera 1 parcela
-    à vista pelo valor total; o operador pode reparcelar manualmente em
+    A condição de pagamento é texto livre, não estruturado -- gera uma parcela
+    à vista por componente; o operador pode reparcelar manualmente em
     ``app/api/financeiro.py`` quando a condição combinada exigir isso.
     """
     total = (proposta.honorarios or 0) + (proposta.taxa_gru or 0)
@@ -677,24 +686,51 @@ async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta:
         )
     ).scalar_one_or_none()
     if existente is None:
-        conta_contabil_id = (proposta.dados or {}).get("conta_contabil_id")
-        if not conta_contabil_id:
+        dados_proposta = proposta.dados or {}
+        conta_honorarios_id = dados_proposta.get("conta_contabil_honorarios_id")
+        conta_taxa_gru_id = dados_proposta.get("conta_contabil_taxa_gru_id")
+        conta_legacy_id = dados_proposta.get("conta_contabil_id")
+        componentes = []
+        if conta_honorarios_id or conta_taxa_gru_id:
+            if (proposta.honorarios or 0) > 0:
+                if not conta_honorarios_id:
+                    raise HTTPException(422, "Esta proposta não possui plano contábil de honorários.")
+                componentes.append(("honorarios", "Honorários advocatícios", proposta.honorarios, conta_honorarios_id))
+            if (proposta.taxa_gru or 0) > 0:
+                if not conta_taxa_gru_id:
+                    raise HTTPException(422, "Esta proposta não possui plano contábil da taxa GRU/INPI.")
+                componentes.append(("taxa-gru", "Taxa GRU/INPI", proposta.taxa_gru, conta_taxa_gru_id))
+        elif conta_legacy_id:
+            componentes.append(("total", "Honorários e taxa GRU", total, conta_legacy_id))
+        else:
             raise HTTPException(
                 status_code=422,
-                detail="Esta proposta não possui plano contábil vinculado. Atualize a classificação antes do aceite.",
+                detail="Esta proposta não possui planos contábeis vinculados. Atualize a classificação antes do aceite.",
             )
-        lancamento = LancamentoFinanceiro(
-            organizacao_id=proposta.organizacao_id,
-            lead_id=proposta.lead_id,
-            proposta_id=proposta.id,
-            idempotency_key=f"proposta-aceite:{proposta.id}",
-            conta_contabil_id=conta_contabil_id,
-            tipo="receber",
-            descricao=f"Honorários — Proposta {proposta.numero}",
-            competencia=date.today(),
-            valor_total=total,
-            status="aberto",
-            criado_por=f"aceite:{origem}",
+        lancamentos = [
+            LancamentoFinanceiro(
+                organizacao_id=proposta.organizacao_id,
+                empresa_id=dados_proposta.get("empresa_id"),
+                lead_id=proposta.lead_id,
+                proposta_id=proposta.id,
+                idempotency_key=(
+                    f"proposta-aceite:{proposta.id}"
+                    if componente == "total"
+                    else f"proposta-aceite:{proposta.id}:{componente}"
+                ),
+                conta_contabil_id=conta_id,
+                tipo="receber",
+                descricao=f"{descricao} — Proposta {proposta.numero}",
+                competencia=date.today(),
+                valor_total=valor,
+                status="aberto",
+                criado_por=f"aceite:{origem}",
+            )
+            for componente, descricao, valor, conta_id in componentes
+        ]
+        lancamento_contratacao = next(
+            (item for item in lancamentos if item.idempotency_key.endswith(":honorarios")),
+            lancamentos[0],
         )
         # Achado alto da auditoria financeira (15/09/2026): o SELECT acima
         # (linha "existente = ...") e o INSERT abaixo nao sao atomicos --
@@ -707,23 +743,25 @@ async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta:
         # já alterado pelo chamador) -- ROLLBACK simples descartaria tudo.
         try:
             async with session.begin_nested():
-                session.add(lancamento)
+                for lancamento in lancamentos:
+                    session.add(lancamento)
                 await session.flush()
-                session.add(
-                    ParcelaFinanceira(
-                        organizacao_id=proposta.organizacao_id,
-                        lancamento_id=lancamento.id,
-                        numero=1,
-                        vencimento=date.today(),
-                        valor=total,
+                for lancamento in lancamentos:
+                    session.add(
+                        ParcelaFinanceira(
+                            organizacao_id=proposta.organizacao_id,
+                            lancamento_id=lancamento.id,
+                            numero=1,
+                            vencimento=date.today(),
+                            valor=lancamento.valor_total,
+                        )
                     )
-                )
                 session.add(
                     ContratacaoServico(
                         organizacao_id=proposta.organizacao_id,
                         lead_id=proposta.lead_id,
                         proposta_id=proposta.id,
-                        lancamento_id=lancamento.id,
+                        lancamento_id=lancamento_contratacao.id,
                     )
                 )
                 registrar_evento_operacional(
@@ -736,7 +774,8 @@ async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta:
                     ator=f"Aceite via {origem}",
                     payload={
                         "proposta_id": proposta.id,
-                        "lancamento_id": lancamento.id,
+                        "lancamento_id": lancamento_contratacao.id,
+                        "lancamento_ids": [item.id for item in lancamentos],
                         "valor": str(total),
                         "descricao": "Proposta aceita enviada automaticamente ao contas a receber",
                     },

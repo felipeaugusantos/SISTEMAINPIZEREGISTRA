@@ -1598,23 +1598,36 @@ async function criarProposta(lead, box) {
   proposalForm.elements.condicoes_pagamento.value = "50% na contratação e 50% no protocolo";
   proposalForm.elements.validade_em.value = "";
   proposalForm.elements.escopo.value = "Pesquisa, preparação e protocolo de registro de marca no INPI";
-  const accountSelect = proposalForm.elements.conta_contabil_id;
-  accountSelect.innerHTML = '<option value="">Carregando contas de receita…</option>';
-  accountSelect.disabled = true;
+  const accountSelects = [
+    proposalForm.elements.conta_contabil_honorarios_id,
+    proposalForm.elements.conta_contabil_taxa_gru_id,
+  ];
+  if (accountSelects.some(select => !select)) {
+    const statusBox = root.querySelector("#proposal-message");
+    statusBox.hidden = false;
+    statusBox.className = "status-message error";
+    statusBox.textContent = "O formulário de proposta está incompleto. Atualize a página e tente novamente.";
+    return;
+  }
+  for (const select of accountSelects) {
+    select.innerHTML = '<option value="">Carregando contas de receita…</option>';
+    select.disabled = true;
+  }
   try {
     const response = await fetch("/v1/admin/financeiro/planos-contabeis-receita");
     const body = await responsePayload(response);
-    accountSelect.innerHTML = '<option value="">Selecione o plano contábil da receita</option>' +
+    const options = '<option value="">Selecione o plano contábil</option>' +
       (body.itens || []).map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.codigo)} · ${escapeHtml(item.nome)}</option>`).join("");
+    for (const select of accountSelects) select.innerHTML = options;
   } catch (error) {
-    accountSelect.innerHTML = '<option value="">Não foi possível carregar as contas</option>';
+    for (const select of accountSelects) select.innerHTML = '<option value="">Não foi possível carregar as contas</option>';
     const statusBox = root.querySelector("#proposal-message");
     statusBox.hidden = false;
     statusBox.className = "status-message error";
     statusBox.textContent = error.message || "Não foi possível carregar os planos contábeis de receita.";
     return;
   } finally {
-    accountSelect.disabled = false;
+    for (const select of accountSelects) select.disabled = false;
   }
   const opcoes = root.querySelector("#proposal-research-options");
   opcoes.innerHTML = (lead.pesquisas || []).map(item => `
@@ -1653,7 +1666,8 @@ proposalForm.addEventListener("submit", async event => {
     escopo: dados.escopo,
     honorarios: Number(dados.honorarios),
     taxa_gru: Number(dados.taxa_gru),
-    conta_contabil_id: Number(dados.conta_contabil_id),
+    conta_contabil_honorarios_id: Number(dados.conta_contabil_honorarios_id),
+    conta_contabil_taxa_gru_id: Number(dados.conta_contabil_taxa_gru_id),
     condicoes_pagamento: dados.condicoes_pagamento || null,
   };
   try {

@@ -5,7 +5,7 @@
   <title>CRM — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=67"><link rel="stylesheet" href="/static/ze-brand.css?v=1"><link rel="stylesheet" href="/static/admin-crm.css?v=5"><link rel="stylesheet" href="/static/admin-company-search.css?v=1"><link rel="stylesheet" href="/static/admin-crm-overrides.css?v=8"><link rel="stylesheet" href="/static/admin-crm-reminders.css?v=7"><link rel="stylesheet" href="/static/admin-leads.css?v=33">
 
-  <script src="/static/admin-shell.js?v=53" defer></script><script src="/static/lead-dialog.js?v=3" defer></script><script src="/static/admin-crm.js?v=21" defer></script>
+  <script src="/static/admin-shell.js?v=53" defer></script><script src="/static/lead-dialog.js?v=5" defer></script><script src="/static/admin-crm.js?v=21" defer></script>
 </head>
 <body class="admin-body ze-brand-theme" data-admin-section="crm">
   <main class="admin-main crm-main">
@@ -135,8 +135,14 @@
       <label>Honorários (R$)
         <input name="honorarios" type="number" min="0" step="0.01" required>
       </label>
+      <label>Plano contábil - honorários advocatícios
+        <select name="conta_contabil_honorarios_id" required><option value="">Carregando contas de receita…</option></select>
+      </label>
       <label>Taxa GRU / INPI (R$)
         <input name="taxa_gru" type="number" min="0" step="0.01" required>
+      </label>
+      <label>Plano contábil - taxa GRU/INPI
+        <select name="conta_contabil_taxa_gru_id" required><option value="">Carregando contas de receita…</option></select>
       </label>
       <label>Condições de pagamento
         <input name="condicoes_pagamento" type="text" maxlength="2000">

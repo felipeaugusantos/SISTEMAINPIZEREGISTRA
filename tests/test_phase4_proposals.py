@@ -633,6 +633,49 @@ def test_criar_contratacao_automatica_proposta_cria_lancamento_parcela_e_contrat
     assert contratacoes[0].proposta_id == 1
 
 
+def test_aceite_separa_honorarios_e_gru_por_plano_contabil() -> None:
+    proposta = _proposta(
+        id=2,
+        honorarios=1500,
+        taxa_gru=355,
+        dados={"conta_contabil_honorarios_id": 10, "conta_contabil_taxa_gru_id": 20, "empresa_id": 9},
+    )
+    session = FakeSession([FakeResult(scalar=None)])
+
+    asyncio.run(criar_contratacao_automatica_proposta(session, proposta, "link_publico"))
+
+    lancamentos = [obj for obj in session.adicionados if isinstance(obj, LancamentoFinanceiro)]
+    parcelas = [obj for obj in session.adicionados if isinstance(obj, ParcelaFinanceira)]
+    contratacao = next(obj for obj in session.adicionados if isinstance(obj, ContratacaoServico))
+    por_chave = {item.idempotency_key: item for item in lancamentos}
+    assert len(lancamentos) == 2
+    assert por_chave["proposta-aceite:2:honorarios"].valor_total == 1500
+    assert por_chave["proposta-aceite:2:honorarios"].conta_contabil_id == 10
+    assert por_chave["proposta-aceite:2:honorarios"].empresa_id == 9
+    assert por_chave["proposta-aceite:2:taxa-gru"].valor_total == 355
+    assert por_chave["proposta-aceite:2:taxa-gru"].conta_contabil_id == 20
+    assert len(parcelas) == 2
+    assert sum(item.valor for item in parcelas) == 1855
+    assert contratacao.lancamento_id == por_chave["proposta-aceite:2:honorarios"].id
+
+
+def test_aceite_com_honorarios_zero_vincula_contratacao_ao_titulo_gru() -> None:
+    proposta = _proposta(
+        id=3,
+        honorarios=0,
+        taxa_gru=355,
+        dados={"conta_contabil_honorarios_id": 10, "conta_contabil_taxa_gru_id": 20},
+    )
+    session = FakeSession([FakeResult(scalar=None)])
+
+    asyncio.run(criar_contratacao_automatica_proposta(session, proposta, "link_publico"))
+
+    lancamento = next(obj for obj in session.adicionados if isinstance(obj, LancamentoFinanceiro))
+    contratacao = next(obj for obj in session.adicionados if isinstance(obj, ContratacaoServico))
+    assert lancamento.idempotency_key == "proposta-aceite:3:taxa-gru"
+    assert contratacao.lancamento_id == lancamento.id
+
+
 def test_criar_contratacao_automatica_proposta_e_idempotente() -> None:
     proposta = _proposta(id=1, honorarios=1500, taxa_gru=355)
     session = FakeSession([FakeResult(scalar=99)])

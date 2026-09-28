@@ -9,7 +9,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import exists, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -107,6 +107,10 @@ async def listar_lancamentos_disponiveis_nfse(
                 LancamentoFinanceiro.empresa_id == empresa_id,
                 LancamentoFinanceiro.tipo == "receber",
                 LancamentoFinanceiro.status != "cancelado",
+                or_(
+                    LancamentoFinanceiro.idempotency_key.is_(None),
+                    ~LancamentoFinanceiro.idempotency_key.endswith(":taxa-gru"),
+                ),
                 ~exists(
                     select(NotaFiscalServico.id).where(
                         NotaFiscalServico.lancamento_id == LancamentoFinanceiro.id,
@@ -155,6 +159,8 @@ async def emitir_nfse(dados: EmitirNfseInput, request: Request, session: Session
         raise HTTPException(422, "Só lançamentos de receita (tipo=receber) podem gerar NFS-e")
     if lancamento.status == "cancelado":
         raise HTTPException(422, "Lançamento cancelado não pode gerar NFS-e")
+    if (lancamento.idempotency_key or "").endswith(":taxa-gru"):
+        raise HTTPException(422, "A taxa GRU/INPI não é serviço sujeito à emissão de NFS-e neste fluxo.")
 
     nota_existente = (
         await session.execute(

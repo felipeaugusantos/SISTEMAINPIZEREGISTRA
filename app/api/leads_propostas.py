@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, 
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +40,7 @@ from app.models import (
     FaseLead,
     LancamentoFinanceiro,
     Lead,
+    LembreteCRM,
     Organizacao,
     ParcelaFinanceira,
     PesquisaMarca,
@@ -676,6 +678,8 @@ async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta:
     ``app/api/financeiro.py`` quando a condição combinada exigir isso.
     """
     total = (proposta.honorarios or 0) + (proposta.taxa_gru or 0)
+    pendencia_classificacao: str | None = None
+    componentes: list = []
     if total <= 0:
         # Achado médio da auditoria financeira (15/09/2026): sem isto, uma
         # proposta aceita com honorarios+taxa_gru <= 0 nao deixava nenhum
@@ -711,23 +715,49 @@ async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta:
         conta_honorarios_id = dados_proposta.get("conta_contabil_honorarios_id")
         conta_taxa_gru_id = dados_proposta.get("conta_contabil_taxa_gru_id")
         conta_legacy_id = dados_proposta.get("conta_contabil_id")
+        if not (conta_honorarios_id or conta_taxa_gru_id or conta_legacy_id):
+            # Proposta criada antes dos planos contábeis obrigatórios (ou sem
+            # classificação): usa o padrão da organização configurado no
+            # Financeiro (app/api/propostas_config.py) no momento do aceite.
+            padrao = await _planos_contabeis_padrao(session, proposta.organizacao_id)
+            conta_honorarios_id = padrao.get("conta_contabil_honorarios_id")
+            conta_taxa_gru_id = padrao.get("conta_contabil_taxa_gru_id")
         componentes = []
+        faltando: list[str] = []
         if conta_honorarios_id or conta_taxa_gru_id:
             if (proposta.honorarios or 0) > 0:
-                if not conta_honorarios_id:
-                    raise HTTPException(422, "Esta proposta não possui plano contábil de honorários.")
-                componentes.append(("honorarios", "Honorários advocatícios", proposta.honorarios, conta_honorarios_id))
+                if conta_honorarios_id:
+                    componentes.append(
+                        ("honorarios", "Honorários advocatícios", proposta.honorarios, conta_honorarios_id)
+                    )
+                else:
+                    faltando.append("honorários")
             if (proposta.taxa_gru or 0) > 0:
-                if not conta_taxa_gru_id:
-                    raise HTTPException(422, "Esta proposta não possui plano contábil da taxa GRU/INPI.")
-                componentes.append(("taxa-gru", "Taxa GRU/INPI", proposta.taxa_gru, conta_taxa_gru_id))
+                if conta_taxa_gru_id:
+                    componentes.append(("taxa-gru", "Taxa GRU/INPI", proposta.taxa_gru, conta_taxa_gru_id))
+                else:
+                    faltando.append("taxa GRU/INPI")
         elif conta_legacy_id:
             componentes.append(("total", "Honorários e taxa GRU", total, conta_legacy_id))
         else:
-            raise HTTPException(
-                status_code=422,
-                detail="Esta proposta não possui planos contábeis vinculados. Atualize a classificação antes do aceite.",
-            )
+            faltando.append("honorários e taxa GRU/INPI")
+        if faltando:
+            if origem == "admin":
+                # O operador consegue corrigir a classificação na hora.
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Esta proposta não possui plano contábil de "
+                        f"{' e '.join(faltando)}. Atualize a classificação antes do aceite."
+                    ),
+                )
+            # Aceite feito pelo CLIENTE (portal, link público, Clicksign): ele
+            # não tem como resolver a classificação contábil. O aceite nunca é
+            # bloqueado -- a geração dos títulos fica pendente para o
+            # Financeiro (evento auditável + lembrete no CRM).
+            pendencia_classificacao = ", ".join(faltando)
+            componentes = []
+    if existente is None and componentes:
         lancamentos = [
             LancamentoFinanceiro(
                 organizacao_id=proposta.organizacao_id,
@@ -823,6 +853,63 @@ async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta:
         ator = f"Aceite via {origem}"
         await avancar_fase_lead(session, lead, FaseLead.PROPOSTA_ACEITA.value, ator)
         await avancar_fase_lead(session, lead, FaseLead.AGUARDANDO_PAGAMENTO.value, ator)
+    if pendencia_classificacao:
+        await _registrar_pendencia_plano_contabil(session, proposta, lead, origem, pendencia_classificacao)
+
+
+async def _planos_contabeis_padrao(session: AsyncSession, organizacao_id: int) -> dict:
+    organizacao = await session.get(Organizacao, organizacao_id)
+    if organizacao is None:
+        return {}
+    return (organizacao.branding or {}).get("proposta_planos_contabeis") or {}
+
+
+async def _registrar_pendencia_plano_contabil(
+    session: AsyncSession, proposta: PropostaComercial, lead: Lead | None, origem: str, faltando: str
+) -> None:
+    """Aceite do cliente sem plano contábil: registra o fato e cria uma tarefa
+    para o Financeiro gerar a contratação depois (Financeiro > Contratações)."""
+    logger.warning(
+        "Proposta %s aceita via %s sem plano contábil de %s; títulos não gerados",
+        proposta.id,
+        origem,
+        faltando,
+    )
+    registrar_evento_operacional(
+        session,
+        organizacao_id=proposta.organizacao_id,
+        dominio="financeiro",
+        tipo="financeiro.proposta_sem_plano_contabil",
+        entidade_tipo="lead",
+        entidade_id=proposta.lead_id,
+        ator=f"Aceite via {origem}",
+        payload={
+            "proposta_id": proposta.id,
+            "faltando": faltando,
+            "descricao": "Proposta aceita pelo cliente sem plano contábil -- títulos a receber não foram gerados",
+        },
+    )
+    await session.execute(
+        pg_insert(LembreteCRM)
+        .values(
+            organizacao_id=proposta.organizacao_id,
+            lead_id=proposta.lead_id,
+            responsavel_id=lead.responsavel_id if lead is not None else None,
+            tipo="outro",
+            prioridade="alta",
+            titulo=f"Classificar plano contábil da proposta {proposta.numero}",
+            descricao=(
+                f"O cliente aceitou a proposta, mas falta o plano contábil de {faltando}. "
+                "Defina a classificação e gere a contratação em Financeiro > Contratações."
+            ),
+            lembrar_em=datetime.now(UTC),
+            status="pendente",
+            criado_por=f"Automação (aceite via {origem})",
+            criado_por_id=None,
+            idempotency_key=f"proposta-sem-plano-contabil:{proposta.id}",
+        )
+        .on_conflict_do_nothing(constraint="uq_lembrete_crm_idempotencia")
+    )
 
 
 @router.patch("/v1/admin/propostas/{proposta_id}/pagamento")

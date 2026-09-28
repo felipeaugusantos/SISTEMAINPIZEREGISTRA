@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.api.financeiro import (
     STATUS_CLIENTE,
+    GeracaoTitulosInput,
     _cancelar_comissao_da_parcela,
     _datas_geracao_titulos,
     _empresa_cliente,
@@ -13,7 +14,6 @@ from app.api.financeiro import (
     _parcelar,
     _quantidade_geracao_titulos,
     _validar_parcelamento,
-    GeracaoTitulosInput,
     pesquisar_empresas_financeiras,
 )
 from app.auth import hash_token, obter_usuario_atual

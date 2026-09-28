@@ -365,6 +365,11 @@ def test_logout_revoga_sessao_e_limpa_cookie() -> None:
 # --- Fase 1 do plano proposta-financeiro (03/09/2026): blindar o aceite ---
 
 
+# Proposta já classificada no Financeiro: o aceite gera os títulos a receber
+# (2 flush() em criar_contratacao_automatica_proposta).
+_PLANOS_CONTABEIS_TESTE = {"conta_contabil_honorarios_id": 11, "conta_contabil_taxa_gru_id": 12}
+
+
 def _proposta_para_assinatura(**kwargs: object) -> PropostaComercial:
     base: dict = {
         "id": 1,
@@ -454,7 +459,7 @@ def test_assinar_proposta_portal_absorve_conflito_de_assinatura_concorrente(monk
     # simultâneas pelo "public_aceito_em is None". A segunda deve absorver
     # o IntegrityError (UniqueConstraint proposta_id+versao da migration
     # d4e5f6a7b8c9) em vez de devolver 500.
-    proposta = _proposta_para_assinatura(validade_em=date(2099, 12, 31))
+    proposta = _proposta_para_assinatura(validade_em=date(2099, 12, 31), dados=dict(_PLANOS_CONTABEIS_TESTE))
     session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=_codigo_confirmacao("proposta", proposta))])
     dados = AssinarComCodigoInput(codigo=_CODIGO_CONFIRMACAO_TESTE)
     chamadas_flush = {"n": 0}
@@ -572,7 +577,7 @@ def test_webhook_clicksign_absorve_conflito_de_assinatura_concorrente(monkeypatc
     # IntegrityError (proteção de última linha é a UniqueConstraint
     # proposta_id+versao da migration d4e5f6a7b8c9) em vez de devolver 500.
     _configurar_segredo_webhook(monkeypatch)
-    proposta = _proposta_para_assinatura(id=7, status="enviada", dados={"clicksign": {"envelope_id": "env-123"}})
+    proposta = _proposta_para_assinatura(id=7, status="enviada", dados={"clicksign": {"envelope_id": "env-123"}, **_PLANOS_CONTABEIS_TESTE})
     session = FakeSession(
         [
             FakeResult(scalar=proposta),  # busca por envelope_id

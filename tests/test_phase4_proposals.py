@@ -1098,3 +1098,66 @@ def test_tentar_vincular_processo_nao_sobrescreve_lead_ja_vinculado_a_outro() ->
     asyncio.run(_tentar_vincular_processo_ao_protocolar(session, 1, 7, "935977333"))
 
     assert monitorado_existente.lead_id == 99
+
+
+# --- Aceite do cliente sem plano contábil (Fase 1 da análise fina, 28/09/2026):
+# a exigência de plano contábil no aceite (commits a4062d8/037e4b1/6095616)
+# devolvia 422 ao CLIENTE no portal, no link público e no webhook do Clicksign
+# -- o documento ficava assinado lá, mas a proposta nunca virava "aceita".
+# O aceite do cliente nunca é bloqueado; a geração dos títulos fica pendente
+# para o Financeiro. Só o aceite registrado pelo operador (origem "admin")
+# continua exigindo a classificação, porque ele consegue corrigi-la na hora.
+
+
+def _eventos(session: FakeSession, tipo: str) -> list:
+    return [obj for obj in session.adicionados if isinstance(obj, EventoDominio) and obj.tipo == tipo]
+
+
+def _inserts_lembrete(session: FakeSession) -> list:
+    return [
+        stmt
+        for stmt in session.executados
+        if getattr(getattr(stmt, "table", None), "name", None) == "lembretes_crm"
+    ]
+
+
+@pytest.mark.parametrize("origem", ["portal", "link_publico", "clicksign"])
+def test_aceite_do_cliente_sem_plano_contabil_nao_bloqueia_e_cria_pendencia(origem: str) -> None:
+    proposta = _proposta(id=5, honorarios=1500, taxa_gru=355, dados={})
+    session = FakeSession([FakeResult(scalar=None)])  # contratação existente? não
+
+    asyncio.run(criar_contratacao_automatica_proposta(session, proposta, origem))
+
+    assert [obj for obj in session.adicionados if isinstance(obj, LancamentoFinanceiro)] == []
+    assert [obj for obj in session.adicionados if isinstance(obj, ContratacaoServico)] == []
+    eventos = _eventos(session, "financeiro.proposta_sem_plano_contabil")
+    assert len(eventos) == 1
+    assert eventos[0].payload["proposta_id"] == 5
+    assert len(_inserts_lembrete(session)) == 1
+
+
+def test_aceite_registrado_pelo_operador_sem_plano_contabil_continua_exigindo_classificacao() -> None:
+    proposta = _proposta(id=5, honorarios=1500, taxa_gru=355, dados={})
+    session = FakeSession([FakeResult(scalar=None)])
+
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(criar_contratacao_automatica_proposta(session, proposta, "admin"))
+
+    assert erro.value.status_code == 422
+    assert "plano contábil" in erro.value.detail
+
+
+def test_aceite_sem_plano_na_proposta_usa_padrao_da_organizacao() -> None:
+    proposta = _proposta(id=5, honorarios=1500, taxa_gru=355, dados={})
+    organizacao = Organizacao(
+        id=1,
+        branding={"proposta_planos_contabeis": {"conta_contabil_honorarios_id": 21, "conta_contabil_taxa_gru_id": 22}},
+    )
+    session = FakeSession([FakeResult(scalar=None)], objetos_get=[organizacao])
+
+    asyncio.run(criar_contratacao_automatica_proposta(session, proposta, "portal"))
+
+    lancamentos = [obj for obj in session.adicionados if isinstance(obj, LancamentoFinanceiro)]
+    assert sorted(item.conta_contabil_id for item in lancamentos) == [21, 22]
+    assert _eventos(session, "financeiro.proposta_sem_plano_contabil") == []
+    assert _inserts_lembrete(session) == []

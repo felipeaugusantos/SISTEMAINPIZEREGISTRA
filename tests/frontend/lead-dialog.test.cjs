@@ -30,6 +30,9 @@ async function fixture(page, screen, permissions) {
     let data = base;
     if (p === "/v1/auth/me") data = { perfil: "operador", permissoes: permissions };
     else if (p === "/v1/admin/leads/42") data = lead;
+    else if (p === "/v1/admin/leads/42/propostas") data = { propostas: [{ id: 7, numero: "PROP-TESTE", versao: 1,
+      marca: "MARCA TESTE", status: "rascunho", total: 1500 }] };
+    else if (p === "/v1/admin/propostas/7/documento") data = { texto: "Conteúdo da proposta para visualização" };
     else if (p === "/v1/admin/leads") data = { ...base, itens: [lead], total: 1,
       total_global: 1, pesquisas_total: 0, por_status: { novo: 1 },
       acoes: { gerenciar: permissions.includes("leads.manage") } };
@@ -50,6 +53,24 @@ async function fixture(page, screen, permissions) {
   await page.goto("http://127.0.0.1:8000/admin/" + screen);
   return { requests, errors };
 }
+
+test("Visualizar proposta abre conteúdo sem popup em branco", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const { errors } = await fixture(page, "crm", ["leads.view", "leads.manage"]);
+    await page.locator("[data-open-contact]").first().click();
+    await page.locator('#lead-dialog [data-tab="propostas"]').click();
+    await page.locator(".proposal-preview").waitFor();
+    const popupPromise = page.waitForEvent("popup");
+    await page.locator(".proposal-preview").click();
+    const popup = await popupPromise;
+    await popup.locator(".proposta-texto").waitFor();
+    assert.match(await popup.locator(".proposta-texto").textContent(), /Conteúdo da proposta para visualização/);
+    assert.equal(await popup.evaluate(() => window.opener), null);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
 
 for (const screen of ["crm", "leads"]) {
   test(screen + ": abre, salva sem PII, fecha e reabre sem duplicar handlers", async () => {

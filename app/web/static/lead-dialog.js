@@ -1683,13 +1683,35 @@ proposalForm.addEventListener("submit", async event => {
 });
 
 async function visualizarProposta(id) {
-  const response = await fetch(`/v1/admin/propostas/${id}/documento`);
-  if (!response.ok) return alert("Não foi possível abrir a proposta.");
-  const data = await response.json();
-  const win = window.open("", "_blank", "noopener,noreferrer");
-  // Janela em branco herda o CSP style-src estrito da página que a abriu:
-  // o CSS vem de um link 'self', nunca de um atributo style="" inline.
-  if (win) win.document.write(`<link rel="stylesheet" href="/static/print-proposta.css"><pre class="proposta-texto">${escapeHtml(data.texto)}</pre>`);
+  // Abrir a janela antes do primeiro await preserva a ativação do clique e
+  // evita bloqueio de popup. Não passe noopener em window.open: nesse modo
+  // o navegador retorna null e o documento ficava em branco. Desconectar o
+  // opener logo depois mantém a proteção contra reverse tabnabbing.
+  const win = window.open("", "_blank");
+  if (!win) {
+    alert("O navegador bloqueou a janela de visualização. Permita pop-ups para este site e tente novamente.");
+    return;
+  }
+  win.opener = null;
+  const escreverPagina = (titulo, conteudo) => {
+    win.document.open();
+    win.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${titulo}</title><link rel="stylesheet" href="/static/print-proposta.css"></head><body>${conteudo}</body></html>`);
+    win.document.close();
+  };
+  escreverPagina("Visualização da proposta", '<p class="proposta-texto">Carregando proposta…</p>');
+  try {
+    const response = await fetch(`/v1/admin/propostas/${id}/documento`);
+    if (!response.ok) throw new Error("Falha ao carregar a proposta");
+    const data = await response.json();
+    escreverPagina(
+      "Visualização da proposta",
+      `<pre class="proposta-texto">${escapeHtml(data.texto)}</pre>`,
+    );
+  } catch {
+    if (!win.closed) {
+      escreverPagina("Proposta indisponível", '<p class="proposta-texto">Não foi possível carregar a proposta. Feche esta aba e tente novamente.</p>');
+    }
+  }
 }
     dialog.querySelector(".dialog-close").addEventListener("click", () => dialog.close());
     dialog.addEventListener("close", onClose);

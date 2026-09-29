@@ -559,13 +559,13 @@ async def listar_alertas_rotinas(
             ]
         )
 
+    # Sem LIMIT no SQL (revisão do Codex no PR #152): os alertas de plataforma
+    # já lidos pelo usuário só são descartados abaixo, então limitar antes
+    # podia esconder alertas não lidos mais antigos. O conjunto é pequeno --
+    # só alertas abertos e acionáveis, um por código (dedup em
+    # app/alertas_plataforma.py) -- e o corte acontece depois do filtro.
     alertas = (
-        await session.execute(
-            select(AlertaSistema)
-            .where(*filtros)
-            .order_by(AlertaSistema.criado_em.desc())
-            .limit(limite)
-        )
+        await session.execute(select(AlertaSistema).where(*filtros).order_by(AlertaSistema.criado_em.desc()))
     ).scalars().all()
     itens = [
         {
@@ -582,7 +582,7 @@ async def listar_alertas_rotinas(
         if item.resolvido_em is None
         and item.severidade in _SEVERIDADES_ACIONAVEIS
         and not (item.organizacao_id is None and _lido_pelo_usuario(item, usuario.id))
-    ]
+    ][:limite]
     return {"total": len(itens), "itens": itens}
 
 
@@ -611,7 +611,12 @@ async def marcar_notificacao_lida(fonte: str, item_id: int, session: SessionDep,
         item.lida_por = usuario.ator
     elif fonte == "sistema" and (usuario.pode("production.manage") or usuario.pode("leads.view")):
         filtros_item = _filtros_alerta_do_item(usuario, item_id, organizacao_id)
-        item = (await session.execute(select(AlertaSistema).where(*filtros_item))).scalar_one_or_none()
+        # FOR UPDATE (revisão do Codex no PR #152): dois usuários marcando o
+        # mesmo alerta de plataforma ao mesmo tempo faziam ler-alterar-gravar
+        # em detalhes["lido_por"] e um sobrescrevia o outro.
+        item = (
+            await session.execute(select(AlertaSistema).where(*filtros_item).with_for_update())
+        ).scalar_one_or_none()
         if item is None:
             raise HTTPException(404, "Notificação não encontrada")
         if item.organizacao_id is None:
@@ -675,7 +680,12 @@ async def marcar_notificacao_nao_lida(fonte: str, item_id: int, session: Session
         item.lida_por = None
     elif fonte == "sistema" and (usuario.pode("production.manage") or usuario.pode("leads.view")):
         filtros_item = _filtros_alerta_do_item(usuario, item_id, organizacao_id)
-        item = (await session.execute(select(AlertaSistema).where(*filtros_item))).scalar_one_or_none()
+        # FOR UPDATE (revisão do Codex no PR #152): dois usuários marcando o
+        # mesmo alerta de plataforma ao mesmo tempo faziam ler-alterar-gravar
+        # em detalhes["lido_por"] e um sobrescrevia o outro.
+        item = (
+            await session.execute(select(AlertaSistema).where(*filtros_item).with_for_update())
+        ).scalar_one_or_none()
         if item is None:
             raise HTTPException(404, "Notificação não encontrada")
         if item.organizacao_id is None:
@@ -736,9 +746,10 @@ async def marcar_todas_notificacoes(
             # _marcar_lido_pelo_usuario), nunca resolução global.
             plataforma = (
                 await session.execute(
-                    select(AlertaSistema).where(
-                        AlertaSistema.organizacao_id.is_(None), AlertaSistema.resolvido_em.is_(None)
-                    )
+                    select(AlertaSistema)
+                    .where(AlertaSistema.organizacao_id.is_(None), AlertaSistema.resolvido_em.is_(None))
+                    .order_by(AlertaSistema.id)
+                    .with_for_update()
                 )
             ).scalars().all()
             for item in plataforma:

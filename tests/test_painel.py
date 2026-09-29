@@ -500,3 +500,15 @@ async def test_marcar_todas_inclui_alertas_de_plataforma_por_usuario() -> None:
     assert resultado == {"afetadas": 1, "lida": True}
     assert alerta.detalhes["lido_por"] == [usuario.id]
     assert alerta.resolvido_em is None
+
+@pytest.mark.asyncio
+async def test_alertas_de_plataforma_lidos_nao_consomem_o_limite_do_sino() -> None:
+    # Revisão do Codex no PR #152: com LIMIT no SQL, alertas já lidos pelo
+    # usuário ocupavam as vagas e escondiam um alerta não lido mais antigo.
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+    lidos = [_alerta_plataforma(id=200 + i, detalhes={"lido_por": [usuario.id]}) for i in range(3)]
+    nao_lido = _alerta_plataforma(id=300, organizacao_id=1, detalhes={})
+
+    resposta = await listar_alertas_rotinas(FakeSession([FakeResult(itens=[*lidos, nao_lido])]), usuario, limite=2)
+
+    assert [item["id"] for item in resposta["itens"]] == [300]

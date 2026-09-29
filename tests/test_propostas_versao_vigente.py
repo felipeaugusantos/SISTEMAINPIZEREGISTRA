@@ -20,6 +20,7 @@ from fastapi import HTTPException
 
 import app.api.leads_propostas as leads_propostas
 from app.api.leads_propostas import (
+    aceite_ja_registrado,
     confirmar_codigo_proposta,
     criar_nova_versao_proposta,
     motivo_bloqueio_aceite,
@@ -27,7 +28,7 @@ from app.api.leads_propostas import (
 )
 from app.api.portal_cliente import AssinarComCodigoInput, assinar_proposta_portal, webhook_clicksign
 from app.auth import hash_token
-from app.models import ContratacaoServico, Lead, PropostaComercial
+from app.models import ContratacaoServico, EventoDominio, Lead, PropostaComercial
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 from tests.test_phase4_proposals import _request_post
 from tests.test_portal_cliente import (
@@ -267,6 +268,96 @@ def test_enviar_rascunho_passa_para_enviada(monkeypatch: pytest.MonkeyPatch) -> 
     asyncio.run(leads_propostas.enviar_link_proposta(1, session, usuario_teste()))
 
     assert proposta.status == "enviada"
+
+
+# --- Revisão do Codex no PR #147 ---------------------------------------------
+
+
+def _aceita_e_depois_cancelada(**kwargs: object) -> PropostaComercial:
+    aceita_em = datetime(2026, 9, 1, tzinfo=UTC)
+    base: dict = {"status": "cancelada", "public_aceito_em": aceita_em, "aceito_em": aceita_em}
+    base.update(kwargs)
+    return _proposta(**base)
+
+
+def test_aceite_ja_registrado_perde_para_status_encerrado() -> None:
+    assert aceite_ja_registrado(_proposta(status="aceita")) is True
+    assert aceite_ja_registrado(_aceita_e_depois_cancelada()) is False
+    assert aceite_ja_registrado(_proposta(status="enviada")) is False
+
+
+def test_link_de_proposta_aceita_e_depois_cancelada_nao_se_apresenta_como_aceita() -> None:
+    proposta = _aceita_e_depois_cancelada()
+
+    resposta = asyncio.run(
+        leads_propostas.aceitar_proposta_publica(
+            "token-qualquer", _request_post("/propostas/x/aceitar"), FakeSession([FakeResult(scalar=proposta)])
+        )
+    )
+    confirmacao = asyncio.run(
+        confirmar_codigo_proposta(
+            "token-qualquer", _request_post("/propostas/x/confirmar"), FakeSession([FakeResult(scalar=proposta)]), "1"
+        )
+    )
+
+    assert resposta.status_code == 409
+    assert confirmacao.status_code == 409
+
+
+def test_portal_nao_aceita_de_novo_proposta_aceita_e_depois_cancelada() -> None:
+    proposta = _aceita_e_depois_cancelada()
+    dados = AssinarComCodigoInput(codigo=_CODIGO_CONFIRMACAO_TESTE)
+
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(assinar_proposta_portal(1, _request(), dados, _cliente(), FakeSession([FakeResult(scalar=proposta)])))
+
+    assert erro.value.status_code == 409
+
+
+def test_webhook_clicksign_nao_reativa_proposta_aceita_e_depois_cancelada(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configurar_segredo_webhook(monkeypatch)
+    proposta = _aceita_e_depois_cancelada(id=7, dados={"clicksign": {"envelope_id": "env-123"}})
+    session = FakeSession([FakeResult(scalar=proposta)])
+    corpo = {"envelope_id": "env-123", "event_id": "evt-9", "status": "document_closed"}
+
+    resultado = asyncio.run(webhook_clicksign(_webhook_request(corpo), session, _assinatura_webhook(corpo)))
+
+    assert resultado["ignorado"] is True
+    assert proposta.status == "cancelada"
+
+
+def test_webhook_clicksign_repetido_registra_a_assinatura_ignorada_uma_vez(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configurar_segredo_webhook(monkeypatch)
+    proposta = _proposta(id=7, status="cancelada", dados={"clicksign": {"envelope_id": "env-123"}})
+    corpo = {"envelope_id": "env-123", "event_id": "evt-1", "status": "document_closed"}
+    eventos = 0
+    for _ in range(3):
+        session = FakeSession([FakeResult(scalar=proposta)])
+        asyncio.run(webhook_clicksign(_webhook_request(corpo), session, _assinatura_webhook(corpo)))
+        eventos += len([obj for obj in session.adicionados if isinstance(obj, EventoDominio)])
+
+    assert eventos == 1
+    assert proposta.dados["clicksign"]["assinatura_indisponivel_em"]
+
+
+def test_nova_versao_e_aceites_travam_a_linha_da_proposta() -> None:
+    """Nova versão e aceite concorrentes viam a proposta "enviada" ao mesmo
+    tempo -- o aceite gerava a cobrança e a nova versão ainda podia ser
+    aceita depois. Todos passam a travar a mesma linha (FOR UPDATE)."""
+    from sqlalchemy.dialects import postgresql
+
+    def _sql(stmt) -> str:
+        return str(stmt.compile(dialect=postgresql.dialect()))
+
+    sessao_versao = FakeSession([FakeResult(scalar=_proposta()), FakeResult(scalar=1)])
+    asyncio.run(criar_nova_versao_proposta(1, _request_post("/propostas/1/nova-versao"), sessao_versao, usuario_teste()))
+    assert "FOR UPDATE" in _sql(sessao_versao.executados[0])
+
+    sessao_link = FakeSession([FakeResult(scalar=_proposta(status="cancelada"))])
+    asyncio.run(
+        confirmar_codigo_proposta("token-qualquer", _request_post("/propostas/x/confirmar"), sessao_link, "1")
+    )
+    assert "FOR UPDATE" in _sql(sessao_link.executados[0])
 
 
 def test_gerar_link_de_proposta_cancelada_e_recusado() -> None:

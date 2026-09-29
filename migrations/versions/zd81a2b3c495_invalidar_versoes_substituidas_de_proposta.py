@@ -7,8 +7,11 @@ antiga (preço antigo) ou as duas, gerando duas contratações. O código novo
 (criar_nova_versao_proposta) cancela a anterior no momento da criação; esta
 migration aplica a mesma regra às versões que já estavam nessa situação.
 
-Só dados: cancela a versão que tem outra mais nova com o mesmo número na
-mesma organização e ainda não foi aceita, registra o motivo em
+Só dados: cancela a versão ainda não aceita (rascunho/enviada/visualizada)
+quando (a) existe outra mais nova com o mesmo número na mesma organização,
+ou (b) a série já tem uma versão ACEITA -- revisão do Codex no PR #147: com
+o código antigo, a v1 aceita seguida de uma v2 enviada deixava a v2 (a mais
+recente) aceitável, gerando segunda contratação. Registra o motivo em
 dados.cancelamento e tira de circulação o link público e o código de
 confirmação. Versões ACEITAS nunca são tocadas.
 
@@ -31,17 +34,29 @@ def upgrade() -> None:
     op.execute("SELECT set_config('app.superadmin', 'true', true)")
     op.execute(
         """
-        UPDATE propostas_comerciais AS antiga
+        WITH series AS (
+            SELECT organizacao_id,
+                   numero,
+                   max(versao) AS versao_mais_nova,
+                   max(versao) FILTER (WHERE status = 'aceita') AS versao_aceita
+            FROM propostas_comerciais
+            GROUP BY organizacao_id, numero
+        )
+        UPDATE propostas_comerciais AS alvo
         SET status = 'cancelada',
             dados = (
-                COALESCE(antiga.dados::jsonb, '{}'::jsonb)
+                COALESCE(alvo.dados::jsonb, '{}'::jsonb)
                 || jsonb_build_object(
                     'cancelamento',
                     jsonb_build_object(
-                        'motivo', 'Substituída pela versão ' || mais_nova.versao,
+                        'motivo',
+                        CASE
+                            WHEN series.versao_aceita IS NOT NULL
+                                THEN 'Série já possui a versão ' || series.versao_aceita || ' aceita'
+                            ELSE 'Substituída pela versão ' || series.versao_mais_nova
+                        END,
                         'em', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"+00:00"'),
-                        'por', 'migração (achado 18.1)',
-                        'substituida_por_id', mais_nova.id
+                        'por', 'migração (achado 18.1)'
                     )
                 )
             )::json,
@@ -49,15 +64,11 @@ def upgrade() -> None:
             public_token_expira_em = NULL,
             codigo_confirmacao_hash = NULL,
             codigo_confirmacao_expira_em = NULL
-        FROM (
-            SELECT DISTINCT ON (organizacao_id, numero) id, organizacao_id, numero, versao
-            FROM propostas_comerciais
-            ORDER BY organizacao_id, numero, versao DESC
-        ) AS mais_nova
-        WHERE antiga.organizacao_id = mais_nova.organizacao_id
-          AND antiga.numero = mais_nova.numero
-          AND antiga.versao < mais_nova.versao
-          AND antiga.status IN ('rascunho', 'enviada', 'visualizada')
+        FROM series
+        WHERE alvo.organizacao_id = series.organizacao_id
+          AND alvo.numero = series.numero
+          AND alvo.status IN ('rascunho', 'enviada', 'visualizada')
+          AND (alvo.versao < series.versao_mais_nova OR series.versao_aceita IS NOT NULL)
         """
     )
 

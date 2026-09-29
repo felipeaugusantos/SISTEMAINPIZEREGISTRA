@@ -205,6 +205,16 @@ STATUS_ACEITAVEIS_PROPOSTA = frozenset({"enviada", "visualizada"})
 STATUS_TERMINAIS_PROPOSTA = frozenset({"recusada", "expirada", "cancelada"})
 
 
+def aceite_ja_registrado(proposta: PropostaComercial) -> bool:
+    """Aceite anterior que ainda vale (resposta idempotente de "já aceita").
+    Status encerrado prevalece: uma proposta aceita e depois cancelada
+    (transição permitida) mantém public_aceito_em, mas não vale mais --
+    revisão do Codex no PR #147."""
+    if proposta.status in STATUS_TERMINAIS_PROPOSTA:
+        return False
+    return proposta.status == "aceita" or proposta.public_aceito_em is not None
+
+
 def motivo_bloqueio_aceite(proposta: PropostaComercial) -> str | None:
     """Motivo pelo qual a proposta não pode receber um aceite NOVO agora, ou
     None se puder. Quem chama trata antes o caso idempotente (já aceita)."""
@@ -393,7 +403,10 @@ async def criar_nova_versao_proposta(
     session: SessionDep,
     usuario: LeadsManageDep,
 ) -> dict:
-    anterior = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
+    # Linha travada até o commit: um aceite concorrente (que trava a mesma
+    # linha) espera e depois vê a proposta cancelada -- ou, se chegou antes,
+    # esta requisição vê "aceita" e recusa (revisão do Codex no PR #147).
+    anterior = await _proposta_da_org(session, proposta_id, usuario.organizacao_id, bloquear=True)
     # Achado 18.1 da auditoria fina de Propostas (29/09/2026): a versão
     # anterior continuava "enviada", com o link público ativo -- o cliente
     # podia aceitar a versão antiga (preço antigo) ou as duas, gerando duas
@@ -490,10 +503,14 @@ async def atualizar_status_proposta(
 ) -> dict:
     proposta = (
         await session.execute(
-            select(PropostaComercial).where(
+            select(PropostaComercial)
+            .where(
                 PropostaComercial.id == proposta_id,
                 PropostaComercial.organizacao_id == usuario.organizacao_id,
             )
+            # Mesma trava de linha de criar_nova_versao_proposta e dos
+            # aceites pelo cliente (revisão do Codex no PR #147).
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if proposta is None:
@@ -619,15 +636,16 @@ async def atualizar_status_proposta(
     return _proposta_dict(proposta, org)
 
 
-async def _proposta_da_org(session: AsyncSession, proposta_id: int, organizacao_id: int) -> PropostaComercial:
-    proposta = (
-        await session.execute(
-            select(PropostaComercial).where(
-                PropostaComercial.id == proposta_id,
-                PropostaComercial.organizacao_id == organizacao_id,
-            )
-        )
-    ).scalar_one_or_none()
+async def _proposta_da_org(
+    session: AsyncSession, proposta_id: int, organizacao_id: int, *, bloquear: bool = False
+) -> PropostaComercial:
+    consulta = select(PropostaComercial).where(
+        PropostaComercial.id == proposta_id,
+        PropostaComercial.organizacao_id == organizacao_id,
+    )
+    if bloquear:
+        consulta = consulta.with_for_update()
+    proposta = (await session.execute(consulta)).scalar_one_or_none()
     if proposta is None:
         raise HTTPException(status_code=404, detail="Proposta não encontrada")
     return proposta
@@ -1250,11 +1268,15 @@ async def documento_proposta(proposta_id: int, session: SessionDep, usuario: Lea
     }
 
 
-async def _proposta_por_token(session: AsyncSession, token: str) -> PropostaComercial | None:
+async def _proposta_por_token(session: AsyncSession, token: str, *, bloquear: bool = False) -> PropostaComercial | None:
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    proposta = (
-        await session.execute(select(PropostaComercial).where(PropostaComercial.public_token_hash == digest))
-    ).scalar_one_or_none()
+    consulta = select(PropostaComercial).where(PropostaComercial.public_token_hash == digest)
+    if bloquear:
+        # Serializa o aceite com criar_nova_versao_proposta (mesma linha
+        # travada): sem isso, os dois podiam ver a proposta "enviada" ao
+        # mesmo tempo -- revisão do Codex no PR #147.
+        consulta = consulta.with_for_update()
+    proposta = (await session.execute(consulta)).scalar_one_or_none()
     if proposta is None or not proposta.public_token_expira_em or proposta.public_token_expira_em < datetime.now(UTC):
         return None
     # Link publico chega sem sessao de operador -- resolve o tenant a partir da
@@ -1394,8 +1416,8 @@ async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLRe
         if proposta.validade_em
         else ""
     )
-    if proposta.public_aceito_em is not None or proposta.status == "aceita":
-        acao_html = "<p><strong>Proposta aceita.</strong> Nossa equipe dará continuidade ao atendimento.</p>"
+    if aceite_ja_registrado(proposta):
+        acao_html ="<p><strong>Proposta aceita.</strong> Nossa equipe dará continuidade ao atendimento.</p>"
     elif motivo := motivo_bloqueio_aceite(proposta):
         acao_html = f"<p class='muted'><strong>{safe(motivo)}</strong></p>"
     else:
@@ -1421,12 +1443,12 @@ async def aceitar_proposta_publica(token: str, request: Request, session: Sessio
     """Primeiro passo do aceite com dupla validação: gera e envia o código
     de confirmação por e-mail. Chamado de novo (botão "Reenviar código")
     gera um código novo, sujeito ao cooldown do limitador de reenvio."""
-    proposta = await _proposta_por_token(session, token)
+    proposta = await _proposta_por_token(session, token, bloquear=True)
     if proposta is None:
         return HTMLResponse("<h1>Link expirado</h1>", status_code=404)
     # Uma proposta já aceita continua idempotente mesmo depois de vencer (não
     # desfaz um aceite já registrado) -- achado 7 do plano proposta-financeiro.
-    if proposta.public_aceito_em is not None or proposta.status == "aceita":
+    if aceite_ja_registrado(proposta):
         return _pagina_aceite_confirmado()
     motivo = motivo_bloqueio_aceite(proposta)
     if motivo:
@@ -1475,10 +1497,10 @@ async def confirmar_codigo_proposta(
     """Segundo passo do aceite: valida o código de 6 dígitos e, se bater,
     finaliza o aceite (mesma lógica que antes vivia direto em
     aceitar_proposta_publica -- só que agora com o segundo fator confirmado)."""
-    proposta = await _proposta_por_token(session, token)
+    proposta = await _proposta_por_token(session, token, bloquear=True)
     if proposta is None:
         return HTMLResponse("<h1>Link expirado</h1>", status_code=404)
-    if proposta.public_aceito_em is not None:
+    if aceite_ja_registrado(proposta):
         return _pagina_aceite_confirmado()
     # Achado 18.2: o status só era checado ao EMITIR o código -- uma proposta
     # cancelada (ou substituída por nova versão) depois disso ainda podia ser

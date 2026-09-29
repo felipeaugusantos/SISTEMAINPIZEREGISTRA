@@ -242,7 +242,7 @@ def test_enviar_proposta_nao_rebaixa_nem_revive_o_status(monkeypatch: pytest.Mon
     session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=_lead())])
 
     with pytest.raises(HTTPException) as erro:
-        asyncio.run(leads_propostas.enviar_link_proposta(1, session, usuario_teste()))
+        asyncio.run(leads_propostas.enviar_link_proposta(1, _request_post("/propostas/1/enviar"), session, usuario_teste()))
 
     assert erro.value.status_code == 422
     assert proposta.status == status
@@ -254,7 +254,7 @@ def test_reenviar_proposta_visualizada_mantem_o_status(monkeypatch: pytest.Monke
     proposta = _proposta(status="visualizada")
     session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=_lead())], objetos_get=[_organizacao()])
 
-    asyncio.run(leads_propostas.enviar_link_proposta(1, session, usuario_teste()))
+    asyncio.run(leads_propostas.enviar_link_proposta(1, _request_post("/propostas/1/enviar"), session, usuario_teste()))
 
     assert proposta.status == "visualizada"
     assert enviados == ["cliente@example.com"]
@@ -265,7 +265,7 @@ def test_enviar_rascunho_passa_para_enviada(monkeypatch: pytest.MonkeyPatch) -> 
     proposta = _proposta(status="rascunho")
     session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=_lead())], objetos_get=[_organizacao()])
 
-    asyncio.run(leads_propostas.enviar_link_proposta(1, session, usuario_teste()))
+    asyncio.run(leads_propostas.enviar_link_proposta(1, _request_post("/propostas/1/enviar"), session, usuario_teste()))
 
     assert proposta.status == "enviada"
 
@@ -365,7 +365,7 @@ def test_gerar_link_de_proposta_cancelada_e_recusado() -> None:
     session = FakeSession([FakeResult(scalar=proposta)])
 
     with pytest.raises(HTTPException) as erro:
-        asyncio.run(leads_propostas.criar_link_proposta(1, session, usuario_teste()))
+        asyncio.run(leads_propostas.criar_link_proposta(1, _request_post("/propostas/1/link"), session, usuario_teste()))
 
     assert erro.value.status_code == 422
     assert proposta.public_token_hash is None

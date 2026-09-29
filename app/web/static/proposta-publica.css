@@ -1,0 +1,14 @@
+/* Páginas públicas da proposta (link de aceite): /propostas/{token}.
+   Achado 18.7 da auditoria fina de Propostas (29/09/2026): os estilos
+   ficavam num <style> embutido, bloqueado pelo CSP "style-src 'self'"
+   (app/observability.py) -- as páginas apareciam sem formatação. */
+body { font: 16px Arial, sans-serif; color: #17231c; background: #f5f7f5; margin: 0; padding: 24px; }
+main { max-width: 760px; margin: auto; background: #fff; padding: 36px; border-radius: 18px; border: 1px solid #d8ddd6; }
+main.proposta-publica-estreita { max-width: 480px; }
+h1 { font-family: Georgia, serif; }
+.muted { color: #5b665f; }
+.aviso { color: #a33128; font-weight: 700; }
+.button { display: inline-block; background: #086044; color: #fff; padding: 13px 20px; border-radius: 9px; text-decoration: none; border: 0; font-weight: 700; cursor: pointer; }
+main.proposta-publica-estreita .button { width: 100%; margin-bottom: 10px; }
+.button-secundario { background: transparent; color: #086044; border: 1px solid #086044; }
+input[name="codigo"] { width: 100%; box-sizing: border-box; padding: 13px; font-size: 20px; letter-spacing: 4px; text-align: center; border: 1px solid #d8ddd6; border-radius: 9px; margin-bottom: 14px; }

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAtualDep, exigir_csrf
 from app.database import get_session
-from app.marca import css_marca
+from app.marca import css_marca, marca_organizacao
 from app.models import (
     AlertaSistema,
     BloqueioRetencao,
@@ -49,6 +49,9 @@ class IdentidadeVisualPublicaResponse(BaseModel):
     cor_primaria: str | None = None
     logo_url: str | None = None
     politica_privacidade_versao: str
+    # Fase 19.2: marca calculada (app.marca.marca_organizacao) -- nome
+    # efetivo e "propria", usados pelas telas de login/recuperação de senha.
+    marca: dict | None = None
 
 
 @public_router.get("/branding", response_model=IdentidadeVisualPublicaResponse)
@@ -63,6 +66,7 @@ async def branding_publico(request: Request, session: SessionDep) -> dict:
         "cor_primaria": branding.get("cor_primaria"),
         "logo_url": branding.get("logo_url"),
         "politica_privacidade_versao": org.politica_privacidade_versao,
+        "marca": marca_organizacao(org),
     }
 
 

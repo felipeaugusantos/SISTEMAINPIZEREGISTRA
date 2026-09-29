@@ -71,9 +71,14 @@ async def test_branding_publico_expoe_somente_allowlist_e_isola_organizacoes() -
         "cor_primaria",
         "logo_url",
         "politica_privacidade_versao",
+        # Fase 19.2 (white-label): marca calculada, só com campos públicos.
+        "marca",
     }
     assert set(primeiro) == campos_publicos
     assert set(segundo) == campos_publicos
+    assert set(primeiro["marca"]) == {"nome", "logo_url", "cor_primaria", "propria"}
+    assert primeiro["marca"]["nome"] == "Tenant 41"
+    assert segundo["marca"]["nome"] == "Tenant 99"
     assert primeiro["nome_exibido"] == "Tenant 41"
     assert segundo["nome_exibido"] == "Tenant 99"
     assert primeiro["cor_primaria"] != segundo["cor_primaria"]

@@ -21,6 +21,46 @@ async function enviar(url, dados) {
   return payload;
 }
 
+// Fase 19.2 (white-label): cada escritório acessa pelo próprio domínio, e
+// as telas de login, MFA e recuperação de senha mostram a marca do dono do
+// domínio (/v1/tenant/branding, resolvido pelo host). A organização padrão
+// sem marca configurada ("propria" falso) mantém a identidade de sempre.
+async function aplicarMarcaDoDominio() {
+  let marca;
+  try {
+    const resposta = await fetch("/v1/tenant/branding");
+    if (!resposta.ok) return;
+    marca = (await resposta.json()).marca;
+  } catch { return; }
+  if (!marca?.propria) return;
+  document.querySelectorAll(".auth-brand strong").forEach(el => { el.textContent = marca.nome; });
+  const imagens = [...document.querySelectorAll(".auth-brand img, .portal-brand-panel > img")];
+  imagens.forEach(img => {
+    const padrao = img.getAttribute("src");
+    img.alt = marca.nome;
+    if (marca.logo_url) {
+      img.referrerPolicy = "no-referrer";
+      // Logo indisponível: volta à imagem padrão em vez de ficar quebrada.
+      img.addEventListener("error", () => { img.src = padrao; }, { once: true });
+      img.src = marca.logo_url;
+    } else if (img.closest(".portal-brand-panel")) {
+      // Sem logo própria, o logotipo da plataforma dá lugar ao nome do escritório.
+      const nome = document.createElement("h2");
+      nome.textContent = marca.nome;
+      img.replaceWith(nome);
+    }
+  });
+  if (marca.cor_primaria || marca.logo_url) {
+    // CSP style-src 'self': cor e logo vêm de folha servida pelo próprio servidor.
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "/v1/tenant/branding.css";
+    document.head.appendChild(link);
+  }
+  document.title = `${document.title} — ${marca.nome}`;
+}
+aplicarMarcaDoDominio();
+
 const login = document.querySelector("#login-form");
 const parametrosLogin = new URLSearchParams(location.search);
 const socialMfa = parametrosLogin.get("oauth_mfa") === "1";

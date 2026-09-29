@@ -327,3 +327,54 @@ def test_worker_agenda_resumo_juridico_diario(monkeypatch: pytest.MonkeyPatch) -
 
     assert chamadas == [session]
     assert session.commits == 1
+
+
+# --- Achado 17.5: vigilancia.executar_semanal com alerta por organização -----
+# Sem organizacao_id no payload a vigilância roda para todas as organizações;
+# antes o total agregado ia num único AlertaSistema da organização 1 (que via
+# números de outros tenants) e as demais não recebiam nada.
+
+
+def test_vigilancia_semanal_cria_um_alerta_por_organizacao(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.vigilancia as vigilancia_modulo
+
+    session = FakeSession([])
+    monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
+
+    async def _resultado_fake(_session, organizacao_id, *, confirmar=True):
+        assert organizacao_id is None
+        assert confirmar is False  # commit único junto com os alertas
+        return {
+            "chave": "2026-W40",
+            "encontrados": 7,
+            "criadas": 3,
+            "status": "concluida",
+            "por_organizacao": {2: {"encontrados": 5, "criadas": 3}, 6: {"encontrados": 2, "criadas": 0}},
+        }
+
+    monkeypatch.setattr(vigilancia_modulo, "executar_vigilancia_semanal", _resultado_fake)
+
+    asyncio.run(worker_modulo.processar("vigilancia.executar_semanal", {}))
+
+    alertas = {obj.organizacao_id: obj for obj in session.adicionados if isinstance(obj, AlertaSistema)}
+    assert set(alertas) == {2, 6}
+    assert alertas[2].detalhes == {"chave": "2026-W40", "encontrados": 5, "criadas": 3}
+    assert alertas[6].detalhes == {"chave": "2026-W40", "encontrados": 2, "criadas": 0}
+    assert "3 colidencia" in alertas[2].mensagem
+    assert all(alerta.codigo == "VIGILANCIA_SEMANAL_CONCLUIDA" for alerta in alertas.values())
+
+
+def test_vigilancia_semanal_sem_organizacao_processada_nao_gera_alerta(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.vigilancia as vigilancia_modulo
+
+    session = FakeSession([])
+    monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
+
+    async def _resultado_fake(_session, _organizacao_id, *, confirmar=True):
+        return {"chave": "2026-W40", "encontrados": 0, "criadas": 0, "status": "concluida", "por_organizacao": {}}
+
+    monkeypatch.setattr(vigilancia_modulo, "executar_vigilancia_semanal", _resultado_fake)
+
+    asyncio.run(worker_modulo.processar("vigilancia.executar_semanal", {"organizacao_id": 4}))
+
+    assert not [obj for obj in session.adicionados if isinstance(obj, AlertaSistema)]

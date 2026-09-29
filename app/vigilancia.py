@@ -98,8 +98,23 @@ async def enfileirar_alerta(
     return alerta
 
 
-async def executar_vigilancia_semanal(session: AsyncSession, organizacao_id: int | None = None) -> dict:
-    """Executa a semana corrente. A chave única torna reexecuções idempotentes."""
+async def executar_vigilancia_semanal(
+    session: AsyncSession, organizacao_id: int | None = None, *, confirmar: bool = True
+) -> dict:
+    """Executa a semana corrente. A chave única torna reexecuções idempotentes.
+
+    Devolve o total agregado e a quebra por organização em "por_organizacao"
+    (organizacao_id -> {"encontrados", "criadas"}, só as organizações
+    efetivamente processadas nesta chamada). Achado 17.5: antes só havia o
+    agregado, que o worker gravava num AlertaSistema fixo da organização 1;
+    e os contadores eram acumulados entre as organizações, então a
+    VigilanciaExecucao de cada uma registrava também os números das
+    organizações anteriores no laço.
+
+    Com confirmar=False não faz commit: quem chama (o worker) confirma as
+    execuções junto com os alertas por organização, numa única transação.
+    Assim, se o commit final falhar, nada fica marcado como "concluida" sem
+    o alerta correspondente -- a próxima tentativa refaz tudo."""
     semana = datetime.now(UTC).date().isocalendar()
     chave = f"{semana.year}-W{semana.week:02d}"
     org_ids = (
@@ -115,6 +130,7 @@ async def executar_vigilancia_semanal(session: AsyncSession, organizacao_id: int
     )
     total = 0
     criadas = 0
+    por_organizacao: dict[int, dict[str, int]] = {}
     for org_id in org_ids:
         execucao = (
             await session.execute(
@@ -129,6 +145,8 @@ async def executar_vigilancia_semanal(session: AsyncSession, organizacao_id: int
             execucao = VigilanciaExecucao(organizacao_id=org_id, chave=chave, frequencia="semanal")
             session.add(execucao)
             await session.flush()
+        encontrados_org = 0
+        criadas_org = 0
         preferencias = (
             (
                 await session.execute(
@@ -175,7 +193,7 @@ async def executar_vigilancia_semanal(session: AsyncSession, organizacao_id: int
                     classes_cfg,
                     viena_cfg,
                 )
-                total += 1
+                encontrados_org += 1
                 existente = (
                     await session.execute(
                         select(ColidenciaVigilancia).where(
@@ -203,12 +221,22 @@ async def executar_vigilancia_semanal(session: AsyncSession, organizacao_id: int
                         justificativa="Coincidencia identificada por nome, Nice e/ou Viena; requer revisao humana.",
                     )
                 )
-                criadas += 1
+                criadas_org += 1
         execucao.encontrados, execucao.criados, execucao.status, execucao.finalizado_em = (
-            total,
-            criadas,
+            encontrados_org,
+            criadas_org,
             "concluida",
             datetime.now(UTC),
         )
-    await session.commit()
-    return {"chave": chave, "encontrados": total, "criadas": criadas, "status": "concluida"}
+        por_organizacao[org_id] = {"encontrados": encontrados_org, "criadas": criadas_org}
+        total += encontrados_org
+        criadas += criadas_org
+    if confirmar:
+        await session.commit()
+    return {
+        "chave": chave,
+        "encontrados": total,
+        "criadas": criadas,
+        "status": "concluida",
+        "por_organizacao": por_organizacao,
+    }

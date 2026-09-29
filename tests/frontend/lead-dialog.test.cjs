@@ -65,7 +65,10 @@ test("Visualizar proposta abre conteúdo sem popup em branco", async () => {
     const popupPromise = page.waitForEvent("popup");
     await page.locator(".proposal-preview").click();
     const popup = await popupPromise;
-    await popup.locator(".proposta-texto").waitFor();
+    // A aba já nasce com ".proposta-texto" mostrando "Carregando proposta…";
+    // esperar o conteúdo final evita a corrida que deixava o teste intermitente.
+    await popup.waitForFunction(() =>
+      (document.querySelector(".proposta-texto")?.textContent || "").includes("Conteúdo da proposta"));
     assert.match(await popup.locator(".proposta-texto").textContent(), /Conteúdo da proposta para visualização/);
     assert.equal(await popup.evaluate(() => window.opener), null);
     assert.deepEqual(errors, []);

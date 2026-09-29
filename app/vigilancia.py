@@ -98,7 +98,9 @@ async def enfileirar_alerta(
     return alerta
 
 
-async def executar_vigilancia_semanal(session: AsyncSession, organizacao_id: int | None = None) -> dict:
+async def executar_vigilancia_semanal(
+    session: AsyncSession, organizacao_id: int | None = None, *, confirmar: bool = True
+) -> dict:
     """Executa a semana corrente. A chave única torna reexecuções idempotentes.
 
     Devolve o total agregado e a quebra por organização em "por_organizacao"
@@ -107,7 +109,12 @@ async def executar_vigilancia_semanal(session: AsyncSession, organizacao_id: int
     agregado, que o worker gravava num AlertaSistema fixo da organização 1;
     e os contadores eram acumulados entre as organizações, então a
     VigilanciaExecucao de cada uma registrava também os números das
-    organizações anteriores no laço."""
+    organizações anteriores no laço.
+
+    Com confirmar=False não faz commit: quem chama (o worker) confirma as
+    execuções junto com os alertas por organização, numa única transação.
+    Assim, se o commit final falhar, nada fica marcado como "concluida" sem
+    o alerta correspondente -- a próxima tentativa refaz tudo."""
     semana = datetime.now(UTC).date().isocalendar()
     chave = f"{semana.year}-W{semana.week:02d}"
     org_ids = (
@@ -224,7 +231,8 @@ async def executar_vigilancia_semanal(session: AsyncSession, organizacao_id: int
         por_organizacao[org_id] = {"encontrados": encontrados_org, "criadas": criadas_org}
         total += encontrados_org
         criadas += criadas_org
-    await session.commit()
+    if confirmar:
+        await session.commit()
     return {
         "chave": chave,
         "encontrados": total,

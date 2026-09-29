@@ -456,7 +456,10 @@ async def processar(tipo: str, payload: dict) -> None:
         elif tipo == "vigilancia.executar_semanal":
             from app.vigilancia import executar_vigilancia_semanal
 
-            resultado = await executar_vigilancia_semanal(session, payload.get("organizacao_id"))
+            # confirmar=False: as execuções marcadas como "concluida" e os
+            # alertas abaixo vão no mesmo commit do fim de processar() -- se
+            # ele falhar, o retry refaz a semana e recria os alertas.
+            resultado = await executar_vigilancia_semanal(session, payload.get("organizacao_id"), confirmar=False)
             # Achado 17.5: sem organizacao_id no payload a vigilância roda
             # para TODAS as organizações; antes o total agregado ia num único
             # alerta da organização 1 (e as demais não recebiam nada). Agora

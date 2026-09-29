@@ -341,8 +341,9 @@ def test_vigilancia_semanal_cria_um_alerta_por_organizacao(monkeypatch: pytest.M
     session = FakeSession([])
     monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
 
-    async def _resultado_fake(_session, organizacao_id):
+    async def _resultado_fake(_session, organizacao_id, *, confirmar=True):
         assert organizacao_id is None
+        assert confirmar is False  # commit único junto com os alertas
         return {
             "chave": "2026-W40",
             "encontrados": 7,
@@ -369,7 +370,7 @@ def test_vigilancia_semanal_sem_organizacao_processada_nao_gera_alerta(monkeypat
     session = FakeSession([])
     monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
 
-    async def _resultado_fake(_session, _organizacao_id):
+    async def _resultado_fake(_session, _organizacao_id, *, confirmar=True):
         return {"chave": "2026-W40", "encontrados": 0, "criadas": 0, "status": "concluida", "por_organizacao": {}}
 
     monkeypatch.setattr(vigilancia_modulo, "executar_vigilancia_semanal", _resultado_fake)

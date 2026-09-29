@@ -106,3 +106,14 @@ def test_vigilancia_semanal_ja_concluida_nao_entra_na_quebra():
 
     assert resultado["por_organizacao"] == {}
     assert resultado["criadas"] == 0
+
+
+def test_vigilancia_semanal_sem_confirmar_deixa_commit_para_quem_chama():
+    # O worker confirma as execuções junto com os alertas por organização;
+    # se o commit final falhar, nada fica "concluida" sem alerta.
+    session = FakeSession([FakeResult(scalar=None), FakeResult(itens=[])])
+
+    resultado = asyncio.run(executar_vigilancia_semanal(session, 3, confirmar=False))
+
+    assert session.commits == 0
+    assert resultado["por_organizacao"] == {3: {"encontrados": 0, "criadas": 0}}

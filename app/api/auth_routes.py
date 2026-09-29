@@ -23,8 +23,10 @@ from app.auth import (
 )
 from app.database import aplicar_contexto_autenticacao, get_session
 from app.emailing import enviar_recuperacao_senha
+from app.marca import css_marca, marca_organizacao
 from app.models import (
     ConviteOrganizacao,
+    Organizacao,
     PermissaoOperacoes,
     SessaoOperacoes,
     TokenRecuperacaoSenha,
@@ -109,6 +111,9 @@ def _resposta_usuario(usuario: UsuarioOperacoes) -> dict:
             "slug": usuario.organizacao.slug,
             "plano": usuario.organizacao.plano.nome,
             "modulos": sorted(normalizar_modulos_plano(usuario.organizacao.plano.modulos)),
+            # Fase 19.1 (white-label): o painel aplica nome, logo e cor do
+            # escritório do usuário logado -- ver app.marca.
+            "marca": marca_organizacao(usuario.organizacao),
         },
     }
 
@@ -256,6 +261,15 @@ async def me(usuario: UsuarioAtualDep, session: AsyncSession = Depends(get_sessi
         )
     ).scalar_one()
     return _resposta_usuario(registro)
+
+
+@router.get("/me/marca.css")
+async def marca_css_painel(usuario: UsuarioAtualDep, session: AsyncSession = Depends(get_session)) -> Response:
+    """Cor e logo do escritório do usuário logado para o painel (Fase 19.1).
+    Servido como recurso 'self' porque o CSP bloqueia estilo inline."""
+    organizacao = await session.get(Organizacao, usuario.organizacao_id)
+    css = css_marca(organizacao.branding if organizacao else None, painel=True)
+    return Response(content=css, media_type="text/css", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/csrf")

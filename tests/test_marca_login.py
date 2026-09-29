@@ -27,5 +27,13 @@ def test_css_da_marca_libera_a_logo_propria_nas_telas_de_autenticacao() -> None:
     assert ".ops-login-shell .portal-brand-panel>img" in css
 
 
+def test_cor_do_escritorio_chega_aos_controles_das_telas_de_autenticacao() -> None:
+    # Revisão do Codex no PR #154: só --forest não era usado por essas telas.
+    css = css_marca({"cor_primaria": "#123abc"})
+    assert "--portal-primary:#123abc" in css
+    assert ".auth-card button,.auth-card .primary-button{background:#123abc}" in css
+    assert "--portal-primary" not in css_marca({"cor_primaria": "#123abc"}, painel=True)
+
+
 def test_sem_logo_propria_nao_mexe_no_visual_das_telas() -> None:
     assert ".auth-brand" not in css_marca({"cor_primaria": "#123abc"})

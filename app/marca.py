@@ -45,6 +45,13 @@ def css_marca(branding: dict | None, *, painel: bool = False) -> str:
     cor = cor_valida(branding.get("cor_primaria"))
     if cor:
         partes.append(f":root{{--forest:{cor}}}")
+        if not painel:
+            # Revisão do Codex no PR #154: o login e o portal usam as
+            # variáveis --portal-* (portal-cliente.css) e as demais telas de
+            # autenticação têm a cor do botão fixa em styles.css -- só
+            # --forest não chegava a nenhum controle visível.
+            partes.append(f":root{{--portal-primary:{cor};--portal-primary-deep:{cor};--portal-accent:{cor}}}")
+            partes.append(f".auth-card button,.auth-card .primary-button{{background:{cor}}}")
     if branding.get("logo_url"):
         partes.append(".portal-brand-panel img.brand-avatar{filter:none}")
         # Telas de login/recuperação de senha (Fase 19.2).

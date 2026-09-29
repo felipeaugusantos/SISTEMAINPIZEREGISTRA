@@ -28,9 +28,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.juridico import TIPOS_PRAZO
 from app.api.leads import DOCUMENTOS_VALIDOS
-from app.api.leads_propostas import criar_contratacao_automatica_proposta
+from app.api.leads_propostas import (
+    aceite_ja_registrado,
+    criar_contratacao_automatica_proposta,
+    motivo_bloqueio_aceite,
+)
 from app.auth import exigir_permissao, hash_ip, hash_senha, hash_token, verificar_senha
 from app.clicksign import configuracao as configuracao_clicksign
+from app.crm import registrar_evento_operacional
 from app.database import get_session
 from app.emailing import enviar_codigo_confirmacao_portal, enviar_recuperacao_portal
 from app.malware_scan import escanear_upload_ou_rejeitar
@@ -551,6 +556,8 @@ async def webhook_clicksign(
             select(PropostaComercial)
             .where(PropostaComercial.dados["clicksign"]["envelope_id"].as_string() == envelope_id)
             .limit(1)
+            # Serializa com criar_nova_versao_proposta (revisão do Codex no PR #147).
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if proposta is None:
@@ -584,6 +591,49 @@ async def webhook_clicksign(
         # uma linha por evento (document_closed, envelope_closed, signed...
         # podem chegar em webhooks separados para o mesmo envelope).
         novo_aceite = proposta.aceito_em is None
+        # Achado 18.2: o webhook forçava "aceita" em qualquer status -- uma
+        # proposta cancelada, recusada, expirada ou substituída por nova
+        # versão voltava a valer e gerava contratação/cobrança. Status
+        # encerrado prevalece até sobre um aceite anterior (aceita e depois
+        # cancelada). A assinatura fica registrada para a equipe decidir,
+        # sem efeito financeiro.
+        motivo = None if aceite_ja_registrado(proposta) else motivo_bloqueio_aceite(proposta)
+        if motivo:
+            clicksign_dados = (proposta.dados or {}).get("clicksign") or {}
+            # O Clicksign repete o mesmo evento em retry (e manda vários
+            # eventos por envelope): registra uma única vez por proposta.
+            if not clicksign_dados.get("assinatura_indisponivel_em"):
+                logger.warning(
+                    "Assinatura Clicksign ignorada para a proposta %s (status %s): %s",
+                    proposta.id,
+                    proposta.status,
+                    motivo,
+                )
+                registrar_evento_operacional(
+                    session,
+                    organizacao_id=proposta.organizacao_id,
+                    dominio="crm",
+                    tipo="crm.assinatura_proposta_indisponivel",
+                    entidade_tipo="lead",
+                    entidade_id=proposta.lead_id,
+                    ator="clicksign",
+                    payload={
+                        "proposta_id": proposta.id,
+                        "status": proposta.status,
+                        "envelope_id": envelope_id,
+                        "descricao": "Assinatura recebida para proposta que não aceita mais aceite -- nada foi gerado",
+                    },
+                )
+                proposta.dados = {
+                    **(proposta.dados or {}),
+                    "clicksign": {
+                        **clicksign_dados,
+                        "assinatura_indisponivel_em": datetime.now(UTC).isoformat(),
+                        "ultimo_evento": _redigir_payload_webhook(payload),
+                    },
+                }
+            await session.commit()
+            return {"ok": True, "ignorado": True, "proposta_id": proposta.id}
         proposta.status = "aceita"
         proposta.aceito_em = proposta.aceito_em or datetime.now(UTC)
         proposta.public_aceito_em = proposta.public_aceito_em or proposta.aceito_em
@@ -2002,28 +2052,27 @@ async def assinar_proposta_portal(
 ) -> dict:
     proposta = (
         await session.execute(
-            select(PropostaComercial).where(
+            select(PropostaComercial)
+            .where(
                 PropostaComercial.id == proposta_id,
                 PropostaComercial.lead_id == cliente.lead_id,
                 PropostaComercial.organizacao_id == cliente.organizacao_id,
             )
+            # Serializa com criar_nova_versao_proposta (revisão do Codex no PR #147).
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if proposta is None:
         raise HTTPException(status_code=404, detail="Proposta não encontrada")
-    if proposta.status not in {"enviada", "visualizada", "aceita"}:
-        raise HTTPException(status_code=409, detail="Proposta indisponível para assinatura")
-    # Achado 7 do plano proposta-financeiro (Fase 1, 03/09/2026): validade_em
-    # nunca era checada. Uma proposta já aceita continua idempotente mesmo
-    # depois de vencer (não desfaz um aceite já registrado).
-    if (
-        proposta.public_aceito_em is None
-        and proposta.validade_em
-        and proposta.validade_em < datetime.now(UTC).date()
-    ):
-        raise HTTPException(
-            status_code=409, detail="Proposta expirada. Solicite uma nova versão à sua equipe de atendimento."
-        )
+    # Mesma regra de aceite dos outros canais (achado 18.2) -- inclui a
+    # validade (achado 7 do plano proposta-financeiro) e a versão substituída
+    # por uma nova (achado 18.1, cancelada na criação da nova versão). Uma
+    # proposta já aceita continua idempotente mesmo depois de vencer, mas
+    # status encerrado (ex.: aceita e depois cancelada) prevalece.
+    if not aceite_ja_registrado(proposta):
+        motivo = motivo_bloqueio_aceite(proposta)
+        if motivo:
+            raise HTTPException(status_code=409, detail=motivo)
     assinatura_hash = _hash_assinatura_proposta(proposta)
     await _validar_codigo_confirmacao_portal(session, cliente, "proposta", proposta.id, dados.codigo, assinatura_hash)
     agora = datetime.now(UTC)

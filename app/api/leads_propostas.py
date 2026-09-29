@@ -20,7 +20,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -92,6 +92,10 @@ def _pagina_codigo(token: str, *, aviso: str | None = None) -> HTMLResponse:
         <form method='post' action='/propostas/{token}/aceitar'><button class='button' type='submit' style='background:transparent;color:#086044;border:1px solid #086044'>Reenviar código</button></form>
         </main></html>"""
     )
+
+
+def _pagina_proposta_indisponivel(motivo: str) -> HTMLResponse:
+    return HTMLResponse(f"<h1>Proposta indisponível</h1><p>{html.escape(motivo)}</p>", status_code=409)
 
 
 def _pagina_aceite_confirmado() -> HTMLResponse:
@@ -189,6 +193,36 @@ TRANSICOES_STATUS_PROPOSTA: dict[str, set[str]] = {
     "expirada": set(),
     "cancelada": set(),
 }
+
+# Achado 18.2 da auditoria fina de Propostas (29/09/2026): cada canal de
+# aceite (painel, link público, portal, Clicksign) checava o status do seu
+# jeito -- o webhook do Clicksign não checava nada (aceitava proposta
+# cancelada/recusada) e a confirmação do código do link público não
+# rechecava o status depois do código emitido. Regra única, sem consulta ao
+# banco: a versão substituída por uma nova (achado 18.1) é cancelada em
+# criar_nova_versao_proposta, então o status basta para barrá-la aqui.
+STATUS_ACEITAVEIS_PROPOSTA = frozenset({"enviada", "visualizada"})
+STATUS_TERMINAIS_PROPOSTA = frozenset({"recusada", "expirada", "cancelada"})
+
+
+def aceite_ja_registrado(proposta: PropostaComercial) -> bool:
+    """Aceite anterior que ainda vale (resposta idempotente de "já aceita").
+    Status encerrado prevalece: uma proposta aceita e depois cancelada
+    (transição permitida) mantém public_aceito_em, mas não vale mais --
+    revisão do Codex no PR #147."""
+    if proposta.status in STATUS_TERMINAIS_PROPOSTA:
+        return False
+    return proposta.status == "aceita" or proposta.public_aceito_em is not None
+
+
+def motivo_bloqueio_aceite(proposta: PropostaComercial) -> str | None:
+    """Motivo pelo qual a proposta não pode receber um aceite NOVO agora, ou
+    None se puder. Quem chama trata antes o caso idempotente (já aceita)."""
+    if proposta.status not in STATUS_ACEITAVEIS_PROPOSTA:
+        return "Esta proposta não está mais disponível para aceite. Solicite uma nova versão ao atendimento."
+    if proposta.validade_em and proposta.validade_em < datetime.now(UTC).date():
+        return "Esta proposta expirou. Solicite uma nova versão ao atendimento."
+    return None
 
 
 class PropostaProtocoloInput(BaseModel):
@@ -369,7 +403,34 @@ async def criar_nova_versao_proposta(
     session: SessionDep,
     usuario: LeadsManageDep,
 ) -> dict:
-    anterior = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
+    # Linha travada até o commit: um aceite concorrente (que trava a mesma
+    # linha) espera e depois vê a proposta cancelada -- ou, se chegou antes,
+    # esta requisição vê "aceita" e recusa (revisão do Codex no PR #147).
+    anterior = await _proposta_da_org(session, proposta_id, usuario.organizacao_id, bloquear=True)
+    # Achado 18.1 da auditoria fina de Propostas (29/09/2026): a versão
+    # anterior continuava "enviada", com o link público ativo -- o cliente
+    # podia aceitar a versão antiga (preço antigo) ou as duas, gerando duas
+    # contratações (a unicidade da contratação é por proposta_id, e cada
+    # versão é uma linha própria). Agora só se versiona a partir da versão
+    # mais recente, nunca de uma já aceita, e a anterior é invalidada.
+    if anterior.status == "aceita":
+        raise HTTPException(
+            status_code=422,
+            detail="Esta proposta já foi aceita. Cancele o aceite antes de criar uma nova versão.",
+        )
+    versao_mais_recente = (
+        await session.execute(
+            select(func.max(PropostaComercial.versao)).where(
+                PropostaComercial.organizacao_id == anterior.organizacao_id,
+                PropostaComercial.numero == anterior.numero,
+            )
+        )
+    ).scalar_one_or_none()
+    if versao_mais_recente is not None and versao_mais_recente > anterior.versao:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Já existe a versão {versao_mais_recente} desta proposta. Crie a nova versão a partir dela.",
+        )
     # Achado 9 do plano proposta-financeiro (Fase 5, 03/09/2026): nova versão
     # mantém o mesmo número-base da proposta anterior -- só ``versao`` avança.
     # Antes cada versão ganhava um número novo, apesar de já existir o campo
@@ -390,18 +451,43 @@ async def criar_nova_versao_proposta(
         taxa_gru=anterior.taxa_gru,
         condicoes_pagamento=anterior.condicoes_pagamento,
         observacoes=anterior.observacoes,
-        dados=dict(anterior.dados or {}),
+        # O envelope do Clicksign e o cancelamento pertencem à versão
+        # anterior: copiados, o webhook (que localiza a proposta pelo
+        # envelope_id) poderia aplicar a assinatura do documento antigo nesta.
+        dados={
+            chave: valor
+            for chave, valor in (anterior.dados or {}).items()
+            if chave not in {"clicksign", "cancelamento"}
+        },
         criado_por=usuario.id,
     )
     session.add(nova)
     await session.flush()
+    status_anterior = anterior.status
+    if anterior.status in {"rascunho", "enviada", "visualizada"}:
+        anterior.status = "cancelada"
+        anterior.dados = {
+            **(anterior.dados or {}),
+            "cancelamento": {
+                "motivo": f"Substituída pela versão {nova.versao}",
+                "em": datetime.now(UTC).isoformat(),
+                "por": usuario.ator,
+                "substituida_por_id": nova.id,
+            },
+        }
+    # Recusada/expirada/cancelada já não aceitam, mas o link e um eventual
+    # código de confirmação pendente saem de circulação em qualquer caso.
+    anterior.public_token_hash = None
+    anterior.public_token_expira_em = None
+    anterior.codigo_confirmacao_hash = None
+    anterior.codigo_confirmacao_expira_em = None
     _auditar(
         session,
         usuario,
         request,
         "nova_versao_proposta",
         f"proposta:{nova.id}",
-        {"origem_id": anterior.id, "versao": nova.versao},
+        {"origem_id": anterior.id, "versao": nova.versao, "status_anterior_origem": status_anterior},
     )
     await session.commit()
     return _proposta_dict(nova, await session.get(Organizacao, usuario.organizacao_id))
@@ -417,10 +503,14 @@ async def atualizar_status_proposta(
 ) -> dict:
     proposta = (
         await session.execute(
-            select(PropostaComercial).where(
+            select(PropostaComercial)
+            .where(
                 PropostaComercial.id == proposta_id,
                 PropostaComercial.organizacao_id == usuario.organizacao_id,
             )
+            # Mesma trava de linha de criar_nova_versao_proposta e dos
+            # aceites pelo cliente (revisão do Codex no PR #147).
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if proposta is None:
@@ -546,15 +636,16 @@ async def atualizar_status_proposta(
     return _proposta_dict(proposta, org)
 
 
-async def _proposta_da_org(session: AsyncSession, proposta_id: int, organizacao_id: int) -> PropostaComercial:
-    proposta = (
-        await session.execute(
-            select(PropostaComercial).where(
-                PropostaComercial.id == proposta_id,
-                PropostaComercial.organizacao_id == organizacao_id,
-            )
-        )
-    ).scalar_one_or_none()
+async def _proposta_da_org(
+    session: AsyncSession, proposta_id: int, organizacao_id: int, *, bloquear: bool = False
+) -> PropostaComercial:
+    consulta = select(PropostaComercial).where(
+        PropostaComercial.id == proposta_id,
+        PropostaComercial.organizacao_id == organizacao_id,
+    )
+    if bloquear:
+        consulta = consulta.with_for_update()
+    proposta = (await session.execute(consulta)).scalar_one_or_none()
     if proposta is None:
         raise HTTPException(status_code=404, detail="Proposta não encontrada")
     return proposta
@@ -1177,11 +1268,15 @@ async def documento_proposta(proposta_id: int, session: SessionDep, usuario: Lea
     }
 
 
-async def _proposta_por_token(session: AsyncSession, token: str) -> PropostaComercial | None:
+async def _proposta_por_token(session: AsyncSession, token: str, *, bloquear: bool = False) -> PropostaComercial | None:
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    proposta = (
-        await session.execute(select(PropostaComercial).where(PropostaComercial.public_token_hash == digest))
-    ).scalar_one_or_none()
+    consulta = select(PropostaComercial).where(PropostaComercial.public_token_hash == digest)
+    if bloquear:
+        # Serializa o aceite com criar_nova_versao_proposta (mesma linha
+        # travada): sem isso, os dois podiam ver a proposta "enviada" ao
+        # mesmo tempo -- revisão do Codex no PR #147.
+        consulta = consulta.with_for_update()
+    proposta = (await session.execute(consulta)).scalar_one_or_none()
     if proposta is None or not proposta.public_token_expira_em or proposta.public_token_expira_em < datetime.now(UTC):
         return None
     # Link publico chega sem sessao de operador -- resolve o tenant a partir da
@@ -1223,6 +1318,11 @@ async def criar_link_proposta(proposta_id: int, session: SessionDep, usuario: Le
     ).scalar_one_or_none()
     if proposta is None:
         raise HTTPException(status_code=404, detail="Proposta não encontrada")
+    if proposta.status in STATUS_TERMINAIS_PROPOSTA:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Não é possível gerar link para uma proposta {proposta.status}. Crie uma nova versão.",
+        )
     token = secrets.token_urlsafe(40)
     proposta.public_token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     proposta.public_token_expira_em = datetime.now(UTC) + timedelta(days=7)
@@ -1250,10 +1350,20 @@ async def enviar_link_proposta(proposta_id: int, session: SessionDep, usuario: L
     ).scalar_one_or_none()
     if lead is None or not lead.email:
         raise HTTPException(status_code=422, detail="O lead não possui e-mail cadastrado")
+    # Achado 18.2: o envio forçava status "enviada" sem respeitar
+    # TRANSICOES_STATUS_PROPOSTA -- reenviar uma proposta aceita a voltava
+    # para "enviada", e uma cancelada/recusada/expirada "revivia".
+    if proposta.status not in {"rascunho", "enviada", "visualizada"}:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Não é possível enviar uma proposta {proposta.status}. Crie uma nova versão.",
+        )
     token = secrets.token_urlsafe(40)
     proposta.public_token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     proposta.public_token_expira_em = datetime.now(UTC) + timedelta(days=7)
-    proposta.status = "enviada"
+    if proposta.status == "rascunho":
+        # Reenvio de proposta já visualizada não rebaixa o status.
+        proposta.status = "enviada"
     proposta.enviado_em = datetime.now(UTC)
     await session.commit()
     org = await session.get(Organizacao, usuario.organizacao_id)
@@ -1306,6 +1416,15 @@ async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLRe
         if proposta.validade_em
         else ""
     )
+    if aceite_ja_registrado(proposta):
+        acao_html ="<p><strong>Proposta aceita.</strong> Nossa equipe dará continuidade ao atendimento.</p>"
+    elif motivo := motivo_bloqueio_aceite(proposta):
+        acao_html = f"<p class='muted'><strong>{safe(motivo)}</strong></p>"
+    else:
+        acao_html = (
+            f"<form method='post' action='/propostas/{token}/aceitar'>"
+            "<button class='button' type='submit'>Aceitar proposta</button></form>"
+        )
     return HTMLResponse(
         f"""<!doctype html><html lang='pt-BR'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
         <title>Proposta {safe(proposta.numero)} - {safe(org.nome)}</title><style>body{{font:16px Arial;color:#17231c;background:#f5f7f5;margin:0;padding:24px}}main{{max-width:760px;margin:auto;background:white;padding:36px;border-radius:18px;border:1px solid #d8ddd6}}h1{{font-family:Georgia,serif}}.muted{{color:#5b665f}}.button{{display:inline-block;background:#086044;color:#fff;padding:13px 20px;border-radius:9px;text-decoration:none;border:0;font-weight:700;cursor:pointer}}</style>
@@ -1315,7 +1434,7 @@ async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLRe
         <h2>Condições de pagamento</h2><p>{safe(proposta.condicoes_pagamento or "A combinar com o atendimento")}</p>
         {validade_html}
         <p class='muted'>Após aceite, pagamento e documentação completa, o protocolo será realizado em até 24 horas úteis. O protocolo não garante a concessão da marca.</p>
-        <form method='post' action='/propostas/{token}/aceitar'><button class='button' type='submit'>Aceitar proposta</button></form></main></html>"""
+        {acao_html}</main></html>"""
     )
 
 
@@ -1324,25 +1443,16 @@ async def aceitar_proposta_publica(token: str, request: Request, session: Sessio
     """Primeiro passo do aceite com dupla validação: gera e envia o código
     de confirmação por e-mail. Chamado de novo (botão "Reenviar código")
     gera um código novo, sujeito ao cooldown do limitador de reenvio."""
-    proposta = await _proposta_por_token(session, token)
+    proposta = await _proposta_por_token(session, token, bloquear=True)
     if proposta is None:
         return HTMLResponse("<h1>Link expirado</h1>", status_code=404)
-    if proposta.status not in ("enviada", "visualizada", "aceita"):
-        return HTMLResponse(
-            "<h1>Proposta indisponível</h1><p>Solicite uma nova versão ao atendimento.</p>",
-            status_code=409,
-        )
-    # Achado 7 do plano proposta-financeiro (Fase 1): validade_em nunca era
-    # checada -- só o token de 7 dias. Uma proposta já aceita continua
-    # idempotente mesmo depois de vencer (não desfaz um aceite já registrado).
-    if proposta.public_aceito_em is None and proposta.validade_em and proposta.validade_em < datetime.now(UTC).date():
-        return HTMLResponse(
-            "<h1>Proposta expirada</h1><p>Esta proposta não está mais disponível para aceite. "
-            "Solicite uma nova versão ao atendimento.</p>",
-            status_code=409,
-        )
-    if proposta.public_aceito_em is not None:
+    # Uma proposta já aceita continua idempotente mesmo depois de vencer (não
+    # desfaz um aceite já registrado) -- achado 7 do plano proposta-financeiro.
+    if aceite_ja_registrado(proposta):
         return _pagina_aceite_confirmado()
+    motivo = motivo_bloqueio_aceite(proposta)
+    if motivo:
+        return _pagina_proposta_indisponivel(motivo)
     lead = (
         await session.execute(
             select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == proposta.organizacao_id)
@@ -1387,11 +1497,17 @@ async def confirmar_codigo_proposta(
     """Segundo passo do aceite: valida o código de 6 dígitos e, se bater,
     finaliza o aceite (mesma lógica que antes vivia direto em
     aceitar_proposta_publica -- só que agora com o segundo fator confirmado)."""
-    proposta = await _proposta_por_token(session, token)
+    proposta = await _proposta_por_token(session, token, bloquear=True)
     if proposta is None:
         return HTMLResponse("<h1>Link expirado</h1>", status_code=404)
-    if proposta.public_aceito_em is not None:
+    if aceite_ja_registrado(proposta):
         return _pagina_aceite_confirmado()
+    # Achado 18.2: o status só era checado ao EMITIR o código -- uma proposta
+    # cancelada (ou substituída por nova versão) depois disso ainda podia ser
+    # aceita com o código já enviado, dentro dos 15 minutos de validade.
+    motivo = motivo_bloqueio_aceite(proposta)
+    if motivo:
+        return _pagina_proposta_indisponivel(motivo)
     if not proposta.codigo_confirmacao_hash or not proposta.codigo_confirmacao_expira_em:
         return _pagina_codigo(token, aviso="Peça um novo código para continuar.")
     if proposta.codigo_confirmacao_expira_em < datetime.now(UTC):

@@ -47,6 +47,10 @@ def css_marca(branding: dict | None, *, painel: bool = False) -> str:
         partes.append(f":root{{--forest:{cor}}}")
     if branding.get("logo_url"):
         partes.append(".portal-brand-panel img.brand-avatar{filter:none}")
+        # Telas de login/recuperação de senha (Fase 19.2).
+        partes.append(
+            ".auth-brand img,.ops-login-shell .portal-brand-panel>img{filter:none;object-fit:contain}"
+        )
         if painel:
             partes.append(
                 ".admin-sidebar-brand img.brand-avatar,.admin-mobile-header img.brand-avatar"

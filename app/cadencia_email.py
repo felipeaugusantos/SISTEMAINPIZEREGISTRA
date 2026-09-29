@@ -39,11 +39,17 @@ def dentro_do_horario_comercial(momento_utc: datetime, inicio: int, fim: int) ->
 async def _nome_escritorio(session: AsyncSession, organizacao_id: int) -> str | None:
     """Nome do escritório para o e-mail, ou None na organização padrão sem
     marca própria (e-mail como sempre foi). Falha na consulta não impede o
-    envio."""
+    envio.
+
+    SAVEPOINT (revisão do Codex no PR #155): sem ele, um erro nesta consulta
+    deixava a transação do lote inválida -- o e-mail sairia, mas o commit
+    final do worker falharia, o status não seria gravado e a nova tentativa
+    reenviaria o mesmo e-mail."""
     try:
-        org = (
-            await session.execute(select(Organizacao).where(Organizacao.id == organizacao_id))
-        ).scalar_one_or_none()
+        async with session.begin_nested():
+            org = (
+                await session.execute(select(Organizacao).where(Organizacao.id == organizacao_id))
+            ).scalar_one_or_none()
     except Exception:
         logger.exception("Falha ao resolver o nome do escritório para a cadência (org %s)", organizacao_id)
         return None

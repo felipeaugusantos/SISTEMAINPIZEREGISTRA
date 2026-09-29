@@ -53,6 +53,16 @@ def test_cadencia_resolve_o_nome_por_consulta() -> None:
     assert asyncio.run(_nome_escritorio(FakeSession([FakeResult(scalar=None)]), 2)) is None
 
 
+def test_falha_na_consulta_do_nome_nao_derruba_o_envio_da_cadencia() -> None:
+    # Revisão do Codex no PR #155: a consulta roda num SAVEPOINT, então um
+    # erro nela cai na identidade padrão sem invalidar a transação do lote.
+    class _SessaoComErro(FakeSession):
+        async def execute(self, *_args, **_kwargs):
+            raise RuntimeError("banco indisponível")
+
+    assert asyncio.run(_nome_escritorio(_SessaoComErro(), 2)) is None
+
+
 # --- e-mails -------------------------------------------------------------------------
 
 

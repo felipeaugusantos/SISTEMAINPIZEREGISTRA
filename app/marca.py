@@ -8,10 +8,13 @@ em Confiabilidade e LGPD). Funções puras, reaproveitadas pelo painel
 ``style-src 'self'`` bloqueia estilo inline).
 """
 
+import logging
 import re
 
 from app.models import Organizacao
 from app.settings import get_settings
+
+logger = logging.getLogger("ze_registra.marca")
 
 COR_HEX_VALIDA = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -40,10 +43,19 @@ def marca_organizacao(org: Organizacao) -> dict:
 async def nome_escritorio_para_email(session, organizacao_id: int | None) -> str | None:
     """Nome do escritório para os e-mails enviados em nome dele (Fase 19.3),
     ou None para a organização padrão sem marca própria -- aí os e-mails
-    ficam exatamente como sempre foram."""
+    ficam exatamente como sempre foram.
+
+    Melhor esforço, isolado em SAVEPOINT (mesma revisão do Codex no PR #155
+    feita na cadência): um erro na consulta não pode invalidar a transação
+    de quem chama -- cai na identidade padrão."""
     if not organizacao_id:
         return None
-    org = await session.get(Organizacao, organizacao_id)
+    try:
+        async with session.begin_nested():
+            org = await session.get(Organizacao, organizacao_id)
+    except Exception:
+        logger.exception("Falha ao resolver o nome do escritório (org %s)", organizacao_id)
+        return None
     if org is None:
         return None
     marca = marca_organizacao(org)

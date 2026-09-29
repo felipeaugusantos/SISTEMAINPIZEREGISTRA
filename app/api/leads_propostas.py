@@ -553,14 +553,22 @@ async def atualizar_status_proposta(
         ):
             raise HTTPException(status_code=401, detail="Código do autenticador inválido.")
     agora = datetime.now(UTC)
+    # Achado 18.3 da auditoria fina de Propostas (29/09/2026): reenviar o
+    # mesmo status (PATCH idempotente, permitido acima) regravava a data de
+    # envio/aceite e o registro do cancelamento com o horário e o motivo da
+    # repetição -- o SLA, as métricas e o histórico perdiam o dado original.
+    # As datas só são gravadas quando o status muda de fato; o resto (fase,
+    # contratação) já é idempotente e continua rodando.
+    mudou_status = dados.status != proposta.status
     proposta.status = dados.status
-    if dados.status == "cancelada":
+    if dados.status == "cancelada" and mudou_status:
         proposta.dados = {
             **(proposta.dados or {}),
             "cancelamento": {"motivo": dados.motivo.strip(), "em": agora.isoformat(), "por": usuario.ator},
         }
     if dados.status == "enviada":
-        proposta.enviado_em = agora
+        if mudou_status or proposta.enviado_em is None:
+            proposta.enviado_em = agora
         lead = (
             await session.execute(
                 select(Lead).where(Lead.id == proposta.lead_id, Lead.organizacao_id == usuario.organizacao_id)
@@ -570,8 +578,9 @@ async def atualizar_status_proposta(
             await avancar_fase_lead(session, lead, "proposta_enviada", usuario.nome or "sistema")
             await aplicar_regras_automacao(session, lead, "fase", "proposta_enviada", usuario.nome or "sistema")
     elif dados.status == "aceita":
-        proposta.aceito_em = agora
-        proposta.sla_status = "aguardando_pagamento"
+        if mudou_status or proposta.aceito_em is None:
+            proposta.aceito_em = agora
+            proposta.sla_status = "aguardando_pagamento"
         await criar_contratacao_automatica_proposta(session, proposta, "admin")
         # Mesmo fluxo de evidência do aceite pelo cliente (link público/
         # portal): grava public_aceito_em/IP e uma AssinaturaPropostaComercial,
@@ -1252,20 +1261,42 @@ async def documento_proposta(proposta_id: int, session: SessionDep, usuario: Lea
     if proposta is None:
         raise HTTPException(status_code=404, detail="Proposta não encontrada")
     org = await session.get(Organizacao, usuario.organizacao_id)
-    return {
-        "proposta": _proposta_dict(proposta, org),
-        "texto": (
-            f"PROPOSTA DE REGISTRO DE MARCA\\n\\n{org.nome}\\n{(org.branding or {}).get('cnpj', '')}\\n"
-            f"{(org.branding or {}).get('endereco', '')}\\n"
-            f"Telefone: {(org.branding or {}).get('telefone', org.telefone_contato or '')}\\n"
-            f"E-mail: {(org.branding or {}).get('email', org.email_contato or '')}\\n"
-            f"Site: {(org.branding or {}).get('site', '')}\\n\\n"
-            f"Cliente: {proposta.dados.get('cliente', '')}\\nMarca: {proposta.marca or 'A definir'}\\n"
-            f"Classes: {proposta.classes or 'A definir'}\\n\\n{proposta.escopo}\\n\\n"
-            "Após aceite, pagamento e recebimento dos documentos, o protocolo será realizado em até 24 horas úteis.\\n"
-            "O protocolo não representa garantia de concessão; a decisão pertence ao INPI."
-        ),
-    }
+    return {"proposta": _proposta_dict(proposta, org), "texto": _texto_documento_proposta(proposta, org)}
+
+
+def _texto_documento_proposta(proposta: PropostaComercial, org: Organizacao) -> str:
+    """Texto da visualização da proposta (exibido num <pre> em lead-dialog.js).
+
+    Achado 18.4 da auditoria fina de Propostas (29/09/2026): o texto era
+    montado com "\\\\n" no f-string -- barra invertida + "n" literais, não
+    quebra de linha --, e a visualização mostrava tudo numa linha só com
+    "\\n" escrito. Linhas de contato sem valor são omitidas em vez de
+    aparecerem vazias ("Site: ").
+    """
+    branding = org.branding or {}
+    contato = [
+        branding.get("cnpj"),
+        branding.get("endereco"),
+        f"Telefone: {telefone}" if (telefone := branding.get("telefone", org.telefone_contato)) else None,
+        f"E-mail: {email}" if (email := branding.get("email", org.email_contato)) else None,
+        f"Site: {site}" if (site := branding.get("site")) else None,
+    ]
+    linhas = [
+        "PROPOSTA DE REGISTRO DE MARCA",
+        "",
+        org.nome,
+        *[item for item in contato if item],
+        "",
+        f"Cliente: {(proposta.dados or {}).get('cliente', '')}",
+        f"Marca: {proposta.marca or 'A definir'}",
+        f"Classes: {proposta.classes or 'A definir'}",
+        "",
+        proposta.escopo,
+        "",
+        "Após aceite, pagamento e recebimento dos documentos, o protocolo será realizado em até 24 horas úteis.",
+        "O protocolo não representa garantia de concessão; a decisão pertence ao INPI.",
+    ]
+    return "\n".join(linhas)
 
 
 async def _proposta_por_token(session: AsyncSession, token: str, *, bloquear: bool = False) -> PropostaComercial | None:

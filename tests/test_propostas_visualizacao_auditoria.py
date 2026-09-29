@@ -78,6 +78,18 @@ def test_post_da_pagina_so_avanca_enviada_para_visualizada(status: str, esperado
     assert proposta.status == esperado
 
 
+def test_post_da_pagina_trava_a_linha_antes_de_rechecar_o_status() -> None:
+    """Revisão do Codex no PR #150: sem a trava, um fetch atrasado
+    concorrendo com cancelamento/aceite podia sobrescrever o status."""
+    from sqlalchemy.dialects import postgresql
+
+    session = FakeSession([FakeResult(scalar=_proposta(status="enviada"))])
+
+    asyncio.run(marcar_proposta_visualizada("token-abc", session))
+
+    assert "FOR UPDATE" in str(session.executados[0].compile(dialect=postgresql.dialect()))
+
+
 def test_post_com_token_invalido_responde_204_sem_alterar_nada() -> None:
     session = FakeSession([FakeResult(scalar=None)])
 
@@ -142,4 +154,31 @@ def test_enviar_proposta_registra_auditoria_sem_o_email(monkeypatch: pytest.Monk
 
     eventos = [obj for obj in session.adicionados if isinstance(obj, EventoAuditoria)]
     assert [evento.acao for evento in eventos] == ["enviar_proposta"]
+    assert eventos[0].sucesso is True
     assert "cliente@example.com" not in str(eventos[0].detalhes)
+
+
+def test_falha_no_envio_registra_tentativa_malsucedida(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revisão do Codex no PR #150: o sucesso era gravado antes do envio
+    externo -- uma falha no e-mail deixava um "enviado" que nunca chegou."""
+
+    async def _falhar(*_args, **_kwargs) -> None:
+        raise RuntimeError("SMTP indisponível")
+
+    monkeypatch.setattr(leads_propostas, "enviar_proposta_email", _falhar)
+    monkeypatch.setattr(leads_propostas, "gerar_pdf_proposta", lambda _dados: b"%PDF-teste")
+    monkeypatch.setattr(leads_propostas, "configuracao_clicksign", lambda _org=None: {"enabled": False})
+    lead = Lead(id=9, organizacao_id=1, nome="Cliente", email="cliente@example.com", telefone="", marca="ACME")
+    session = FakeSession(
+        [FakeResult(scalar=_proposta(status="rascunho")), FakeResult(scalar=lead)], objetos_get=[_organizacao()]
+    )
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            leads_propostas.enviar_link_proposta(1, _request_post("/propostas/1/enviar"), session, usuario_teste())
+        )
+
+    eventos = [obj for obj in session.adicionados if isinstance(obj, EventoAuditoria)]
+    assert len(eventos) == 1
+    assert eventos[0].sucesso is False
+    assert eventos[0].detalhes["erro"] == "RuntimeError"

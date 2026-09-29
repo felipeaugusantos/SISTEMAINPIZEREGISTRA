@@ -1411,31 +1411,42 @@ async def enviar_link_proposta(
         # Reenvio de proposta já visualizada não rebaixa o status.
         proposta.status = "enviada"
     proposta.enviado_em = datetime.now(UTC)
+    await session.commit()
     # Achado 18.7: o envio ao cliente não deixava rastro na auditoria (o
     # e-mail do destinatário não vai para os detalhes -- é dado pessoal).
-    _auditar(
-        session,
-        usuario,
-        request,
-        "enviar_proposta",
-        f"proposta:{proposta.id}",
-        {"status": proposta.status, "expira_em": proposta.public_token_expira_em.isoformat()},
-    )
+    # Revisão do Codex no PR #150: o sucesso só é registrado depois que o
+    # envio externo (Clicksign + e-mail) termina; falha vira registro de
+    # tentativa malsucedida, em vez de um "enviado" que nunca chegou.
+    detalhes_auditoria = {"status": proposta.status, "expira_em": proposta.public_token_expira_em.isoformat()}
+    try:
+        org = await session.get(Organizacao, usuario.organizacao_id)
+        link = f"{get_settings().app_public_url.rstrip('/')}/propostas/{token}"
+        pdf = gerar_pdf_proposta(_proposta_dict(proposta, org))
+        clicksign = configuracao_clicksign(org)
+        if clicksign["enabled"]:
+            try:
+                ids = await criar_envelope(pdf, f"Proposta {proposta.numero}", lead.email, lead.nome, org)
+                proposta.dados = {**(proposta.dados or {}), "clicksign": ids}
+                await session.commit()
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=502, detail=f"Não foi possível enviar à Clicksign: {type(exc).__name__}"
+                ) from exc
+        await enviar_proposta_email(lead.email, lead.nome, link, pdf, proposta.numero)
+    except Exception as exc:
+        _auditar(
+            session,
+            usuario,
+            request,
+            "enviar_proposta",
+            f"proposta:{proposta.id}",
+            {**detalhes_auditoria, "erro": type(exc).__name__},
+            status_http=exc.status_code if isinstance(exc, HTTPException) else 502,
+        )
+        await session.commit()
+        raise
+    _auditar(session, usuario, request, "enviar_proposta", f"proposta:{proposta.id}", detalhes_auditoria)
     await session.commit()
-    org = await session.get(Organizacao, usuario.organizacao_id)
-    link = f"{get_settings().app_public_url.rstrip('/')}/propostas/{token}"
-    pdf = gerar_pdf_proposta(_proposta_dict(proposta, org))
-    clicksign = configuracao_clicksign(org)
-    if clicksign["enabled"]:
-        try:
-            ids = await criar_envelope(pdf, f"Proposta {proposta.numero}", lead.email, lead.nome, org)
-            proposta.dados = {**(proposta.dados or {}), "clicksign": ids}
-            await session.commit()
-        except Exception as exc:
-            raise HTTPException(
-                status_code=502, detail=f"Não foi possível enviar à Clicksign: {type(exc).__name__}"
-            ) from exc
-    await enviar_proposta_email(lead.email, lead.nome, link, pdf, proposta.numero)
     return {
         "link": link,
         "destinatario": lead.email,
@@ -1501,8 +1512,10 @@ async def marcar_proposta_visualizada(token: str, session: SessionDep) -> Respon
     """Chamado pela página pública no navegador (static/proposta-publica.js),
     nunca pelo GET -- achado 18.7. Só avança "enviada" -> "visualizada";
     qualquer outro status fica como está. Token inválido também responde 204,
-    sem revelar se o link existe."""
-    proposta = await _proposta_por_token(session, token)
+    sem revelar se o link existe. A linha é travada (revisão do Codex no PR
+    #150): sem isso, um fetch atrasado concorrendo com cancelamento ou aceite
+    podia sobrescrever o status recém-gravado com "visualizada"."""
+    proposta = await _proposta_por_token(session, token, bloquear=True)
     if proposta is not None and proposta.status == "enviada":
         proposta.status = "visualizada"
         await session.commit()

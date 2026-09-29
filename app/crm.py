@@ -848,6 +848,7 @@ async def avancar_fase_lead(session: AsyncSession, lead: Lead, nova_fase: str, p
     if not forcar and ORDEM_FASE_LEAD.index(nova_fase) <= ORDEM_FASE_LEAD.index(lead.fase):
         return False
     lead.fase = nova_fase
+    status_anterior = lead.status
     novo_status = MAPA_FASE_STATUS.get(nova_fase)
     if novo_status is not None and lead.status != novo_status:
         lead.status = novo_status
@@ -874,7 +875,21 @@ async def avancar_fase_lead(session: AsyncSession, lead: Lead, nova_fase: str, p
     )
     await aplicar_regras_automacao(session, lead, "fase", nova_fase, por)
     await aplicar_cadencias_automaticas(session, lead, "fase", nova_fase, por)
+    if novo_status is not None and status_anterior != lead.status:
+        await disparar_automacoes_status(session, lead, por)
     return True
+
+
+async def disparar_automacoes_status(session: AsyncSession, lead: Lead, por: str) -> None:
+    """Dispara as regras e cadências do evento "status" para o status atual do
+    lead. Achado 17.3 (revisão do Codex): só o PATCH de status disparava esse
+    evento -- o Kanban e a sincronização de fase (proposta enviada, conversão)
+    mudavam o status em silêncio, e uma cadência configurada para "Sem
+    retorno" ou "Convertido" nunca rodava por esses caminhos. Chamar em todo
+    ponto que muda Lead.status; as chaves de idempotência de lembrete e de
+    envio tornam uma chamada repetida inofensiva."""
+    await aplicar_regras_automacao(session, lead, "status", lead.status.value, por)
+    await aplicar_cadencias_automaticas(session, lead, "status", lead.status.value, por)
 
 
 async def sincronizar_fase_por_status(session: AsyncSession, lead: Lead, por: str) -> bool:

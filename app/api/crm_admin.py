@@ -941,10 +941,13 @@ class PassoInput(BaseModel):
 # PATCH do lead e de fase em avancar_fase_lead), mas nenhuma API nem tela
 # permitia preenchê-los -- o disparo automático de cadência era inalcançável.
 # O vocabulário é o mesmo dos chamadores: evento "status" com um StatusLead,
-# ou evento "fase" com uma FaseLead.
+# ou evento "fase" com uma FaseLead. Fora os estados iniciais ("novo" /
+# "contato_inicial"): o lead NASCE neles e a criação não dispara automação,
+# então uma cadência com esse gatilho não rodaria para os leads novos --
+# oferecer a opção seria prometer algo que não acontece.
 VALORES_GATILHO_CADENCIA: dict[str, frozenset[str]] = {
-    "status": frozenset(item.value for item in StatusLead),
-    "fase": frozenset(item.value for item in FaseLead),
+    "status": frozenset(item.value for item in StatusLead if item != StatusLead.NOVO),
+    "fase": frozenset(item.value for item in FaseLead if item != FaseLead.CONTATO_INICIAL),
 }
 
 

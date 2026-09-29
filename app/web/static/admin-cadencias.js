@@ -18,8 +18,8 @@ const escCad = value => { const node = document.createElement("span"); node.text
 // Achado 17.3: disparo automático (Cadencia.gatilho_evento/gatilho_valor).
 // Mesmo vocabulário validado no backend (app/api/crm_admin.py::VALORES_GATILHO_CADENCIA).
 const gatilhosCadencia = {
-  status: { rotulo: "Quando o status mudar para", valores: { novo: "Novo", em_contato: "Em contato", qualificado: "Qualificado", proposta_enviada: "Proposta enviada", sem_retorno: "Sem retorno", convertido: "Convertido", descartado: "Descartado" } },
-  fase: { rotulo: "Quando a fase mudar para", valores: { contato_inicial: "Contato inicial", qualificado: "Qualificado", relatorio_enviado: "Relatório enviado", proposta_enviada: "Proposta enviada", proposta_aceita: "Proposta aceita", aguardando_pagamento: "Aguardando pagamento", pagamento_confirmado: "Pagamento confirmado", ganho: "Ganho", protocolo_inpi: "Protocolo no INPI", processo_inpi: "Processo no INPI" } },
+  status: { rotulo: "Quando o status mudar para", valores: { em_contato: "Em contato", qualificado: "Qualificado", proposta_enviada: "Proposta enviada", sem_retorno: "Sem retorno", convertido: "Convertido", descartado: "Descartado" } },
+  fase: { rotulo: "Quando a fase mudar para", valores: { qualificado: "Qualificado", relatorio_enviado: "Relatório enviado", proposta_enviada: "Proposta enviada", proposta_aceita: "Proposta aceita", aguardando_pagamento: "Aguardando pagamento", pagamento_confirmado: "Pagamento confirmado", ganho: "Ganho", protocolo_inpi: "Protocolo no INPI", processo_inpi: "Processo no INPI" } },
 };
 const gatilhoSelect = document.querySelector("#cadencia-gatilho");
 gatilhoSelect.innerHTML = `<option value="">Somente manual</option>` + Object.entries(gatilhosCadencia).map(([evento, grupo]) => `<optgroup label="${escCad(grupo.rotulo)}">${Object.entries(grupo.valores).map(([valor, label]) => `<option value="${evento}:${valor}">${escCad(label)}</option>`).join("")}</optgroup>`).join("");

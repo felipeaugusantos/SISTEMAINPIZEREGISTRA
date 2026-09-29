@@ -115,7 +115,7 @@ def test_processar_envios_marca_enviado_e_gera_token_no_sucesso() -> None:
     finally:
         _restaurar(*originais)
 
-    assert resultado == {"enviados": 1, "falhas": 0}
+    assert resultado == {"enviados": 1, "falhas": 0, "por_organizacao": {1: {"enviados": 1, "falhas": 0}}}
     assert envio.status == "enviado"
     assert envio.enviado_em is not None
     assert envio.rastreio_token_hash is not None
@@ -131,7 +131,7 @@ def test_processar_envios_marca_falhou_quando_lead_nao_existe() -> None:
     finally:
         _restaurar(*originais)
 
-    assert resultado == {"enviados": 0, "falhas": 1}
+    assert resultado == {"enviados": 0, "falhas": 1, "por_organizacao": {1: {"enviados": 0, "falhas": 1}}}
     assert envio.status == "falhou"
 
 
@@ -145,7 +145,7 @@ def test_processar_envios_incrementa_tentativas_ate_falhar_de_vez() -> None:
     finally:
         _restaurar(*originais)
 
-    assert resultado == {"enviados": 0, "falhas": 1}
+    assert resultado == {"enviados": 0, "falhas": 1, "por_organizacao": {1: {"enviados": 0, "falhas": 1}}}
     assert envio.tentativas == 3
     assert envio.status == "falhou"
     assert "SMTP indisponível" in envio.ultimo_erro
@@ -164,8 +164,31 @@ def test_processar_envios_pula_lead_descadastrado_da_cadencia() -> None:
     finally:
         _restaurar(*originais)
 
-    assert resultado == {"enviados": 0, "falhas": 0}
+    assert resultado == {"enviados": 0, "falhas": 0, "por_organizacao": {}}
     assert envio.status == "pausado"
+
+
+def test_processar_envios_separa_contagem_por_organizacao() -> None:
+    # Achado 17.4: o worker grava um AlertaSistema por organização a partir
+    # desta quebra -- antes só havia o total agregado de todos os tenants.
+    originais = _isolar_horario_e_envio(_envio_ok)
+    try:
+        envio_a = _envio(id=1, organizacao_id=1)
+        envio_a.passo = _passo()
+        envio_b = _envio(id=2, organizacao_id=2)
+        envio_b.passo = _passo(organizacao_id=2)
+        session = FakeSession(
+            [FakeResult(itens=[envio_a, envio_b])],
+            objetos_get=[_lead(), None],
+        )
+        resultado = asyncio.run(processar_envios_cadencia_pendentes(session))
+    finally:
+        _restaurar(*originais)
+
+    assert resultado["por_organizacao"] == {
+        1: {"enviados": 1, "falhas": 0},
+        2: {"enviados": 0, "falhas": 1},
+    }
 
 
 def test_processar_envios_fora_do_horario_nao_toca_nada() -> None:

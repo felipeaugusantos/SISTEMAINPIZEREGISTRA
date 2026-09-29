@@ -173,14 +173,18 @@ async def processar(tipo: str, payload: dict) -> None:
                     await enviar_alerta_atividades_atrasadas(
                         nome, email, [(item.nome, item.marca) for item in leads_atrasados]
                     )
-            if criados:
+            # Achado 17.4: antes um único alerta com o total de TODAS as
+            # organizações, gravado fixo na organização 1 (e visível ao
+            # comercial dela). Agora um alerta por organização, só com os
+            # números dela.
+            for organizacao_id, criados_org in criados.items():
                 session.add(
                     AlertaSistema(
-                        organizacao_id=1,
+                        organizacao_id=organizacao_id,
                         severidade="info",
                         codigo="REENGAJAMENTO_CRM_EXECUTADO",
-                        mensagem=f"Reengajamento por inatividade: {criados} lembrete(s) criado(s).",
-                        detalhes={"criados": criados, "semana": semana},
+                        mensagem=f"Reengajamento por inatividade: {criados_org} lembrete(s) criado(s).",
+                        detalhes={"criados": criados_org, "semana": semana},
                     )
                 )
         elif tipo == "crm.sla_primeiro_atendimento":
@@ -192,14 +196,14 @@ async def processar(tipo: str, payload: dict) -> None:
             # em app.crm.gerar_lembretes_sla_primeiro_atendimento (testável
             # isoladamente, mesmo padrão de aplicar_politica_oportunidade).
             criados_sla = await gerar_lembretes_sla_primeiro_atendimento(session)
-            if criados_sla:
+            for organizacao_id, criados_org in criados_sla.items():
                 session.add(
                     AlertaSistema(
-                        organizacao_id=1,
+                        organizacao_id=organizacao_id,
                         severidade="alerta",
                         codigo="SLA_PRIMEIRO_ATENDIMENTO_VENCIDO",
-                        mensagem=f"SLA de primeiro atendimento: {criados_sla} lembrete(s) criado(s).",
-                        detalhes={"criados": criados_sla},
+                        mensagem=f"SLA de primeiro atendimento: {criados_org} lembrete(s) criado(s).",
+                        detalhes={"criados": criados_org},
                     )
                 )
         elif tipo == "crm.fluxo_contratacao":
@@ -275,7 +279,7 @@ async def processar(tipo: str, payload: dict) -> None:
                     .distinct()
                 )
             ).all()
-            criadas = 0
+            criadas_por_organizacao: dict[int, int] = {}
             for organizacao_id, processo_id in pendentes:
                 movimentacoes = (
                     await session.execute(
@@ -310,11 +314,13 @@ async def processar(tipo: str, payload: dict) -> None:
                     )
                 ).scalar_one_or_none()
                 if inserido is not None:
-                    criadas += 1
-            if criadas:
+                    criadas_por_organizacao[organizacao_id] = criadas_por_organizacao.get(organizacao_id, 0) + 1
+            # Achado 17.4: um alerta por organização (antes, total agregado
+            # fixo na organização 1).
+            for organizacao_id, criadas in criadas_por_organizacao.items():
                 session.add(
                     AlertaSistema(
-                        organizacao_id=1,
+                        organizacao_id=organizacao_id,
                         severidade="info",
                         codigo="RENOVACOES_GERADAS",
                         mensagem=f"{criadas} renovação(ões) de marca gerada(s) automaticamente.",
@@ -419,29 +425,32 @@ async def processar(tipo: str, payload: dict) -> None:
             await processar_saidas_email_juridico(session)
         elif tipo == "cadencia.enviar_emails_pendentes":
             resultado = await processar_envios_cadencia_pendentes(session)
-            if resultado.get("enviados") or resultado.get("falhas"):
+            # Achado 17.4: um alerta por organização, só com os números
+            # dela (antes, total agregado fixo na organização 1).
+            for organizacao_id, contagem in (resultado.get("por_organizacao") or {}).items():
+                if not (contagem["enviados"] or contagem["falhas"]):
+                    continue
                 session.add(
                     AlertaSistema(
-                        organizacao_id=1,
-                        severidade="aviso" if resultado.get("falhas") else "info",
+                        organizacao_id=organizacao_id,
+                        severidade="aviso" if contagem["falhas"] else "info",
                         codigo="CADENCIA_EMAILS_PROCESSADOS",
                         mensagem=(
-                            f"{resultado.get('enviados', 0)} e-mail(s) de cadência enviado(s), "
-                            f"{resultado.get('falhas', 0)} falha(s)."
+                            f"{contagem['enviados']} e-mail(s) de cadência enviado(s), {contagem['falhas']} falha(s)."
                         ),
-                        detalhes=resultado,
+                        detalhes=dict(contagem),
                     )
                 )
         elif tipo == "cadencia.verificar_respostas_email":
             resultado = await verificar_respostas_email(session)
-            if resultado.get("pausados"):
+            for organizacao_id, pausados in (resultado.get("pausados_por_organizacao") or {}).items():
                 session.add(
                     AlertaSistema(
-                        organizacao_id=1,
+                        organizacao_id=organizacao_id,
                         severidade="info",
                         codigo="CADENCIA_PAUSADA_POR_RESPOSTA",
-                        mensagem=f"{resultado['pausados']} envio(s) de cadência pausado(s) por resposta do titular.",
-                        detalhes=resultado,
+                        mensagem=f"{pausados} envio(s) de cadência pausado(s) por resposta do titular.",
+                        detalhes={"pausados": pausados},
                     )
                 )
         elif tipo == "vigilancia.executar_semanal":

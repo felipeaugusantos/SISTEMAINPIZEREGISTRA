@@ -141,7 +141,7 @@ def test_cadencia_enviar_emails_pendentes_cria_alerta_quando_ha_envios(monkeypat
     monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
 
     async def _resultado_fake(_session):
-        return {"enviados": 3, "falhas": 0}
+        return {"enviados": 3, "falhas": 0, "por_organizacao": {1: {"enviados": 3, "falhas": 0}}}
 
     monkeypatch.setattr(worker_modulo, "processar_envios_cadencia_pendentes", _resultado_fake)
 
@@ -159,7 +159,7 @@ def test_cadencia_enviar_emails_pendentes_alerta_severo_quando_ha_falha(monkeypa
     monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
 
     async def _resultado_fake(_session):
-        return {"enviados": 1, "falhas": 2}
+        return {"enviados": 1, "falhas": 2, "por_organizacao": {1: {"enviados": 1, "falhas": 2}}}
 
     monkeypatch.setattr(worker_modulo, "processar_envios_cadencia_pendentes", _resultado_fake)
 
@@ -177,13 +177,121 @@ def test_cadencia_enviar_emails_pendentes_sem_atividade_nao_gera_alerta(monkeypa
     monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
 
     async def _resultado_fake(_session):
-        return {"enviados": 0, "falhas": 0}
+        return {"enviados": 0, "falhas": 0, "por_organizacao": {}}
 
     monkeypatch.setattr(worker_modulo, "processar_envios_cadencia_pendentes", _resultado_fake)
 
     asyncio.run(worker_modulo.processar("cadencia.enviar_emails_pendentes", {}))
 
     assert not [obj for obj in session.adicionados if isinstance(obj, AlertaSistema)]
+
+
+# --- Achado 17.4: alertas das automações do CRM por organização -------------
+# Antes todos gravavam organizacao_id=1 fixo com o total agregado de TODAS as
+# organizações -- o comercial da organização 1 via números de outros tenants
+# (e as demais organizações nunca viam os próprios).
+
+
+def test_cadencia_enviar_emails_pendentes_cria_um_alerta_por_organizacao(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeSession([])
+    monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
+
+    async def _resultado_fake(_session):
+        return {
+            "enviados": 5,
+            "falhas": 1,
+            "por_organizacao": {1: {"enviados": 2, "falhas": 0}, 7: {"enviados": 3, "falhas": 1}},
+        }
+
+    monkeypatch.setattr(worker_modulo, "processar_envios_cadencia_pendentes", _resultado_fake)
+
+    asyncio.run(worker_modulo.processar("cadencia.enviar_emails_pendentes", {}))
+
+    alertas = {obj.organizacao_id: obj for obj in session.adicionados if isinstance(obj, AlertaSistema)}
+    assert set(alertas) == {1, 7}
+    assert alertas[1].detalhes == {"enviados": 2, "falhas": 0}
+    assert alertas[1].severidade == "info"
+    assert alertas[7].detalhes == {"enviados": 3, "falhas": 1}
+    assert alertas[7].severidade == "aviso"
+
+
+def test_cadencia_verificar_respostas_cria_um_alerta_por_organizacao(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeSession([])
+    monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
+
+    async def _resultado_fake(_session):
+        return {
+            "verificado": True,
+            "remetentes": 3,
+            "registradas": 3,
+            "pausados": 4,
+            "pausados_por_organizacao": {2: 1, 9: 3},
+        }
+
+    monkeypatch.setattr(worker_modulo, "verificar_respostas_email", _resultado_fake)
+
+    asyncio.run(worker_modulo.processar("cadencia.verificar_respostas_email", {}))
+
+    alertas = {obj.organizacao_id: obj for obj in session.adicionados if isinstance(obj, AlertaSistema)}
+    assert set(alertas) == {2, 9}
+    assert alertas[2].detalhes == {"pausados": 1}
+    assert alertas[9].detalhes == {"pausados": 3}
+    assert all(alerta.codigo == "CADENCIA_PAUSADA_POR_RESPOSTA" for alerta in alertas.values())
+
+
+def test_reengajamento_cria_um_alerta_por_organizacao(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeSession([])
+    monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
+
+    async def _resultado_fake(_session):
+        return {1: 4, 3: 2}, {}
+
+    monkeypatch.setattr(worker_modulo, "gerar_lembretes_reengajamento_inatividade", _resultado_fake)
+
+    asyncio.run(worker_modulo.processar("crm.reengajamento_inatividade", {}))
+
+    alertas = {obj.organizacao_id: obj for obj in session.adicionados if isinstance(obj, AlertaSistema)}
+    assert set(alertas) == {1, 3}
+    assert alertas[1].detalhes["criados"] == 4
+    assert alertas[3].detalhes["criados"] == 2
+    assert all(alerta.codigo == "REENGAJAMENTO_CRM_EXECUTADO" for alerta in alertas.values())
+
+
+def test_sla_primeiro_atendimento_cria_um_alerta_por_organizacao(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeSession([])
+    monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
+
+    async def _resultado_fake(_session):
+        return {5: 1, 8: 6}
+
+    monkeypatch.setattr(worker_modulo, "gerar_lembretes_sla_primeiro_atendimento", _resultado_fake)
+
+    asyncio.run(worker_modulo.processar("crm.sla_primeiro_atendimento", {}))
+
+    alertas = {obj.organizacao_id: obj for obj in session.adicionados if isinstance(obj, AlertaSistema)}
+    assert set(alertas) == {5, 8}
+    assert alertas[5].detalhes == {"criados": 1}
+    assert alertas[8].detalhes == {"criados": 6}
+
+
+def test_gerar_renovacoes_marca_cria_um_alerta_por_organizacao(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeSession(
+        [
+            FakeResult(itens=[(1, 10), (4, 20)]),
+            FakeResult(itens=[_movimentacao(processo_id=10)]),
+            FakeResult(scalar=55),
+            FakeResult(itens=[_movimentacao(id=2, processo_id=20)]),
+            FakeResult(scalar=56),
+        ]
+    )
+    monkeypatch.setattr(worker_modulo, "session_factory", lambda: _ContextoSessaoFalso(session))
+
+    asyncio.run(worker_modulo.processar("crm.gerar_renovacoes_marca", {}))
+
+    alertas = {obj.organizacao_id: obj for obj in session.adicionados if isinstance(obj, AlertaSistema)}
+    assert set(alertas) == {1, 4}
+    assert alertas[1].detalhes == {"criadas": 1}
+    assert alertas[4].detalhes == {"criadas": 1}
 
 
 # --- Fase 3 da Operação Jurídica: dispatcher da comunicação durável ---------

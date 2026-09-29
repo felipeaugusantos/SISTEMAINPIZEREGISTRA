@@ -1593,8 +1593,16 @@ async function criarProposta(lead, box) {
   proposalContext = { lead, box };
   const statusBox = root.querySelector("#proposal-message");
   statusBox.hidden = true;
-  proposalForm.elements.honorarios.value = "1500";
-  proposalForm.elements.taxa_gru.value = "415";
+  // Achado 18.6: honorários, taxa GRU e escopo padrão vêm do "Modelo de
+  // propostas" do escritório (antes eram 1500/415 fixos para qualquer um).
+  // Se a configuração não carregar, cai nos valores de sempre.
+  let modelo = {};
+  try {
+    const resposta = await fetch("/v1/admin/configuracao/propostas");
+    if (resposta.ok) modelo = await resposta.json();
+  } catch { modelo = {}; }
+  proposalForm.elements.honorarios.value = modelo.honorarios_padrao ?? "1500";
+  proposalForm.elements.taxa_gru.value = modelo.taxa_gru_padrao ?? "415";
   // Achado 18.5: condição estruturada que o financeiro segue no aceite; o
   // campo de texto virou só uma observação complementar.
   proposalForm.elements.forma_pagamento.value = "entrada_e_protocolo";
@@ -1602,7 +1610,7 @@ async function criarProposta(lead, box) {
   proposalForm.elements.condicoes_pagamento.value = "";
   atualizarCampoParcelas();
   proposalForm.elements.validade_em.value = "";
-  proposalForm.elements.escopo.value = "Pesquisa, preparação e protocolo de registro de marca no INPI";
+  proposalForm.elements.escopo.value = modelo.escopo_padrao || "Pesquisa, preparação e protocolo de registro de marca no INPI";
   // Os planos padrão são resolvidos no servidor a partir da configuração da
   // organização; não pedimos ao operador uma classificação repetida a cada
   // proposta.

@@ -184,11 +184,20 @@ async def _enviar_smtp_contabilizado(mensagem: EmailMessage, settings: Settings,
         erro = smtplib.SMTPDataError(550, b"5.4.5 Daily user sending limit exceeded")
         erro._zeregistra_provedor = provedores[0].identificador
         raise erro
+    # Achado 18.6 (revisão do Codex no PR #151): e-mails enviados em nome de
+    # um escritório (ex.: proposta) marcam o nome visível do remetente na
+    # própria mensagem; o endereço continua o do provedor configurado.
+    nome_remetente = getattr(mensagem, "zeregistra_nome_remetente", None)
     for indice, provedor in enumerate(disponiveis):
+        remetente = (
+            f'"{nome_remetente}" <{provedor.email_from_address}>'
+            if nome_remetente
+            else f"{provedor.email_from_name} <{provedor.email_from_address}>"
+        )
         if "From" in mensagem:
-            mensagem.replace_header("From", f"{provedor.email_from_name} <{provedor.email_from_address}>")
+            mensagem.replace_header("From", remetente)
         else:
-            mensagem["From"] = f"{provedor.email_from_name} <{provedor.email_from_address}>"
+            mensagem["From"] = remetente
         try:
             await asyncio.to_thread(_enviar_smtp, mensagem, provedor)
             _PROVEDORES_ESGOTADOS_ATE.pop(provedor.identificador, None)
@@ -629,20 +638,44 @@ async def enviar_alerta_nova_pesquisa(
         logger.exception("Falha ao enviar alerta de nova pesquisa por e-mail")
 
 
-async def enviar_proposta_email(destinatario: str, nome: str, link: str, pdf_bytes: bytes, numero: str) -> None:
-    """Envia a proposta com link seguro e PDF anexado, quando SMTP estiver habilitado."""
+async def enviar_proposta_email(
+    destinatario: str,
+    nome: str,
+    link: str,
+    pdf_bytes: bytes,
+    numero: str,
+    organizacao_nome: str | None = None,
+) -> None:
+    """Envia a proposta com link seguro e PDF anexado, quando SMTP estiver habilitado.
+
+    Achado 18.6 da auditoria fina de Propostas (29/09/2026): o assunto
+    citava "Zé Registra" fixo -- o cliente de outro escritório recebia a
+    proposta com a marca da plataforma. Agora usa o nome do escritório."""
     settings = get_settings()
     if not settings.email_enabled:
         return
     mensagem = EmailMessage()
-    mensagem["Subject"] = f"Proposta de registro de marca {numero} - Zé Registra"
-    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    # Nome vem de configuração do escritório: sem quebras de linha, <>, aspas
+    # nem barra invertida, que invalidariam os cabeçalhos From/Subject (o
+    # nome vai entre aspas no From, então ":" e "," são seguros).
+    remetente = " ".join((organizacao_nome or "").split())
+    for caractere in '<>"\\':
+        remetente = remetente.replace(caractere, "")
+    remetente = remetente or settings.email_from_name
+    mensagem["Subject"] = f"Proposta de registro de marca {numero} - {remetente}"
+    # Revisão do Codex no PR #151: o nome visível do remetente também é o do
+    # escritório; o endereço continua o remetente configurado da plataforma.
+    # _enviar_smtp_contabilizado reescreve o From por provedor e respeita
+    # este nome.
+    mensagem.zeregistra_nome_remetente = remetente
+    mensagem["From"] = f'"{remetente}" <{settings.email_from_address}>'
     mensagem["To"] = destinatario
     mensagem.set_content(
         f"Olá, {nome or 'cliente'}.\n\n"
         "Sua proposta de registro de marca está disponível no link abaixo:\n\n"
         f"{link}\n\n"
-        "O PDF da proposta também está anexado."
+        "O PDF da proposta também está anexado.\n\n"
+        f"Atenciosamente,\n{remetente}"
     )
     mensagem.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=f"proposta-{numero}.pdf")
     ultimo_erro: Exception | None = None

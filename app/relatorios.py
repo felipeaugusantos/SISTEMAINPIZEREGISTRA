@@ -48,8 +48,57 @@ _DISCLAIMER = (
 )
 
 
+def _moeda_br(valor: object) -> str:
+    return f"R$ {float(valor or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def resolver_campos_proposta(texto: str | None, proposta: dict) -> str:
+    """Substitui os campos {{...}} que a tela "Modelo de propostas" deixa
+    inserir nos textos (admin-modelo-propostas.html). Achado 18.6: a tela
+    oferecia os campos, mas o PDF nunca os resolvia e imprimia o texto
+    literal ("{{cliente.nome}}"). Campo desconhecido fica como está."""
+    if not texto:
+        return texto or ""
+    empresa = proposta.get("empresa") or {}
+    cliente = proposta.get("cliente") or {}
+    validade = proposta.get("validade_em")
+    if hasattr(validade, "strftime"):
+        validade = validade.strftime("%d/%m/%Y")
+    marcas = proposta.get("pesquisas") or []
+    valores = {
+        "cliente.nome": cliente.get("nome"),
+        "cliente.email": cliente.get("email"),
+        "proposta.numero": proposta.get("numero"),
+        "proposta.versao": proposta.get("versao"),
+        "proposta.marca": proposta.get("marca"),
+        "proposta.classes": proposta.get("classes"),
+        "proposta.honorarios": _moeda_br(proposta.get("honorarios")),
+        "proposta.taxa_gru": _moeda_br(proposta.get("taxa_gru")),
+        "proposta.total": _moeda_br(proposta.get("total")),
+        "proposta.validade_em": validade,
+        "empresa.nome": empresa.get("nome"),
+        "empresa.cnpj": empresa.get("cnpj"),
+        "empresa.endereco": empresa.get("endereco"),
+        "empresa.telefone": empresa.get("telefone"),
+        "empresa.site": empresa.get("site"),
+        "marcas": "; ".join(str(item.get("marca") or "") for item in marcas if item.get("marca"))
+        or proposta.get("marca"),
+    }
+    resultado = str(texto)
+    for chave, valor in valores.items():
+        resultado = resultado.replace("{{" + chave + "}}", str(valor or ""))
+    return resultado
+
+
 def gerar_pdf_proposta(proposta: dict) -> bytes:
-    """Gera a proposta com o modelo institucional dinâmico da Zé Registra."""
+    """Gera a proposta com o modelo institucional dinâmico do escritório.
+
+    Achado 18.6 da auditoria fina de Propostas (29/09/2026): o nome "Zé
+    Registra" era fixo no cabeçalho, no destaque, no texto de abertura e no
+    rodapé -- o PDF de qualquer escritório saía com a marca da plataforma.
+    Também o quadro de pagamento era fixo ("em até 10x no cartão / via
+    Pix"), contradizendo a forma de pagamento da proposta (achado 18.5)."""
+    nome_empresa = (proposta.get("empresa") or {}).get("nome") or "Escritório"
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -59,7 +108,7 @@ def gerar_pdf_proposta(proposta: dict) -> bytes:
         topMargin=12 * mm,
         bottomMargin=14 * mm,
         title=f"Proposta {proposta.get('numero', '')}",
-        author="Zé Registra",
+        author=nome_empresa,
     )
     estilos = _estilos()
     corpo = ParagraphStyle("proposta_modelo_corpo", parent=estilos["sub"], fontSize=9, leading=12, textColor=_COR_TINTA)
@@ -116,7 +165,7 @@ def gerar_pdf_proposta(proposta: dict) -> bytes:
     )
     investimento = Table(
         [
-            [p("Honorários Zé Registra"), p(moeda(proposta.get("honorarios")))],
+            [p(f"Honorários — {nome_empresa}"), p(moeda(proposta.get("honorarios")))],
             [p("Taxas oficiais do INPI (GRU)"), p(moeda(proposta.get("taxa_gru")))],
             [p("TOTAL À VISTA", estilos["marca"]), p(moeda(proposta.get("total")), valor)],
         ],
@@ -157,18 +206,26 @@ def gerar_pdf_proposta(proposta: dict) -> bytes:
             ]
         )
     )
-    prazo = (
+    prazo = resolver_campos_proposta(
         configuracao.get("prazo_texto")
-        or "Após o aceite, confirmação do pagamento e recebimento integral dos documentos, protocolamos em até 24 horas úteis, salvo pendências ou indisponibilidade dos sistemas oficiais do INPI."
+        or "Após o aceite, confirmação do pagamento e recebimento integral dos documentos, protocolamos em até 24 horas úteis, salvo pendências ou indisponibilidade dos sistemas oficiais do INPI.",
+        proposta,
     )
-    condicoes = (
+    condicoes = resolver_campos_proposta(
         configuracao.get("condicoes_texto")
-        or "O protocolo não representa garantia de concessão. A decisão final pertence ao INPI e a análise é indicativa."
+        or "O protocolo não representa garantia de concessão. A decisão final pertence ao INPI e a análise é indicativa.",
+        proposta,
+    )
+    rodape_texto = resolver_campos_proposta(
+        configuracao.get("rodape") or "Esta proposta possui versão auditável no sistema.", proposta
+    )
+    condicao_pagamento = (
+        proposta.get("condicoes_pagamento") or "Condições de pagamento a combinar com o atendimento."
     )
     cabecalho = Table(
         [
             [
-                p("Zé Registra", branco_valor),
+                p(nome_empresa, branco_valor),
                 p(
                     f"PROPOSTA COMERCIAL\nNº {proposta.get('numero', '')}\nVersão {proposta.get('versao', 1)}",
                     branco,
@@ -205,7 +262,7 @@ def gerar_pdf_proposta(proposta: dict) -> bytes:
     )
     destaque = Table(
         [
-            [p("Zé Registra", branco_valor)],
+            [p(nome_empresa, branco_valor)],
             [p("Vamos proteger suas marcas com transparência e agilidade.", branco)],
         ],
         colWidths=[151 * mm],
@@ -239,29 +296,6 @@ def gerar_pdf_proposta(proposta: dict) -> bytes:
             [
                 ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F0F8F1")),
                 ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#B8DEBD")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 7),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-            ]
-        )
-    )
-    pagamento = Table(
-        [
-            [p("PARCELADO", estilos["rotulo"]), p("À VISTA", branco)],
-            [p(moeda(proposta.get("total")), valor), p(moeda(proposta.get("total")), branco_valor)],
-            [p("Em até 10x no cartão"), p("Via Pix", branco)],
-        ],
-        colWidths=[24 * mm, 24 * mm],
-    )
-    pagamento.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F5F5F5")),
-                ("BACKGROUND", (1, 0), (1, -1), _COR_CABECALHO_ESCURO),
-                ("TEXTCOLOR", (1, 0), (1, -1), colors.white),
-                ("BOX", (0, 0), (-1, -1), 0.7, _COR_LINHA),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 8),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 8),
                 ("TOPPADDING", (0, 0), (-1, -1), 7),
@@ -304,17 +338,15 @@ def gerar_pdf_proposta(proposta: dict) -> bytes:
     )
     pagamento = Table(
         [
-            [p("PARCELADO", estilos["rotulo"]), p("À VISTA", branco)],
-            [p(moeda(proposta.get("total")), valor), p(moeda(proposta.get("total")), branco_valor)],
-            [p("Em até 10x no cartão"), p("Via Pix", branco)],
+            [p("CONDIÇÃO DE PAGAMENTO", estilos["rotulo"])],
+            [p(condicao_pagamento)],
         ],
-        colWidths=[36 * mm, 36 * mm],
+        colWidths=[72 * mm],
     )
     pagamento.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F5F5F5")),
-                ("BACKGROUND", (1, 0), (1, -1), _COR_CABECALHO_ESCURO),
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F5F5F5")),
                 ("BOX", (0, 0), (-1, -1), 0.7, _COR_LINHA),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 8),
@@ -354,7 +386,7 @@ def gerar_pdf_proposta(proposta: dict) -> bytes:
         ),
         Spacer(1, 2 * mm),
         p(
-            f"Prezado(a) {cliente.get('nome') or 'cliente'}, apresentamos a proposta da Zé Registra para garantir a exclusividade e a segurança jurídica das suas marcas junto ao INPI."
+            f"Prezado(a) {cliente.get('nome') or 'cliente'}, apresentamos a proposta de {nome_empresa} para garantir a exclusividade e a segurança jurídica das suas marcas junto ao INPI."
         ),
         Spacer(1, 4 * mm),
         Table(
@@ -374,20 +406,12 @@ def gerar_pdf_proposta(proposta: dict) -> bytes:
             ),
         ),
         Spacer(1, 3 * mm),
-        p(
-            proposta.get("condicoes_pagamento")
-            or "Pagamento à vista via Pix ou parcelado no cartão, conforme condições comerciais."
-        ),
         p("Após o envio da documentação e confirmação do pagamento, iniciamos o protocolo junto ao INPI."),
         Spacer(1, 4 * mm),
         destaque,
         Spacer(1, 3 * mm),
         p(condicoes, rodape),
-        p(
-            configuracao.get("rodape")
-            or "Esta proposta foi gerada pelo Zé Registra e possui versão auditável no sistema.",
-            rodape,
-        ),
+        p(rodape_texto, rodape),
     ]
     doc.build(story)
     return buffer.getvalue()

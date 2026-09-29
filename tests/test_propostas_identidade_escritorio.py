@@ -13,9 +13,12 @@ abertura, rodapé) e no assunto do e-mail; honorários/taxa GRU padrão fixos
 Isolados e determinísticos: FakeSession (tests/conftest.py), sem banco real.
 """
 
+import ast
 import asyncio
 import inspect
+import textwrap
 from decimal import Decimal
+from email.message import EmailMessage
 
 import pytest
 
@@ -31,6 +34,7 @@ from app.models import Organizacao, PropostaComercial
 from app.relatorios import gerar_pdf_proposta, resolver_campos_proposta
 from app.settings import Settings
 from tests.conftest import FakeSession, usuario_teste
+from tests.test_emailing import configuracao_email
 
 
 def _organizacao(**kwargs: object) -> Organizacao:
@@ -137,9 +141,12 @@ def test_campos_do_modelo_sao_resolvidos() -> None:
 
 
 def test_pdf_da_proposta_nao_tem_mais_a_marca_nem_o_pagamento_fixos() -> None:
-    fonte = inspect.getsource(gerar_pdf_proposta)
-    assert "Zé Registra" not in fonte
-    assert "10x" not in fonte
+    # Sem a docstring, que cita os textos antigos só para explicar a correção.
+    funcao = ast.parse(textwrap.dedent(inspect.getsource(gerar_pdf_proposta))).body[0]
+    funcao.body = funcao.body[1:]
+    codigo = ast.unparse(funcao)
+    assert "Zé Registra" not in codigo
+    assert "10x" not in codigo
 
 
 def test_pdf_da_proposta_leva_o_nome_do_escritorio() -> None:
@@ -171,4 +178,68 @@ def test_email_da_proposta_usa_o_nome_do_escritorio(monkeypatch: pytest.MonkeyPa
     )
 
     assert enviadas[0]["Subject"] == "Proposta de registro de marca PROP-1 - Beta Marcas"
+    assert enviadas[0]["From"].addresses[0].display_name == "Beta Marcas"
     assert "Beta Marcas" in enviadas[0].get_body(preferencelist=("plain",)).get_content()
+
+
+def test_envio_por_provedor_mantem_o_nome_do_escritorio_no_remetente(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Revisão do Codex no PR #151: o envio reescreve o From por provedor
+    SMTP e trocava o nome do escritório pelo da plataforma."""
+    mensagem = EmailMessage()
+    mensagem["From"] = "Beta Marcas <principal@example.test>"
+    mensagem["To"] = "maria@example.com"
+    mensagem.set_content("Teste")
+    mensagem.zeregistra_nome_remetente = "Beta Marcas"
+    monkeypatch.setattr("app.emailing._PROVEDORES_ESGOTADOS_ATE", {})
+    monkeypatch.setattr("app.emailing._enviar_smtp", lambda _msg, _provedor: None)
+
+    async def _ignorar(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr("app.emailing._registrar_email_enviado", _ignorar)
+
+    asyncio.run(emailing._enviar_smtp_contabilizado(mensagem, configuracao_email(), "proposta"))
+
+    assert mensagem["From"].addresses[0].display_name == "Beta Marcas"
+
+
+def test_nome_do_escritorio_com_quebra_de_linha_nao_invalida_os_cabecalhos(monkeypatch: pytest.MonkeyPatch) -> None:
+    configuracao = Settings()
+    configuracao.email_enabled = True
+    enviadas = []
+
+    async def _capturar(mensagem, _settings, _operacao):
+        enviadas.append(mensagem)
+        return "principal"
+
+    monkeypatch.setattr(emailing, "get_settings", lambda: configuracao)
+    monkeypatch.setattr(emailing, "_enviar_smtp_contabilizado", _capturar)
+
+    asyncio.run(
+        emailing.enviar_proposta_email(
+            "maria@example.com", "Maria", "https://link", b"%PDF", "PROP-1", organizacao_nome="Beta\r\nBcc: x <y>"
+        )
+    )
+
+    assert enviadas[0]["Subject"] == "Proposta de registro de marca PROP-1 - Beta Bcc: x y"
+    assert enviadas[0]["Bcc"] is None
+    assert enviadas[0]["From"].addresses[0].display_name == "Beta Bcc: x y"
+
+
+def test_pagina_publica_usa_o_nome_exibido_do_escritorio() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.api.leads_propostas import visualizar_proposta_publica
+    from tests.conftest import FakeResult
+
+    proposta = _proposta()
+    proposta.organizacao_id = 2
+    proposta.status = "enviada"
+    proposta.public_token_expira_em = datetime.now(UTC) + timedelta(days=1)
+    org = _organizacao(branding={"nome_exibido": "Beta Marcas"})
+    session = FakeSession([FakeResult(scalar=proposta)], objetos_get=[org])
+
+    corpo = asyncio.run(visualizar_proposta_publica("token-abc", session)).body.decode("utf-8")
+
+    assert "Beta Marcas" in corpo
+    assert "Escritorio Beta Ltda" not in corpo

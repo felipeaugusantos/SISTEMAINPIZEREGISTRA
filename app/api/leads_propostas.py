@@ -1612,6 +1612,9 @@ async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLRe
             status_code=404,
         )
     org = await session.get(Organizacao, proposta.organizacao_id)
+    # Mesma identidade do PDF e do e-mail (revisão do Codex no PR #151): com
+    # nome exibido configurado, a página não pode mostrar o nome cadastral.
+    nome_escritorio = identidade_organizacao(org)["nome"]
 
     def safe(value: object) -> str:
         return html.escape(str(value or ""))
@@ -1643,9 +1646,9 @@ async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLRe
         )
     return HTMLResponse(
         f"""<!doctype html><html lang='pt-BR'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-        <title>Proposta {safe(proposta.numero)} - {safe(org.nome)}</title>
+        <title>Proposta {safe(proposta.numero)} - {safe(nome_escritorio)}</title>
         <link rel='stylesheet' href='/static/proposta-publica.css'><script src='/static/proposta-publica.js' defer></script>
-        <main data-marcar-visualizada='/propostas/{token}/visualizada'><p class='muted'>{safe(org.nome)}</p><h1>Proposta de registro de marca</h1><p>Proposta <strong>{safe(proposta.numero)}</strong> · versão {proposta.versao}</p>
+        <main data-marcar-visualizada='/propostas/{token}/visualizada'><p class='muted'>{safe(nome_escritorio)}</p><h1>Proposta de registro de marca</h1><p>Proposta <strong>{safe(proposta.numero)}</strong> · versão {proposta.versao}</p>
         <h2>Marca</h2><p>{safe(proposta.marca or "A definir")} · Classes {safe(proposta.classes or "A definir")}</p><h2>Escopo</h2><p>{safe(proposta.escopo)}</p>
         <h2>Valores</h2><p>Honorários: {safe(moeda(proposta.honorarios))}<br>Taxa GRU: {safe(moeda(proposta.taxa_gru))}<br><strong>Total: {safe(moeda(total))}</strong></p>
         <h2>Condições de pagamento</h2><p>{safe(proposta.condicoes_pagamento or "A combinar com o atendimento")}</p>

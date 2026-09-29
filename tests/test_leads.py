@@ -2492,7 +2492,9 @@ def _lead_para_email(**overrides: object) -> Lead:
 def test_enviar_email_prospeccao_usa_modelo_configurado_e_registra_contato(monkeypatch) -> None:
     enviados = []
 
-    async def _fake_enviar(destinatario: str, assunto: str, corpo: str, reply_to: str | None = None) -> None:
+    async def _fake_enviar(
+        destinatario: str, assunto: str, corpo: str, reply_to: str | None = None, organizacao_nome: str | None = None
+    ) -> None:
         enviados.append({"destinatario": destinatario, "assunto": assunto, "corpo": corpo, "reply_to": reply_to})
 
     monkeypatch.setattr("app.api.leads.enviar_email_prospeccao_lead", _fake_enviar)

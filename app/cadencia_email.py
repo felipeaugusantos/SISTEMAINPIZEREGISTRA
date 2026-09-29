@@ -19,7 +19,8 @@ from sqlalchemy.orm import selectinload
 
 from app.auth import hash_token
 from app.emailing import enviar_passo_cadencia
-from app.models import CadenciaPasso, EnvioCadenciaEmail, Lead
+from app.marca import marca_organizacao
+from app.models import CadenciaPasso, EnvioCadenciaEmail, Lead, Organizacao
 from app.settings import get_settings
 
 logger = logging.getLogger("ze_registra.cadencia_email")
@@ -33,6 +34,29 @@ def dentro_do_horario_comercial(momento_utc: datetime, inicio: int, fim: int) ->
     if local.weekday() >= 5:
         return False
     return inicio <= local.hour < fim
+
+
+async def _nome_escritorio(session: AsyncSession, organizacao_id: int) -> str | None:
+    """Nome do escritório para o e-mail, ou None na organização padrão sem
+    marca própria (e-mail como sempre foi). Falha na consulta não impede o
+    envio.
+
+    SAVEPOINT (revisão do Codex no PR #155): sem ele, um erro nesta consulta
+    deixava a transação do lote inválida -- o e-mail sairia, mas o commit
+    final do worker falharia, o status não seria gravado e a nova tentativa
+    reenviaria o mesmo e-mail."""
+    try:
+        async with session.begin_nested():
+            org = (
+                await session.execute(select(Organizacao).where(Organizacao.id == organizacao_id))
+            ).scalar_one_or_none()
+    except Exception:
+        logger.exception("Falha ao resolver o nome do escritório para a cadência (org %s)", organizacao_id)
+        return None
+    if org is None:
+        return None
+    marca = marca_organizacao(org)
+    return marca["nome"] if marca["propria"] else None
 
 
 def gerar_token_rastreio() -> tuple[str, str]:
@@ -78,6 +102,9 @@ async def processar_envios_cadencia_pendentes(session: AsyncSession) -> dict:
         contagem = por_organizacao.setdefault(organizacao_id, {"enviados": 0, "falhas": 0})
         contagem[chave] += 1
 
+    # Fase 19.3 (white-label): remetente e assinatura com o nome do
+    # escritório de cada envio; uma consulta por organização no lote.
+    nomes_escritorio: dict[int, str | None] = {}
     for envio in pendentes:
         lead = await session.get(Lead, envio.lead_id)
         if lead is None or lead.anonimizado_em is not None or lead.arquivado_em is not None or not lead.email:
@@ -110,8 +137,16 @@ async def processar_envios_cadencia_pendentes(session: AsyncSession) -> dict:
         rastreio_url = f"{settings.app_public_url.rstrip('/')}/v1/cadencias/rastreio/{token}.gif"
         descadastro_url = f"{settings.app_public_url.rstrip('/')}/v1/cadencias/descadastrar/{token}"
         try:
+            if envio.organizacao_id not in nomes_escritorio:
+                nomes_escritorio[envio.organizacao_id] = await _nome_escritorio(session, envio.organizacao_id)
             await enviar_passo_cadencia(
-                lead.email, lead.nome, passo.titulo, passo.descricao or "", rastreio_url, descadastro_url
+                lead.email,
+                lead.nome,
+                passo.titulo,
+                passo.descricao or "",
+                rastreio_url,
+                descadastro_url,
+                organizacao_nome=nomes_escritorio[envio.organizacao_id],
             )
             envio.status = "enviado"
             envio.enviado_em = agora

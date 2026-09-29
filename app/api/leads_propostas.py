@@ -33,6 +33,7 @@ from app.clicksign import criar_envelope
 from app.crm import aplicar_regras_automacao, avancar_fase_lead, registrar_evento_operacional
 from app.database import get_session
 from app.emailing import enviar_codigo_confirmacao_proposta, enviar_proposta_email
+from app.marca import nome_escritorio_para_email
 from app.models import (
     AssinaturaPropostaComercial,
     ContratacaoServico,
@@ -1708,9 +1709,13 @@ async def aceitar_proposta_publica(token: str, request: Request, session: Sessio
     proposta.codigo_confirmacao_expira_em = datetime.now(UTC) + timedelta(minutes=CODIGO_CONFIRMACAO_MINUTOS)
     proposta.codigo_confirmacao_tentativas = 0
     proposta.codigo_confirmacao_enviado_em = datetime.now(UTC)
+    # Fase 19.3: resolvido antes do commit, ainda no contexto do tenant.
+    nome_escritorio = await nome_escritorio_para_email(session, proposta.organizacao_id)
     await session.commit()
     try:
-        await enviar_codigo_confirmacao_proposta(lead.email, lead.nome, codigo, proposta.numero)
+        await enviar_codigo_confirmacao_proposta(
+            lead.email, lead.nome, codigo, proposta.numero, organizacao_nome=nome_escritorio
+        )
     except Exception:
         # Achado da varredura ampla do sistema (18/09/2026): falha de envio
         # (SMTP fora do ar, etc.) não ficava registrada em lugar nenhum --

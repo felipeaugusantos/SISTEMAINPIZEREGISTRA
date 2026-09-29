@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.emailing import enviar_comunicacao_juridica_rastreada
+from app.marca import nome_escritorio_para_email
 from app.models import Organizacao, PrazoJuridico, SaidaEmailJuridico, UsuarioOperacoes
 
 STATUS_ATIVOS = ("aguardando_confirmacao", "pendente", "em_andamento")
@@ -91,14 +92,20 @@ async def processar_saidas_email_juridico(
         await session.commit()
 
     resultado = {"processados": 0, "enviados": 0, "reagendados": 0, "falhas": 0}
+    # Fase 19.3 (white-label): remetente/assunto com o nome do escritório de
+    # cada saída; uma consulta por organização no lote.
+    nomes_escritorio: dict[int, str | None] = {}
     for item in itens:
         resultado["processados"] += 1
         try:
+            if item.organizacao_id not in nomes_escritorio:
+                nomes_escritorio[item.organizacao_id] = await nome_escritorio_para_email(session, item.organizacao_id)
             item.provedor = await enviar_comunicacao_juridica_rastreada(
                 item.destinatario,
                 item.assunto,
                 item.mensagem,
                 chave=item.chave,
+                organizacao_nome=nomes_escritorio[item.organizacao_id],
             )
         except Exception as exc:  # noqa: BLE001 - isolamento por item é requisito da fila
             item.ultimo_erro = type(exc).__name__[:120]

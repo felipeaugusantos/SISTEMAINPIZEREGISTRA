@@ -210,7 +210,9 @@ def test_aceitar_proposta_publica_dentro_da_validade_envia_codigo_por_email() ->
 
     codigos_enviados: list[tuple] = []
 
-    async def _enviar_fake(destinatario: str, nome: str, codigo: str, numero: str) -> None:
+    async def _enviar_fake(
+        destinatario: str, nome: str, codigo: str, numero: str, organizacao_nome: str | None = None
+    ) -> None:
         codigos_enviados.append((destinatario, nome, codigo, numero))
 
     original = leads_modulo.enviar_codigo_confirmacao_proposta

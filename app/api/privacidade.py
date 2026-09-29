@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip, hash_token
 from app.database import get_session
 from app.emailing import enviar_confirmacao_exclusao
+from app.marca import nome_escritorio_para_email
 from app.models import ArquivoClientePortal, EventoAuditoria, Lead, Organizacao, SolicitacaoAnonimizacaoLead
 from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
@@ -87,10 +88,12 @@ async def solicitar_exclusao(
                 expira_em=datetime.now(UTC) + timedelta(minutes=settings.anonimizacao_token_minutos),
             )
         )
+        # Fase 19.3: resolvido antes do commit, ainda no contexto do tenant.
+        nome_escritorio = await nome_escritorio_para_email(session, organizacao.id)
         await session.commit()
         if settings.email_enabled:
             try:
-                await enviar_confirmacao_exclusao(email, token)
+                await enviar_confirmacao_exclusao(email, token, organizacao_nome=nome_escritorio)
             except Exception:
                 pass
         elif settings.app_env.lower() != "production":

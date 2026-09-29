@@ -36,9 +36,10 @@ from app.api.leads_propostas import (
 from app.auth import exigir_permissao, hash_ip, hash_senha, hash_token, verificar_senha
 from app.clicksign import configuracao as configuracao_clicksign
 from app.crm import registrar_evento_operacional
-from app.database import get_session
+from app.database import get_session, session_factory
 from app.emailing import enviar_codigo_confirmacao_portal, enviar_recuperacao_portal
 from app.malware_scan import escanear_upload_ou_rejeitar
+from app.marca import nome_escritorio_para_email
 from app.models import (
     ArquivoClientePortal,
     AssinaturaDocumentoLead,
@@ -105,16 +106,31 @@ CODIGO_CONFIRMACAO_PORTAL_TENTATIVAS_MAXIMAS = 5
 _limitar_codigo_confirmacao_portal = RateLimiter(limite=1, janela_segundos=60, escopo="portal-codigo-confirmacao")
 
 
-async def _enviar_recuperacao_portal_com_log(email: str, nome: str, token: str, cliente_id: int) -> None:
+async def _enviar_recuperacao_portal_com_log(
+    email: str, nome: str, token: str, cliente_id: int, organizacao_id: int | None = None
+) -> None:
     """Rodado como BackgroundTask, depois da resposta já ter sido enviada --
     achado médio da Fase 9 (21/09/2026): aguardar o envio SMTP antes de
     responder criava um oráculo de tempo (a resposta demorava visivelmente
     mais quando a conta existia, mesmo com o corpo da resposta sendo
     idêntico), permitindo enumerar e-mails de clientes com portal ativo. A
     falha continua logada, nunca engolida em silêncio (achado da varredura
-    ampla de 18/09/2026)."""
+    ampla de 18/09/2026).
+
+    Fase 19.3: o nome do escritório (remetente/assunto) é resolvido aqui,
+    também depois da resposta, para não reintroduzir diferença de latência
+    entre conta existente e inexistente. Falha nessa consulta não impede o
+    envio -- só cai na identidade padrão."""
+    nome_escritorio = None
+    if organizacao_id:
+        try:
+            async with session_factory() as sessao:
+                await aplicar_contexto_tenant(sessao, organizacao_id)
+                nome_escritorio = await nome_escritorio_para_email(sessao, organizacao_id)
+        except Exception:
+            logger.exception("Falha ao resolver o nome do escritório para o e-mail do portal (org %s)", organizacao_id)
     try:
-        await enviar_recuperacao_portal(email, nome, token)
+        await enviar_recuperacao_portal(email, nome, token, organizacao_nome=nome_escritorio)
     except Exception:
         logger.exception("Falha ao enviar e-mail de recuperação do portal do cliente %s", cliente_id)
 
@@ -954,7 +970,9 @@ async def solicitar_recuperacao_portal(
         # BackgroundTask -- a resposta não espera o SMTP, fechando o
         # oráculo de tempo do achado médio da Fase 9 (o envio só quando a
         # conta existia deixava a latência visivelmente diferente).
-        background_tasks.add_task(_enviar_recuperacao_portal_com_log, cliente.email, cliente.nome, token, cliente.id)
+        background_tasks.add_task(
+            _enviar_recuperacao_portal_com_log, cliente.email, cliente.nome, token, cliente.id, cliente.organizacao_id
+        )
     return {"status": "ok", "mensagem": "Se a conta existir, a recuperação foi criada."}
 
 
@@ -1937,9 +1955,13 @@ async def _solicitar_codigo_confirmacao_portal(
     registro.tentativas = 0
     registro.enviado_em = datetime.now(UTC)
     _auditar_cliente(session, cliente, request, "codigo_confirmacao_solicitado", f"{recurso_tipo}:{recurso_id}")
+    # Fase 19.3: resolvido antes do commit, ainda no contexto do tenant.
+    nome_escritorio = await nome_escritorio_para_email(session, cliente.organizacao_id)
     await session.commit()
     try:
-        await enviar_codigo_confirmacao_portal(cliente.email, cliente.nome, codigo, descricao)
+        await enviar_codigo_confirmacao_portal(
+            cliente.email, cliente.nome, codigo, descricao, organizacao_nome=nome_escritorio
+        )
     except Exception as exc:
         logger.exception("Falha ao enviar código de confirmação do portal do cliente %s", cliente.id)
         raise HTTPException(status_code=502, detail="Não foi possível enviar o código. Tente novamente.") from exc

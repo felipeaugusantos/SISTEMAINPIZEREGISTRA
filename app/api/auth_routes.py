@@ -23,7 +23,7 @@ from app.auth import (
 )
 from app.database import aplicar_contexto_autenticacao, get_session
 from app.emailing import enviar_recuperacao_senha
-from app.marca import css_marca, marca_organizacao
+from app.marca import css_marca, marca_organizacao, nome_escritorio_para_email
 from app.models import (
     ConviteOrganizacao,
     Organizacao,
@@ -436,11 +436,15 @@ async def solicitar_recuperacao(
             True,
             {"usuario_id": usuario.id},
         )
+        # Fase 19.3: resolvido antes do commit, ainda no contexto do tenant.
+        nome_escritorio = await nome_escritorio_para_email(session, usuario.organizacao_id)
         await session.commit()
         settings = get_settings()
         if settings.email_enabled:
             try:
-                await enviar_recuperacao_senha(usuario.email, usuario.nome, token)
+                await enviar_recuperacao_senha(
+                    usuario.email, usuario.nome, token, organizacao_nome=nome_escritorio
+                )
             except Exception:
                 # A resposta continua genérica para não revelar se a conta existe.
                 # O token nunca é incluído no log.

@@ -1647,7 +1647,9 @@ def test_solicitar_codigo_assinatura_proposta_portal_envia_e_persiste(monkeypatc
     session = FakeSession([FakeResult(scalar=proposta), FakeResult(scalar=None)])
     enviados = []
 
-    async def capturar_envio(destinatario: str, nome: str, codigo: str, descricao: str) -> None:
+    async def capturar_envio(
+        destinatario: str, nome: str, codigo: str, descricao: str, organizacao_nome: str | None = None
+    ) -> None:
         enviados.append((destinatario, nome, codigo, descricao))
 
     monkeypatch.setattr(modulo_portal, "enviar_codigo_confirmacao_portal", capturar_envio)

@@ -8,10 +8,13 @@ em Confiabilidade e LGPD). Funções puras, reaproveitadas pelo painel
 ``style-src 'self'`` bloqueia estilo inline).
 """
 
+import logging
 import re
 
 from app.models import Organizacao
 from app.settings import get_settings
+
+logger = logging.getLogger("ze_registra.marca")
 
 COR_HEX_VALIDA = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -24,17 +27,39 @@ def marca_organizacao(org: Organizacao) -> dict:
     """Nome, logo e cor do escritório. ``propria`` indica se há algo a
     aplicar sobre a identidade padrão da plataforma: a organização padrão
     sem nada configurado continua com a aparência de sempre."""
-    branding = org.branding or {}
+    branding = getattr(org, "branding", None) or {}
     nome_exibido = branding.get("nome_exibido")
     logo_url = branding.get("logo_url")
     cor = cor_valida(branding.get("cor_primaria"))
-    padrao = org.slug == get_settings().default_organization_slug
+    padrao = getattr(org, "slug", None) == get_settings().default_organization_slug
     return {
-        "nome": nome_exibido or org.nome,
+        "nome": nome_exibido or getattr(org, "nome", None),
         "logo_url": logo_url,
         "cor_primaria": cor,
         "propria": bool(nome_exibido or logo_url or cor or not padrao),
     }
+
+
+async def nome_escritorio_para_email(session, organizacao_id: int | None) -> str | None:
+    """Nome do escritório para os e-mails enviados em nome dele (Fase 19.3),
+    ou None para a organização padrão sem marca própria -- aí os e-mails
+    ficam exatamente como sempre foram.
+
+    Melhor esforço, isolado em SAVEPOINT (mesma revisão do Codex no PR #155
+    feita na cadência): um erro na consulta não pode invalidar a transação
+    de quem chama -- cai na identidade padrão."""
+    if not organizacao_id:
+        return None
+    try:
+        async with session.begin_nested():
+            org = await session.get(Organizacao, organizacao_id)
+    except Exception:
+        logger.exception("Falha ao resolver o nome do escritório (org %s)", organizacao_id)
+        return None
+    if org is None:
+        return None
+    marca = marca_organizacao(org)
+    return marca["nome"] if marca["propria"] else None
 
 
 def css_marca(branding: dict | None, *, painel: bool = False) -> str:

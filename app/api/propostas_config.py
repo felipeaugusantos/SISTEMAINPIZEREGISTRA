@@ -1,5 +1,6 @@
 import hashlib
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated
 
@@ -20,12 +21,24 @@ ManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.manage
 FinanceViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("finance.view"))]
 FinanceManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("finance.manage"))]
 
+# Achado 18.6 da auditoria fina de Propostas (29/09/2026): o sistema vai
+# atender outros escritórios, então nada do que o cliente de um escritório
+# vê pode sair com a marca ou os preços da Zé Registra. O rodapé padrão
+# deixou de citar a plataforma, e os valores padrão (honorários e taxa GRU)
+# passaram a ser configuração de cada organização -- antes eram fixos no
+# código (1500/415) no backend e na tela.
+HONORARIOS_PADRAO_PLATAFORMA = Decimal("1500.00")
+TAXA_GRU_PADRAO_PLATAFORMA = Decimal("415.00")
+
 DEFAULTS = {
     "titulo": "PROPOSTA DE REGISTRO DE MARCA",
-    "escopo_padrao": "Registro de marca no INPI",
+    # Mesmo texto que o formulário de proposta sempre usou como padrão.
+    "escopo_padrao": "Pesquisa, preparação e protocolo de registro de marca no INPI",
     "prazo_texto": "Após o aceite, confirmação do pagamento e recebimento integral dos documentos, o protocolo será realizado em até 24 horas úteis, salvo pendências ou indisponibilidade dos sistemas oficiais do INPI.",
     "condicoes_texto": "O protocolo não representa garantia de concessão. A decisão final pertence ao INPI. A pesquisa e a análise são indicativas e não substituem exame oficial ou análise jurídica especializada.",
-    "rodape": "Esta proposta foi gerada pelo Zé Registra e possui versão auditável no sistema.",
+    "rodape": "Esta proposta possui versão auditável no sistema.",
+    "honorarios_padrao": str(HONORARIOS_PADRAO_PLATAFORMA),
+    "taxa_gru_padrao": str(TAXA_GRU_PADRAO_PLATAFORMA),
 }
 
 
@@ -35,6 +48,24 @@ class PropostaConfigInput(BaseModel):
     prazo_texto: str = Field(min_length=10, max_length=3000)
     condicoes_texto: str = Field(min_length=10, max_length=4000)
     rodape: str = Field(min_length=3, max_length=500)
+    honorarios_padrao: Decimal | None = Field(default=None, ge=0, le=Decimal("1000000"))
+    taxa_gru_padrao: Decimal | None = Field(default=None, ge=0, le=Decimal("1000000"))
+
+
+def valores_padrao_proposta(org: Organizacao | None) -> tuple[Decimal, Decimal]:
+    """(honorários, taxa GRU) padrão da organização para novas propostas."""
+    atual = ((org.branding or {}).get("proposta") or {}) if org else {}
+
+    def _decimal(valor: object, padrao: Decimal) -> Decimal:
+        try:
+            return Decimal(str(valor)) if valor not in (None, "") else padrao
+        except (InvalidOperation, ValueError):
+            return padrao
+
+    return (
+        _decimal(atual.get("honorarios_padrao"), HONORARIOS_PADRAO_PLATAFORMA),
+        _decimal(atual.get("taxa_gru_padrao"), TAXA_GRU_PADRAO_PLATAFORMA),
+    )
 
 
 class PropostaPlanosContabeisInput(BaseModel):
@@ -123,7 +154,7 @@ async def salvar_planos_contabeis_propostas(
 
 
 def _config(org: Organizacao) -> dict:
-    atual = (org.branding or {}).get("proposta") or {}
+    atual = {chave: valor for chave, valor in ((org.branding or {}).get("proposta") or {}).items() if valor is not None}
     return {**DEFAULTS, **atual}
 
 
@@ -138,7 +169,8 @@ async def salvar_configuracao(dados: PropostaConfigInput, session: SessionDep, u
     org = await session.get(Organizacao, usuario.organizacao_id)
     if org is None:
         return {"status": "ok"}
-    org.branding = {**(org.branding or {}), "proposta": dados.model_dump()}
+    # mode="json": branding é uma coluna JSON e Decimal não é serializável.
+    org.branding = {**(org.branding or {}), "proposta": dados.model_dump(mode="json")}
     await session.commit()
     return {"status": "ok", "configuracao": _config(org)}
 

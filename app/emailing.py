@@ -629,20 +629,33 @@ async def enviar_alerta_nova_pesquisa(
         logger.exception("Falha ao enviar alerta de nova pesquisa por e-mail")
 
 
-async def enviar_proposta_email(destinatario: str, nome: str, link: str, pdf_bytes: bytes, numero: str) -> None:
-    """Envia a proposta com link seguro e PDF anexado, quando SMTP estiver habilitado."""
+async def enviar_proposta_email(
+    destinatario: str,
+    nome: str,
+    link: str,
+    pdf_bytes: bytes,
+    numero: str,
+    organizacao_nome: str | None = None,
+) -> None:
+    """Envia a proposta com link seguro e PDF anexado, quando SMTP estiver habilitado.
+
+    Achado 18.6 da auditoria fina de Propostas (29/09/2026): o assunto
+    citava "Zé Registra" fixo -- o cliente de outro escritório recebia a
+    proposta com a marca da plataforma. Agora usa o nome do escritório."""
     settings = get_settings()
     if not settings.email_enabled:
         return
     mensagem = EmailMessage()
-    mensagem["Subject"] = f"Proposta de registro de marca {numero} - Zé Registra"
+    remetente = organizacao_nome or settings.email_from_name
+    mensagem["Subject"] = f"Proposta de registro de marca {numero} - {remetente}"
     mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
     mensagem["To"] = destinatario
     mensagem.set_content(
         f"Olá, {nome or 'cliente'}.\n\n"
         "Sua proposta de registro de marca está disponível no link abaixo:\n\n"
         f"{link}\n\n"
-        "O PDF da proposta também está anexado."
+        "O PDF da proposta também está anexado.\n\n"
+        f"Atenciosamente,\n{remetente}"
     )
     mensagem.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=f"proposta-{numero}.pdf")
     ultimo_erro: Exception | None = None

@@ -26,6 +26,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.leads import _auditar, _documentacao_protocolavel, _lead_da_org, _pendencias_documentos, _prazo_sla_24h
+from app.api.propostas_config import valores_padrao_proposta
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip, hash_token
 from app.clicksign import configuracao as configuracao_clicksign
 from app.clicksign import criar_envelope
@@ -148,10 +149,9 @@ class PropostaInput(BaseModel):
         return self
 
 
-# Valores padrão do rascunho comercial quando a proposta é criada diretamente
-# pelo funil, sem interromper o usuário para preencher um formulário.
-HONORARIOS_PROPOSTA_PADRAO = Decimal("1500.00")
-TAXA_GRU_PROPOSTA_PADRAO = Decimal("415.00")
+# Honorários e taxa GRU padrão (quando a proposta é criada sem valores) vêm
+# da configuração de cada organização -- ver
+# app.api.propostas_config.valores_padrao_proposta (achado 18.6).
 FORMA_PAGAMENTO_PROPOSTA_PADRAO = "entrada_e_protocolo"
 
 
@@ -292,6 +292,26 @@ def _atualizar_sla_proposta(proposta: PropostaComercial, agora: datetime | None 
 # --- Propostas comerciais por lead ----------------------------------------
 
 
+NOME_PADRAO_SEM_ORGANIZACAO = "Escritório"
+
+
+def identidade_organizacao(org: Organizacao | None) -> dict:
+    """Nome e contatos do escritório como aparecem para o cliente (PDF,
+    página pública, e-mail). Nome exibido configurado no branding tem
+    precedência sobre o nome cadastral."""
+    if org is None:
+        return {"nome": NOME_PADRAO_SEM_ORGANIZACAO}
+    branding = org.branding or {}
+    return {
+        "nome": branding.get("nome_exibido") or org.nome or NOME_PADRAO_SEM_ORGANIZACAO,
+        "cnpj": branding.get("cnpj"),
+        "endereco": branding.get("endereco"),
+        "telefone": branding.get("telefone") or org.telefone_contato,
+        "email": branding.get("email") or org.email_contato,
+        "site": branding.get("site"),
+    }
+
+
 def _proposta_dict(proposta: PropostaComercial, org: Organizacao | None = None) -> dict:
     branding = (org.branding or {}) if org else {}
     return {
@@ -313,7 +333,11 @@ def _proposta_dict(proposta: PropostaComercial, org: Organizacao | None = None) 
         "parcelas": condicao_da_proposta(proposta.dados)[1],
         "observacoes": proposta.observacoes,
         "pesquisas": (proposta.dados or {}).get("pesquisas") or [],
-        "cliente": {"nome": (proposta.dados or {}).get("cliente") or "cliente"},
+        "cliente": {
+            "nome": (proposta.dados or {}).get("cliente") or "cliente",
+            # Usado pelo campo {{cliente.email}} do modelo de propostas.
+            "email": (proposta.dados or {}).get("email"),
+        },
         "enviado_em": proposta.enviado_em,
         "aceito_em": proposta.aceito_em,
         "public_aceito_ip_registrado": bool(proposta.public_aceito_ip_hash),
@@ -332,8 +356,10 @@ def _proposta_dict(proposta: PropostaComercial, org: Organizacao | None = None) 
         "juridico_recebido_por_id": proposta.juridico_recebido_por_id,
         "juridico_recebido_por": proposta.juridico_recebido_por,
         "criado_em": proposta.criado_em,
-        # Propostas exibem somente o nome fantasia institucional.
-        "empresa": {"nome": "Zé Registra"},
+        # Achado 18.6: era {"nome": "Zé Registra"} fixo -- a proposta de
+        # qualquer escritório saía com a marca da plataforma. Agora é a
+        # identidade da própria organização.
+        "empresa": identidade_organizacao(org),
         "configuracao": branding.get("proposta") or {},
     }
 
@@ -407,6 +433,7 @@ async def criar_proposta(lead_id: int, dados: PropostaInput, session: SessionDep
     pesquisa = pesquisas[0] if pesquisas else None
     marcas_resumo, classes_resumo = _resumir_pesquisas_proposta(pesquisas)
     condicao_pagamento, texto_condicao = _condicao_pagamento_proposta(dados)
+    honorarios_padrao, taxa_gru_padrao = valores_padrao_proposta(organizacao)
     proposta = PropostaComercial(
         organizacao_id=usuario.organizacao_id,
         lead_id=lead,
@@ -416,8 +443,8 @@ async def criar_proposta(lead_id: int, dados: PropostaInput, session: SessionDep
         marca=dados.marca or marcas_resumo,
         classes=dados.classes or classes_resumo,
         escopo=dados.escopo.strip(),
-        honorarios=dados.honorarios if dados.honorarios is not None else HONORARIOS_PROPOSTA_PADRAO,
-        taxa_gru=dados.taxa_gru if dados.taxa_gru is not None else TAXA_GRU_PROPOSTA_PADRAO,
+        honorarios=dados.honorarios if dados.honorarios is not None else honorarios_padrao,
+        taxa_gru=dados.taxa_gru if dados.taxa_gru is not None else taxa_gru_padrao,
         condicoes_pagamento=texto_condicao,
         observacoes=dados.observacoes,
         criado_por=usuario.id,
@@ -1551,7 +1578,9 @@ async def enviar_link_proposta(
                 raise HTTPException(
                     status_code=502, detail=f"Não foi possível enviar à Clicksign: {type(exc).__name__}"
                 ) from exc
-        await enviar_proposta_email(lead.email, lead.nome, link, pdf, proposta.numero)
+        await enviar_proposta_email(
+            lead.email, lead.nome, link, pdf, proposta.numero, organizacao_nome=identidade_organizacao(org)["nome"]
+        )
     except Exception as exc:
         _auditar(
             session,

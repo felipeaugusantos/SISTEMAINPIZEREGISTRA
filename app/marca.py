@@ -27,13 +27,13 @@ def marca_organizacao(org: Organizacao) -> dict:
     """Nome, logo e cor do escritório. ``propria`` indica se há algo a
     aplicar sobre a identidade padrão da plataforma: a organização padrão
     sem nada configurado continua com a aparência de sempre."""
-    branding = org.branding or {}
+    branding = getattr(org, "branding", None) or {}
     nome_exibido = branding.get("nome_exibido")
     logo_url = branding.get("logo_url")
     cor = cor_valida(branding.get("cor_primaria"))
-    padrao = org.slug == get_settings().default_organization_slug
+    padrao = getattr(org, "slug", None) == get_settings().default_organization_slug
     return {
-        "nome": nome_exibido or org.nome,
+        "nome": nome_exibido or getattr(org, "nome", None),
         "logo_url": logo_url,
         "cor_primaria": cor,
         "propria": bool(nome_exibido or logo_url or cor or not padrao),

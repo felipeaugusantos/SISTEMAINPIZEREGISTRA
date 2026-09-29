@@ -15,9 +15,9 @@ from pydantic import ValidationError
 
 from app.api.crm_admin import CadenciaInput
 from app.auth import hash_token, obter_usuario_atual
+from app.crm import avancar_fase_lead
 from app.database import get_session
 from app.main import app
-from app.crm import avancar_fase_lead
 from app.models import Cadencia, Lead, StatusLead
 from tests.conftest import FakeResult, FakeSession, auth_override, usuario_teste
 

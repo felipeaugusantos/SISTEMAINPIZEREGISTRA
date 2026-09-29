@@ -86,6 +86,33 @@ window.fetch = async (input, init = {}) => {
   return response;
 };
 
+// Fase 19.1 (white-label): outros escritórios usam o sistema, cada um com
+// a sua marca. Nome, logo e cor vêm da organização do usuário logado
+// (/v1/auth/me -> organizacao.marca); a organização padrão sem nada
+// configurado ("propria" falso) mantém a identidade de sempre.
+const NOME_PLATAFORMA = "Zé Registra";
+function aplicarMarcaDoEscritorio(marca) {
+  if (!marca?.propria) return;
+  document.querySelectorAll(".admin-sidebar-brand .brand-wordmark, .admin-mobile-header .brand-wordmark").forEach(el => {
+    el.textContent = marca.nome;
+  });
+  if (marca.logo_url) {
+    document.querySelectorAll(".admin-sidebar-brand .brand-avatar, .admin-mobile-header .brand-avatar").forEach(img => {
+      img.referrerPolicy = "no-referrer";
+      img.alt = marca.nome;
+      img.src = marca.logo_url;
+    });
+  }
+  if (marca.cor_primaria || marca.logo_url) {
+    // CSP style-src 'self': a cor vem de uma folha servida pelo próprio servidor.
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "/v1/auth/me/marca.css";
+    document.head.appendChild(link);
+  }
+  document.title = document.title.split(NOME_PLATAFORMA).join(marca.nome);
+}
+
 function createAdminShell() {
   const routeSection = adminSections.find(section => section.href === location.pathname)?.id;
   const activeSection = routeSection || document.body.dataset.adminSection || "overview";
@@ -453,6 +480,7 @@ originalFetch("/v1/auth/me").then(async response => {
   if (!response.ok) { location.href = "/login"; return; }
   const user = await response.json();
   document.querySelector("#admin-current-user").textContent = `${user.nome} · ${user.organizacao?.nome || user.perfil}`;
+  aplicarMarcaDoEscritorio(user.organizacao?.marca);
   document.querySelectorAll(".admin-sidebar-brand, .admin-mobile-header .brand").forEach(link => {
     link.href = user.destino || "/admin";
   });

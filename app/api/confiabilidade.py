@@ -1,6 +1,5 @@
 import hashlib
 import io
-import re
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -12,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAtualDep, exigir_csrf
 from app.database import get_session
+from app.marca import css_marca
 from app.models import (
     AlertaSistema,
     BloqueioRetencao,
@@ -66,7 +66,6 @@ async def branding_publico(request: Request, session: SessionDep) -> dict:
     }
 
 
-_COR_HEX_VALIDA = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 @public_router.get("/branding.css")
@@ -74,19 +73,10 @@ async def branding_css(request: Request, session: SessionDep) -> Response:
     from app.tenancy import resolver_organizacao_publica
 
     org = await resolver_organizacao_publica(request, session)
-    branding = org.branding or {}
-    cor = branding.get("cor_primaria")
-    partes = []
-    if cor and _COR_HEX_VALIDA.fullmatch(cor):
-        partes.append(f":root{{--forest:{cor}}}")
-    if branding.get("logo_url"):
-        # Achado do usuário (17/09/2026, item 3 do portal do cliente): a logo
-        # padrão do painel do cliente usa filter:brightness(0) invert(1) pra
-        # virar um silhueta branca (pensado só pro logo padrão da Zé
-        # Registra). Uma logo própria da organização deve aparecer com as
-        # cores reais, não como silhueta.
-        partes.append(".portal-brand-panel img.brand-avatar{filter:none}")
-    css = "".join(partes)
+    # Achado do usuário (17/09/2026, item 3 do portal do cliente): uma logo
+    # própria da organização aparece com as cores reais, não como a
+    # silhueta branca do personagem padrão -- ver app.marca.css_marca.
+    css = css_marca(org.branding)
     # CSS servido como recurso 'self' (nao inline) para respeitar o CSP
     # style-src estrito, que bloqueia style="" e element.style.* sem 'unsafe-inline'.
     return Response(content=css, media_type="text/css", headers={"Cache-Control": "no-store"})

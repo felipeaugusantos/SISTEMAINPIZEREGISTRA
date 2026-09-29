@@ -20,6 +20,7 @@ coluna nova; propostas antigas, sem a chave, continuam à vista (o
 comportamento que o financeiro sempre teve).
 """
 
+import calendar
 from datetime import date, timedelta
 from decimal import ROUND_DOWN, Decimal
 from typing import Literal
@@ -30,7 +31,6 @@ FORMAS_COM_ENTRADA = frozenset({"entrada_e_protocolo", "parcelado"})
 PARCELAS_MINIMAS = 2
 PARCELAS_MAXIMAS = 12
 PRAZO_PROVISORIO_PROTOCOLO_DIAS = 30
-INTERVALO_PARCELAS_DIAS = 30
 
 
 def texto_condicao_pagamento(forma: str, parcelas: int | None = None) -> str:
@@ -67,6 +67,15 @@ def dividir_em_parcelas(total: Decimal, quantidade: int) -> list[Decimal]:
     return valores
 
 
+def somar_meses(referencia: date, meses: int) -> date:
+    """Mesmo dia N meses depois, limitado ao último dia do mês de destino.
+    Revisão do Codex no PR #149: intervalos fixos de 30 dias pulavam meses
+    (aceite em 31/01 vencia em 02/03 e 01/04, sem parcela em fevereiro)."""
+    indice = referencia.month - 1 + meses
+    ano, mes = referencia.year + indice // 12, indice % 12 + 1
+    return date(ano, mes, min(referencia.day, calendar.monthrange(ano, mes)[1]))
+
+
 def cronograma_honorarios(
     valor: Decimal, forma: str, parcelas: int | None, hoje: date
 ) -> list[tuple[int, date, Decimal]]:
@@ -76,7 +85,7 @@ def cronograma_honorarios(
         return [(1, hoje, entrada), (2, hoje + timedelta(days=PRAZO_PROVISORIO_PROTOCOLO_DIAS), saldo)]
     if forma == "parcelado" and parcelas and parcelas >= PARCELAS_MINIMAS:
         return [
-            (indice + 1, hoje + timedelta(days=INTERVALO_PARCELAS_DIAS * indice), parcela)
+            (indice + 1, somar_meses(hoje, indice), parcela)
             for indice, parcela in enumerate(dividir_em_parcelas(valor, parcelas))
         ]
     return [(1, hoje, Decimal(valor))]

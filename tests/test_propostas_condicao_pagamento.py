@@ -28,6 +28,7 @@ from app.proposta_pagamento import (
     condicao_da_proposta,
     cronograma_honorarios,
     dividir_em_parcelas,
+    somar_meses,
     status_pagamento_por_parcelas,
     texto_condicao_pagamento,
 )
@@ -54,8 +55,19 @@ def test_cronograma_entrada_e_protocolo_tem_segunda_parcela_provisoria_em_30_dia
 def test_cronograma_parcelado_mensal_a_partir_do_aceite() -> None:
     cronograma = cronograma_honorarios(Decimal("1200.00"), "parcelado", 3, HOJE)
     assert [item[0] for item in cronograma] == [1, 2, 3]
-    assert [item[1] for item in cronograma] == [HOJE, HOJE + timedelta(days=30), HOJE + timedelta(days=60)]
+    assert [item[1] for item in cronograma] == [HOJE, date(2026, 10, 29), date(2026, 11, 29)]
     assert sum(item[2] for item in cronograma) == Decimal("1200.00")
+
+
+def test_cronograma_parcelado_nao_pula_mes_no_fim_do_mes() -> None:
+    # Revisão do Codex no PR #149: com 30 dias fixos, o aceite em 31/01
+    # vencia em 02/03 e 01/04, sem parcela em fevereiro.
+    cronograma = cronograma_honorarios(Decimal("900.00"), "parcelado", 3, date(2026, 1, 31))
+    assert [item[1] for item in cronograma] == [date(2026, 1, 31), date(2026, 2, 28), date(2026, 3, 31)]
+
+
+def test_somar_meses_vira_o_ano() -> None:
+    assert somar_meses(date(2026, 11, 30), 3) == date(2027, 2, 28)
 
 
 def test_cronograma_a_vista_e_parcela_unica_no_aceite() -> None:

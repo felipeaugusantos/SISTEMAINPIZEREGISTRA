@@ -98,8 +98,12 @@ function aplicarMarcaDoEscritorio(marca) {
   });
   if (marca.logo_url) {
     document.querySelectorAll(".admin-sidebar-brand .brand-avatar, .admin-mobile-header .brand-avatar").forEach(img => {
+      const padrao = img.src;
       img.referrerPolicy = "no-referrer";
       img.alt = marca.nome;
+      // Logo externa indisponível: volta ao personagem padrão em vez de
+      // deixar o ícone de imagem quebrada (revisão do Codex no PR #153).
+      img.addEventListener("error", () => { img.src = padrao; img.alt = ""; }, { once: true });
       img.src = marca.logo_url;
     });
   }

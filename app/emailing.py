@@ -217,19 +217,59 @@ async def _enviar_smtp_contabilizado(mensagem: EmailMessage, settings: Settings,
                 raise
 
 
+def _nome_escritorio_seguro(organizacao_nome: str | None) -> str:
+    """Nome do escritório pronto para cabeçalhos de e-mail: sem quebras de
+    linha, <>, aspas nem barra invertida, que invalidariam From/Subject (o
+    nome vai entre aspas no From, então ":" e "," são seguros)."""
+    nome = " ".join((organizacao_nome or "").split())
+    for caractere in '<>"\\':
+        nome = nome.replace(caractere, "")
+    return nome
+
+
+NOME_PLATAFORMA = "Zé Registra"
+
+
+def _definir_remetente(mensagem: EmailMessage, settings: Settings, organizacao_nome: str | None) -> str | None:
+    """Fase 19.3 (white-label): e-mails enviados em nome de um escritório
+    levam o nome dele no remetente visível (o endereço continua o remetente
+    configurado da plataforma; _enviar_smtp_contabilizado reescreve o From
+    por provedor e respeita este nome). Sem nome de escritório (organização
+    padrão sem marca própria), mantém exatamente o remetente de sempre.
+    Devolve o nome do escritório, ou None -- aí quem chama mantém o texto
+    que já usava (assuntos com "Zé Registra", assinatura com o remetente
+    configurado)."""
+    nome = _nome_escritorio_seguro(organizacao_nome)
+    if nome:
+        mensagem.zeregistra_nome_remetente = nome
+        mensagem["From"] = f'"{nome}" <{settings.email_from_address}>'
+        return nome
+    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    return None
+
+
+def _cabecalho_marca(organizacao_nome: str | None, *, sufixo: str = "") -> str:
+    """Faixa superior dos e-mails em HTML ("ZÉ REGISTRA® · ...")."""
+    nome = _nome_escritorio_seguro(organizacao_nome)
+    marca = html.escape(nome.upper()) if nome else "ZÉ REGISTRA®"
+    return f"{marca} · {sufixo}" if sufixo else marca
+
+
 def _link_recuperacao(settings: Settings, token: str) -> str:
     base = settings.app_public_url.rstrip("/")
     # O fragmento não é enviado ao servidor nem incluído em logs HTTP/referrers.
     return f"{base}/redefinir-senha#token={quote(token, safe='')}"
 
 
-def _mensagem_recuperacao(destinatario: str, nome: str, token: str, settings: Settings) -> EmailMessage:
+def _mensagem_recuperacao(
+    destinatario: str, nome: str, token: str, settings: Settings, organizacao_nome: str | None = None
+) -> EmailMessage:
     link = _link_recuperacao(settings, token)
     nome_seguro = html.escape(nome or "usuário")
     minutos = settings.password_reset_minutes
     mensagem = EmailMessage()
-    mensagem["Subject"] = "Redefinição de senha — Zé Registra"
-    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    remetente = _definir_remetente(mensagem, settings, organizacao_nome) or NOME_PLATAFORMA
+    mensagem["Subject"] = f"Redefinição de senha — {remetente}"
     mensagem["To"] = destinatario
     mensagem.set_content(
         f"Olá, {nome or 'usuário'}.\n\n"
@@ -244,7 +284,7 @@ def _mensagem_recuperacao(destinatario: str, nome: str, token: str, settings: Se
           <main style="max-width:600px;margin:auto;background:#fff;border:1px solid #d8ddd6;
                        border-radius:20px;padding:36px;font-family:Arial,sans-serif;color:#10251d;">
             <p style="margin:0;color:#08704d;font-weight:700;letter-spacing:.08em;">
-              ZÉ REGISTRA® · CENTRO DE OPERAÇÕES
+              {_cabecalho_marca(organizacao_nome, sufixo="CENTRO DE OPERAÇÕES")}
             </p>
             <h1 style="font-size:30px;margin:22px 0 12px;">Redefina sua senha</h1>
             <p>Olá, {nome_seguro}.</p>
@@ -292,11 +332,13 @@ def _enviar_smtp(mensagem: EmailMessage, settings: Settings | ProvedorSMTP) -> N
         smtp.send_message(mensagem)
 
 
-async def enviar_recuperacao_senha(destinatario: str, nome: str, token: str) -> None:
+async def enviar_recuperacao_senha(
+    destinatario: str, nome: str, token: str, organizacao_nome: str | None = None
+) -> None:
     settings = get_settings()
     if not settings.email_enabled:
         return
-    mensagem = _mensagem_recuperacao(destinatario, nome, token, settings)
+    mensagem = _mensagem_recuperacao(destinatario, nome, token, settings, organizacao_nome)
     ultimo_erro: Exception | None = None
     for tentativa in range(1, max(1, settings.smtp_max_attempts) + 1):
         try:
@@ -313,14 +355,16 @@ async def enviar_recuperacao_senha(destinatario: str, nome: str, token: str) -> 
         raise ultimo_erro
 
 
-def _mensagem_confirmacao_exclusao(destinatario: str, token: str, settings: Settings) -> EmailMessage:
+def _mensagem_confirmacao_exclusao(
+    destinatario: str, token: str, settings: Settings, organizacao_nome: str | None = None
+) -> EmailMessage:
     base = settings.app_public_url.rstrip("/")
     link = f"{base}/privacidade/confirmar-exclusao#token={quote(token, safe='')}"
     minutos = settings.anonimizacao_token_minutos
     horas = max(1, minutos // 60)
     mensagem = EmailMessage()
-    mensagem["Subject"] = "Confirme a exclusão dos seus dados — Zé Registra"
-    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    remetente = _definir_remetente(mensagem, settings, organizacao_nome) or NOME_PLATAFORMA
+    mensagem["Subject"] = f"Confirme a exclusão dos seus dados — {remetente}"
     mensagem["To"] = destinatario
     mensagem.set_content(
         "Recebemos um pedido para apagar seus dados de contato do nosso sistema.\n\n"
@@ -334,7 +378,7 @@ def _mensagem_confirmacao_exclusao(destinatario: str, token: str, settings: Sett
           <main style="max-width:600px;margin:auto;background:#fff;border:1px solid #d8ddd6;
                        border-radius:20px;padding:36px;font-family:Arial,sans-serif;color:#10251d;">
             <p style="margin:0;color:#08704d;font-weight:700;letter-spacing:.08em;">
-              ZÉ REGISTRA® · PRIVACIDADE
+              {_cabecalho_marca(organizacao_nome, sufixo="PRIVACIDADE")}
             </p>
             <h1 style="font-size:28px;margin:22px 0 12px;">Confirme a exclusão dos seus dados</h1>
             <p>Recebemos um pedido para apagar seus dados de contato do nosso sistema.
@@ -357,11 +401,11 @@ def _mensagem_confirmacao_exclusao(destinatario: str, token: str, settings: Sett
     return mensagem
 
 
-async def enviar_confirmacao_exclusao(destinatario: str, token: str) -> None:
+async def enviar_confirmacao_exclusao(destinatario: str, token: str, organizacao_nome: str | None = None) -> None:
     settings = get_settings()
     if not settings.email_enabled:
         return
-    mensagem = _mensagem_confirmacao_exclusao(destinatario, token, settings)
+    mensagem = _mensagem_confirmacao_exclusao(destinatario, token, settings, organizacao_nome)
     ultimo_erro: Exception | None = None
     for tentativa in range(1, max(1, settings.smtp_max_attempts) + 1):
         try:
@@ -386,16 +430,17 @@ def _mensagem_passo_cadencia(
     rastreio_url: str,
     descadastro_url: str,
     settings: Settings,
+    organizacao_nome: str | None = None,
 ) -> EmailMessage:
     nome_seguro = html.escape(nome or "")
     saudacao = f"Olá, {nome_seguro}." if nome_seguro else "Olá."
     corpo_seguro = html.escape(corpo).replace("\n", "<br>") if corpo else ""
     mensagem = EmailMessage()
     mensagem["Subject"] = titulo
-    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    remetente = _definir_remetente(mensagem, settings, organizacao_nome) or settings.email_from_name
     mensagem["To"] = destinatario
     mensagem.set_content(
-        f"{saudacao}\n\n{corpo}\n\n-- \n{settings.email_from_name}\n\n"
+        f"{saudacao}\n\n{corpo}\n\n-- \n{remetente}\n\n"
         f"Não quer mais receber estes e-mails? Descadastre-se: {descadastro_url}"
     )
     mensagem.add_alternative(
@@ -405,11 +450,11 @@ def _mensagem_passo_cadencia(
           <main style="max-width:600px;margin:auto;background:#fff;border:1px solid #d8ddd6;
                        border-radius:20px;padding:36px;font-family:Arial,sans-serif;color:#10251d;">
             <p style="margin:0;color:#08704d;font-weight:700;letter-spacing:.08em;">
-              ZÉ REGISTRA®
+              {_cabecalho_marca(organizacao_nome)}
             </p>
             <p style="margin-top:22px;">{saudacao}</p>
             <p>{corpo_seguro}</p>
-            <p style="color:#607068;font-size:13px;margin-top:28px;">{html.escape(settings.email_from_name)}</p>
+            <p style="color:#607068;font-size:13px;margin-top:28px;">{html.escape(remetente)}</p>
             <p style="color:#8b948c;font-size:11px;margin-top:18px;border-top:1px solid #e5e9e3;padding-top:14px;">
               Não quer mais receber estes e-mails?
               <a href="{html.escape(descadastro_url, quote=True)}" style="color:#607068;">Descadastre-se aqui</a>.
@@ -424,12 +469,20 @@ def _mensagem_passo_cadencia(
 
 
 async def enviar_passo_cadencia(
-    destinatario: str, nome: str, titulo: str, corpo: str, rastreio_url: str, descadastro_url: str
+    destinatario: str,
+    nome: str,
+    titulo: str,
+    corpo: str,
+    rastreio_url: str,
+    descadastro_url: str,
+    organizacao_nome: str | None = None,
 ) -> None:
     settings = get_settings()
     if not settings.email_enabled:
         return
-    mensagem = _mensagem_passo_cadencia(destinatario, nome, titulo, corpo, rastreio_url, descadastro_url, settings)
+    mensagem = _mensagem_passo_cadencia(
+        destinatario, nome, titulo, corpo, rastreio_url, descadastro_url, settings, organizacao_nome
+    )
     ultimo_erro: Exception | None = None
     for tentativa in range(1, max(1, settings.smtp_max_attempts) + 1):
         try:
@@ -446,14 +499,16 @@ async def enviar_passo_cadencia(
         raise ultimo_erro
 
 
-async def enviar_recuperacao_portal(destinatario: str, nome: str, token: str) -> None:
+async def enviar_recuperacao_portal(
+    destinatario: str, nome: str, token: str, organizacao_nome: str | None = None
+) -> None:
     """Envia recuperação do portal sem reutilizar o link do Centro de Operações."""
     settings = get_settings()
     if not settings.email_enabled:
         return
     mensagem = EmailMessage()
-    mensagem["Subject"] = "Recuperação de acesso ao Portal do cliente — Zé Registra"
-    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    remetente = _definir_remetente(mensagem, settings, organizacao_nome) or NOME_PLATAFORMA
+    mensagem["Subject"] = f"Recuperação de acesso ao Portal do cliente — {remetente}"
     mensagem["To"] = destinatario
     link = f"{settings.app_public_url.rstrip('/')}/portal#recuperacao={quote(token, safe='')}"
     mensagem.set_content(
@@ -466,7 +521,9 @@ async def enviar_recuperacao_portal(destinatario: str, nome: str, token: str) ->
         raise
 
 
-async def enviar_codigo_confirmacao_portal(destinatario: str, nome: str, codigo: str, descricao: str) -> None:
+async def enviar_codigo_confirmacao_portal(
+    destinatario: str, nome: str, codigo: str, descricao: str, organizacao_nome: str | None = None
+) -> None:
     """Segundo fator pra assinar proposta/documento pelo portal do cliente
     (Fase 13.2 da auditoria fina, 23/09/2026, decisão do usuário: mesmo
     padrão de dupla validação por e-mail do aceite público de proposta --
@@ -478,7 +535,7 @@ async def enviar_codigo_confirmacao_portal(destinatario: str, nome: str, codigo:
         raise RuntimeError("Envio de e-mail não está habilitado nesta instalação")
     mensagem = EmailMessage()
     mensagem["Subject"] = f"Código de confirmação — {descricao}"
-    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    _definir_remetente(mensagem, settings, organizacao_nome)
     mensagem["To"] = destinatario
     mensagem.set_content(
         f"Olá, {nome or 'cliente'}.\n\n"
@@ -655,20 +712,10 @@ async def enviar_proposta_email(
     if not settings.email_enabled:
         return
     mensagem = EmailMessage()
-    # Nome vem de configuração do escritório: sem quebras de linha, <>, aspas
-    # nem barra invertida, que invalidariam os cabeçalhos From/Subject (o
-    # nome vai entre aspas no From, então ":" e "," são seguros).
-    remetente = " ".join((organizacao_nome or "").split())
-    for caractere in '<>"\\':
-        remetente = remetente.replace(caractere, "")
-    remetente = remetente or settings.email_from_name
-    mensagem["Subject"] = f"Proposta de registro de marca {numero} - {remetente}"
     # Revisão do Codex no PR #151: o nome visível do remetente também é o do
-    # escritório; o endereço continua o remetente configurado da plataforma.
-    # _enviar_smtp_contabilizado reescreve o From por provedor e respeita
-    # este nome.
-    mensagem.zeregistra_nome_remetente = remetente
-    mensagem["From"] = f'"{remetente}" <{settings.email_from_address}>'
+    # escritório (ver _definir_remetente).
+    remetente = _definir_remetente(mensagem, settings, organizacao_nome) or settings.email_from_name
+    mensagem["Subject"] = f"Proposta de registro de marca {numero} - {remetente}"
     mensagem["To"] = destinatario
     mensagem.set_content(
         f"Olá, {nome or 'cliente'}.\n\n"
@@ -694,7 +741,9 @@ async def enviar_proposta_email(
         raise ultimo_erro
 
 
-async def enviar_codigo_confirmacao_proposta(destinatario: str, nome: str, codigo: str, numero: str) -> None:
+async def enviar_codigo_confirmacao_proposta(
+    destinatario: str, nome: str, codigo: str, numero: str, organizacao_nome: str | None = None
+) -> None:
     """Segundo fator do aceite de proposta (dupla validação, orientação
     jurídica de 15/09/2026) -- propaga a exceção em vez de engolir a falha:
     se o código não sair, o cliente precisa ver isso na tela em vez de
@@ -704,7 +753,7 @@ async def enviar_codigo_confirmacao_proposta(destinatario: str, nome: str, codig
         raise RuntimeError("Envio de e-mail não está habilitado nesta instalação")
     mensagem = EmailMessage()
     mensagem["Subject"] = f"Código de confirmação — Proposta {numero}"
-    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    _definir_remetente(mensagem, settings, organizacao_nome)
     mensagem["To"] = destinatario
     mensagem.set_content(
         f"Olá, {nome or 'cliente'}.\n\n"
@@ -729,7 +778,11 @@ async def enviar_codigo_confirmacao_proposta(destinatario: str, nome: str, codig
 
 
 async def enviar_email_prospeccao_lead(
-    destinatario: str, assunto: str, corpo: str, reply_to: str | None = None
+    destinatario: str,
+    assunto: str,
+    corpo: str,
+    reply_to: str | None = None,
+    organizacao_nome: str | None = None,
 ) -> None:
     """Envia ao lead um e-mail comercial a partir do modelo configurado em
     Configuração > Modelo de e-mail (leads). Diferente dos alertas internos
@@ -741,7 +794,7 @@ async def enviar_email_prospeccao_lead(
         raise RuntimeError("Envio de e-mail não está habilitado nesta instalação")
     mensagem = EmailMessage()
     mensagem["Subject"] = assunto
-    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    _definir_remetente(mensagem, settings, organizacao_nome)
     mensagem["To"] = destinatario
     if reply_to:
         mensagem["Reply-To"] = reply_to
@@ -762,7 +815,9 @@ async def enviar_email_prospeccao_lead(
         raise ultimo_erro
 
 
-async def enviar_alerta_prazo_juridico(destinatario: str, titulo: str, mensagem_texto: str) -> None:
+async def enviar_alerta_prazo_juridico(
+    destinatario: str, titulo: str, mensagem_texto: str, organizacao_nome: str | None = None
+) -> None:
     """Avisa por e-mail o responsável por um prazo jurídico vencido, próximo do
     vencimento ou escalonado.
 
@@ -778,8 +833,8 @@ async def enviar_alerta_prazo_juridico(destinatario: str, titulo: str, mensagem_
         return
     link = f"{settings.app_public_url.rstrip('/')}/admin/operacao-juridica"
     mensagem = EmailMessage()
-    mensagem["Subject"] = f"[Zé Registra] {titulo}"
-    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    remetente = _definir_remetente(mensagem, settings, organizacao_nome) or NOME_PLATAFORMA
+    mensagem["Subject"] = f"[{remetente}] {titulo}"
     mensagem["To"] = destinatario
     mensagem.set_content(
         f"{mensagem_texto}\n\nAcesse a Operação Jurídica para ver os detalhes e confirmar:\n{link}"
@@ -797,6 +852,7 @@ async def enviar_comunicacao_juridica_rastreada(
     mensagem_texto: str,
     *,
     chave: str,
+    organizacao_nome: str | None = None,
 ) -> str:
     """Envia uma saída já persistida e informa qual provedor a aceitou.
 
@@ -812,8 +868,8 @@ async def enviar_comunicacao_juridica_rastreada(
         raise ValueError("Destinatário jurídico não informado")
     link = f"{settings.app_public_url.rstrip('/')}/admin/operacao-juridica"
     mensagem = EmailMessage()
-    mensagem["Subject"] = f"[Zé Registra] {titulo}"
-    mensagem["From"] = f"{settings.email_from_name} <{settings.email_from_address}>"
+    remetente = _definir_remetente(mensagem, settings, organizacao_nome) or NOME_PLATAFORMA
+    mensagem["Subject"] = f"[{remetente}] {titulo}"
     mensagem["To"] = destinatario
     digest = hashlib.sha256(chave.encode("utf-8")).hexdigest()[:32]
     mensagem["Message-ID"] = f"<{digest}@zeregistra.local>"

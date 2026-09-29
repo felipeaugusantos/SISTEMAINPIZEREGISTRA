@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.leads import _auditar, _documentacao_protocolavel, _lead_da_org, _pendencias_documentos, _prazo_sla_24h
 from app.api.propostas_config import valores_padrao_proposta
+from app.marca import nome_escritorio_para_email
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip, hash_token
 from app.clicksign import configuracao as configuracao_clicksign
 from app.clicksign import criar_envelope
@@ -1708,9 +1709,13 @@ async def aceitar_proposta_publica(token: str, request: Request, session: Sessio
     proposta.codigo_confirmacao_expira_em = datetime.now(UTC) + timedelta(minutes=CODIGO_CONFIRMACAO_MINUTOS)
     proposta.codigo_confirmacao_tentativas = 0
     proposta.codigo_confirmacao_enviado_em = datetime.now(UTC)
+    # Fase 19.3: resolvido antes do commit, ainda no contexto do tenant.
+    nome_escritorio = await nome_escritorio_para_email(session, proposta.organizacao_id)
     await session.commit()
     try:
-        await enviar_codigo_confirmacao_proposta(lead.email, lead.nome, codigo, proposta.numero)
+        await enviar_codigo_confirmacao_proposta(
+            lead.email, lead.nome, codigo, proposta.numero, organizacao_nome=nome_escritorio
+        )
     except Exception:
         # Achado da varredura ampla do sistema (18/09/2026): falha de envio
         # (SMTP fora do ar, etc.) não ficava registrada em lugar nenhum --

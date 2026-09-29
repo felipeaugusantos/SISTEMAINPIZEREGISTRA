@@ -37,6 +37,19 @@ def marca_organizacao(org: Organizacao) -> dict:
     }
 
 
+async def nome_escritorio_para_email(session, organizacao_id: int | None) -> str | None:
+    """Nome do escritório para os e-mails enviados em nome dele (Fase 19.3),
+    ou None para a organização padrão sem marca própria -- aí os e-mails
+    ficam exatamente como sempre foram."""
+    if not organizacao_id:
+        return None
+    org = await session.get(Organizacao, organizacao_id)
+    if org is None:
+        return None
+    marca = marca_organizacao(org)
+    return marca["nome"] if marca["propria"] else None
+
+
 def css_marca(branding: dict | None, *, painel: bool = False) -> str:
     """CSS da marca: cor principal e, com logo própria, sem o filtro que
     transforma o personagem padrão em silhueta branca."""

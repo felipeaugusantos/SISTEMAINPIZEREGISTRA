@@ -49,6 +49,7 @@ from app.emailing import (
 from app.ia_sombra import enfileirar_qualificacao_ia_se_ativa
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
 from app.malware_scan import escanear_upload_ou_rejeitar
+from app.marca import marca_organizacao, nome_escritorio_para_email
 from app.models import (
     MOTIVOS_PERDA,
     ORDEM_FASE_LEAD,
@@ -461,7 +462,10 @@ async def gerar_relatorio_completo_admin(
         validado_em=versao.validated_at if pesquisa.analysis_state == EstadoAnalise.VALIDATED.value else None,
     )
     validado = relatorio.analise_consolidada["revisao"]["validada"]
-    pdf = gerar_pdf_relatorio(relatorio)
+    # Fase 19.3 (white-label): relatório com o nome do escritório.
+    pdf = gerar_pdf_relatorio(
+        relatorio, marca_nome=await nome_escritorio_para_email(session, usuario.organizacao_id)
+    )
     primeira_geracao = pesquisa.relatorio_completo_gerado_em is None
     if primeira_geracao:
         pesquisa.relatorio_completo_gerado_em = datetime.now(UTC)
@@ -2234,8 +2238,16 @@ async def enviar_email_prospeccao(
     # da organização, mesmo mecanismo já usado pra "{{lead.nome}}".
     assunto = substituir_placeholders_organizacao(config["assunto"].replace("{{lead.nome}}", lead.nome), org)
     corpo = substituir_placeholders_organizacao(config["corpo"].replace("{{lead.nome}}", lead.nome), org)
+    # Fase 19.3: remetente visível com o nome do escritório.
+    marca = marca_organizacao(org) if org else None
     try:
-        await enviar_email_prospeccao_lead(lead.email, assunto, corpo, reply_to=config.get("reply_to") or usuario.email)
+        await enviar_email_prospeccao_lead(
+            lead.email,
+            assunto,
+            corpo,
+            reply_to=config.get("reply_to") or usuario.email,
+            organizacao_nome=marca["nome"] if marca and marca["propria"] else None,
+        )
     except Exception as exc:
         if erro_cota_diaria_email(exc):
             raise HTTPException(

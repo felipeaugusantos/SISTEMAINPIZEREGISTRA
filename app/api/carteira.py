@@ -19,6 +19,7 @@ from app.crm import obter_ou_criar_empresa, verificar_conflito_interesse
 from app.database import get_session
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
 from app.malware_scan import escanear_upload_ou_rejeitar
+from app.marca import nome_escritorio_para_email
 from app.models import (
     EmpresaCRM,
     EventoAuditoria,
@@ -1904,7 +1905,9 @@ async def gerar_relatorio_pdf(
             "observacoes_relatorio": (dados.observacoes_relatorio or "").strip() or None,
             "gerado_em": datetime.now(UTC),
             "gerado_por": usuario.ator,
-        }
+        },
+        # Fase 19.3 (white-label): relatório com o nome do escritório.
+        marca_nome=await nome_escritorio_para_email(session, usuario.organizacao_id),
     )
     _auditar(
         session,

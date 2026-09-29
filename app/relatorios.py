@@ -672,6 +672,25 @@ def _rotulo_enum(valor: str) -> str:
     }.get(valor, valor.replace("_", " "))
 
 
+def _cabecalho_marca_pdf(estilos: dict[str, ParagraphStyle], marca_nome: str | None) -> list:
+    """Primeira linha dos relatórios entregues ao cliente. Fase 19.3
+    (white-label): com nome de escritório, o personagem e o "Zé Registra®"
+    da plataforma dão lugar ao nome dele; sem nome (organização padrão sem
+    marca própria), fica exatamente como sempre foi."""
+    if marca_nome:
+        return [
+            Spacer(15 * mm, 1),
+            [Paragraph(escape(marca_nome), estilos["marca"]), Paragraph("Relatório de marcas", estilos["sub"])],
+        ]
+    return [
+        ReportImage(str(_CAMINHO_PERSONAGEM), width=15 * mm, height=27 * mm),
+        [
+            Paragraph("Zé Registra®", estilos["marca"]),
+            Paragraph("Pesquisa e inteligência para marcas", estilos["sub"]),
+        ],
+    ]
+
+
 def _decorar_pagina(canvas: object, doc: SimpleDocTemplate) -> None:
     canvas.saveState()
     largura, _ = A4
@@ -679,7 +698,11 @@ def _decorar_pagina(canvas: object, doc: SimpleDocTemplate) -> None:
     canvas.line(doc.leftMargin, 10 * mm, largura - doc.rightMargin, 10 * mm)
     canvas.setFillColor(_COR_SUAVE)
     canvas.setFont("Helvetica", 7)
-    canvas.drawString(doc.leftMargin, 6.5 * mm, "Zé Registra · Pesquisa e inteligência para marcas")
+    # Fase 19.3: rodapé com o nome do escritório, quando houver.
+    marca_nome = getattr(doc, "zeregistra_marca_nome", None)
+    canvas.drawString(
+        doc.leftMargin, 6.5 * mm, marca_nome or "Zé Registra · Pesquisa e inteligência para marcas"
+    )
     canvas.drawRightString(
         largura - doc.rightMargin,
         6.5 * mm,
@@ -737,7 +760,9 @@ def _celula_processo(item: MarcaRelatorioItem, estilos: dict[str, ParagraphStyle
     return conteudo
 
 
-def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencias: bool = True) -> bytes:
+def gerar_pdf_relatorio(
+    relatorio: RelatorioMarcaResponse, *, incluir_ocorrencias: bool = True, marca_nome: str | None = None
+) -> bytes:
     """Monta o PDF do relatório de marcas e devolve os bytes.
 
     O resumo entregue ao cliente usa ``incluir_ocorrencias=False`` e termina
@@ -761,8 +786,9 @@ def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencia
         topMargin=(16 if incluir_ocorrencias else 12) * mm,
         bottomMargin=(16 if incluir_ocorrencias else 12) * mm,
         title=f"Relatório de pesquisa de anterioridade — {relatorio.marca}",
-        author="Zé Registra",
+        author=marca_nome or "Zé Registra",
     )
+    doc.zeregistra_marca_nome = marca_nome
 
     emitido = _formatar_data(relatorio.gerado_em or relatorio.criado_em)
     base_rpi = f"RPI {relatorio.ultima_rpi}" if relatorio.ultima_rpi else "Não informado"
@@ -772,17 +798,8 @@ def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencia
         else "inicial (pendente de validação)"
     )
 
-    personagem = ReportImage(str(_CAMINHO_PERSONAGEM), width=15 * mm, height=27 * mm)
     cabecalho_marca = Table(
-        [
-            [
-                personagem,
-                [
-                    Paragraph("Zé Registra®", estilos["marca"]),
-                    Paragraph("Pesquisa e inteligência para marcas", estilos["sub"]),
-                ],
-            ]
-        ],
+        [_cabecalho_marca_pdf(estilos, marca_nome)],
         colWidths=[20 * mm, 158 * mm],
     )
     cabecalho_marca.setStyle(
@@ -1183,9 +1200,9 @@ def gerar_pdf_relatorio(relatorio: RelatorioMarcaResponse, *, incluir_ocorrencia
     return buffer.getvalue()
 
 
-def gerar_pdf_resumo_cliente(relatorio: RelatorioMarcaResponse) -> bytes:
+def gerar_pdf_resumo_cliente(relatorio: RelatorioMarcaResponse, *, marca_nome: str | None = None) -> bytes:
     """Gera o resumo público de uma página, sem a lista de ocorrências."""
-    return gerar_pdf_relatorio(relatorio, incluir_ocorrencias=False)
+    return gerar_pdf_relatorio(relatorio, incluir_ocorrencias=False, marca_nome=marca_nome)
 
 
 _DISCLAIMER_PROCESSO_MONITORADO = (
@@ -1229,17 +1246,9 @@ def gerar_pdf_atualizacoes(dados: dict) -> bytes:
         author="Zé Registra",
     )
 
-    personagem = ReportImage(str(_CAMINHO_PERSONAGEM), width=15 * mm, height=27 * mm)
+    # Histórico de versões da plataforma: identidade da plataforma, sempre.
     cabecalho_marca = Table(
-        [
-            [
-                personagem,
-                [
-                    Paragraph("Zé Registra®", estilos["marca"]),
-                    Paragraph("Pesquisa e inteligência para marcas", estilos["sub"]),
-                ],
-            ]
-        ],
+        [_cabecalho_marca_pdf(estilos, None)],
         colWidths=[20 * mm, 158 * mm],
     )
     cabecalho_marca.setStyle(
@@ -1347,7 +1356,7 @@ def _rotulo_tipo_atualizacao(valor: str) -> str:
     return _ROTULOS_TIPO_ATUALIZACAO.get(valor, valor)
 
 
-def gerar_pdf_processo_monitorado(dados: dict) -> bytes:
+def gerar_pdf_processo_monitorado(dados: dict, *, marca_nome: str | None = None) -> bytes:
     """Relatório de acompanhamento de um processo monitorado, para envio ao
     cliente -- achado do usuário (08/09/2026): faltava uma forma de mostrar
     ao cliente a fase atual do processo, sem precisar dar acesso ao sistema
@@ -1376,20 +1385,12 @@ def gerar_pdf_processo_monitorado(dados: dict) -> bytes:
         topMargin=16 * mm,
         bottomMargin=16 * mm,
         title=f"Acompanhamento do processo {dados['numero']}",
-        author="Zé Registra",
+        author=marca_nome or "Zé Registra",
     )
+    doc.zeregistra_marca_nome = marca_nome
 
-    personagem = ReportImage(str(_CAMINHO_PERSONAGEM), width=15 * mm, height=27 * mm)
     cabecalho_marca = Table(
-        [
-            [
-                personagem,
-                [
-                    Paragraph("Zé Registra®", estilos["marca"]),
-                    Paragraph("Pesquisa e inteligência para marcas", estilos["sub"]),
-                ],
-            ]
-        ],
+        [_cabecalho_marca_pdf(estilos, marca_nome)],
         colWidths=[20 * mm, 158 * mm],
     )
     cabecalho_marca.setStyle(

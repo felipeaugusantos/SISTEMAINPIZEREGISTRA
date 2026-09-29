@@ -16,6 +16,7 @@ from app.crm import (
 )
 from app.database import get_session
 from app.emailing import enviar_alerta_nova_pesquisa
+from app.marca import nome_escritorio_para_email
 from app.models import (
     AfinidadeClasse,
     AlertaSistema,
@@ -717,7 +718,8 @@ async def baixar_relatorio_pdf(
         )
 
     relatorio = RelatorioMarcaResponse.model_validate(versao.payload)
-    pdf = gerar_pdf_resumo_cliente(relatorio)
+    # Fase 19.3 (white-label): resumo com o nome do escritório dono do domínio.
+    pdf = gerar_pdf_resumo_cliente(relatorio, marca_nome=await nome_escritorio_para_email(session, organizacao.id))
     nome_arquivo = normalizar_numero_processo(relatorio.marca) or "relatorio"
     return Response(
         content=pdf,

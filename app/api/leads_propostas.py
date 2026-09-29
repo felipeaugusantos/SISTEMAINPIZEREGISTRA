@@ -95,11 +95,11 @@ def _pagina_codigo(token: str, *, aviso: str | None = None) -> HTMLResponse:
     aviso_html = f"<p class='aviso'>{html.escape(aviso)}</p>" if aviso else ""
     return HTMLResponse(
         f"""<!doctype html><html lang='pt-BR'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-        <title>Confirme o aceite</title><style>body{{font:16px Arial;color:#17231c;background:#f5f7f5;margin:0;padding:24px}}main{{max-width:480px;margin:auto;background:white;padding:36px;border-radius:18px;border:1px solid #d8ddd6}}h1{{font-family:Georgia,serif;font-size:26px}}.muted{{color:#5b665f}}.aviso{{color:#a33128;font-weight:700}}.button{{display:inline-block;background:#086044;color:#fff;padding:13px 20px;border-radius:9px;text-decoration:none;border:0;font-weight:700;cursor:pointer;width:100%}}input{{width:100%;box-sizing:border-box;padding:13px;font-size:20px;letter-spacing:4px;text-align:center;border:1px solid #d8ddd6;border-radius:9px;margin-bottom:14px}}</style>
-        <main><h1>Confirme o aceite</h1><p class='muted'>Enviamos um código de 6 dígitos para o seu e-mail cadastrado. Ele vale por {CODIGO_CONFIRMACAO_MINUTOS} minutos.</p>
+        <title>Confirme o aceite</title><link rel='stylesheet' href='/static/proposta-publica.css'>
+        <main class='proposta-publica-estreita'><h1>Confirme o aceite</h1><p class='muted'>Enviamos um código de 6 dígitos para o seu e-mail cadastrado. Ele vale por {CODIGO_CONFIRMACAO_MINUTOS} minutos.</p>
         {aviso_html}
         <form method='post' action='/propostas/{token}/confirmar'><input name='codigo' inputmode='numeric' maxlength='6' placeholder='000000' autofocus required><button class='button' type='submit'>Confirmar aceite</button></form>
-        <form method='post' action='/propostas/{token}/aceitar'><button class='button' type='submit' style='background:transparent;color:#086044;border:1px solid #086044'>Reenviar código</button></form>
+        <form method='post' action='/propostas/{token}/aceitar'><button class='button button-secundario' type='submit'>Reenviar código</button></form>
         </main></html>"""
     )
 
@@ -1457,7 +1457,9 @@ async def pdf_proposta(proposta_id: int, session: SessionDep, usuario: LeadsView
 
 
 @router.post("/v1/admin/propostas/{proposta_id}/link")
-async def criar_link_proposta(proposta_id: int, session: SessionDep, usuario: LeadsManageDep) -> dict:
+async def criar_link_proposta(
+    proposta_id: int, request: Request, session: SessionDep, usuario: LeadsManageDep
+) -> dict:
     proposta = (
         await session.execute(
             select(PropostaComercial).where(
@@ -1476,13 +1478,26 @@ async def criar_link_proposta(proposta_id: int, session: SessionDep, usuario: Le
     token = secrets.token_urlsafe(40)
     proposta.public_token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     proposta.public_token_expira_em = datetime.now(UTC) + timedelta(days=7)
+    # Achado 18.7: gerar o link (que substitui o anterior e abre o aceite
+    # público por 7 dias) não deixava rastro, ao contrário de status e
+    # protocolo. O token em si nunca vai para a auditoria.
+    _auditar(
+        session,
+        usuario,
+        request,
+        "gerar_link_proposta",
+        f"proposta:{proposta.id}",
+        {"expira_em": proposta.public_token_expira_em.isoformat()},
+    )
     await session.commit()
     base = get_settings().app_public_url.rstrip("/")
     return {"link": f"{base}/propostas/{token}", "expira_em": proposta.public_token_expira_em}
 
 
 @router.post("/v1/admin/propostas/{proposta_id}/enviar")
-async def enviar_link_proposta(proposta_id: int, session: SessionDep, usuario: LeadsManageDep) -> dict:
+async def enviar_link_proposta(
+    proposta_id: int, request: Request, session: SessionDep, usuario: LeadsManageDep
+) -> dict:
     proposta = (
         await session.execute(
             select(PropostaComercial).where(
@@ -1516,20 +1531,41 @@ async def enviar_link_proposta(proposta_id: int, session: SessionDep, usuario: L
         proposta.status = "enviada"
     proposta.enviado_em = datetime.now(UTC)
     await session.commit()
-    org = await session.get(Organizacao, usuario.organizacao_id)
-    link = f"{get_settings().app_public_url.rstrip('/')}/propostas/{token}"
-    pdf = gerar_pdf_proposta(_proposta_dict(proposta, org))
-    clicksign = configuracao_clicksign(org)
-    if clicksign["enabled"]:
-        try:
-            ids = await criar_envelope(pdf, f"Proposta {proposta.numero}", lead.email, lead.nome, org)
-            proposta.dados = {**(proposta.dados or {}), "clicksign": ids}
-            await session.commit()
-        except Exception as exc:
-            raise HTTPException(
-                status_code=502, detail=f"Não foi possível enviar à Clicksign: {type(exc).__name__}"
-            ) from exc
-    await enviar_proposta_email(lead.email, lead.nome, link, pdf, proposta.numero)
+    # Achado 18.7: o envio ao cliente não deixava rastro na auditoria (o
+    # e-mail do destinatário não vai para os detalhes -- é dado pessoal).
+    # Revisão do Codex no PR #150: o sucesso só é registrado depois que o
+    # envio externo (Clicksign + e-mail) termina; falha vira registro de
+    # tentativa malsucedida, em vez de um "enviado" que nunca chegou.
+    detalhes_auditoria = {"status": proposta.status, "expira_em": proposta.public_token_expira_em.isoformat()}
+    try:
+        org = await session.get(Organizacao, usuario.organizacao_id)
+        link = f"{get_settings().app_public_url.rstrip('/')}/propostas/{token}"
+        pdf = gerar_pdf_proposta(_proposta_dict(proposta, org))
+        clicksign = configuracao_clicksign(org)
+        if clicksign["enabled"]:
+            try:
+                ids = await criar_envelope(pdf, f"Proposta {proposta.numero}", lead.email, lead.nome, org)
+                proposta.dados = {**(proposta.dados or {}), "clicksign": ids}
+                await session.commit()
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=502, detail=f"Não foi possível enviar à Clicksign: {type(exc).__name__}"
+                ) from exc
+        await enviar_proposta_email(lead.email, lead.nome, link, pdf, proposta.numero)
+    except Exception as exc:
+        _auditar(
+            session,
+            usuario,
+            request,
+            "enviar_proposta",
+            f"proposta:{proposta.id}",
+            {**detalhes_auditoria, "erro": type(exc).__name__},
+            status_http=exc.status_code if isinstance(exc, HTTPException) else 502,
+        )
+        await session.commit()
+        raise
+    _auditar(session, usuario, request, "enviar_proposta", f"proposta:{proposta.id}", detalhes_auditoria)
+    await session.commit()
     return {
         "link": link,
         "destinatario": lead.email,
@@ -1554,9 +1590,10 @@ async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLRe
     def moeda(valor: object) -> str:
         return f"R$ {float(valor or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-    if proposta.status == "enviada":
-        proposta.status = "visualizada"
-        await session.commit()
+    # Achado 18.7: o GET não muda mais o status -- antivírus e
+    # pré-visualizadores de e-mail abrem o link sozinhos e marcavam a proposta
+    # como "visualizada". A marcação vem do POST disparado pela página no
+    # navegador (static/proposta-publica.js -> marcar_proposta_visualizada).
     total = (proposta.honorarios or 0) + (proposta.taxa_gru or 0)
     # Achado 5 do plano proposta-financeiro (Fase 1, 03/09/2026): antes o link
     # público só mostrava marca/classes/escopo -- o cliente aceitava sem ver
@@ -1567,7 +1604,7 @@ async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLRe
         else ""
     )
     if aceite_ja_registrado(proposta):
-        acao_html ="<p><strong>Proposta aceita.</strong> Nossa equipe dará continuidade ao atendimento.</p>"
+        acao_html = "<p><strong>Proposta aceita.</strong> Nossa equipe dará continuidade ao atendimento.</p>"
     elif motivo := motivo_bloqueio_aceite(proposta):
         acao_html = f"<p class='muted'><strong>{safe(motivo)}</strong></p>"
     else:
@@ -1577,8 +1614,9 @@ async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLRe
         )
     return HTMLResponse(
         f"""<!doctype html><html lang='pt-BR'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-        <title>Proposta {safe(proposta.numero)} - {safe(org.nome)}</title><style>body{{font:16px Arial;color:#17231c;background:#f5f7f5;margin:0;padding:24px}}main{{max-width:760px;margin:auto;background:white;padding:36px;border-radius:18px;border:1px solid #d8ddd6}}h1{{font-family:Georgia,serif}}.muted{{color:#5b665f}}.button{{display:inline-block;background:#086044;color:#fff;padding:13px 20px;border-radius:9px;text-decoration:none;border:0;font-weight:700;cursor:pointer}}</style>
-        <main><p class='muted'>{safe(org.nome)}</p><h1>Proposta de registro de marca</h1><p>Proposta <strong>{safe(proposta.numero)}</strong> · versão {proposta.versao}</p>
+        <title>Proposta {safe(proposta.numero)} - {safe(org.nome)}</title>
+        <link rel='stylesheet' href='/static/proposta-publica.css'><script src='/static/proposta-publica.js' defer></script>
+        <main data-marcar-visualizada='/propostas/{token}/visualizada'><p class='muted'>{safe(org.nome)}</p><h1>Proposta de registro de marca</h1><p>Proposta <strong>{safe(proposta.numero)}</strong> · versão {proposta.versao}</p>
         <h2>Marca</h2><p>{safe(proposta.marca or "A definir")} · Classes {safe(proposta.classes or "A definir")}</p><h2>Escopo</h2><p>{safe(proposta.escopo)}</p>
         <h2>Valores</h2><p>Honorários: {safe(moeda(proposta.honorarios))}<br>Taxa GRU: {safe(moeda(proposta.taxa_gru))}<br><strong>Total: {safe(moeda(total))}</strong></p>
         <h2>Condições de pagamento</h2><p>{safe(proposta.condicoes_pagamento or "A combinar com o atendimento")}</p>
@@ -1586,6 +1624,21 @@ async def visualizar_proposta_publica(token: str, session: SessionDep) -> HTMLRe
         <p class='muted'>Após aceite, pagamento e documentação completa, o protocolo será realizado em até 24 horas úteis. O protocolo não garante a concessão da marca.</p>
         {acao_html}</main></html>"""
     )
+
+
+@router.post("/propostas/{token}/visualizada", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False)
+async def marcar_proposta_visualizada(token: str, session: SessionDep) -> Response:
+    """Chamado pela página pública no navegador (static/proposta-publica.js),
+    nunca pelo GET -- achado 18.7. Só avança "enviada" -> "visualizada";
+    qualquer outro status fica como está. Token inválido também responde 204,
+    sem revelar se o link existe. A linha é travada (revisão do Codex no PR
+    #150): sem isso, um fetch atrasado concorrendo com cancelamento ou aceite
+    podia sobrescrever o status recém-gravado com "visualizada"."""
+    proposta = await _proposta_por_token(session, token, bloquear=True)
+    if proposta is not None and proposta.status == "enviada":
+        proposta.status = "visualizada"
+        await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/propostas/{token}/aceitar", response_class=HTMLResponse, include_in_schema=False)

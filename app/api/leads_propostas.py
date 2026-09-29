@@ -27,13 +27,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.leads import _auditar, _documentacao_protocolavel, _lead_da_org, _pendencias_documentos, _prazo_sla_24h
 from app.api.propostas_config import valores_padrao_proposta
-from app.marca import nome_escritorio_para_email
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip, hash_token
 from app.clicksign import configuracao as configuracao_clicksign
 from app.clicksign import criar_envelope
 from app.crm import aplicar_regras_automacao, avancar_fase_lead, registrar_evento_operacional
 from app.database import get_session
 from app.emailing import enviar_codigo_confirmacao_proposta, enviar_proposta_email
+from app.marca import nome_escritorio_para_email
 from app.models import (
     AssinaturaPropostaComercial,
     ContratacaoServico,

@@ -479,6 +479,45 @@ async def listar_notificacoes(
     return {"total": pendentes, "total_itens": len(itens), "itens": itens}
 
 
+# Alertas de plataforma (organizacao_id NULL, app/alertas_plataforma.py)
+# aparecem no sino de todo usuário com production.manage, mas "marcar como
+# lida" só procurava alertas da própria organização e devolvia 404 -- o
+# usuário não conseguia tirar o alerta do sino (achado do usuário,
+# 29/09/2026). Resolver o alerta de vez também não serve: ele é compartilhado
+# entre todas as organizações e a rotina que o criou (ex.:
+# lembrar_atualizacoes_pendentes) o reabriria no ciclo seguinte, com novo
+# e-mail. A leitura desses alertas passa a ser por usuário, guardada em
+# detalhes["lido_por"]; a rotina continua resolvendo quando a situação normaliza.
+def _lido_pelo_usuario(alerta: AlertaSistema, usuario_id: int) -> bool:
+    return usuario_id in ((alerta.detalhes or {}).get("lido_por") or [])
+
+
+def _marcar_lido_pelo_usuario(alerta: AlertaSistema, usuario_id: int, lido: bool) -> None:
+    detalhes = dict(alerta.detalhes or {})
+    lido_por = [item for item in (detalhes.get("lido_por") or []) if item != usuario_id]
+    if lido:
+        lido_por.append(usuario_id)
+    detalhes["lido_por"] = lido_por
+    # Nova instância do dict: a coluna JSON não rastreia mutação interna.
+    alerta.detalhes = detalhes
+
+
+def _filtros_alerta_do_item(usuario: UsuarioAutenticado, item_id: int, organizacao_id: int) -> list:
+    """Alertas que o usuário pode marcar: os da própria organização e, para
+    quem vê alertas de plataforma no sino (production.manage), os sem
+    organização."""
+    if usuario.pode("production.manage"):
+        return [
+            AlertaSistema.id == item_id,
+            or_(AlertaSistema.organizacao_id == organizacao_id, AlertaSistema.organizacao_id.is_(None)),
+        ]
+    return [
+        AlertaSistema.id == item_id,
+        AlertaSistema.organizacao_id == organizacao_id,
+        AlertaSistema.codigo.in_(_CODIGOS_ALERTA_COMERCIAL),
+    ]
+
+
 @router.get("/notificacoes/rotinas")
 async def listar_alertas_rotinas(
     session: SessionDep,
@@ -520,13 +559,13 @@ async def listar_alertas_rotinas(
             ]
         )
 
+    # Sem LIMIT no SQL (revisão do Codex no PR #152): os alertas de plataforma
+    # já lidos pelo usuário só são descartados abaixo, então limitar antes
+    # podia esconder alertas não lidos mais antigos. O conjunto é pequeno --
+    # só alertas abertos e acionáveis, um por código (dedup em
+    # app/alertas_plataforma.py) -- e o corte acontece depois do filtro.
     alertas = (
-        await session.execute(
-            select(AlertaSistema)
-            .where(*filtros)
-            .order_by(AlertaSistema.criado_em.desc())
-            .limit(limite)
-        )
+        await session.execute(select(AlertaSistema).where(*filtros).order_by(AlertaSistema.criado_em.desc()))
     ).scalars().all()
     itens = [
         {
@@ -540,8 +579,10 @@ async def listar_alertas_rotinas(
             "url": _DESTINO_ALERTA.get(item.codigo, "/admin/producao"),
         }
         for item in alertas
-        if item.resolvido_em is None and item.severidade in _SEVERIDADES_ACIONAVEIS
-    ]
+        if item.resolvido_em is None
+        and item.severidade in _SEVERIDADES_ACIONAVEIS
+        and not (item.organizacao_id is None and _lido_pelo_usuario(item, usuario.id))
+    ][:limite]
     return {"total": len(itens), "itens": itens}
 
 
@@ -569,13 +610,19 @@ async def marcar_notificacao_lida(fonte: str, item_id: int, session: SessionDep,
         item.lida_em = agora
         item.lida_por = usuario.ator
     elif fonte == "sistema" and (usuario.pode("production.manage") or usuario.pode("leads.view")):
-        filtros_item = [AlertaSistema.id == item_id, AlertaSistema.organizacao_id == organizacao_id]
-        if not usuario.pode("production.manage"):
-            filtros_item.append(AlertaSistema.codigo.in_(_CODIGOS_ALERTA_COMERCIAL))
-        item = (await session.execute(select(AlertaSistema).where(*filtros_item))).scalar_one_or_none()
+        filtros_item = _filtros_alerta_do_item(usuario, item_id, organizacao_id)
+        # FOR UPDATE (revisão do Codex no PR #152): dois usuários marcando o
+        # mesmo alerta de plataforma ao mesmo tempo faziam ler-alterar-gravar
+        # em detalhes["lido_por"] e um sobrescrevia o outro.
+        item = (
+            await session.execute(select(AlertaSistema).where(*filtros_item).with_for_update())
+        ).scalar_one_or_none()
         if item is None:
             raise HTTPException(404, "Notificação não encontrada")
-        item.resolvido_em = agora
+        if item.organizacao_id is None:
+            _marcar_lido_pelo_usuario(item, usuario.id, True)
+        else:
+            item.resolvido_em = agora
     elif fonte == "mensagem_portal" and usuario.pode("leads.manage"):
         # Aqui item_id é o lead_id (uma notificação por lead, não por
         # mensagem) -- marca todas as mensagens não lidas do cliente
@@ -632,13 +679,19 @@ async def marcar_notificacao_nao_lida(fonte: str, item_id: int, session: Session
         item.lida_em = None
         item.lida_por = None
     elif fonte == "sistema" and (usuario.pode("production.manage") or usuario.pode("leads.view")):
-        filtros_item = [AlertaSistema.id == item_id, AlertaSistema.organizacao_id == organizacao_id]
-        if not usuario.pode("production.manage"):
-            filtros_item.append(AlertaSistema.codigo.in_(_CODIGOS_ALERTA_COMERCIAL))
-        item = (await session.execute(select(AlertaSistema).where(*filtros_item))).scalar_one_or_none()
+        filtros_item = _filtros_alerta_do_item(usuario, item_id, organizacao_id)
+        # FOR UPDATE (revisão do Codex no PR #152): dois usuários marcando o
+        # mesmo alerta de plataforma ao mesmo tempo faziam ler-alterar-gravar
+        # em detalhes["lido_por"] e um sobrescrevia o outro.
+        item = (
+            await session.execute(select(AlertaSistema).where(*filtros_item).with_for_update())
+        ).scalar_one_or_none()
         if item is None:
             raise HTTPException(404, "Notificação não encontrada")
-        item.resolvido_em = None
+        if item.organizacao_id is None:
+            _marcar_lido_pelo_usuario(item, usuario.id, False)
+        else:
+            item.resolvido_em = None
     else:
         raise HTTPException(404, "Notificação não encontrada")
     await session.commit()
@@ -688,6 +741,21 @@ async def marcar_todas_notificacoes(
         for item in alertas:
             item.resolvido_em = agora if lida else None
             afetadas += 1
+        if pode_producao:
+            # Alertas de plataforma abertos: leitura por usuário (ver
+            # _marcar_lido_pelo_usuario), nunca resolução global.
+            plataforma = (
+                await session.execute(
+                    select(AlertaSistema)
+                    .where(AlertaSistema.organizacao_id.is_(None), AlertaSistema.resolvido_em.is_(None))
+                    .order_by(AlertaSistema.id)
+                    .with_for_update()
+                )
+            ).scalars().all()
+            for item in plataforma:
+                if _lido_pelo_usuario(item, usuario.id) != lida:
+                    _marcar_lido_pelo_usuario(item, usuario.id, lida)
+                    afetadas += 1
 
     # "Marcar todas como não lidas" não se aplica a mensagens do portal --
     # reverter exigiria escolher qual mensagem específica desmarcar entre

@@ -230,7 +230,7 @@ async def test_marcar_juridica_como_lida_registra_autor_e_data() -> None:
 
 @pytest.mark.asyncio
 async def test_marcar_alerta_sistema_como_resolvido() -> None:
-    item = SimpleNamespace(resolvido_em=None)
+    item = SimpleNamespace(organizacao_id=1, resolvido_em=None)
     session = FakeSession([FakeResult(scalar=item)])
     usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
     await marcar_notificacao_lida("sistema", 3, session, usuario)
@@ -260,7 +260,7 @@ async def test_marcar_juridica_como_nao_lida_reverte_estado() -> None:
 
 @pytest.mark.asyncio
 async def test_marcar_alerta_sistema_como_nao_resolvido() -> None:
-    item = SimpleNamespace(resolvido_em=datetime(2026, 8, 10, tzinfo=UTC))
+    item = SimpleNamespace(organizacao_id=1, resolvido_em=datetime(2026, 8, 10, tzinfo=UTC))
     session = FakeSession([FakeResult(scalar=item)])
     usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
     await marcar_notificacao_nao_lida("sistema", 3, session, usuario)
@@ -271,7 +271,9 @@ async def test_marcar_alerta_sistema_como_nao_resolvido() -> None:
 async def test_marcar_todas_como_lidas_afeta_juridico_e_sistema() -> None:
     juridica = SimpleNamespace(status="nova", lida_em=None, lida_por=None)
     alerta = SimpleNamespace(resolvido_em=None)
-    session = FakeSession([FakeResult(itens=[juridica]), FakeResult(itens=[alerta]), FakeResult(itens=[])])
+    session = FakeSession(
+        [FakeResult(itens=[juridica]), FakeResult(itens=[alerta]), FakeResult(itens=[]), FakeResult(itens=[])]
+    )
     usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
     resultado = await marcar_todas_notificacoes(session, usuario, lida=True)
     assert resultado == {"afetadas": 2, "lida": True}
@@ -392,6 +394,7 @@ async def test_marcar_todas_notificacoes_marca_mensagens_pendentes_quando_lida()
         [
             FakeResult(itens=[]),  # juridico
             FakeResult(itens=[]),  # sistema
+            FakeResult(itens=[]),  # alertas de plataforma (leitura por usuário)
             FakeResult(itens=[mensagem]),
         ]
     )
@@ -425,3 +428,87 @@ async def test_marcar_todas_notificacoes_nao_lidas_nao_mexe_em_mensagens() -> No
     resultado = await marcar_todas_notificacoes(session, usuario, lida=False)
 
     assert resultado == {"afetadas": 0, "lida": False}
+
+# --- Achado do usuário (29/09/2026): alerta de plataforma (sem organização,
+# ex.: "Atualizacao pendente 157") aparecia no sino, mas "marcar como lida"
+# procurava só alertas da própria organização e devolvia 404. A leitura
+# desses alertas é por usuário (detalhes["lido_por"]), sem resolver o alerta
+# para as demais organizações nem fazer a rotina recriá-lo. ---
+
+
+def _alerta_plataforma(**kwargs: object) -> SimpleNamespace:
+    base: dict = {
+        "id": 157,
+        "organizacao_id": None,
+        "severidade": "aviso",
+        "codigo": "ATUALIZACAO_PENDENTE_157",
+        "mensagem": "Atualização pendente de confirmação para 5 usuário(s).",
+        "criado_em": datetime.now(UTC),
+        "resolvido_em": None,
+        "detalhes": {"versao_id": 157, "pendentes": 5},
+    }
+    base.update(kwargs)
+    return SimpleNamespace(**base)
+
+
+@pytest.mark.asyncio
+async def test_marcar_alerta_de_plataforma_como_lido_vale_so_para_o_usuario() -> None:
+    alerta = _alerta_plataforma()
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+
+    resultado = await marcar_notificacao_lida("sistema", 157, FakeSession([FakeResult(scalar=alerta)]), usuario)
+
+    assert resultado == {"lida": True}
+    # Não resolve para todo mundo -- a rotina reabriria (e reenviaria e-mail).
+    assert alerta.resolvido_em is None
+    assert alerta.detalhes["lido_por"] == [usuario.id]
+    assert alerta.detalhes["pendentes"] == 5
+
+
+@pytest.mark.asyncio
+async def test_alerta_de_plataforma_lido_some_do_sino_do_usuario() -> None:
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+    lido = _alerta_plataforma(detalhes={"lido_por": [usuario.id]})
+    outro_usuario = _alerta_plataforma(id=158, detalhes={"lido_por": [usuario.id + 1]})
+
+    resposta = await listar_alertas_rotinas(FakeSession([FakeResult(itens=[lido, outro_usuario])]), usuario)
+
+    assert [item["id"] for item in resposta["itens"]] == [158]
+
+
+@pytest.mark.asyncio
+async def test_alerta_de_plataforma_pode_voltar_a_nao_lido() -> None:
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+    alerta = _alerta_plataforma(detalhes={"lido_por": [usuario.id, 99]})
+
+    await marcar_notificacao_nao_lida("sistema", 157, FakeSession([FakeResult(scalar=alerta)]), usuario)
+
+    assert alerta.detalhes["lido_por"] == [99]
+    assert alerta.resolvido_em is None
+
+
+@pytest.mark.asyncio
+async def test_marcar_todas_inclui_alertas_de_plataforma_por_usuario() -> None:
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+    alerta = _alerta_plataforma()
+    session = FakeSession(
+        [FakeResult(itens=[]), FakeResult(itens=[]), FakeResult(itens=[alerta]), FakeResult(itens=[])]
+    )
+
+    resultado = await marcar_todas_notificacoes(session, usuario, lida=True)
+
+    assert resultado == {"afetadas": 1, "lida": True}
+    assert alerta.detalhes["lido_por"] == [usuario.id]
+    assert alerta.resolvido_em is None
+
+@pytest.mark.asyncio
+async def test_alertas_de_plataforma_lidos_nao_consomem_o_limite_do_sino() -> None:
+    # Revisão do Codex no PR #152: com LIMIT no SQL, alertas já lidos pelo
+    # usuário ocupavam as vagas e escondiam um alerta não lido mais antigo.
+    usuario = usuario_teste(perfil="ceo", permissoes=TODAS)
+    lidos = [_alerta_plataforma(id=200 + i, detalhes={"lido_por": [usuario.id]}) for i in range(3)]
+    nao_lido = _alerta_plataforma(id=300, organizacao_id=1, detalhes={})
+
+    resposta = await listar_alertas_rotinas(FakeSession([FakeResult(itens=[*lidos, nao_lido])]), usuario, limite=2)
+
+    assert [item["id"] for item in resposta["itens"]] == [300]

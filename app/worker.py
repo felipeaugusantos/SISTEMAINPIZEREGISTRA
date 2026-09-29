@@ -448,15 +448,20 @@ async def processar(tipo: str, payload: dict) -> None:
             from app.vigilancia import executar_vigilancia_semanal
 
             resultado = await executar_vigilancia_semanal(session, payload.get("organizacao_id"))
-            session.add(
-                AlertaSistema(
-                    organizacao_id=payload.get("organizacao_id") or 1,
-                    severidade="info",
-                    codigo="VIGILANCIA_SEMANAL_CONCLUIDA",
-                    mensagem=f"Vigilancia semanal concluida: {resultado['criadas']} colidencia(s) nova(s).",
-                    detalhes=resultado,
+            # Achado 17.5: sem organizacao_id no payload a vigilância roda
+            # para TODAS as organizações; antes o total agregado ia num único
+            # alerta da organização 1 (e as demais não recebiam nada). Agora
+            # um alerta por organização processada, só com os números dela.
+            for organizacao_id, contagem in (resultado.get("por_organizacao") or {}).items():
+                session.add(
+                    AlertaSistema(
+                        organizacao_id=organizacao_id,
+                        severidade="info",
+                        codigo="VIGILANCIA_SEMANAL_CONCLUIDA",
+                        mensagem=f"Vigilancia semanal concluida: {contagem['criadas']} colidencia(s) nova(s).",
+                        detalhes={"chave": resultado["chave"], **contagem},
+                    )
                 )
-            )
         elif tipo == "prospeccao.coletar_campanha":
             # Fase 2 do Radar de Prospecção (03/09/2026): a RFB nao oferece
             # consulta sob demanda por CNAE/UF -- so consulta o cache local

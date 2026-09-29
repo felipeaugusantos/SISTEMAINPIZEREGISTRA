@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/admin-leads.css?v=33" />
     <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=12 -->
     <script src="/static/admin-shell.js?v=53" defer></script>
-    <script src="/static/lead-dialog.js?v=6" defer></script>
+    <script src="/static/lead-dialog.js?v=7" defer></script>
     <script src="/static/admin-leads.js?v=76" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
@@ -227,7 +227,18 @@
           <input name="taxa_gru" type="number" min="0" step="0.01" required>
         </label>
         <p>Os planos contábeis padrão para honorários e taxa GRU/INPI são aplicados automaticamente conforme a configuração financeira da organização.</p>
-        <label>Condições de pagamento
+        <label>Forma de pagamento
+          <select name="forma_pagamento" required>
+            <option value="entrada_e_protocolo">50% no aceite e 50% no protocolo</option>
+            <option value="a_vista">À vista, no aceite</option>
+            <option value="parcelado">Honorários parcelados (mensal)</option>
+          </select>
+        </label>
+        <label data-proposal-installments hidden>Número de parcelas dos honorários
+          <input name="parcelas" type="number" min="2" max="12" value="3">
+        </label>
+        <p>A taxa GRU/INPI é sempre cobrada à vista, no aceite. O prazo de protocolo começa quando a entrada (taxa GRU/INPI + 1ª parcela dos honorários) é paga.</p>
+        <label>Observações de pagamento (opcional)
           <input name="condicoes_pagamento" type="text" maxlength="2000">
         </label>
         <label>Validade da proposta

@@ -19,8 +19,8 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, Field
-from sqlalchemy import desc, func, select
+from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import desc, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +52,16 @@ from app.models import (
     UsuarioOperacoes,
 )
 from app.normalization import normalizar_numero_processo
+from app.proposta_pagamento import (
+    FORMAS_COM_ENTRADA,
+    PARCELAS_MAXIMAS,
+    PARCELAS_MINIMAS,
+    FormaPagamentoProposta,
+    condicao_da_proposta,
+    cronograma_honorarios,
+    status_pagamento_por_parcelas,
+    texto_condicao_pagamento,
+)
 from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
 from app.relatorios import gerar_pdf_proposta
@@ -117,15 +127,45 @@ class PropostaInput(BaseModel):
     conta_contabil_taxa_gru_id: int | None = Field(default=None, ge=1)
     # Compatibilidade com clientes antigos da API e propostas migradas.
     conta_contabil_id: int | None = Field(default=None, ge=1)
+    # Achado 18.5: condição estruturada, que o financeiro segue ao gerar os
+    # títulos do aceite (app/proposta_pagamento.py). Com a forma informada,
+    # ``condicoes_pagamento`` vira só uma observação complementar ao texto
+    # gerado; sem ela (clientes antigos da API), o texto livre continua
+    # valendo como antes e o financeiro gera à vista.
+    forma_pagamento: FormaPagamentoProposta | None = None
+    parcelas: int | None = Field(default=None, ge=PARCELAS_MINIMAS, le=PARCELAS_MAXIMAS)
     condicoes_pagamento: str | None = Field(default=None, max_length=2000)
     observacoes: str | None = Field(default=None, max_length=4000)
+
+    @model_validator(mode="after")
+    def _validar_parcelas(self) -> "PropostaInput":
+        if self.forma_pagamento == "parcelado" and self.parcelas is None:
+            raise ValueError(
+                f"Informe o número de parcelas (de {PARCELAS_MINIMAS} a {PARCELAS_MAXIMAS}) para o pagamento parcelado."
+            )
+        if self.forma_pagamento != "parcelado":
+            self.parcelas = None
+        return self
 
 
 # Valores padrão do rascunho comercial quando a proposta é criada diretamente
 # pelo funil, sem interromper o usuário para preencher um formulário.
 HONORARIOS_PROPOSTA_PADRAO = Decimal("1500.00")
 TAXA_GRU_PROPOSTA_PADRAO = Decimal("415.00")
-CONDICOES_PROPOSTA_PADRAO = "50% na contratação e 50% no protocolo"
+FORMA_PAGAMENTO_PROPOSTA_PADRAO = "entrada_e_protocolo"
+
+
+def _condicao_pagamento_proposta(dados: PropostaInput) -> tuple[dict, str]:
+    """(condição estruturada gravada em dados, texto exibido ao cliente)."""
+    if dados.forma_pagamento is None and dados.condicoes_pagamento:
+        # Cliente antigo da API com texto livre: mantém o texto e o
+        # comportamento financeiro de sempre (à vista).
+        return {"forma": "a_vista", "parcelas": None}, dados.condicoes_pagamento
+    forma = dados.forma_pagamento or FORMA_PAGAMENTO_PROPOSTA_PADRAO
+    texto = texto_condicao_pagamento(forma, dados.parcelas)
+    if dados.condicoes_pagamento and dados.condicoes_pagamento.strip():
+        texto = f"{texto}\nObservações: {dados.condicoes_pagamento.strip()}"
+    return {"forma": forma, "parcelas": dados.parcelas}, texto
 
 
 def _resumir_pesquisas_proposta(pesquisas: list[PesquisaMarca]) -> tuple[str | None, str | None]:
@@ -269,6 +309,8 @@ def _proposta_dict(proposta: PropostaComercial, org: Organizacao | None = None) 
         "taxa_gru": proposta.taxa_gru,
         "total": (proposta.honorarios or 0) + (proposta.taxa_gru or 0),
         "condicoes_pagamento": proposta.condicoes_pagamento,
+        "forma_pagamento": condicao_da_proposta(proposta.dados)[0],
+        "parcelas": condicao_da_proposta(proposta.dados)[1],
         "observacoes": proposta.observacoes,
         "pesquisas": (proposta.dados or {}).get("pesquisas") or [],
         "cliente": {"nome": (proposta.dados or {}).get("cliente") or "cliente"},
@@ -364,6 +406,7 @@ async def criar_proposta(lead_id: int, dados: PropostaInput, session: SessionDep
         )
     pesquisa = pesquisas[0] if pesquisas else None
     marcas_resumo, classes_resumo = _resumir_pesquisas_proposta(pesquisas)
+    condicao_pagamento, texto_condicao = _condicao_pagamento_proposta(dados)
     proposta = PropostaComercial(
         organizacao_id=usuario.organizacao_id,
         lead_id=lead,
@@ -375,7 +418,7 @@ async def criar_proposta(lead_id: int, dados: PropostaInput, session: SessionDep
         escopo=dados.escopo.strip(),
         honorarios=dados.honorarios if dados.honorarios is not None else HONORARIOS_PROPOSTA_PADRAO,
         taxa_gru=dados.taxa_gru if dados.taxa_gru is not None else TAXA_GRU_PROPOSTA_PADRAO,
-        condicoes_pagamento=dados.condicoes_pagamento or CONDICOES_PROPOSTA_PADRAO,
+        condicoes_pagamento=texto_condicao,
         observacoes=dados.observacoes,
         criado_por=usuario.id,
         dados={
@@ -386,6 +429,7 @@ async def criar_proposta(lead_id: int, dados: PropostaInput, session: SessionDep
             "protocolo_prazo": "24 horas úteis",
             "conta_contabil_honorarios_id": conta_honorarios_id,
             "conta_contabil_taxa_gru_id": conta_taxa_gru_id,
+            "condicao_pagamento": condicao_pagamento,
         },
     )
     session.add(proposta)
@@ -690,11 +734,53 @@ async def calcular_pagamento_status_proposta(session: AsyncSession, organizacao_
     return "pendente"
 
 
+def _componente_lancamento_proposta(idempotency_key: str | None, proposta_id: int) -> str:
+    """Componente do lançamento do aceite: "honorarios", "total" (lançamento
+    único legado) ou o sufixo da chave (ex.: "taxa-gru")."""
+    chave = idempotency_key or ""
+    if chave == f"proposta-aceite:{proposta_id}":
+        return "total"
+    return chave.rsplit(":", 1)[-1] if chave.startswith(f"proposta-aceite:{proposta_id}:") else "outro"
+
+
+async def calcular_pagamento_status_entrada_proposta(
+    session: AsyncSession, organizacao_id: int, proposta_id: int
+) -> str:
+    """Status de pagamento de proposta com condição estruturada (achado 18.5):
+    confirmado quando a ENTRADA está paga -- taxa GRU/INPI e 1ª parcela dos
+    honorários --, não o total. Ver app/proposta_pagamento.py."""
+    linhas = (
+        await session.execute(
+            select(
+                LancamentoFinanceiro.idempotency_key,
+                ParcelaFinanceira.numero,
+                ParcelaFinanceira.status,
+                LancamentoFinanceiro.status,
+            )
+            .join(ParcelaFinanceira, ParcelaFinanceira.lancamento_id == LancamentoFinanceiro.id)
+            .where(
+                LancamentoFinanceiro.organizacao_id == organizacao_id,
+                LancamentoFinanceiro.proposta_id == proposta_id,
+            )
+        )
+    ).all()
+    return status_pagamento_por_parcelas(
+        [
+            (_componente_lancamento_proposta(chave, proposta_id), numero, status_parcela, status_lancamento)
+            for chave, numero, status_parcela, status_lancamento in linhas
+        ]
+    )
+
+
 async def sincronizar_pagamento_proposta(session: AsyncSession, proposta: PropostaComercial) -> None:
     """Recalcula ``pagamento_status`` da proposta a partir do financeiro e
     reflete a mudança no SLA. Chamado após qualquer baixa/estorno/cancelamento
     de um lançamento vinculado, e sob demanda via ``PATCH .../pagamento``."""
-    novo_status = await calcular_pagamento_status_proposta(session, proposta.organizacao_id, proposta.id)
+    forma, _parcelas = condicao_da_proposta(proposta.dados)
+    if forma in FORMAS_COM_ENTRADA:
+        novo_status = await calcular_pagamento_status_entrada_proposta(session, proposta.organizacao_id, proposta.id)
+    else:
+        novo_status = await calcular_pagamento_status_proposta(session, proposta.organizacao_id, proposta.id)
     status_anterior = proposta.pagamento_status
     if novo_status == status_anterior and novo_status != "confirmado":
         return
@@ -897,16 +983,28 @@ async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta:
                 for lancamento in lancamentos:
                     session.add(lancamento)
                 await session.flush()
-                for lancamento in lancamentos:
-                    session.add(
-                        ParcelaFinanceira(
-                            organizacao_id=proposta.organizacao_id,
-                            lancamento_id=lancamento.id,
-                            numero=1,
-                            vencimento=date.today(),
-                            valor=lancamento.valor_total,
-                        )
+                # Achado 18.5: os honorários seguem a condição estruturada da
+                # proposta (entrada + protocolo ou parcelado); a taxa GRU/INPI
+                # é sempre à vista. Sem condição gravada (propostas antigas),
+                # parcela única no aceite, como sempre foi.
+                forma, quantidade = condicao_da_proposta(dados_proposta)
+                hoje = date.today()
+                for (componente, _descricao, _valor, _conta), lancamento in zip(componentes, lancamentos, strict=True):
+                    cronograma = (
+                        cronograma_honorarios(lancamento.valor_total, forma, quantidade, hoje)
+                        if componente in {"honorarios", "total"}
+                        else [(1, hoje, lancamento.valor_total)]
                     )
+                    for numero, vencimento, valor in cronograma:
+                        session.add(
+                            ParcelaFinanceira(
+                                organizacao_id=proposta.organizacao_id,
+                                lancamento_id=lancamento.id,
+                                numero=numero,
+                                vencimento=vencimento,
+                                valor=valor,
+                            )
+                        )
                 session.add(
                     ContratacaoServico(
                         organizacao_id=proposta.organizacao_id,
@@ -1163,6 +1261,27 @@ async def registrar_protocolo_proposta(
             await avancar_fase_lead(session, lead_do_protocolo, FaseLead.GANHO.value, usuario.ator)
             await avancar_fase_lead(session, lead_do_protocolo, FaseLead.PROTOCOLO_INPI.value, usuario.ator)
         await _tentar_vincular_processo_ao_protocolar(session, usuario.organizacao_id, proposta.lead_id, numero)
+    if numero and condicao_da_proposta(proposta.dados)[0] == "entrada_e_protocolo":
+        # Achado 18.5: a 2ª parcela dos honorários ("50% no protocolo") nasce
+        # com vencimento provisório; o protocolo registrado fixa a data real.
+        await session.execute(
+            update(ParcelaFinanceira)
+            .where(
+                ParcelaFinanceira.organizacao_id == proposta.organizacao_id,
+                ParcelaFinanceira.numero == 2,
+                ParcelaFinanceira.status != "paga",
+                ParcelaFinanceira.lancamento_id.in_(
+                    select(LancamentoFinanceiro.id).where(
+                        LancamentoFinanceiro.organizacao_id == proposta.organizacao_id,
+                        LancamentoFinanceiro.proposta_id == proposta.id,
+                        LancamentoFinanceiro.idempotency_key.in_(
+                            [f"proposta-aceite:{proposta.id}:honorarios", f"proposta-aceite:{proposta.id}"]
+                        ),
+                    )
+                ),
+            )
+            .values(vencimento=agora.date())
+        )
     _atualizar_sla_proposta(proposta)
     _auditar(
         session,

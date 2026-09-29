@@ -1595,7 +1595,12 @@ async function criarProposta(lead, box) {
   statusBox.hidden = true;
   proposalForm.elements.honorarios.value = "1500";
   proposalForm.elements.taxa_gru.value = "415";
-  proposalForm.elements.condicoes_pagamento.value = "50% na contratação e 50% no protocolo";
+  // Achado 18.5: condição estruturada que o financeiro segue no aceite; o
+  // campo de texto virou só uma observação complementar.
+  proposalForm.elements.forma_pagamento.value = "entrada_e_protocolo";
+  proposalForm.elements.parcelas.value = "3";
+  proposalForm.elements.condicoes_pagamento.value = "";
+  atualizarCampoParcelas();
   proposalForm.elements.validade_em.value = "";
   proposalForm.elements.escopo.value = "Pesquisa, preparação e protocolo de registro de marca no INPI";
   // Os planos padrão são resolvidos no servidor a partir da configuração da
@@ -1609,6 +1614,16 @@ async function criarProposta(lead, box) {
     </label>`).join("") || "<p>Nenhuma pesquisa vinculada. A proposta será criada sem marca definida.</p>";
   proposalDialog.showModal();
 }
+
+function atualizarCampoParcelas() {
+  const campoParcelas = root.querySelector("[data-proposal-installments]");
+  if (!proposalForm.elements.forma_pagamento || !campoParcelas) return;
+  const parcelado = proposalForm.elements.forma_pagamento.value === "parcelado";
+  campoParcelas.hidden = !parcelado;
+  proposalForm.elements.parcelas.required = parcelado;
+}
+
+proposalForm.elements.forma_pagamento?.addEventListener("change", atualizarCampoParcelas);
 
 root.querySelector("#cancel-proposal").addEventListener("click", () => {
   proposalDialog.close();
@@ -1638,6 +1653,8 @@ proposalForm.addEventListener("submit", async event => {
     escopo: dados.escopo,
     honorarios: Number(dados.honorarios),
     taxa_gru: Number(dados.taxa_gru),
+    forma_pagamento: dados.forma_pagamento,
+    parcelas: dados.forma_pagamento === "parcelado" ? Number(dados.parcelas) : null,
     condicoes_pagamento: dados.condicoes_pagamento || null,
   };
   try {

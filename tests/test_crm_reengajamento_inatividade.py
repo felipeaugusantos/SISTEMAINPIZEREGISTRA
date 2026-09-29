@@ -52,7 +52,7 @@ def test_reengajamento_cria_lembrete_para_lead_parado_e_agrupa_por_responsavel()
 
     criados, atrasados = asyncio.run(gerar_lembretes_reengajamento_inatividade(session))
 
-    assert criados == 1
+    assert criados == {1: 1}
     assert atrasados == {6: [lead]}
     assert len(session.executados) == 3
 
@@ -72,7 +72,7 @@ def test_reengajamento_nao_conta_quando_ja_existe_lembrete_da_semana() -> None:
 
     criados, atrasados = asyncio.run(gerar_lembretes_reengajamento_inatividade(session))
 
-    assert criados == 0
+    assert criados == {}
     assert atrasados == {}
     assert len(session.executados) == 3
 
@@ -95,7 +95,39 @@ def test_reengajamento_sempre_cancela_lembretes_de_semanas_anteriores() -> None:
 
     criados, atrasados = asyncio.run(gerar_lembretes_reengajamento_inatividade(session))
 
-    assert criados == 2
+    assert criados == {1: 2}
     # lead_b sem responsavel_id não entra no agrupamento de notificação.
     assert atrasados == {6: [lead_a]}
     assert len(session.executados) == 5
+
+
+def test_reengajamento_cancela_por_idempotency_key_e_nao_por_criado_por() -> None:
+    """Achado 17.4: o cancelamento dos lembretes de semanas anteriores
+    comparava o texto livre de `criado_por` -- qualquer ajuste na redação
+    faria o acúmulo voltar. Agora usa o prefixo estável da idempotency_key."""
+    lead = _lead_parado(id=63)
+    session = FakeSession([FakeResult(itens=[lead]), FakeResult(scalar=1), FakeResult()])
+
+    asyncio.run(gerar_lembretes_reengajamento_inatividade(session))
+
+    cancelamento = str(session.executados[2].compile(compile_kwargs={"literal_binds": True}))
+    assert "criado_por" not in cancelamento
+    assert "LIKE 'reengajamento:63:%%'" in cancelamento or "LIKE 'reengajamento:63:%'" in cancelamento
+
+
+def test_reengajamento_separa_contagem_por_organizacao() -> None:
+    lead_a = _lead_parado(id=63, organizacao_id=1)
+    lead_b = _lead_parado(id=70, organizacao_id=2, responsavel_id=8)
+    session = FakeSession(
+        [
+            FakeResult(itens=[lead_a, lead_b]),
+            FakeResult(scalar=1),
+            FakeResult(),
+            FakeResult(scalar=2),
+            FakeResult(),
+        ]
+    )
+
+    criados, _atrasados = asyncio.run(gerar_lembretes_reengajamento_inatividade(session))
+
+    assert criados == {1: 1, 2: 1}

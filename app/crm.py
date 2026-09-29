@@ -187,19 +187,22 @@ async def aplicar_politica_oportunidade(session: AsyncSession, lead: Lead, opera
     return faltando
 
 
-async def gerar_lembretes_sla_primeiro_atendimento(session: AsyncSession) -> int:
+async def gerar_lembretes_sla_primeiro_atendimento(session: AsyncSession) -> dict[int, int]:
     """Cria um LembreteCRM (idempotente por lead, um único alerta -- não
     repete a cada execução horária) para todo lead sem nenhum ContatoLead
     registrado além do prazo definido em
     PoliticaCRM.horas_sla_primeiro_atendimento. Opt-in por organização
     (nulo = comportamento atual, só a média histórica agregada no
     dashboard). Achado item 14 da auditoria completa do CRM (06/09/2026).
-    Devolve quantos lembretes novos foram criados."""
+    Devolve quantos lembretes novos foram criados POR ORGANIZAÇÃO
+    (organizacao_id -> quantidade, só as que tiveram algum) -- achado 17.4:
+    antes era um total agregado de todas as organizações, gravado pelo
+    worker num AlertaSistema fixo da organização 1."""
     agora = datetime.now(UTC)
     politicas = (
         await session.execute(select(PoliticaCRM).where(PoliticaCRM.horas_sla_primeiro_atendimento.isnot(None)))
     ).scalars()
-    criados = 0
+    criados: dict[int, int] = {}
     for politica in politicas:
         limite = agora - timedelta(hours=politica.horas_sla_primeiro_atendimento)
         sem_contato = ~exists(select(ContatoLead.id).where(ContatoLead.lead_id == Lead.id))
@@ -240,13 +243,13 @@ async def gerar_lembretes_sla_primeiro_atendimento(session: AsyncSession) -> int
                 )
             ).scalar_one_or_none()
             if inserido is not None:
-                criados += 1
+                criados[lead.organizacao_id] = criados.get(lead.organizacao_id, 0) + 1
     return criados
 
 
 async def gerar_lembretes_reengajamento_inatividade(
     session: AsyncSession,
-) -> tuple[int, dict[int, list[Lead]]]:
+) -> tuple[dict[int, int], dict[int, list[Lead]]]:
     """Cria um LembreteCRM "Oportunidade parada" para todo lead sem próxima
     ação definida (ou vencida). Idempotente por semana ISO -- no máximo um
     lembrete novo por lead por semana, mesmo rodando de hora em hora
@@ -261,8 +264,15 @@ async def gerar_lembretes_reengajamento_inatividade(
     mantém só o lembrete desta semana ativo por lead, cancelando os
     anteriores da mesma automação.
 
-    Devolve (quantidade criada, leads atrasados agrupados por responsável --
-    usado pelo chamador para notificar por e-mail)."""
+    Achado 17.4: o cancelamento identificava os lembretes da automação
+    comparando o texto livre de `criado_por` -- qualquer ajuste de redação
+    faria os lembretes antigos pararem de ser cancelados (e o acúmulo
+    voltar). Agora usa o prefixo estável da idempotency_key
+    ("reengajamento:<lead_id>:"), que já é a identidade da automação.
+
+    Devolve (quantidade criada por organização -- organizacao_id ->
+    quantidade, só as que tiveram algum --, leads atrasados agrupados por
+    responsável -- usado pelo chamador para notificar por e-mail)."""
     agora = datetime.now(UTC)
     semana = agora.strftime("%G-W%V")
     leads = (
@@ -277,7 +287,7 @@ async def gerar_lembretes_reengajamento_inatividade(
             )
         )
     ).scalars()
-    criados = 0
+    criados: dict[int, int] = {}
     atrasados_por_responsavel: dict[int, list[Lead]] = {}
     for lead in leads:
         inserido = (
@@ -311,13 +321,13 @@ async def gerar_lembretes_reengajamento_inatividade(
                 LembreteCRM.organizacao_id == lead.organizacao_id,
                 LembreteCRM.tipo == "retorno",
                 LembreteCRM.status == "pendente",
-                LembreteCRM.criado_por == "Automação (reengajamento por inatividade)",
+                LembreteCRM.idempotency_key.like(f"reengajamento:{lead.id}:%"),
                 LembreteCRM.idempotency_key != f"reengajamento:{lead.id}:{semana}",
             )
             .values(status="cancelado")
         )
         if inserido is not None:
-            criados += 1
+            criados[lead.organizacao_id] = criados.get(lead.organizacao_id, 0) + 1
             if lead.responsavel_id is not None:
                 atrasados_por_responsavel.setdefault(lead.responsavel_id, []).append(lead)
     return criados, atrasados_por_responsavel
@@ -848,6 +858,7 @@ async def avancar_fase_lead(session: AsyncSession, lead: Lead, nova_fase: str, p
     if not forcar and ORDEM_FASE_LEAD.index(nova_fase) <= ORDEM_FASE_LEAD.index(lead.fase):
         return False
     lead.fase = nova_fase
+    status_anterior = lead.status
     novo_status = MAPA_FASE_STATUS.get(nova_fase)
     if novo_status is not None and lead.status != novo_status:
         lead.status = novo_status
@@ -874,7 +885,21 @@ async def avancar_fase_lead(session: AsyncSession, lead: Lead, nova_fase: str, p
     )
     await aplicar_regras_automacao(session, lead, "fase", nova_fase, por)
     await aplicar_cadencias_automaticas(session, lead, "fase", nova_fase, por)
+    if novo_status is not None and status_anterior != lead.status:
+        await disparar_automacoes_status(session, lead, por)
     return True
+
+
+async def disparar_automacoes_status(session: AsyncSession, lead: Lead, por: str) -> None:
+    """Dispara as regras e cadências do evento "status" para o status atual do
+    lead. Achado 17.3 (revisão do Codex): só o PATCH de status disparava esse
+    evento -- o Kanban e a sincronização de fase (proposta enviada, conversão)
+    mudavam o status em silêncio, e uma cadência configurada para "Sem
+    retorno" ou "Convertido" nunca rodava por esses caminhos. Chamar em todo
+    ponto que muda Lead.status; as chaves de idempotência de lembrete e de
+    envio tornam uma chamada repetida inofensiva."""
+    await aplicar_regras_automacao(session, lead, "status", lead.status.value, por)
+    await aplicar_cadencias_automaticas(session, lead, "status", lead.status.value, por)
 
 
 async def sincronizar_fase_por_status(session: AsyncSession, lead: Lead, por: str) -> bool:

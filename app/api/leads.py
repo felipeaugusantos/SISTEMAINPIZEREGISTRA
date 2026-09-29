@@ -27,6 +27,7 @@ from app.crm import (
     avancar_fase_lead,
     buscar_lead_ativo_por_email,
     calcular_score_lead,
+    disparar_automacoes_status,
     distribuir_lead_automaticamente,
     email_sintetico_por_telefone,
     obter_ou_criar_empresa,
@@ -1401,6 +1402,9 @@ async def mover_lead_kanban(
                 detail=f"Etapa bloqueada. Documentos obrigatórios pendentes: {', '.join(pendencias)}.",
             )
     await avancar_fase_lead(session, lead, etapa["fase"], por=usuario.nome or "operador", forcar=True)
+    # avancar_fase_lead já dispara o evento "status" quando ele próprio muda
+    # o status; aqui só as atribuições diretas do Kanban abaixo.
+    status_apos_fase = lead.status
     if dados.etapa == "primeiro_contato":
         lead.status = StatusLead.NOVO
     elif dados.etapa == "aguardando_contato_nosso":
@@ -1416,6 +1420,10 @@ async def mover_lead_kanban(
                 status_code=422,
                 detail=f"Oportunidade aberta exige {' e '.join(faltando)}.",
             )
+    # Achado 17.3 (revisão do Codex): antes o Kanban mudava o status sem
+    # disparar as regras/cadências do evento "status" (ex.: "Sem retorno").
+    if lead.status != status_apos_fase:
+        await disparar_automacoes_status(session, lead, usuario.nome or "operador")
     _auditar(
         session,
         usuario,

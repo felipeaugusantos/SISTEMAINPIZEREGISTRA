@@ -51,7 +51,13 @@ def test_verificar_respostas_habilitado_registra_conteudo_e_pausa_leads() -> Non
         modulo._buscar_mensagens_nao_lidas = original_buscar
         modulo.pausar_envios_pendentes_do_lead = original_pausar
 
-    assert resultado == {"verificado": True, "remetentes": 1, "registradas": 1, "pausados": 2}
+    assert resultado == {
+        "verificado": True,
+        "remetentes": 1,
+        "registradas": 1,
+        "pausados": 2,
+        "pausados_por_organizacao": {1: 2},
+    }
     assert chamadas == [(1, 9)]
     assert len(session.adicionados) == 1
     resposta = session.adicionados[0]
@@ -82,7 +88,13 @@ def test_verificar_respostas_sem_lead_correspondente_nao_registra_nada() -> None
         settings.imap_enabled = original_imap_enabled
         modulo._buscar_mensagens_nao_lidas = original_buscar
 
-    assert resultado == {"verificado": True, "remetentes": 1, "registradas": 0, "pausados": 0}
+    assert resultado == {
+        "verificado": True,
+        "remetentes": 1,
+        "registradas": 0,
+        "pausados": 0,
+        "pausados_por_organizacao": {},
+    }
     assert session.adicionados == []
 
 

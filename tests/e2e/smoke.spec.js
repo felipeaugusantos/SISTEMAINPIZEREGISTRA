@@ -86,7 +86,11 @@ test("o administrador entra pelo formulário e acessa a visão geral", async ({ 
 
   await expect(page).toHaveURL(/\/admin$|\/configurar-mfa$/);
   if (page.url().endsWith("/configurar-mfa")) {
-    const segredo = (await page.locator("#mfa-setup-secret").textContent()).trim();
+    // O segredo é preenchido de forma assíncrona após a navegação; esperar
+    // ele aparecer antes de ler (senão o TOTP seria gerado do texto vazio).
+    const campoSegredo = page.locator("#mfa-setup-secret");
+    await expect(campoSegredo).not.toBeEmpty();
+    const segredo = (await campoSegredo.textContent()).trim();
     await page.locator("#mfa-setup-code").fill(await codigoTotpComFolga(page, segredo));
     await page.getByRole("button", { name: "Confirmar" }).click();
     await expect(page.locator("#mfa-setup-recovery")).toBeVisible();

@@ -40,7 +40,7 @@
 /* align-items:flex-start impede que o botão do cabeçalho (Importar agora,
    Parar importação, + Adicionar supressão, Verificar duplicidades) estique
    para a altura do texto de descrição ao lado -- antes ficavam gigantes. */
-.prospeccao-card>header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:18px}
+.prospeccao-card>header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:18px}
 .prospeccao-card>header>button,.prospeccao-card>header .secondary-button{flex:0 0 auto;white-space:nowrap}
 .prospeccao-card h2{margin:4px 0;font:500 2rem/1 Georgia,serif}
 .prospeccao-card header p{color:#617068;max-width:640px}

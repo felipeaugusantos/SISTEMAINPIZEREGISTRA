@@ -1318,6 +1318,10 @@ async def dashboard_prospeccao(
 # a conexão caiu).
 
 
+def _importacao_abandonada(execucao: ImportacaoCnpjRfb) -> bool:
+    return not execucao.etapa_atual and datetime.now(UTC) - execucao.solicitado_em > timedelta(hours=1)
+
+
 @router_campanhas.post(
     "/importar-cnpj-rfb", status_code=status.HTTP_202_ACCEPTED, response_model=ImportacaoCnpjRfbResponse
 )
@@ -1327,7 +1331,15 @@ async def disparar_importacao_cnpj_rfb(
     em_andamento = (
         await session.execute(select(ImportacaoCnpjRfb).where(ImportacaoCnpjRfb.status == "executando").limit(1))
     ).scalar_one_or_none()
-    if em_andamento is not None:
+    if em_andamento is not None and _importacao_abandonada(em_andamento):
+        # Sem nenhuma etapa gravada 1h depois do disparo, o worker nunca
+        # assumiu a execução (ex.: a corrida do enfileiramento abaixo) --
+        # libera o botão em vez de bloquear para sempre.
+        em_andamento.status = "erro"
+        em_andamento.erro = "Importação abandonada: nenhum progresso registrado pelo worker."
+        em_andamento.concluido_em = datetime.now(UTC)
+        await session.flush()
+    elif em_andamento is not None:
         raise HTTPException(422, "Já existe uma importação em andamento -- aguarde terminar antes de disparar outra.")
 
     execucao = ImportacaoCnpjRfb(
@@ -1340,14 +1352,23 @@ async def disparar_importacao_cnpj_rfb(
     )
     session.add(execucao)
     await session.flush()
-    job = await enfileirar(
-        "prospeccao.importar_cnpj_rfb",
-        {"execucao_id": execucao.id, "periodo": dados.periodo, "limite_linhas": dados.limite_linhas},
-    )
-    _auditar(
-        session, request, usuario, "importar_cnpj_rfb", f"importacao_cnpj_rfb:{execucao.id}", {"job_id": job.get("id")}
-    )
+    _auditar(session, request, usuario, "importar_cnpj_rfb", f"importacao_cnpj_rfb:{execucao.id}", {})
+    # Achado (30/09/2026): o job era enfileirado ANTES do commit -- o worker
+    # pegava na hora, não achava a execução e seguia sem gravar progresso nem
+    # a conclusão, deixando a tela eternamente "Em andamento" com 0%. Grava
+    # primeiro, enfileira depois; se enfileirar falhar, a execução vira erro.
     await session.commit()
+    try:
+        await enfileirar(
+            "prospeccao.importar_cnpj_rfb",
+            {"execucao_id": execucao.id, "periodo": dados.periodo, "limite_linhas": dados.limite_linhas},
+        )
+    except Exception:
+        execucao.status = "erro"
+        execucao.erro = "Não foi possível colocar a importação na fila do worker."
+        execucao.concluido_em = datetime.now(UTC)
+        await session.commit()
+        raise
     await session.refresh(execucao)
     return ImportacaoCnpjRfbResponse.model_validate(execucao)
 

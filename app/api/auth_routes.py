@@ -45,6 +45,7 @@ from app.security_ext import (
     versao_chave_atual,
 )
 from app.settings import TAMANHO_MINIMO_SENHA, get_settings
+from app.storage import StorageError, read_bytes
 from app.tenancy import aplicar_contexto_tenant, validar_limite_usuarios
 
 router = APIRouter(prefix="/v1/auth", tags=["autenticacao"])
@@ -113,7 +114,11 @@ def _resposta_usuario(usuario: UsuarioOperacoes) -> dict:
             "modulos": sorted(normalizar_modulos_plano(usuario.organizacao.plano.modulos)),
             # Fase 19.1 (white-label): o painel aplica nome, logo e cor do
             # escritório do usuário logado -- ver app.marca.
-            "marca": marca_organizacao(usuario.organizacao),
+            "marca": {
+                **marca_organizacao(usuario.organizacao),
+                # Endereço autenticado: não depende do domínio estar verificado.
+                "logo_url": logo_url_painel(usuario.organizacao),
+            },
         },
     }
 
@@ -270,6 +275,44 @@ async def marca_css_painel(usuario: UsuarioAtualDep, session: AsyncSession = Dep
     organizacao = await session.get(Organizacao, usuario.organizacao_id)
     css = css_marca(organizacao.branding if organizacao else None, painel=True)
     return Response(content=css, media_type="text/css", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/me/logo")
+async def logo_painel(usuario: UsuarioAtualDep, session: AsyncSession = Depends(get_session)) -> Response:
+    """Logotipo enviado pelo escritório do usuário logado, para o painel e a
+    prévia em Confiabilidade e LGPD. O /v1/tenant/logo público identifica o
+    escritório pelo domínio e, em produção, recusa domínio não verificado --
+    no painel a prévia ficava vazia (achado do usuário, 30/09/2026)."""
+    organizacao = await session.get(Organizacao, usuario.organizacao_id)
+    item = ((organizacao.branding if organizacao else None) or {}).get("logo_asset") or {}
+    localizacao = item.get("localizacao")
+    if not localizacao:
+        raise HTTPException(404, "Logotipo não configurado")
+    try:
+        conteudo = read_bytes(localizacao)
+    except (OSError, StorageError):
+        raise HTTPException(404, "Logotipo não encontrado") from None
+    return Response(
+        content=conteudo,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "private, max-age=86400",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+def logo_url_painel(organizacao: Organizacao | None) -> str | None:
+    """Endereço da logo para o painel: o autenticado quando o escritório
+    enviou uma imagem e ela é a logo ativa; senão, a URL configurada. Um
+    logo_asset antigo não prevalece sobre uma URL externa trocada depois."""
+    branding = (organizacao.branding if organizacao else None) or {}
+    asset = branding.get("logo_asset") or {}
+    logo_url = branding.get("logo_url") or ""
+    if asset.get("localizacao") and (not logo_url or logo_url.startswith("/v1/tenant/logo")):
+        return f"/v1/auth/me/logo?v={(asset.get('sha256') or '')[:16]}"
+    return branding.get("logo_url")
 
 
 @router.get("/csrf")

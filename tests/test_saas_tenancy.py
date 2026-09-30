@@ -160,3 +160,62 @@ async def test_dominio_nao_verificado_nao_resolve_tenant(monkeypatch: pytest.Mon
     assert erro.value.status_code == 404
     consulta_dominio = next(stmt for stmt in session.executados if "dominios_organizacao" in str(stmt))
     assert "verificado_em IS NOT NULL" in str(consulta_dominio)
+
+
+def _requisicao_publica(host: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "https",
+            "path": "/",
+            "query_string": b"",
+            "headers": [(b"host", host.encode())],
+            "server": (host, 443),
+            "client": ("127.0.0.1", 12345),
+        }
+    )
+
+
+def _configuracao_producao() -> SimpleNamespace:
+    return SimpleNamespace(
+        integration_auth_enabled=False,
+        inpi_integration_token="",
+        app_env="production",
+        app_public_url="https://app.zeregistra.com.br",
+        default_organization_slug="ze-registra",
+    )
+
+
+@pytest.mark.asyncio
+async def test_endereco_da_plataforma_resolve_a_organizacao_padrao(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Achado de 30/09/2026: sem domínio verificado, o relatório da pesquisa, a
+    # consulta pública e a marca pública davam 404 em app.zeregistra.com.br.
+    padrao = SimpleNamespace(
+        id=1,
+        nome="Zé Registra",
+        slug="ze-registra",
+        status="ativa",
+        plano=SimpleNamespace(codigo="profissional", modulos=["pesquisa"], limites={}),
+        modulos_liberados=None,
+        branding={},
+        politica_privacidade_versao="1.0",
+    )
+    session = FakeSession([FakeResult(), FakeResult(scalar=padrao)])
+    monkeypatch.setattr("app.tenancy.get_settings", _configuracao_producao)
+
+    atual = await resolver_organizacao_publica(_requisicao_publica("app.zeregistra.com.br"), session)
+
+    assert atual.id == 1
+    assert atual.slug == "ze-registra"
+
+
+@pytest.mark.asyncio
+async def test_outro_host_sem_dominio_verificado_continua_recusado(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeSession([FakeResult(), FakeResult()])
+    monkeypatch.setattr("app.tenancy.get_settings", _configuracao_producao)
+
+    with pytest.raises(HTTPException) as erro:
+        await resolver_organizacao_publica(_requisicao_publica("outro.exemplo.test"), session)
+
+    assert erro.value.status_code == 404

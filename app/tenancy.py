@@ -3,6 +3,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import func, select
@@ -53,6 +54,12 @@ async def aplicar_contexto_tenant(
     if session.in_transaction():
         await session.execute(select(func.set_config("app.organizacao_id", str(organizacao_id), True)))
         await session.execute(select(func.set_config("app.superadmin", "true" if superadmin else "false", True)))
+
+
+def _host_da_plataforma(host: str, settings) -> bool:
+    """O host de APP_PUBLIC_URL pertence à organização padrão (a própria plataforma)."""
+    plataforma = (urlparse(getattr(settings, "app_public_url", "") or "").hostname or "").lower()
+    return bool(host) and plataforma not in {"", "localhost", "127.0.0.1"} and host == plataforma
 
 
 def _token_requisicao(request: Request) -> str | None:
@@ -130,8 +137,11 @@ async def resolver_organizacao_publica(
     if organizacao is None:
         # Em produção não é seguro direcionar um host desconhecido para o tenant
         # padrão: isso pode expor dados da Zé Registra. O fallback continua
-        # disponível somente em desenvolvimento/testes locais.
-        if settings.app_env.lower() == "production":
+        # disponível somente em desenvolvimento/testes locais -- e para o
+        # próprio endereço da plataforma (APP_PUBLIC_URL), que é da Zé
+        # Registra: achado de 30/09/2026, sem domínio verificado a consulta
+        # pública, o relatório e a marca pública davam 404 em produção.
+        if settings.app_env.lower() == "production" and not _host_da_plataforma(host, settings):
             raise HTTPException(404, "Organizacao nao identificada")
         organizacao = (
             await session.execute(

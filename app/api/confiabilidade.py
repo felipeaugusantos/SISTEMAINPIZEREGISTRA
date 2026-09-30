@@ -10,6 +10,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAtualDep, exigir_csrf
+from app.captcha import captcha_ativo
 from app.database import get_session
 from app.marca import css_marca, marca_organizacao
 from app.models import (
@@ -26,6 +27,7 @@ from app.models import (
 )
 from app.queueing import enfileirar, status_fila
 from app.retencao import politica_retencao_vigente, prazo_retencao_vigente, simular_retencao_leads
+from app.settings import get_settings
 from app.storage import StorageError, delete_object, read_bytes, save_bytes
 
 router = APIRouter(prefix="/v1/admin/confiabilidade", tags=["confiabilidade"])
@@ -84,6 +86,18 @@ async def branding_css(request: Request, session: SessionDep) -> Response:
     # CSS servido como recurso 'self' (nao inline) para respeitar o CSP
     # style-src estrito, que bloqueia style="" e element.style.* sem 'unsafe-inline'.
     return Response(content=css, media_type="text/css", headers={"Cache-Control": "no-store"})
+
+
+@public_router.get("/captcha")
+async def captcha_publico() -> dict:
+    """Chave pública do CAPTCHA da consulta pública (Turnstile). A chave do
+    site é pública por natureza; a secreta nunca sai do servidor. Sem as duas
+    configuradas, o CAPTCHA está desligado e o formulário não o mostra."""
+    settings = get_settings()
+    return {
+        "provedor": "turnstile",
+        "site_key": settings.turnstile_site_key if captcha_ativo() else None,
+    }
 
 
 @public_router.get("/logo")

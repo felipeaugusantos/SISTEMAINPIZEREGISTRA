@@ -18,6 +18,7 @@ from app.api.email_leads_config import config_email_leads, substituir_placeholde
 from app.api.juridico import FUSO_BRASIL
 from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, exigir_qualquer_permissao, hash_ip
 from app.cadencia_email import processar_descadastro_cadencia, registrar_abertura
+from app.captcha import exigir_captcha
 from app.crm import (
     DOMINIO_CLIENTE_SEM_EMAIL,
     aplicar_cadencia_a_lead,
@@ -575,7 +576,8 @@ async def _garantir_proxima_acao_padrao(session: AsyncSession, lead: Lead) -> No
     "/v1/leads",
     response_model=LeadPublicoResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(limitar_leads)],
+    # CAPTCHA (Turnstile) depois do limite por IP -- ver app/captcha.py.
+    dependencies=[Depends(limitar_leads), Depends(exigir_captcha)],
 )
 async def criar_lead(
     dados: LeadCreate,

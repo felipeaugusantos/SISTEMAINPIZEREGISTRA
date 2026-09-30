@@ -126,6 +126,12 @@ class Settings(BaseSettings):
     smtp_secondary_timeout_seconds: float = 10.0
     email_secondary_daily_limit: int = 500
     email_secondary_daily_warning_percent: int = 80
+    # CAPTCHA da consulta pública (Cloudflare Turnstile, decisão do usuário
+    # em 29/09/2026 -- pendência da Fase 12). Só é exigido com as duas chaves
+    # preenchidas; vazias = desligado (comportamento anterior).
+    turnstile_site_key: str = ""
+    turnstile_secret_key: str = ""
+    turnstile_timeout_seconds: float = 5.0
     oauth_attempt_minutes: int = 10
     oauth_auto_link_verified_email: bool = True
     google_oauth_enabled: bool = False

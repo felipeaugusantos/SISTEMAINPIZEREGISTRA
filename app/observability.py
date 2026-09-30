@@ -151,9 +151,14 @@ async def _registrar(
 _ROTAS_DOCUMENTACAO = ("/docs", "/redoc", "/openapi.json")
 # Rotas sensiveis nao podem ser cacheadas por proxies/navegador.
 _ROTAS_SENSIVEIS = ("/admin", "/v1/admin", "/login", "/alterar-senha", "/v1/auth")
+# CAPTCHA da consulta pública (Cloudflare Turnstile): o widget é um script
+# e um iframe servidos por challenges.cloudflare.com -- só essa origem é
+# liberada, e só para script e frame.
+_ORIGEM_TURNSTILE = "https://challenges.cloudflare.com"
 _CSP_PADRAO = (
     "default-src 'self'; img-src 'self' data: https:; "
-    "style-src 'self'; script-src 'self'; connect-src 'self'; "
+    f"style-src 'self'; script-src 'self' {_ORIGEM_TURNSTILE}; connect-src 'self'; "
+    f"frame-src {_ORIGEM_TURNSTILE}; "
     "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 )
 

@@ -3,12 +3,14 @@ para a VPS (pedido do usuário, 30/09/2026): a Receita recusa a VPS, os
 arquivos chegam por envio agendado e o worker dispara a importação sozinho."""
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from app import prospeccao_cache_rfb
+from app.models import ImportacaoCnpjRfb
 from app.prospeccao_cache_rfb import (
     ARQUIVOS_NECESSARIOS,
     MARCADOR_ENVIO_COMPLETO,
@@ -69,10 +71,26 @@ def test_dispara_o_periodo_mais_recente_ainda_nao_importado(monkeypatch: pytest.
 def test_nao_dispara_com_importacao_em_andamento(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _periodo(tmp_path, "2026-09")
     enfileirados = _configurar(monkeypatch, tmp_path)
-    session = FakeSession([FakeResult(scalar=7)])
+    ativa = ImportacaoCnpjRfb(
+        status="executando", etapa_atual="Carregando empresas 2/10", solicitado_em=datetime.now(UTC)
+    )
+    session = FakeSession([FakeResult(scalar=ativa)])
 
     assert asyncio.run(disparar_importacao_de_arquivos_enviados(session)) is None
     assert enfileirados == []
+
+
+def test_libera_execucao_abandonada_e_dispara(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _periodo(tmp_path, "2026-09")
+    enfileirados = _configurar(monkeypatch, tmp_path)
+    abandonada = ImportacaoCnpjRfb(
+        status="executando", etapa_atual=None, solicitado_em=datetime.now(UTC) - timedelta(hours=2)
+    )
+    session = FakeSession([FakeResult(scalar=abandonada), FakeResult(scalar=None), FakeResult(scalar=0)])
+
+    assert asyncio.run(disparar_importacao_de_arquivos_enviados(session)) == 1
+    assert abandonada.status == "erro"
+    assert len(enfileirados) == 1
 
 
 def test_nao_reimporta_periodo_concluido_ou_parado(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

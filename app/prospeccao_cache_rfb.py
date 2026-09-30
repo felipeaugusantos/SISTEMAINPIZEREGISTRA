@@ -13,7 +13,7 @@ cache em disco).
 
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import func, select
@@ -33,6 +33,10 @@ ARQUIVOS_NECESSARIOS: tuple[str, ...] = (
 )
 MAXIMO_FALHAS_POR_PERIODO = 3
 SOLICITANTE_AUTOMATICO = "automático (arquivos enviados)"
+
+
+def _abandonada(execucao: ImportacaoCnpjRfb) -> bool:
+    return not execucao.etapa_atual and datetime.now(UTC) - execucao.solicitado_em > timedelta(hours=1)
 
 
 def periodos_enviados_completos(cache_dir: str | None) -> list[str]:
@@ -58,9 +62,16 @@ async def disparar_importacao_de_arquivos_enviados(session: AsyncSession) -> int
     periodo = periodos[0]
 
     em_andamento = await session.scalar(
-        select(ImportacaoCnpjRfb.id).where(ImportacaoCnpjRfb.status == "executando").limit(1)
+        select(ImportacaoCnpjRfb).where(ImportacaoCnpjRfb.status == "executando").limit(1)
     )
-    if em_andamento is not None:
+    if em_andamento is not None and _abandonada(em_andamento):
+        # Mesma regra do disparo manual: sem nenhuma etapa 1h depois, o job
+        # nunca chegou ao worker -- libera em vez de travar a automação.
+        em_andamento.status = "erro"
+        em_andamento.erro = "Importação abandonada: nenhum progresso registrado pelo worker."
+        em_andamento.concluido_em = datetime.now(UTC)
+        await session.flush()
+    elif em_andamento is not None:
         return None
     # Já concluído, ou parado de propósito pela tela: não reimporta sozinho.
     encerrado = await session.scalar(

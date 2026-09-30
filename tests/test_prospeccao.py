@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -1232,6 +1232,57 @@ def test_disparar_importacao_bloqueia_quando_ja_em_andamento() -> None:
     )
 
     assert resposta.status_code == 422
+
+
+class _RedisRegistraOrdem:
+    """Registra quantos commits já tinham acontecido quando o job foi para a fila."""
+
+    def __init__(self, session: object) -> None:
+        self.session = session
+        self.commits_ao_enfileirar: int | None = None
+
+    async def set(self, *_args: object, **_kwargs: object) -> bool:
+        return True
+
+    async def rpush(self, *_args: object) -> None:
+        self.commits_ao_enfileirar = self.session.commits
+
+    async def hincrby(self, *_args: object) -> int:
+        return 1
+
+    async def aclose(self) -> None:
+        return None
+
+
+def test_disparar_importacao_grava_a_execucao_antes_de_enfileirar(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Achado (30/09/2026): enfileirado antes do commit, o worker não achava a
+    # execução e a tela ficava "Em andamento" com 0% para sempre.
+    session = _sessao_superadmin(FakeResult(scalar=None))
+    redis = _RedisRegistraOrdem(session)
+    monkeypatch.setattr("app.queueing.cliente_redis", lambda: redis)
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/importar-cnpj-rfb", json={}, headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 202
+    assert redis.commits_ao_enfileirar == 1
+
+
+def test_disparar_importacao_libera_execucao_abandonada(monkeypatch: pytest.MonkeyPatch) -> None:
+    abandonada = _importacao_cnpj_rfb(
+        status="executando", etapa_atual=None, concluido_em=None, solicitado_em=datetime.now(UTC) - timedelta(hours=3)
+    )
+    session = _sessao_superadmin(FakeResult(scalar=abandonada))
+    monkeypatch.setattr("app.queueing.cliente_redis", lambda: _RedisRegistraOrdem(session))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/importar-cnpj-rfb", json={}, headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 202
+    assert abandonada.status == "erro"
+    assert "abandonada" in abandonada.erro
 
 
 def test_disparar_importacao_exige_superadmin() -> None:

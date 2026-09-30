@@ -216,7 +216,7 @@ async function reloadAll() { await Promise.all([loadDashboard(), loadProspects()
 
 // --- Cache nacional de empresas (CNPJ/RFB) -- gatilho restrito a superadmin ---
 
-const CACHE_RFB_STATUS_LABELS = { executando: "Em andamento", concluido: "Concluída", erro: "Falhou" };
+const CACHE_RFB_STATUS_LABELS = { executando: "Em andamento", concluido: "Concluída", erro: "Falhou", cancelado: "Interrompida" };
 let pollingCacheRfb = false;
 
 function renderCacheRfbStatus(execucoes) {
@@ -239,6 +239,9 @@ function renderCacheRfbStatus(execucoes) {
   const botao = document.querySelector("#importar-cnpj-rfb");
   botao.disabled = ultima.status === "executando";
   botao.textContent = ultima.status === "executando" ? "Importando…" : "Importar agora";
+  const parar = document.querySelector("#parar-importacao-cnpj-rfb");
+  parar.hidden = ultima.status !== "executando";
+  parar.dataset.execucaoId = ultima.id;
 
   if (ultima.status === "executando" && !pollingCacheRfb) {
     pollingCacheRfb = true;
@@ -307,6 +310,16 @@ document.querySelector("#importar-cnpj-rfb").addEventListener("click", async () 
   try {
     await api("/v1/admin/prospeccao/importar-cnpj-rfb", { method: "POST", body: JSON.stringify({}) });
     showMessage("Importação disparada — acompanhe pelo painel do cache nacional de empresas, que atualiza sozinho.");
+    await loadCacheRfbStatus();
+  } catch (error) { showMessage(error.message, "error"); }
+});
+
+// Pedido do usuário (30/09/2026): interromper a importação pela tela.
+document.querySelector("#parar-importacao-cnpj-rfb").addEventListener("click", async (evento) => {
+  if (!confirm("Parar a importação do cache nacional? O que já foi gravado é mantido; a importação para ao terminar o arquivo atual.")) return;
+  try {
+    await api(`/v1/admin/prospeccao/importar-cnpj-rfb/${evento.currentTarget.dataset.execucaoId}/parar`, { method: "POST", body: "{}" });
+    showMessage("Importação interrompida.");
     await loadCacheRfbStatus();
   } catch (error) { showMessage(error.message, "error"); }
 });

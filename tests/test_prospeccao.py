@@ -1615,3 +1615,41 @@ def test_mesclar_prospect_ja_mesclado_retorna_422() -> None:
     )
 
     assert resposta.status_code == 422
+
+
+# --- Parar a importação do cache nacional pela tela (30/09/2026) -----------
+
+
+def test_parar_importacao_marca_como_cancelada() -> None:
+    execucao = _importacao_cnpj_rfb(status="executando", etapa_atual="Carregando empresas 2/10", concluido_em=None)
+    session = _sessao_superadmin()
+    session._objetos_get = [execucao]
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/importar-cnpj-rfb/1/parar", json={}, headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 200
+    assert execucao.status == "cancelado"
+    assert execucao.concluido_em is not None
+
+
+def test_parar_importacao_ja_encerrada_responde_422() -> None:
+    session = _sessao_superadmin()
+    session._objetos_get = [_importacao_cnpj_rfb(status="concluido")]
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/importar-cnpj-rfb/1/parar", json={}, headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 422
+
+
+def test_parar_importacao_exige_superadmin() -> None:
+    _sessao_admin()
+
+    resposta = TestClient(app).post(
+        "/v1/admin/prospeccao/importar-cnpj-rfb/1/parar", json={}, headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 403

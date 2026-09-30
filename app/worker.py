@@ -683,7 +683,7 @@ async def processar(tipo: str, payload: dict) -> None:
             # worker, não preso à sessão HTTP/SSH de quem clicou. Cada
             # checkpoint de progresso comita numa sessão própria (não só no
             # fim) para o polling da tela enxergar progresso em tempo real.
-            from app.cli.importar_cnpj_rfb import importar
+            from app.cli.importar_cnpj_rfb import ImportacaoInterrompida, importar
             from app.models import ImportacaoCnpjRfb
 
             execucao_id = payload["execucao_id"]
@@ -691,6 +691,9 @@ async def processar(tipo: str, payload: dict) -> None:
             async def _progresso(etapa: str, processados: int, validos: int) -> None:
                 async with session_factory() as sessao_progresso:
                     execucao = await sessao_progresso.get(ImportacaoCnpjRfb, execucao_id)
+                    # Parada pela tela (30/09/2026): encerra no próximo checkpoint.
+                    if execucao is not None and execucao.status != "executando":
+                        raise ImportacaoInterrompida(execucao.status)
                     if execucao is not None:
                         execucao.etapa_atual = etapa
                         if processados or validos:
@@ -702,6 +705,9 @@ async def processar(tipo: str, payload: dict) -> None:
                 resultado = await importar(
                     periodo=payload.get("periodo"), limite_linhas=payload.get("limite_linhas"), progresso=_progresso
                 )
+            except ImportacaoInterrompida:
+                logger.info("Importação do cache nacional %s interrompida pela tela.", execucao_id)
+                return
             except Exception as exc:  # noqa: BLE001 - registra o erro na execução antes de propagar para o retry padrão da fila
                 execucao = await session.get(ImportacaoCnpjRfb, execucao_id)
                 if execucao is not None:

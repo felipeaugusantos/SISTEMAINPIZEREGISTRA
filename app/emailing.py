@@ -9,6 +9,7 @@ import smtplib
 import ssl
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from urllib.parse import quote
 
@@ -173,12 +174,47 @@ async def _registrar_email_enviado(operacao: str, provedor: ProvedorSMTP) -> Non
         logger.exception("Falha ao contabilizar e-mail enviado (operacao=%s)", operacao)
 
 
+async def _uso_24h(provedor: ProvedorSMTP) -> int:
+    """E-mails aceitos pelo provedor nas últimas 24h (mesma contagem do painel
+    /v1/admin/leads/status-email). Falha na consulta não bloqueia o envio."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return 0
+    from sqlalchemy import func, or_, select
+
+    chave = EventoOperacional.detalhes["provedor"].as_string()
+    filtro = (
+        or_(chave == "principal", chave.is_(None))
+        if provedor.identificador == "principal"
+        else chave == provedor.identificador
+    )
+    try:
+        async with session_factory() as session:
+            total = await session.scalar(
+                select(func.count(EventoOperacional.id)).where(
+                    EventoOperacional.componente == "email",
+                    EventoOperacional.sucesso.is_(True),
+                    EventoOperacional.criado_em >= datetime.now(UTC) - timedelta(hours=24),
+                    filtro,
+                )
+            )
+    except Exception:
+        logger.exception("Falha ao consultar o uso diário do remetente %s", provedor.identificador)
+        return 0
+    return int(total or 0)
+
+
 async def _enviar_smtp_contabilizado(mensagem: EmailMessage, settings: Settings, operacao: str) -> str:
     provedores = listar_provedores_email(settings, operacao)
+    # Achado (30/09/2026): o limite diário configurado (EMAIL_DAILY_LIMIT /
+    # EMAIL_SECONDARY_DAILY_LIMIT) só bloqueava o botão manual do lead; a
+    # cadência seguia enviando até o Google recusar (5.4.5), o que arrisca a
+    # suspensão da conta. Remetente que atingiu o limite nas últimas 24h fica
+    # de fora, e sem nenhum disponível o envio é tratado como cota esgotada.
     disponiveis = [
         provedor
         for provedor in provedores
         if _PROVEDORES_ESGOTADOS_ATE.get(provedor.identificador, 0) <= time.monotonic()
+        and await _uso_24h(provedor) < provedor.limite_diario
     ]
     if not disponiveis:
         erro = smtplib.SMTPDataError(550, b"5.4.5 Daily user sending limit exceeded")

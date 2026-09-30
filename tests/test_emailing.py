@@ -270,3 +270,48 @@ def test_alerta_nova_pesquisa_nao_envia_sem_destinatario_configurado(monkeypatch
     asyncio.run(enviar_alerta_nova_pesquisa("Marca", "Fulano", None))
 
     assert enviados == []
+
+
+# --- Limite diário configurado vale também nos envios automáticos (30/09/2026)
+
+
+def _mensagem_teste() -> EmailMessage:
+    mensagem = EmailMessage()
+    mensagem["From"] = "Zé Registra <principal@example.test>"
+    mensagem["To"] = "lead@example.test"
+    mensagem.set_content("Teste")
+    return mensagem
+
+
+def test_remetente_no_limite_diario_nao_envia(monkeypatch: pytest.MonkeyPatch) -> None:
+    enviados: list[str] = []
+    settings = configuracao_email().model_copy(update={"email_daily_limit": 100})
+
+    async def _uso(_provedor: object) -> int:
+        return 100
+
+    monkeypatch.setattr("app.emailing._PROVEDORES_ESGOTADOS_ATE", {})
+    monkeypatch.setattr("app.emailing._uso_24h", _uso)
+    monkeypatch.setattr("app.emailing._enviar_smtp", lambda _msg, provider: enviados.append(provider.identificador))
+
+    with pytest.raises(smtplib.SMTPDataError) as erro:
+        asyncio.run(_enviar_smtp_contabilizado(_mensagem_teste(), settings, "passo_cadencia"))
+
+    assert enviados == []
+    assert erro_cota_diaria_email(erro.value)
+
+
+def test_remetente_abaixo_do_limite_diario_envia(monkeypatch: pytest.MonkeyPatch) -> None:
+    enviados: list[str] = []
+    settings = configuracao_email().model_copy(update={"email_daily_limit": 100})
+
+    async def _uso(_provedor: object) -> int:
+        return 99
+
+    monkeypatch.setattr("app.emailing._PROVEDORES_ESGOTADOS_ATE", {})
+    monkeypatch.setattr("app.emailing._uso_24h", _uso)
+    monkeypatch.setattr("app.emailing._enviar_smtp", lambda _msg, provider: enviados.append(provider.identificador))
+
+    asyncio.run(_enviar_smtp_contabilizado(_mensagem_teste(), settings, "passo_cadencia"))
+
+    assert enviados == ["principal"]

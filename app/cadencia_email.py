@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import hash_token
-from app.emailing import enviar_passo_cadencia
+from app.emailing import enviar_passo_cadencia, erro_cota_diaria_email
 from app.marca import marca_organizacao
 from app.models import CadenciaPasso, EnvioCadenciaEmail, Lead, Organizacao
 from app.settings import get_settings
@@ -154,6 +154,14 @@ async def processar_envios_cadencia_pendentes(session: AsyncSession) -> dict:
             enviados += 1
             _contar(envio.organizacao_id, "enviados")
         except Exception as exc:
+            if erro_cota_diaria_email(exc):
+                # Cota diária do remetente (limite configurado ou recusa 5.4.5
+                # do provedor): adia sem gastar tentativa -- a janela de 24h
+                # pode durar bem mais que as tentativas horárias (revisão do
+                # Codex no PR #164). Os demais do lote cairiam na mesma cota.
+                envio.ultimo_erro = "Cota diária de e-mail atingida; reenvio automático quando liberar."
+                logger.info("Cota diária de e-mail atingida; cadência adiada (envio_id=%s).", envio.id)
+                break
             envio.tentativas += 1
             envio.ultimo_erro = str(exc)[:300]
             if envio.tentativas >= settings.cadencia_email_max_tentativas:

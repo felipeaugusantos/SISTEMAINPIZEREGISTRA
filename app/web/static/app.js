@@ -27,7 +27,7 @@ form.addEventListener("submit", async (event) => {
 
   try {
     // CAPTCHA (Turnstile), quando ativo -- ver captcha-publico.js.
-    const headers = { "Content-Type": "application/json", ...(window.zeCaptcha?.cabecalhos() || {}) };
+    const headers = { "Content-Type": "application/json", ...((await window.zeCaptcha?.cabecalhos()) || {}) };
     const response = await fetch("/v1/pesquisas-marca", {
       method: "POST",
       headers,

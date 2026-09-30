@@ -29,7 +29,11 @@
 
   window.zeCaptcha = {
     pronto,
-    cabecalhos() {
+    // Espera a inicialização terminar (revisão do Codex no PR #157): num
+    // carregamento lento, enviar antes do widget aparecer mandava o
+    // formulário sem token e o servidor recusava um envio válido.
+    async cabecalhos() {
+      await pronto;
       if (widgetId === null || !window.turnstile) return {};
       return { "X-Captcha-Token": window.turnstile.getResponse(widgetId) || "" };
     },

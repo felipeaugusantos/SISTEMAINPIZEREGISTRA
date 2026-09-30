@@ -131,6 +131,9 @@ app.add_middleware(
         "X-Report-Token",
         "X-CSRF-Token",
         "X-Health-Key",
+        # CAPTCHA da consulta pública (app/captcha.py) -- revisão do Codex
+        # no PR #157: sem ele, o preflight de origens permitidas recusava.
+        "X-Captcha-Token",
     ],
 )
 app.middleware("http")(observar_requisicao)

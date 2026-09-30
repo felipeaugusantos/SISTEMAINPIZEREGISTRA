@@ -97,6 +97,33 @@ def test_endpoints_publicos_exigem_o_captcha(router, caminho: str) -> None:
     assert any(dep.call is captcha.exigir_captcha for dep in rota.dependant.dependencies)
 
 
+def test_preflight_cors_permite_o_cabecalho_do_captcha() -> None:
+    # Revisão do Codex no PR #157: origens permitidas falhavam no preflight.
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    resposta = TestClient(app).options(
+        "/v1/leads",
+        headers={
+            "Origin": "https://cliente.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,x-captcha-token",
+        },
+    )
+    assert resposta.status_code == 200
+    assert "x-captcha-token" in resposta.headers["access-control-allow-headers"].lower()
+
+
+def test_envio_espera_o_widget_inicializar() -> None:
+    # Revisão do Codex no PR #157: enviar antes do widget carregar ia sem token.
+    script = (WEB / "static" / "captcha-publico.js").read_text(encoding="utf-8")
+    assert "async cabecalhos()" in script
+    assert "await pronto;" in script
+    for pagina in ("app.js", "buscar-gratuita.js"):
+        assert "await window.zeCaptcha?.cabecalhos()" in (WEB / "static" / pagina).read_text(encoding="utf-8")
+
+
 def test_csp_libera_so_a_origem_do_turnstile() -> None:
     assert "script-src 'self' https://challenges.cloudflare.com" in _CSP_PADRAO
     assert "frame-src https://challenges.cloudflare.com" in _CSP_PADRAO
@@ -108,4 +135,4 @@ def test_formularios_publicos_carregam_o_widget() -> None:
         assert "/static/captcha-publico.js?v=1" in html, pagina
         assert "data-captcha" in html, pagina
     for script in ("app.js", "buscar-gratuita.js"):
-        assert "zeCaptcha?.cabecalhos()" in (WEB / "static" / script).read_text(encoding="utf-8"), script
+        assert "zeCaptcha?.cabecalhos())" in (WEB / "static" / script).read_text(encoding="utf-8"), script

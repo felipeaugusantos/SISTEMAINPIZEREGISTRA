@@ -733,6 +733,12 @@ async def processar(tipo: str, payload: dict) -> None:
                 execucao.total_processados = resultado["processados"]
                 execucao.total_validos = resultado["validos"]
                 execucao.concluido_em = datetime.now(UTC)
+        elif tipo == "prospeccao.importar_cache_enviado":
+            # Pedido do usuário (30/09/2026): a Receita recusa a VPS; os arquivos
+            # chegam por envio agendado e a importação dispara sozinha.
+            from app.prospeccao_cache_rfb import disparar_importacao_de_arquivos_enviados
+
+            await disparar_importacao_de_arquivos_enviados(session)
         elif tipo == "plataforma.verificar_saude":
             # Achado FASE6-9 da auditoria (04/09/2026): fila de falhas, RPI
             # desatualizada e latência/erro de API viravam número num painel,
@@ -781,6 +787,7 @@ TAREFAS_MANUTENCAO_HORARIA: tuple[str, ...] = (
     "juridico.agendar_resumos",
     "vigilancia.executar_semanal",
     "plataforma.verificar_saude",
+    "prospeccao.importar_cache_enviado",
     "atualizacoes.lembrar_pendentes",
     "feature_flags.avaliar_circuito",
 )

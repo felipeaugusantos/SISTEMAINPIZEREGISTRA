@@ -13,6 +13,7 @@ from app.auth import (
     CSRF_COOKIE,
     SESSION_COOKIE,
     UsuarioAtualDep,
+    consumir_tempo_hash,
     criar_sessao,
     definir_cookies_sessao,
     exigir_csrf,
@@ -179,7 +180,13 @@ async def login(
     # senha ser aceita) -- parecia um erro de senha, e cada envio nessa
     # etapa normal ainda contava como tentativa falha pro bloqueio de 5
     # tentativas, penalizando quem usa MFA mais rápido que quem não usa.
-    senha_valida = usuario is not None and usuario.ativo and verificar_senha(usuario.senha_hash, dados.senha)
+    if usuario is not None and usuario.ativo:
+        senha_valida = verificar_senha(usuario.senha_hash, dados.senha)
+    else:
+        # Usuário inexistente/inativo: gasta o mesmo tempo de Argon2 para a
+        # resposta não denunciar, pelo tempo, se a conta existe.
+        consumir_tempo_hash()
+        senha_valida = False
     valido = senha_valida
     segredo_mfa = None
     codigo_mfa_informado = bool((dados.codigo_mfa or "").strip())

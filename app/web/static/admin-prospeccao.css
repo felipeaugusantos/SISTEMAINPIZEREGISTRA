@@ -139,3 +139,6 @@
   .prospeccao-card{padding:16px}
   .prospeccao-acoes{justify-content:flex-start}
 }
+/* Pedido do usuário (30/09/2026): percentual da importação do cache nacional. */
+.cache-rfb-progresso{display:inline-flex;align-items:center;gap:8px}
+.cache-rfb-progresso progress{width:220px;height:10px;accent-color:var(--forest)}

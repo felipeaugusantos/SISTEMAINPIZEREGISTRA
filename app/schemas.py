@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime
 from typing import Literal
 
@@ -894,6 +895,20 @@ class ImportacaoCnpjRfbTrigger(BaseModel):
     limite_linhas: int | None = Field(default=None, ge=1)
 
 
+_ETAPA_ARQUIVO_CNPJ = re.compile(r"^(Carregando empresas|Processando estabelecimentos) (\d+)/10")
+
+
+def percentual_importacao_cnpj(etapa: str | None) -> int:
+    """Empresas: 1% a 40%; estabelecimentos: 40% a 98%; o resto é a finalização."""
+    encontrado = _ETAPA_ARQUIVO_CNPJ.match(etapa or "")
+    if not encontrado:
+        return 1 if etapa else 0
+    arquivos = min(int(encontrado.group(2)), 10)
+    if encontrado.group(1) == "Carregando empresas":
+        return 1 + round(arquivos * 3.9)
+    return 40 + round(arquivos * 5.8)
+
+
 class ImportacaoCnpjRfbResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -907,6 +922,19 @@ class ImportacaoCnpjRfbResponse(BaseModel):
     solicitado_por: str | None
     solicitado_em: datetime
     concluido_em: datetime | None
+    percentual: int | None = None
+
+    @model_validator(mode="after")
+    def _calcular_percentual(self) -> "ImportacaoCnpjRfbResponse":
+        """Pedido do usuário (30/09/2026): a tela só mostrava "Em andamento".
+        O ETL tem 20 arquivos conhecidos (Empresas0..9 e Estabelecimentos0..9);
+        o percentual sai da etapa gravada pelo worker. Estabelecimentos pesam
+        mais (arquivos maiores e com gravação no banco)."""
+        if self.status == "concluido":
+            self.percentual = 100
+        elif self.status == "executando":
+            self.percentual = percentual_importacao_cnpj(self.etapa_atual)
+        return self
 
 
 class PesquisaLeadResumo(BaseModel):

@@ -69,7 +69,12 @@ async function carregar() {
     logoPreview.hidden = !org.branding.logo_url;
     if (org.branding.logo_url) {
       logoPreview.referrerPolicy = "no-referrer";
-      logoPreview.src = org.branding.logo_url;
+      // Logo enviada por upload: a prévia usa o endereço autenticado do
+      // painel. O /v1/tenant/logo público depende do domínio verificado e
+      // falhava aqui, deixando a prévia vazia.
+      logoPreview.src = org.branding.logo_url.startsWith("/v1/tenant/logo")
+        ? org.branding.logo_url.replace("/v1/tenant/logo", "/v1/auth/me/logo")
+        : org.branding.logo_url;
     } else {
       logoPreview.removeAttribute("src");
     }

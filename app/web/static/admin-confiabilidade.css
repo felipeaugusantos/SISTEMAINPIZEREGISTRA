@@ -1,0 +1,16 @@
+/* Confiabilidade e LGPD -- achado do usuário (30/09/2026): os checkboxes de
+   consentimento (.consent-label) não tinham estilo no painel e herdavam o
+   estilo genérico de campo, aparecendo gigantes e desalinhados do texto.
+   Mesmo padrão de checkbox das demais telas (styles.css, .filter-check). */
+.consent-label { display: flex; align-items: flex-start; gap: 10px; font-weight: 500; line-height: 1.4; }
+.consent-label input[type="checkbox"].consent-checkbox {
+  appearance: auto;
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  margin: 2px 0 0;
+  flex: 0 0 18px;
+  accent-color: var(--forest);
+  cursor: pointer;
+}

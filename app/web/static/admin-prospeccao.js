@@ -225,6 +225,9 @@ function renderCacheRfbStatus(execucoes) {
   const ultima = execucoes[0];
   const linhas = [
     `<strong>${escapeHtml(CACHE_RFB_STATUS_LABELS[ultima.status] || ultima.status)}</strong>${ultima.status === "executando" ? `<span class="prospeccao-spinner" aria-hidden="true"></span>` : ""}`,
+    ultima.status === "executando" && ultima.percentual != null
+      ? `<span class="cache-rfb-progresso" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${ultima.percentual}"><progress max="100" value="${ultima.percentual}"></progress> <strong>${ultima.percentual}%</strong></span>`
+      : null,
     ultima.periodo ? `Período: ${escapeHtml(ultima.periodo)}` : null,
     ultima.etapa_atual ? `Etapa: ${escapeHtml(ultima.etapa_atual)}` : null,
     ultima.total_processados ? `${ultima.total_processados.toLocaleString("pt-BR")} processados, ${ultima.total_validos.toLocaleString("pt-BR")} válidos` : null,

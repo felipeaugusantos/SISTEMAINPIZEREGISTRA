@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/static/styles.css?v=67">
   <link rel="stylesheet" href="/static/admin-prospeccao.css?v=10">
   <script src="/static/admin-shell.js?v=55" defer></script>
-  <script src="/static/admin-prospeccao.js?v=14" defer></script>
+  <script src="/static/admin-prospeccao.js?v=15" defer></script>
 </head>
 <body class="admin-body" data-admin-section="prospeccao">
   <main class="admin-main prospeccao-main">
@@ -29,6 +29,7 @@
 
     <section class="prospeccao-card" id="cache-rfb-section">
       <header><div><p class="eyebrow">FONTE DE DADOS</p><h2>Cache nacional de empresas (CNPJ)</h2><p>É esse cache que alimenta a coleta por campanha abaixo. Atualizado a partir dos Dados Abertos do CNPJ da Receita Federal — operação de plataforma, restrita ao superadministrador.</p></div>
+        <button id="parar-importacao-cnpj-rfb" class="secondary-button" type="button" hidden>Parar importação</button>
         <button id="importar-cnpj-rfb" class="secondary-button" type="button" hidden>Importar agora</button>
       </header>
       <div id="cache-rfb-status" class="prospeccao-cache-status">Carregando…</div>

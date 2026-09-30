@@ -78,6 +78,10 @@ _NS_DAV = {"d": "DAV:"}
 CallableProgresso = Callable[[str, int, int], Awaitable[None]]
 
 
+class ImportacaoInterrompida(Exception):
+    """Levantada pelo callback de progresso quando a execução foi parada pela tela."""
+
+
 def _cabecalhos(extra: dict[str, str] | None = None) -> dict[str, str]:
     cabecalhos = {"User-Agent": USER_AGENT, **(extra or {})}
     token = get_settings().rfb_cnpj_share_token

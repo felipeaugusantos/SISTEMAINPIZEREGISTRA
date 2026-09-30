@@ -683,7 +683,7 @@ async def processar(tipo: str, payload: dict) -> None:
             # worker, não preso à sessão HTTP/SSH de quem clicou. Cada
             # checkpoint de progresso comita numa sessão própria (não só no
             # fim) para o polling da tela enxergar progresso em tempo real.
-            from app.cli.importar_cnpj_rfb import importar
+            from app.cli.importar_cnpj_rfb import ImportacaoInterrompida, importar
             from app.models import ImportacaoCnpjRfb
 
             execucao_id = payload["execucao_id"]
@@ -691,7 +691,14 @@ async def processar(tipo: str, payload: dict) -> None:
             async def _progresso(etapa: str, processados: int, validos: int) -> None:
                 async with session_factory() as sessao_progresso:
                     execucao = await sessao_progresso.get(ImportacaoCnpjRfb, execucao_id)
+                    # Parada pela tela (30/09/2026): encerra no próximo checkpoint.
+                    if execucao is not None and execucao.status == "cancelado":
+                        raise ImportacaoInterrompida(execucao.status)
                     if execucao is not None:
+                        # Uma nova tentativa da fila retomou: sai do "erro" da anterior.
+                        execucao.status = "executando"
+                        execucao.erro = None
+                        execucao.concluido_em = None
                         execucao.etapa_atual = etapa
                         if processados or validos:
                             execucao.total_processados = processados
@@ -702,15 +709,24 @@ async def processar(tipo: str, payload: dict) -> None:
                 resultado = await importar(
                     periodo=payload.get("periodo"), limite_linhas=payload.get("limite_linhas"), progresso=_progresso
                 )
+            except ImportacaoInterrompida:
+                logger.info("Importação do cache nacional %s interrompida pela tela.", execucao_id)
+                return
             except Exception as exc:  # noqa: BLE001 - registra o erro na execução antes de propagar para o retry padrão da fila
-                execucao = await session.get(ImportacaoCnpjRfb, execucao_id)
-                if execucao is not None:
-                    execucao.status = "erro"
-                    execucao.erro = str(exc)[:4000]
-                    execucao.concluido_em = datetime.now(UTC)
+                # Achado (30/09/2026): o erro ia para a sessão principal, que não
+                # comita quando a exceção propaga -- a tela ficava "Em andamento"
+                # 0% em vez de "Falhou". Grava numa sessão própria.
+                async with session_factory() as sessao_erro:
+                    execucao = await sessao_erro.get(ImportacaoCnpjRfb, execucao_id)
+                    if execucao is not None and execucao.status != "cancelado":
+                        execucao.status = "erro"
+                        execucao.erro = f"Falha ao acessar a Receita Federal ou processar os arquivos: {exc}"[:4000]
+                        execucao.concluido_em = datetime.now(UTC)
+                        await sessao_erro.commit()
                 raise
             execucao = await session.get(ImportacaoCnpjRfb, execucao_id)
-            if execucao is not None:
+            # Parada pedida depois do último checkpoint prevalece (revisão do Codex, PR #161).
+            if execucao is not None and execucao.status != "cancelado":
                 execucao.status = "concluido"
                 execucao.periodo = resultado["periodo"]
                 execucao.etapa_atual = "Concluído"

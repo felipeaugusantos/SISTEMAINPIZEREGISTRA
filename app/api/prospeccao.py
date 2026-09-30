@@ -1373,6 +1373,28 @@ async def disparar_importacao_cnpj_rfb(
     return ImportacaoCnpjRfbResponse.model_validate(execucao)
 
 
+@router_campanhas.post("/importar-cnpj-rfb/{execucao_id}/parar", response_model=ImportacaoCnpjRfbResponse)
+async def parar_importacao_cnpj_rfb(
+    execucao_id: int, request: Request, session: SessionDep, usuario: SuperAdminDep
+) -> ImportacaoCnpjRfbResponse:
+    """Pedido do usuário (30/09/2026): não havia como interromper a
+    importação pela tela. Marca a execução como "cancelado"; o worker confere
+    esse status a cada arquivo concluído e encerra sem retry. Libera o botão
+    de disparo na hora."""
+    execucao = await session.get(ImportacaoCnpjRfb, execucao_id)
+    if execucao is None:
+        raise HTTPException(404, "Importação não encontrada.")
+    if execucao.status != "executando":
+        raise HTTPException(422, "Esta importação não está em andamento.")
+    execucao.status = "cancelado"
+    execucao.erro = f"Interrompida por {usuario.nome or 'administrador'}."
+    execucao.concluido_em = datetime.now(UTC)
+    _auditar(session, request, usuario, "parar_importacao_cnpj_rfb", f"importacao_cnpj_rfb:{execucao.id}", {})
+    await session.commit()
+    await session.refresh(execucao)
+    return ImportacaoCnpjRfbResponse.model_validate(execucao)
+
+
 @router_campanhas.get("/importar-cnpj-rfb", response_model=list[ImportacaoCnpjRfbResponse])
 async def listar_importacoes_cnpj_rfb(
     session: SessionDep, usuario: SuperAdminDep, limite: Annotated[int, Query(ge=1, le=50)] = 10

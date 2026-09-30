@@ -1,4 +1,5 @@
 import asyncio
+import smtplib
 from datetime import UTC, datetime, timedelta
 
 from app.cadencia_email import (
@@ -270,3 +271,29 @@ def test_pausar_envios_pendentes_do_lead_devolve_quantidade_afetada() -> None:
     session = FakeSession([FakeResult(rowcount=2)])
     total = asyncio.run(pausar_envios_pendentes_do_lead(session, organizacao_id=1, lead_id=9))
     assert total == 2
+
+
+async def _envio_cota_esgotada(*_args: object, **_kwargs: object) -> None:
+    raise smtplib.SMTPDataError(550, b"5.4.5 Daily user sending limit exceeded")
+
+
+def test_cota_diaria_adia_sem_gastar_tentativa_nem_marcar_falha() -> None:
+    # Revisão do Codex no PR #164: a janela de 24h da cota pode durar mais que
+    # as tentativas horárias; o envio fica pendente e o lote para.
+    originais = _isolar_horario_e_envio(_envio_cota_esgotada)
+    try:
+        primeiro = _envio(id=1, tentativas=2)
+        primeiro.passo = _passo()
+        segundo = _envio(id=2, tentativas=0)
+        segundo.passo = _passo()
+        session = FakeSession([FakeResult(itens=[primeiro, segundo])], objetos_get=[_lead()])
+        resultado = asyncio.run(processar_envios_cadencia_pendentes(session))
+    finally:
+        _restaurar(*originais)
+
+    assert resultado["falhas"] == 0
+    assert primeiro.status == "pendente"
+    assert primeiro.tentativas == 2
+    assert "Cota diária" in primeiro.ultimo_erro
+    assert segundo.status == "pendente"
+    assert segundo.tentativas == 0

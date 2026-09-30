@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.captcha import exigir_captcha
 from app.crm import (
     avancar_fase_lead,
     buscar_lead_ativo_por_email,
@@ -133,7 +134,8 @@ async def detectar_pesquisa_duplicada(
     "",
     response_model=PesquisaMarcaCriada,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(limitar_pesquisas)],
+    # CAPTCHA (Turnstile) depois do limite por IP -- ver app/captcha.py.
+    dependencies=[Depends(limitar_pesquisas), Depends(exigir_captcha)],
 )
 async def criar_pesquisa(
     dados: PesquisaMarcaCreate,

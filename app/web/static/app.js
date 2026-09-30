@@ -26,7 +26,8 @@ form.addEventListener("submit", async (event) => {
   };
 
   try {
-    const headers = { "Content-Type": "application/json" };
+    // CAPTCHA (Turnstile), quando ativo -- ver captcha-publico.js.
+    const headers = { "Content-Type": "application/json", ...((await window.zeCaptcha?.cabecalhos()) || {}) };
     const response = await fetch("/v1/pesquisas-marca", {
       method: "POST",
       headers,
@@ -40,5 +41,7 @@ form.addEventListener("submit", async (event) => {
     statusMessage.className = "status-message error";
     statusMessage.textContent = error.message;
     submitButton.disabled = false;
+    // O token do CAPTCHA vale uma vez: nova tentativa precisa de um novo.
+    window.zeCaptcha?.reiniciar();
   }
 });

@@ -10,13 +10,20 @@ f.addEventListener('submit', async e => {
   const p = new URLSearchParams(location.search);
   ['utm_source', 'utm_medium', 'utm_campaign'].forEach(k => { const v = p.get(k); if (v) d[k] = v });
   try {
-    const r = await fetch('/v1/leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
-    if (!r.ok) throw new Error();
+    // CAPTCHA (Turnstile), quando ativo -- ver captcha-publico.js.
+    const headers = { 'Content-Type': 'application/json', ...((await window.zeCaptcha?.cabecalhos()) || {}) };
+    const r = await fetch('/v1/leads', { method: 'POST', headers, body: JSON.stringify(d) });
+    if (!r.ok) {
+      const erro = await r.json().catch(() => ({}));
+      throw new Error(typeof erro.detail === 'string' ? erro.detail : '');
+    }
     s.textContent = 'Recebemos seus dados. Em breve nossa equipe entrará em contato.';
     f.reset();
-  } catch (_) {
-    s.textContent = 'Não foi possível enviar agora. Tente novamente em instantes.';
+  } catch (erro) {
+    s.textContent = erro.message || 'Não foi possível enviar agora. Tente novamente em instantes.';
   } finally {
     b.disabled = false;
+    // O token do CAPTCHA vale uma vez.
+    window.zeCaptcha?.reiniciar();
   }
 });

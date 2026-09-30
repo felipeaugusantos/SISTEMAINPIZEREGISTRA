@@ -67,6 +67,8 @@ def test_logo_do_painel_usa_o_endereco_autenticado() -> None:
     externa = _organizacao({"logo_url": "https://cdn.exemplo.test/logo.png"})
     assert logo_url_painel(externa) == "https://cdn.exemplo.test/logo.png"
     assert logo_url_painel(_organizacao(None)) is None
+    trocada = _organizacao({"logo_asset": {"localizacao": "data/x.png", "sha256": "ab"}, "logo_url": "https://cdn.exemplo.test/nova.png"})
+    assert logo_url_painel(trocada) == "https://cdn.exemplo.test/nova.png"
 
 
 def test_previa_da_tela_usa_o_endereco_autenticado() -> None:

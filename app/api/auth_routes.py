@@ -305,10 +305,12 @@ async def logo_painel(usuario: UsuarioAtualDep, session: AsyncSession = Depends(
 
 def logo_url_painel(organizacao: Organizacao | None) -> str | None:
     """Endereço da logo para o painel: o autenticado quando o escritório
-    enviou uma imagem; senão, a URL externa configurada (se houver)."""
+    enviou uma imagem e ela é a logo ativa; senão, a URL configurada. Um
+    logo_asset antigo não prevalece sobre uma URL externa trocada depois."""
     branding = (organizacao.branding if organizacao else None) or {}
     asset = branding.get("logo_asset") or {}
-    if asset.get("localizacao"):
+    logo_url = branding.get("logo_url") or ""
+    if asset.get("localizacao") and (not logo_url or logo_url.startswith("/v1/tenant/logo")):
         return f"/v1/auth/me/logo?v={(asset.get('sha256') or '')[:16]}"
     return branding.get("logo_url")
 

@@ -138,3 +138,23 @@ def test_senha_certa_mfa_ativo_codigo_correto_autentica() -> None:
     resultado = asyncio.run(login(dados, _request(), Response(), _sessao(usuario)))
     assert resultado["usuario"]["id"] == usuario.id
     assert usuario.tentativas_falhas == 0
+
+
+def test_usuario_inexistente_gasta_o_tempo_de_hash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enumeração por tempo (pentest, 30/09/2026): antes, com usuário inexistente,
+    o Argon2 nem rodava e a resposta era muito mais rápida que a de um usuário
+    real com senha errada, denunciando quais contas existem. Agora o login gasta
+    o tempo de um verify mesmo sem usuário."""
+    chamou = {"consumiu": False}
+    monkeypatch.setattr(
+        "app.api.auth_routes.consumir_tempo_hash",
+        lambda: chamou.__setitem__("consumiu", True),
+    )
+    sessao = FakeSession([FakeResult(), FakeResult(scalar=None)])
+    sessao.info = {"organizacao_id": 1}
+    dados = LoginInput(identificador="nao-existe", senha="qualquer")
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(login(dados, _request(), Response(), sessao))
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Usuário ou senha inválidos"
+    assert chamou["consumiu"] is True

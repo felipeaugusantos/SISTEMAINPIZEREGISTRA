@@ -25,6 +25,9 @@ SESSION_COOKIE = "zr_session"
 CSRF_COOKIE = "zr_csrf"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _password_hasher = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
+# Hash descartável para gastar o mesmo tempo de Argon2 quando o usuário não
+# existe/está inativo -- evita enumeração de contas pelo tempo de resposta.
+_HASH_FALSO = _password_hasher.hash("hash-descartavel-para-tempo-constante")
 _limitar_acoes = RateLimiter(limite=60, janela_segundos=60, escopo="sessao-admin")
 MODULO_POR_PERMISSAO = {
     "leads": "leads",
@@ -102,6 +105,17 @@ def verificar_senha(hash_atual: str, senha: str) -> bool:
         return _password_hasher.verify(hash_atual, senha)
     except (VerifyMismatchError, InvalidHashError):
         return False
+
+
+def consumir_tempo_hash() -> None:
+    """Gasta o tempo de um verify de Argon2 sem revelar nada. Chamado no login
+    quando o usuário não existe ou está inativo, para que a resposta demore o
+    mesmo que a de um usuário real com senha errada (evita enumeração de
+    contas pela diferença de tempo de resposta)."""
+    try:
+        _password_hasher.verify(_HASH_FALSO, "senha-qualquer")
+    except (VerifyMismatchError, InvalidHashError):
+        pass
 
 
 def hash_token(token: str) -> str:

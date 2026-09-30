@@ -252,6 +252,7 @@ function renderCacheRfbStatus(execucoes) {
         if (dados[0]?.status !== "executando") {
           clearInterval(intervalo);
           pollingCacheRfb = false;
+          if (dados[0]?.status === "cancelado") return; // a mensagem "Importação interrompida" já foi exibida
           showMessage(
             dados[0]?.status === "concluido"
               ? `Importação concluída: ${dados[0].total_validos.toLocaleString("pt-BR")} estabelecimentos válidos no cache.`

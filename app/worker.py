@@ -725,7 +725,8 @@ async def processar(tipo: str, payload: dict) -> None:
                         await sessao_erro.commit()
                 raise
             execucao = await session.get(ImportacaoCnpjRfb, execucao_id)
-            if execucao is not None:
+            # Parada pedida depois do último checkpoint prevalece (revisão do Codex, PR #161).
+            if execucao is not None and execucao.status != "cancelado":
                 execucao.status = "concluido"
                 execucao.periodo = resultado["periodo"]
                 execucao.etapa_atual = "Concluído"

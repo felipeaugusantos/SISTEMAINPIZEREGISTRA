@@ -19,7 +19,9 @@
    legível sobre o painel verde. A própria imagem recebe uma superfície
    clara controlada; se falhar, o JS apresenta o nome público no mesmo
    tratamento visual. */
-.portal-brand-panel img { width:min(260px,82%); height:auto; margin-bottom:48px; }
+/* max-height evita que uma logo retrato/quadrada (ex.: avatar enviado por um
+   escritório) fique gigante; o logotipo horizontal continua limitado pela largura. */
+.portal-brand-panel img { width:min(260px,82%); height:auto; max-height:120px; object-fit:contain; margin-bottom:48px; }
 /* Achado do usuário (17/09/2026): a logo aqui reaproveita tenant-branding.js
    (mesma logo cadastrada no painel interno), que aplica a classe
    .brand-avatar compartilhada -- essa classe tem estilo de avatar circular
@@ -157,5 +159,5 @@
 .portal-brand-materials { display:grid; gap:8px; }
 .portal-brand-materials .portal-row { align-items:center; justify-content:space-between; }
 @media (max-width:760px) { .portal-app-header { align-items:flex-start; flex-direction:column; } .portal-app-header h2 { font-size:2rem; } .portal-summary-card, .portal-content-card { padding:20px 16px; } .portal-communication-grid { grid-template-columns:1fr; } .portal-section-heading { flex-direction:column; } .portal-live-status { align-self:flex-start; } .portal-journey { grid-template-columns:1fr; gap:0; } .portal-journey li { min-height:48px; padding:0; text-align:left; } .portal-journey-node { grid-template-columns:30px 1fr; justify-items:start; text-align:left; } .portal-journey li::before { top:-32px; left:14px; width:2px; height:40px; } .portal-journey li:nth-child(5n + 1)::before { display:block; } .portal-journey li:first-child::before { display:none; } }
-@media (max-width:760px) { .portal-main { width:100%; padding:0; } .portal-login-shell { min-height:100vh; grid-template-columns:1fr; border:0; border-radius:0; } .portal-brand-panel { min-height:330px; padding:36px 28px; } .portal-brand-panel img { width:180px; margin-bottom:28px; } .portal-brand-panel h1 { font-size:2.55rem; } .portal-benefits { grid-template-columns:1fr 1fr; gap:8px; margin-top:25px; font-size:.8rem; } .portal-login-card { width:100%; padding:34px 28px 46px; } }
+@media (max-width:760px) { .portal-main { width:100%; padding:0; } .portal-login-shell { min-height:100vh; grid-template-columns:1fr; border:0; border-radius:0; } .portal-brand-panel { min-height:330px; padding:36px 28px; } .portal-brand-panel img { width:180px; height:auto; max-height:96px; object-fit:contain; margin-bottom:28px; } .portal-brand-panel h1 { font-size:2.55rem; } .portal-benefits { grid-template-columns:1fr 1fr; gap:8px; margin-top:25px; font-size:.8rem; } .portal-login-card { width:100%; padding:34px 28px 46px; } }
 @media (max-width:760px) { .portal-brand-fallback { width:220px; min-height:70px; margin-bottom:28px; padding:18px 16px; } }

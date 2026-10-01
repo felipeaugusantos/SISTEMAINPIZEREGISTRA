@@ -37,7 +37,11 @@
 .prospeccao-metric span{color:#65746b;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em}
 
 .prospeccao-card{padding:24px;border:1px solid #d9dfd9;border-radius:20px;background:#fffefa}
-.prospeccao-card>header{display:flex;justify-content:space-between;margin-bottom:18px}
+/* align-items:flex-start impede que o botão do cabeçalho (Importar agora,
+   Parar importação, + Adicionar supressão, Verificar duplicidades) estique
+   para a altura do texto de descrição ao lado -- antes ficavam gigantes. */
+.prospeccao-card>header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:18px}
+.prospeccao-card>header>button,.prospeccao-card>header .secondary-button{flex:0 0 auto;white-space:nowrap}
 .prospeccao-card h2{margin:4px 0;font:500 2rem/1 Georgia,serif}
 .prospeccao-card header p{color:#617068;max-width:640px}
 .prospeccao-list-header{align-items:center;gap:16px}

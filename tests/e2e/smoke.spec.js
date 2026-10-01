@@ -30,6 +30,18 @@ function codigoTotp(segredo) {
   return (numero % 1_000_000).toString().padStart(6, "0");
 }
 
+// Gera o código TOTP com folga na janela de 30s: se faltam menos de 5s para
+// virar, espera a próxima janela antes de gerar. Sem isso, um código gerado no
+// fim da janela chegava ao servidor já na janela seguinte e era recusado --
+// causa do teste instável de configuração do MFA (#mfa-setup-recovery).
+async function codigoTotpComFolga(page, segredo) {
+  const restante = 30 - (Math.floor(Date.now() / 1000) % 30);
+  if (restante < 5) {
+    await page.waitForTimeout((restante + 1) * 1000);
+  }
+  return codigoTotp(segredo);
+}
+
 test("a consulta pública apresenta o formulário essencial", async ({ page }) => {
   await page.goto("/");
 
@@ -74,8 +86,12 @@ test("o administrador entra pelo formulário e acessa a visão geral", async ({ 
 
   await expect(page).toHaveURL(/\/admin$|\/configurar-mfa$/);
   if (page.url().endsWith("/configurar-mfa")) {
-    const segredo = (await page.locator("#mfa-setup-secret").textContent()).trim();
-    await page.locator("#mfa-setup-code").fill(codigoTotp(segredo));
+    // O segredo é preenchido de forma assíncrona após a navegação; esperar
+    // ele aparecer antes de ler (senão o TOTP seria gerado do texto vazio).
+    const campoSegredo = page.locator("#mfa-setup-secret");
+    await expect(campoSegredo).not.toBeEmpty();
+    const segredo = (await campoSegredo.textContent()).trim();
+    await page.locator("#mfa-setup-code").fill(await codigoTotpComFolga(page, segredo));
     await page.getByRole("button", { name: "Confirmar" }).click();
     await expect(page.locator("#mfa-setup-recovery")).toBeVisible();
     await page.getByRole("button", { name: "Continuar" }).click();

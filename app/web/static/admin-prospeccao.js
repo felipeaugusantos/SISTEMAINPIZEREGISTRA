@@ -207,8 +207,14 @@ function atualizarLinkExportacao() {
   link.href = `/v1/admin/prospects/exportar.csv?${prospectFilterParams()}`;
 }
 async function loadProspects() {
-  const params = prospectFilterParams({ paginar: true });
-  const data = await api(`/v1/admin/prospects?${params}`);
+  let data = await api(`/v1/admin/prospects?${prospectFilterParams({ paginar: true })}`);
+  // Se a última página esvaziou (ex.: o último item saiu do filtro depois de
+  // aprovar/rejeitar/converter), recua para a última página válida e recarrega
+  // -- evita "Página 2 de 1" com a lista vazia.
+  if (data.itens.length === 0 && state.offset > 0 && data.total > 0) {
+    state.offset = Math.max(0, (Math.ceil(data.total / state.pageSize) - 1) * state.pageSize);
+    data = await api(`/v1/admin/prospects?${prospectFilterParams({ paginar: true })}`);
+  }
   renderProspects(data);
   atualizarLinkExportacao();
 }

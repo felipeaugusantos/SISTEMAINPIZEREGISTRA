@@ -428,12 +428,11 @@ document.querySelector("#prospeccao-list").addEventListener("click", async event
       showMessage("Prospect rejeitado.");
     } else if (button.dataset.converter !== undefined) {
       if (!confirm("Converter este prospect em lead?")) return;
-      const result = await api(`/v1/admin/prospects/${id}/converter-lead`, { method: "POST" });
-      // Achado do usuário: depois de aprovar/converter, o fluxo não levava a
-      // lugar nenhum -- abre direto o cadastro do lead recém-criado/vinculado
-      // em vez de só mostrar um toast e deixar o operador procurar manualmente.
-      window.location.href = `/admin/leads?lead_id=${result.lead_id}`;
-      return;
+      await api(`/v1/admin/prospects/${id}/converter-lead`, { method: "POST" });
+      // Pedido do usuário (05/10/2026): permanecer na tela de prospecção após
+      // converter, em vez de ir para a tela do lead. A lista recarrega abaixo
+      // e o prospect passa a aparecer como "Convertido em lead".
+      showMessage("Prospect convertido em lead.");
     } else return;
     await reloadAll();
   } catch (error) { showMessage(error.message, "error"); }

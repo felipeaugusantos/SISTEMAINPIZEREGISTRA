@@ -207,8 +207,14 @@ function atualizarLinkExportacao() {
   link.href = `/v1/admin/prospects/exportar.csv?${prospectFilterParams()}`;
 }
 async function loadProspects() {
-  const params = prospectFilterParams({ paginar: true });
-  const data = await api(`/v1/admin/prospects?${params}`);
+  let data = await api(`/v1/admin/prospects?${prospectFilterParams({ paginar: true })}`);
+  // Se a última página esvaziou (ex.: o último item saiu do filtro depois de
+  // aprovar/rejeitar/converter), recua para a última página válida e recarrega
+  // -- evita "Página 2 de 1" com a lista vazia.
+  if (data.itens.length === 0 && state.offset > 0 && data.total > 0) {
+    state.offset = Math.max(0, (Math.ceil(data.total / state.pageSize) - 1) * state.pageSize);
+    data = await api(`/v1/admin/prospects?${prospectFilterParams({ paginar: true })}`);
+  }
   renderProspects(data);
   atualizarLinkExportacao();
 }
@@ -428,12 +434,11 @@ document.querySelector("#prospeccao-list").addEventListener("click", async event
       showMessage("Prospect rejeitado.");
     } else if (button.dataset.converter !== undefined) {
       if (!confirm("Converter este prospect em lead?")) return;
-      const result = await api(`/v1/admin/prospects/${id}/converter-lead`, { method: "POST" });
-      // Achado do usuário: depois de aprovar/converter, o fluxo não levava a
-      // lugar nenhum -- abre direto o cadastro do lead recém-criado/vinculado
-      // em vez de só mostrar um toast e deixar o operador procurar manualmente.
-      window.location.href = `/admin/leads?lead_id=${result.lead_id}`;
-      return;
+      await api(`/v1/admin/prospects/${id}/converter-lead`, { method: "POST" });
+      // Pedido do usuário (05/10/2026): permanecer na tela de prospecção após
+      // converter, em vez de ir para a tela do lead. A lista recarrega abaixo
+      // e o prospect passa a aparecer como "Convertido em lead".
+      showMessage("Prospect convertido em lead.");
     } else return;
     await reloadAll();
   } catch (error) { showMessage(error.message, "error"); }

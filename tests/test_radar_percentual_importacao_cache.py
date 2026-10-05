@@ -45,5 +45,5 @@ def test_tela_mostra_a_barra_de_progresso() -> None:
     assert "ultima.percentual" in script
     assert '<progress max="100"' in script
     html = (WEB / "admin-prospeccao.html").read_text(encoding="utf-8")
-    assert "/static/admin-prospeccao.js?v=15" in html
+    assert "/static/admin-prospeccao.js?v=17" in html
     assert "/static/admin-prospeccao.css?v=12" in html

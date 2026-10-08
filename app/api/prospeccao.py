@@ -46,6 +46,7 @@ from app.models import (
     StatusProspect,
     SupressaoProspeccao,
 )
+from app.prospeccao_cache_rfb import importacao_abandonada as _importacao_abandonada
 from app.prospeccao_triagem import DISCLAIMER_TRIAGEM, extrair_marca_candidata
 from app.proxy import cliente_ip
 from app.queueing import enfileirar
@@ -1318,8 +1319,6 @@ async def dashboard_prospeccao(
 # a conexão caiu).
 
 
-def _importacao_abandonada(execucao: ImportacaoCnpjRfb) -> bool:
-    return not execucao.etapa_atual and datetime.now(UTC) - execucao.solicitado_em > timedelta(hours=1)
 
 
 @router_campanhas.post(

@@ -229,6 +229,10 @@ class ImportacaoCnpjRfb(Base):
     erro: Mapped[str | None] = mapped_column(Text, nullable=True)
     solicitado_por: Mapped[str | None] = mapped_column(String(150), nullable=True)
     solicitado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    # Carimbo do último progresso registrado pelo worker. Permite detectar
+    # importação travada (progresso estagnado) além da que nunca teve etapa
+    # -- achado 4 da auditoria de filas (07/10/2026).
+    progresso_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     concluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

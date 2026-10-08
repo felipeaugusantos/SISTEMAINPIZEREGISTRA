@@ -3,7 +3,7 @@ import json
 import logging
 from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import exists, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.alertas_plataforma import verificar_saude_plataforma
@@ -690,20 +690,30 @@ async def processar(tipo: str, payload: dict) -> None:
 
             async def _progresso(etapa: str, processados: int, validos: int) -> None:
                 async with session_factory() as sessao_progresso:
-                    execucao = await sessao_progresso.get(ImportacaoCnpjRfb, execucao_id)
-                    # Parada pela tela (30/09/2026): encerra no próximo checkpoint.
-                    if execucao is not None and execucao.status == "cancelado":
-                        raise ImportacaoInterrompida(execucao.status)
-                    if execucao is not None:
-                        # Uma nova tentativa da fila retomou: sai do "erro" da anterior.
-                        execucao.status = "executando"
-                        execucao.erro = None
-                        execucao.concluido_em = None
-                        execucao.etapa_atual = etapa
-                        if processados or validos:
-                            execucao.total_processados = processados
-                            execucao.total_validos = validos
-                        await sessao_progresso.commit()
+                    # Achado 5 da auditoria (07/10/2026): gravar o progresso com
+                    # UPDATE condicional (status <> 'cancelado') em vez de
+                    # ler-modificar-gravar fecha a janela em que um cancelamento
+                    # concorrente era sobrescrito de volta para "executando".
+                    # progresso_em marca o avanço, para detectar travamento (#4).
+                    valores = {
+                        "status": "executando",
+                        "erro": None,
+                        "concluido_em": None,
+                        "etapa_atual": etapa,
+                        "progresso_em": datetime.now(UTC),
+                    }
+                    if processados or validos:
+                        valores["total_processados"] = processados
+                        valores["total_validos"] = validos
+                    resultado = await sessao_progresso.execute(
+                        update(ImportacaoCnpjRfb)
+                        .where(ImportacaoCnpjRfb.id == execucao_id, ImportacaoCnpjRfb.status != "cancelado")
+                        .values(**valores)
+                    )
+                    await sessao_progresso.commit()
+                    if resultado.rowcount == 0:
+                        # Cancelado pela tela (ou execução removida): encerra.
+                        raise ImportacaoInterrompida("cancelado")
 
             try:
                 resultado = await importar(

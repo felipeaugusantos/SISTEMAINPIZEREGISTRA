@@ -35,8 +35,24 @@ MAXIMO_FALHAS_POR_PERIODO = 3
 SOLICITANTE_AUTOMATICO = "automático (arquivos enviados)"
 
 
-def _abandonada(execucao: ImportacaoCnpjRfb) -> bool:
-    return not execucao.etapa_atual and datetime.now(UTC) - execucao.solicitado_em > timedelta(hours=1)
+PROGRESSO_ESTAGNADO = timedelta(minutes=60)
+
+
+def importacao_abandonada(execucao: ImportacaoCnpjRfb) -> bool:
+    """Achado 4 da auditoria (07/10/2026): considera abandonada tanto a
+    execução que nunca registrou etapa (o worker não assumiu) quanto a que
+    registrou etapa mas parou de avançar por tempo demais (o worker que a
+    executava morreu). Antes, só o primeiro caso era recuperado -- e uma
+    importação travada com etapa ficava presa em 'executando' para sempre."""
+    agora = datetime.now(UTC)
+    if not execucao.etapa_atual:
+        return agora - execucao.solicitado_em > timedelta(hours=1)
+    referencia = execucao.progresso_em or execucao.solicitado_em
+    return agora - referencia > PROGRESSO_ESTAGNADO
+
+
+# Compatibilidade com o nome interno anterior.
+_abandonada = importacao_abandonada
 
 
 def periodos_enviados_completos(cache_dir: str | None) -> list[str]:

@@ -25,36 +25,32 @@ def calcular_atraso_retry(tentativa: int, base: int, maximo: int) -> int:
     return min(maximo, base * (2 ** max(0, tentativa - 1)))
 
 
-# Achado 3 da auditoria de filas (07/10/2026): a chave de deduplicação era
-# gravada ANTES do rpush. Se o rpush falhasse, a chave ficava no Redis e a
-# nova tentativa era tratada como duplicada -- a tarefa nunca entrava na fila.
-# Este script faz o SET NX e o RPUSH juntos, atomicamente: ou grava a chave E
-# enfileira, ou nenhum dos dois.
-_LUA_ENFILEIRAR_DEDUP = """
-if redis.call('SET', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[2]) then
-  redis.call('RPUSH', KEYS[2], ARGV[3])
-  return 1
-end
-return 0
-"""
-
 # Achado 2 da auditoria: promover retentativas fazia zrem e depois rpush em
 # passos separados -- uma interrupção entre os dois perdia a tarefa. O script
-# move cada vencido (rpush na fila + zrem da retry) atomicamente.
+# move cada vencido (rpush na fila + zrem da retry) atomicamente. Limitado a um
+# lote por chamada (ARGV[2]) para não bloquear o Redis com um backlog enorme
+# (revisão do Codex, PR #171); o que sobrar é promovido na próxima passagem.
 _LUA_PROMOVER_RETRY = """
-local vencidos = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+local vencidos = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, tonumber(ARGV[2]))
 for _, m in ipairs(vencidos) do
   redis.call('RPUSH', KEYS[2], m)
   redis.call('ZREM', KEYS[1], m)
 end
 return #vencidos
 """
+PROMOVER_RETRY_LOTE = 500
 
 # Achado 2 da auditoria: reprocessar uma falha fazia lrem e depois rpush em
-# passos separados. O script remove da dead-letter e reenfileira atomicamente.
+# passos separados. Remove da dead-letter e reenfileira atomicamente; se o
+# rpush levantar erro (ex.: tipo errado na chave), restaura a entrada na
+# dead-letter para não perder o job (revisão do Codex, PR #171).
 _LUA_REPROCESSAR_FALHA = """
 if redis.call('LREM', KEYS[1], 1, ARGV[1]) == 1 then
-  redis.call('RPUSH', KEYS[2], ARGV[2])
+  local ok = pcall(function() redis.call('RPUSH', KEYS[2], ARGV[2]) end)
+  if not ok then
+    redis.call('LPUSH', KEYS[1], ARGV[1])
+    return -1
+  end
   return 1
 end
 return 0
@@ -79,20 +75,10 @@ async def enfileirar(
         "criado_em": datetime.now(UTC).isoformat(),
     }
     redis = cliente_redis()
+    chave = f"{IDEMPOTENCY_PREFIX}{tipo}:{idempotency_key}" if idempotency_key else None
     try:
-        if idempotency_key:
-            chave = f"{IDEMPOTENCY_PREFIX}{tipo}:{idempotency_key}"
-            # Dedup e enfileiramento atômicos (achado 2/3 da auditoria): sem
-            # janela entre gravar a chave e entrar na fila.
-            criado = await redis.eval(
-                _LUA_ENFILEIRAR_DEDUP,
-                2,
-                chave,
-                QUEUE_KEY,
-                job["id"],
-                str(settings.queue_idempotency_ttl_seconds),
-                json.dumps(job),
-            )
+        if chave is not None:
+            criado = await redis.set(chave, job["id"], nx=True, ex=settings.queue_idempotency_ttl_seconds)
             if not criado:
                 return {
                     "id": await redis.get(chave),
@@ -100,8 +86,16 @@ async def enfileirar(
                     "duplicado": True,
                     "request_id": job["request_id"],
                 }
-        else:
+        try:
             await redis.rpush(QUEUE_KEY, json.dumps(job))
+        except Exception:
+            # Achado 3 da auditoria: se o enfileiramento falhasse depois de
+            # gravar a chave de dedup, a chave ficava no Redis e bloqueava a
+            # nova tentativa para sempre (tratada como duplicada). Libera a
+            # chave antes de propagar o erro.
+            if chave is not None:
+                await redis.delete(chave)
+            raise
         await redis.hincrby(METRICS_KEY, "enfileirados", 1)
     finally:
         await redis.aclose()
@@ -122,10 +116,18 @@ async def agendar_retry(redis: Redis, job: dict) -> int:
 
 
 async def promover_retentativas(redis: Redis, agora: float | None = None) -> int:
-    # Move os vencidos da retry para a fila atomicamente (achado 2 da auditoria).
-    return int(
-        await redis.eval(_LUA_PROMOVER_RETRY, 2, RETRY_KEY, QUEUE_KEY, str(time.time() if agora is None else agora))
-    )
+    # Move os vencidos da retry para a fila atomicamente, em lotes, até esvaziar
+    # os vencidos -- sem bloquear o Redis com um backlog enorme de uma vez.
+    limite = time.time() if agora is None else agora
+    total = 0
+    while True:
+        movidos = int(
+            await redis.eval(_LUA_PROMOVER_RETRY, 2, RETRY_KEY, QUEUE_KEY, str(limite), str(PROMOVER_RETRY_LOTE))
+        )
+        total += movidos
+        if movidos < PROMOVER_RETRY_LOTE:
+            break
+    return total
 
 
 async def listar_falhas(*, limite: int = 50, deslocamento: int = 0) -> list[dict]:
@@ -173,8 +175,12 @@ async def reprocessar_falha(job_id: str) -> bool:
                     job["tipo"] = job.pop("job")
                 job.setdefault("payload", {})
                 # Remove da dead-letter e reenfileira atomicamente (achado 2).
-                movido = await redis.eval(_LUA_REPROCESSAR_FALHA, 2, FAILED_KEY, QUEUE_KEY, bruto, json.dumps(job))
-                if not movido:
+                # Retorno: 1 = movido, 0 = não estava mais lá, -1 = rpush falhou
+                # e a entrada foi restaurada na dead-letter (nada perdido).
+                movido = int(
+                    await redis.eval(_LUA_REPROCESSAR_FALHA, 2, FAILED_KEY, QUEUE_KEY, bruto, json.dumps(job))
+                )
+                if movido != 1:
                     return False
                 await redis.hincrby(METRICS_KEY, "reenfileirados_apos_falha", 1)
                 return True

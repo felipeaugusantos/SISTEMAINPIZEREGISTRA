@@ -16,20 +16,20 @@ async def test_enfileiramento_idempotente_nao_duplica_job(monkeypatch) -> None:
             self.valores = {}
             self.jobs = []
 
+        async def set(self, chave, valor, *, nx, ex):
+            if nx and chave in self.valores:
+                return False
+            self.valores[chave] = valor
+            return True
+
         async def get(self, chave):
             return self.valores.get(chave)
 
         async def rpush(self, _chave, valor):
             self.jobs.append(valor)
 
-        async def eval(self, _script, _numkeys, *args):
-            # Emula _LUA_ENFILEIRAR_DEDUP: SET NX da chave + RPUSH do job, atômico.
-            chave, _queue, jobid, _ttl, jobjson = args[0], args[1], args[2], args[3], args[4]
-            if chave in self.valores:
-                return 0
-            self.valores[chave] = jobid
-            self.jobs.append(jobjson)
-            return 1
+        async def delete(self, chave):
+            self.valores.pop(chave, None)
 
         async def hincrby(self, *_args):
             return 1

@@ -1222,7 +1222,10 @@ async def registrar_protocolo_proposta(
     session: SessionDep,
     usuario: LeadsManageDep,
 ) -> dict:
-    proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id)
+    # Trava a linha (revisão do Codex no PR #173): sem isso, dois protocolos
+    # simultâneos leriam protocolo_em ainda nulo e ambos passariam o guard
+    # write-once, repetindo efeitos e sobrescrevendo número/data/comprovante.
+    proposta = await _proposta_da_org(session, proposta_id, usuario.organizacao_id, bloquear=True)
     responsavel = (
         await session.execute(
             select(UsuarioOperacoes).where(

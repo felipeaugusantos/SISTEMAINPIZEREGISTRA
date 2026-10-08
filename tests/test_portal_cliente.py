@@ -1831,16 +1831,23 @@ def test_solicitar_recuperacao_tem_rate_limit() -> None:
 
 
 def test_redefinir_acesso_portal_revoga_sessoes_e_limpa_cookies() -> None:
-    from app.models import SessaoClientePortal
+    from app.models import RecuperacaoClientePortal, SessaoClientePortal
 
     cliente = _cliente()
+    registro = RecuperacaoClientePortal(
+        id=1,
+        cliente_id=cliente.id,
+        token_hash=hash_token("token-valido-com-tamanho-suficiente"),
+        expira_em=datetime(2099, 1, 1, tzinfo=UTC),
+    )
     sessao_antiga = SessaoClientePortal(
         id=9, cliente_id=cliente.id, token_hash="hash-antigo", expira_em=datetime(2099, 1, 1, tzinfo=UTC)
     )
-    # O consumo do token agora é um UPDATE ... RETURNING cliente_id (atômico):
-    # a primeira FakeResult devolve a linha com o cliente_id.
+    # Ordem: SELECT do token (scalar), UPDATE ... RETURNING id (first), SELECT
+    # das sessões a revogar. O cliente vem por session.get.
     session = FakeSession(
-        [FakeResult(itens=[(cliente.id,)]), FakeResult(itens=[sessao_antiga])], objetos_get=[cliente]
+        [FakeResult(scalar=registro), FakeResult(itens=[(registro.id,)]), FakeResult(itens=[sessao_antiga])],
+        objetos_get=[cliente],
     )
     dados = RecuperacaoRedefinicao(token="token-valido-com-tamanho-suficiente", nova_senha="Senha-Correta-123")
     response = Response()

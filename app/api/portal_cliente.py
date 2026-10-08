@@ -982,26 +982,34 @@ async def redefinir_acesso_portal(
 ) -> dict:
     _limitar_recuperacao_portal.aplicar(cliente_ip(request))
     agora_token = datetime.now(UTC)
-    # Achado 8 da auditoria (07/10/2026): consumo atômico do token (UPDATE
-    # condicional + rowcount) -- duas requisições simultâneas com o mesmo token
-    # não passam mais as duas.
-    consumo = await session.execute(
-        update(RecuperacaoClientePortal)
-        .where(
-            RecuperacaoClientePortal.token_hash == hash_token(dados.token),
-            RecuperacaoClientePortal.usado_em.is_(None),
-            RecuperacaoClientePortal.expira_em > agora_token,
+    # O SELECT é permitido antes do tenant (policy de bootstrap); o UPDATE do
+    # token exige o tenant resolvido (RLS). Localiza o token/cliente, aplica o
+    # contexto e só então consome (revisão do Codex no PR #173).
+    registro = (
+        await session.execute(
+            select(RecuperacaoClientePortal).where(
+                RecuperacaoClientePortal.token_hash == hash_token(dados.token),
+                RecuperacaoClientePortal.usado_em.is_(None),
+                RecuperacaoClientePortal.expira_em > agora_token,
+            )
         )
-        .values(usado_em=agora_token)
-        .returning(RecuperacaoClientePortal.cliente_id)
-    )
-    linha = consumo.first()
-    if linha is None:
+    ).scalar_one_or_none()
+    if registro is None:
         raise HTTPException(status_code=400, detail="Token de recuperação inválido ou expirado")
-    cliente = await session.get(ClientePortal, linha[0])
+    cliente = await session.get(ClientePortal, registro.cliente_id)
     if cliente is None or not cliente.ativo:
         raise HTTPException(status_code=400, detail="Conta indisponível")
     await aplicar_contexto_tenant(session, cliente.organizacao_id)
+    # Consumo atômico do token, já sob o tenant (achado 8): a segunda
+    # requisição simultânea com o mesmo token recebe 400.
+    consumo = await session.execute(
+        update(RecuperacaoClientePortal)
+        .where(RecuperacaoClientePortal.id == registro.id, RecuperacaoClientePortal.usado_em.is_(None))
+        .values(usado_em=agora_token)
+        .returning(RecuperacaoClientePortal.id)
+    )
+    if consumo.first() is None:
+        raise HTTPException(status_code=400, detail="Token de recuperação inválido ou expirado")
     cliente.senha_hash = hash_senha(dados.nova_senha)
     # Marcador de geração de senha (achado P1 do Codex no PR #122, Fase
     # 13.3) -- é o que fecha de verdade a corrida com um login concorrente

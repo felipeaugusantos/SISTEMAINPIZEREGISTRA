@@ -1337,6 +1337,8 @@ async def disparar_importacao_cnpj_rfb(
         em_andamento.status = "erro"
         em_andamento.erro = "Importação abandonada: nenhum progresso registrado pelo worker."
         em_andamento.concluido_em = datetime.now(UTC)
+        # Zera o token para cercar o worker antigo (revisão do Codex, PR #172).
+        em_andamento.worker_token = None
         await session.flush()
     elif em_andamento is not None:
         raise HTTPException(422, "Já existe uma importação em andamento -- aguarde terminar antes de disparar outra.")

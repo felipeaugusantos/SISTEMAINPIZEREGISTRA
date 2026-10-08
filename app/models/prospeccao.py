@@ -233,6 +233,11 @@ class ImportacaoCnpjRfb(Base):
     # importação travada (progresso estagnado) além da que nunca teve etapa
     # -- achado 4 da auditoria de filas (07/10/2026).
     progresso_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Token de posse do worker que está executando (revisão do Codex, PR #172):
+    # cada checkpoint só grava se o token ainda bate. Ao declarar a importação
+    # abandonada, o token é zerado -- o worker antigo (lento) é "cercado" e para
+    # no próximo checkpoint, evitando dois ETLs simultâneos sobre o mesmo cache.
+    worker_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
     concluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

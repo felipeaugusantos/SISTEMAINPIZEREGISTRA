@@ -84,8 +84,10 @@ async def disparar_importacao_de_arquivos_enviados(session: AsyncSession) -> int
         # Mesma regra do disparo manual: sem nenhuma etapa 1h depois, o job
         # nunca chegou ao worker -- libera em vez de travar a automação.
         em_andamento.status = "erro"
-        em_andamento.erro = "Importação abandonada: nenhum progresso registrado pelo worker."
+        em_andamento.erro = "Importação abandonada: sem progresso do worker."
         em_andamento.concluido_em = datetime.now(UTC)
+        # Zera o token para cercar o worker antigo (revisão do Codex, PR #172).
+        em_andamento.worker_token = None
         await session.flush()
     elif em_andamento is not None:
         return None

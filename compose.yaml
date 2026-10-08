@@ -79,7 +79,11 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    # Achado 1 da auditoria de filas (07/10/2026): allkeys-lru podia descartar
+    # chaves da própria fila sob pressão de memória, perdendo trabalhos. Com
+    # noeviction o Redis rejeita novas escritas em vez de apagar jobs (falha
+    # visível, não silenciosa), e o maxmemory sobe para dar folga.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction"]
     ports:
       - "127.0.0.1:6379:6379"
     volumes:

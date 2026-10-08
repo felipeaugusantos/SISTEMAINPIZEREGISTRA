@@ -22,7 +22,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -981,27 +981,32 @@ async def redefinir_acesso_portal(
     dados: RecuperacaoRedefinicao, request: Request, response: Response, session: SessionDep
 ) -> dict:
     _limitar_recuperacao_portal.aplicar(cliente_ip(request))
-    registro = (
-        await session.execute(
-            select(RecuperacaoClientePortal).where(
-                RecuperacaoClientePortal.token_hash == hash_token(dados.token),
-                RecuperacaoClientePortal.usado_em.is_(None),
-                RecuperacaoClientePortal.expira_em > datetime.now(UTC),
-            )
+    agora_token = datetime.now(UTC)
+    # Achado 8 da auditoria (07/10/2026): consumo atômico do token (UPDATE
+    # condicional + rowcount) -- duas requisições simultâneas com o mesmo token
+    # não passam mais as duas.
+    consumo = await session.execute(
+        update(RecuperacaoClientePortal)
+        .where(
+            RecuperacaoClientePortal.token_hash == hash_token(dados.token),
+            RecuperacaoClientePortal.usado_em.is_(None),
+            RecuperacaoClientePortal.expira_em > agora_token,
         )
-    ).scalar_one_or_none()
-    if registro is None:
+        .values(usado_em=agora_token)
+        .returning(RecuperacaoClientePortal.cliente_id)
+    )
+    linha = consumo.first()
+    if linha is None:
         raise HTTPException(status_code=400, detail="Token de recuperação inválido ou expirado")
-    cliente = await session.get(ClientePortal, registro.cliente_id)
+    cliente = await session.get(ClientePortal, linha[0])
     if cliente is None or not cliente.ativo:
         raise HTTPException(status_code=400, detail="Conta indisponível")
     await aplicar_contexto_tenant(session, cliente.organizacao_id)
     cliente.senha_hash = hash_senha(dados.nova_senha)
     # Marcador de geração de senha (achado P1 do Codex no PR #122, Fase
     # 13.3) -- é o que fecha de verdade a corrida com um login concorrente
-    # usando a senha antiga, não o SELECT-e-revogar abaixo sozinho.
+    # usando a senha antiga.
     cliente.senha_alterada_em = datetime.now(UTC)
-    registro.usado_em = datetime.now(UTC)
     for sessao in (
         await session.execute(
             select(SessaoClientePortal).where(

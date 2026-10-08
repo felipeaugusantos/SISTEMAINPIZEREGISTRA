@@ -513,24 +513,29 @@ async def redefinir_senha(
     agora = datetime.now(UTC)
     token_hash = hash_token(dados.token)
     await aplicar_contexto_autenticacao(session, "recuperacao_token", token_hash)
-    item = (
-        await session.execute(
-            select(TokenRecuperacaoSenha).where(
-                TokenRecuperacaoSenha.token_hash == token_hash,
-                TokenRecuperacaoSenha.usado_em.is_(None),
-                TokenRecuperacaoSenha.expira_em > agora,
-            )
+    # Achado 8 da auditoria (07/10/2026): marcar o token como usado com UPDATE
+    # condicional (WHERE usado_em IS NULL) e conferir o rowcount torna o consumo
+    # atômico -- duas requisições simultâneas com o mesmo token não passam mais
+    # as duas (antes era SELECT-e-depois-marcar, com janela de corrida).
+    consumo = await session.execute(
+        update(TokenRecuperacaoSenha)
+        .where(
+            TokenRecuperacaoSenha.token_hash == token_hash,
+            TokenRecuperacaoSenha.usado_em.is_(None),
+            TokenRecuperacaoSenha.expira_em > agora,
         )
-    ).scalar_one_or_none()
-    if not item:
+        .values(usado_em=agora)
+        .returning(TokenRecuperacaoSenha.usuario_id)
+    )
+    linha = consumo.first()
+    if linha is None:
         raise HTTPException(400, "Token inválido ou expirado")
-    usuario = await session.get(UsuarioOperacoes, item.usuario_id)
+    usuario = await session.get(UsuarioOperacoes, linha[0])
     if not usuario:
         raise HTTPException(400, "Token invalido ou expirado")
     await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
     usuario.senha_hash = hash_senha(dados.nova_senha)
     usuario.alterar_senha = False
-    item.usado_em = agora
     await session.execute(
         update(SessaoOperacoes)
         .where(SessaoOperacoes.usuario_id == usuario.id, SessaoOperacoes.revogada_em.is_(None))

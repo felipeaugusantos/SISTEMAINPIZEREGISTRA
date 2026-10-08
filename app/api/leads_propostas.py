@@ -1238,6 +1238,27 @@ async def registrar_protocolo_proposta(
     agora = datetime.now(UTC)
     if not numero and not motivo:
         raise HTTPException(status_code=422, detail="Informe o número do protocolo ou o motivo do atraso")
+    if proposta.protocolo_em is not None:
+        # Achado 9 da auditoria (07/10/2026): o protocolo é write-once. Re-salvar
+        # não pode alterar nem apagar o número, a data ou o comprovante já
+        # válidos, nem repetir os efeitos (avanço de fase, data da parcela). Só
+        # o motivo do atraso e o responsável podem ser ajustados depois.
+        if numero and numero != proposta.protocolo_numero:
+            raise HTTPException(status_code=422, detail="A proposta já foi protocolada; o número não pode ser alterado.")
+        proposta.responsavel_protocolo_id = responsavel.id
+        if motivo is not None:
+            proposta.protocolo_motivo_atraso = motivo
+        _atualizar_sla_proposta(proposta)
+        _auditar(
+            session,
+            usuario,
+            request,
+            "protocolo_proposta_ajuste",
+            f"proposta:{proposta.id}",
+            {"motivo_atraso": motivo, "responsavel_id": responsavel.id},
+        )
+        await session.commit()
+        return _proposta_dict(proposta, await session.get(Organizacao, usuario.organizacao_id))
     if numero:
         if proposta.status != "aceita" or proposta.pagamento_status != "confirmado":
             raise HTTPException(

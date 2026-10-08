@@ -3,6 +3,8 @@ import time
 import urllib.error
 import urllib.request
 
+from app.rpi.sync import contexto_ssl_rpi
+
 PAGINA_RPI_OFICIAL = "https://revistas.inpi.gov.br/rpi/"
 PADRAO_NUMERO_RPI = re.compile(r"<td[^>]*>\s*(\d{4})\s*</td>", re.IGNORECASE)
 
@@ -23,9 +25,14 @@ def extrair_ultima_rpi(html: str) -> int:
 
 def consultar_ultima_rpi(url: str = PAGINA_RPI_OFICIAL) -> int:
     requisicao = urllib.request.Request(url, headers={"User-Agent": "INPI-API/0.1"})
+    # Achado 12 da auditoria (07/10/2026): a consulta usava TLS padrão, mas o
+    # host do INPI é servido por um FortiGate com CA autoassinada -- o mesmo
+    # contexto do download (que confia nessa CA, além das públicas) evita que a
+    # consulta falhe no certificado onde o download funciona.
+    contexto_ssl = contexto_ssl_rpi()
     for tentativa in range(_TENTATIVAS_CONSULTA):
         try:
-            with urllib.request.urlopen(requisicao, timeout=60) as resposta:
+            with urllib.request.urlopen(requisicao, timeout=60, context=contexto_ssl) as resposta:
                 html = resposta.read().decode("utf-8", errors="replace")
             return extrair_ultima_rpi(html)
         except (urllib.error.URLError, TimeoutError) as exc:

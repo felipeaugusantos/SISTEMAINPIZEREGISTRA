@@ -4,7 +4,7 @@ from io import BytesIO
 from pathlib import Path
 
 from app.models import TipoProcesso
-from app.rpi.sync import _INPI_CA_EXTRA, _contexto_ssl_rpi, baixar_e_extrair_rpi, nome_zip
+from app.rpi.sync import _INPI_CA_EXTRA, baixar_e_extrair_rpi, contexto_ssl_rpi, nome_zip
 
 
 def test_nomes_dos_arquivos_oficiais() -> None:
@@ -58,7 +58,7 @@ def test_ca_extra_do_inpi_existe_e_e_um_certificado_valido() -> None:
 
 
 def test_contexto_ssl_rpi_carrega_a_ca_extra_sem_erro() -> None:
-    contexto = _contexto_ssl_rpi()
+    contexto = contexto_ssl_rpi()
     assert isinstance(contexto, ssl.SSLContext)
     # A CA raiz da FortiGate foi somada ao trust store padrão do sistema
     # (load_verify_locations soma, não substitui) -- confere que o

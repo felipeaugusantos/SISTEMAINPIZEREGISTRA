@@ -513,6 +513,10 @@ async def redefinir_senha(
     agora = datetime.now(UTC)
     token_hash = hash_token(dados.token)
     await aplicar_contexto_autenticacao(session, "recuperacao_token", token_hash)
+    # O SELECT é permitido antes de resolver o tenant (policy de bootstrap);
+    # o UPDATE do token, não -- o RLS exige o tenant resolvido. Por isso
+    # localizamos o token/usuário primeiro, aplicamos o contexto do tenant e só
+    # então consumimos o token (revisão do Codex no PR #173).
     item = (
         await session.execute(
             select(TokenRecuperacaoSenha).where(
@@ -528,9 +532,19 @@ async def redefinir_senha(
     if not usuario:
         raise HTTPException(400, "Token invalido ou expirado")
     await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
+    # Achado 8 da auditoria: consumo atômico do token (UPDATE condicional +
+    # rowcount) -- já sob o tenant resolvido, satisfazendo o RLS. Duas
+    # requisições simultâneas com o mesmo token não passam mais as duas.
+    consumo = await session.execute(
+        update(TokenRecuperacaoSenha)
+        .where(TokenRecuperacaoSenha.id == item.id, TokenRecuperacaoSenha.usado_em.is_(None))
+        .values(usado_em=agora)
+        .returning(TokenRecuperacaoSenha.id)
+    )
+    if consumo.first() is None:
+        raise HTTPException(400, "Token inválido ou expirado")
     usuario.senha_hash = hash_senha(dados.nova_senha)
     usuario.alterar_senha = False
-    item.usado_em = agora
     await session.execute(
         update(SessaoOperacoes)
         .where(SessaoOperacoes.usuario_id == usuario.id, SessaoOperacoes.revogada_em.is_(None))

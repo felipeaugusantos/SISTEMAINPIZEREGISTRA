@@ -1843,14 +1843,18 @@ def test_redefinir_acesso_portal_revoga_sessoes_e_limpa_cookies() -> None:
     sessao_antiga = SessaoClientePortal(
         id=9, cliente_id=cliente.id, token_hash="hash-antigo", expira_em=datetime(2099, 1, 1, tzinfo=UTC)
     )
-    session = FakeSession([FakeResult(scalar=registro), FakeResult(itens=[sessao_antiga])], objetos_get=[cliente])
+    # Ordem: SELECT do token (scalar), UPDATE ... RETURNING id (first), SELECT
+    # das sessões a revogar. O cliente vem por session.get.
+    session = FakeSession(
+        [FakeResult(scalar=registro), FakeResult(itens=[(registro.id,)]), FakeResult(itens=[sessao_antiga])],
+        objetos_get=[cliente],
+    )
     dados = RecuperacaoRedefinicao(token="token-valido-com-tamanho-suficiente", nova_senha="Senha-Correta-123")
     response = Response()
 
     resultado = asyncio.run(redefinir_acesso_portal(dados, _request(), response, session))
 
     assert resultado["status"] == "ok"
-    assert registro.usado_em is not None
     assert sessao_antiga.revogada_em is not None
     cookies = response.headers.getlist("set-cookie")
     assert any("zr_client_session=" in cookie for cookie in cookies)

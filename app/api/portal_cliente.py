@@ -22,7 +22,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -981,12 +981,16 @@ async def redefinir_acesso_portal(
     dados: RecuperacaoRedefinicao, request: Request, response: Response, session: SessionDep
 ) -> dict:
     _limitar_recuperacao_portal.aplicar(cliente_ip(request))
+    agora_token = datetime.now(UTC)
+    # O SELECT é permitido antes do tenant (policy de bootstrap); o UPDATE do
+    # token exige o tenant resolvido (RLS). Localiza o token/cliente, aplica o
+    # contexto e só então consome (revisão do Codex no PR #173).
     registro = (
         await session.execute(
             select(RecuperacaoClientePortal).where(
                 RecuperacaoClientePortal.token_hash == hash_token(dados.token),
                 RecuperacaoClientePortal.usado_em.is_(None),
-                RecuperacaoClientePortal.expira_em > datetime.now(UTC),
+                RecuperacaoClientePortal.expira_em > agora_token,
             )
         )
     ).scalar_one_or_none()
@@ -996,12 +1000,21 @@ async def redefinir_acesso_portal(
     if cliente is None or not cliente.ativo:
         raise HTTPException(status_code=400, detail="Conta indisponível")
     await aplicar_contexto_tenant(session, cliente.organizacao_id)
+    # Consumo atômico do token, já sob o tenant (achado 8): a segunda
+    # requisição simultânea com o mesmo token recebe 400.
+    consumo = await session.execute(
+        update(RecuperacaoClientePortal)
+        .where(RecuperacaoClientePortal.id == registro.id, RecuperacaoClientePortal.usado_em.is_(None))
+        .values(usado_em=agora_token)
+        .returning(RecuperacaoClientePortal.id)
+    )
+    if consumo.first() is None:
+        raise HTTPException(status_code=400, detail="Token de recuperação inválido ou expirado")
     cliente.senha_hash = hash_senha(dados.nova_senha)
     # Marcador de geração de senha (achado P1 do Codex no PR #122, Fase
     # 13.3) -- é o que fecha de verdade a corrida com um login concorrente
-    # usando a senha antiga, não o SELECT-e-revogar abaixo sozinho.
+    # usando a senha antiga.
     cliente.senha_alterada_em = datetime.now(UTC)
-    registro.usado_em = datetime.now(UTC)
     for sessao in (
         await session.execute(
             select(SessaoClientePortal).where(

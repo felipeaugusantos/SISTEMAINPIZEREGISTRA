@@ -113,3 +113,43 @@ def test_desiste_apos_tres_falhas_no_mesmo_periodo(monkeypatch: pytest.MonkeyPat
 
 def test_rotina_roda_na_manutencao_horaria() -> None:
     assert "prospeccao.importar_cache_enviado" in TAREFAS_MANUTENCAO_HORARIA
+
+
+# --- Achado 4 da auditoria (07/10/2026): abandono por progresso estagnado ---
+
+
+def test_importacao_com_etapa_mas_progresso_estagnado_e_abandonada() -> None:
+    from app.prospeccao_cache_rfb import importacao_abandonada
+
+    agora = datetime.now(UTC)
+    # Registrou etapa, mas o último progresso foi há mais de 1h: worker morreu.
+    travada = ImportacaoCnpjRfb(
+        status="executando",
+        etapa_atual="Processando estabelecimentos 5/10",
+        solicitado_em=agora - timedelta(hours=3),
+        progresso_em=agora - timedelta(hours=2),
+    )
+    assert importacao_abandonada(travada) is True
+
+
+def test_importacao_com_progresso_recente_nao_e_abandonada() -> None:
+    from app.prospeccao_cache_rfb import importacao_abandonada
+
+    agora = datetime.now(UTC)
+    ativa = ImportacaoCnpjRfb(
+        status="executando",
+        etapa_atual="Processando estabelecimentos 5/10",
+        solicitado_em=agora - timedelta(hours=5),
+        progresso_em=agora - timedelta(minutes=2),
+    )
+    assert importacao_abandonada(ativa) is False
+
+
+def test_importacao_sem_etapa_continua_abandonada_por_1h() -> None:
+    from app.prospeccao_cache_rfb import importacao_abandonada
+
+    agora = datetime.now(UTC)
+    sem_etapa = ImportacaoCnpjRfb(status="executando", etapa_atual=None, solicitado_em=agora - timedelta(hours=2))
+    recente = ImportacaoCnpjRfb(status="executando", etapa_atual=None, solicitado_em=agora - timedelta(minutes=10))
+    assert importacao_abandonada(sem_etapa) is True
+    assert importacao_abandonada(recente) is False

@@ -2,8 +2,9 @@ import asyncio
 import json
 import logging
 from datetime import UTC, date, datetime, timedelta
+from uuid import uuid4
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import exists, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.alertas_plataforma import verificar_saude_plataforma
@@ -687,52 +688,91 @@ async def processar(tipo: str, payload: dict) -> None:
             from app.models import ImportacaoCnpjRfb
 
             execucao_id = payload["execucao_id"]
+            # Token de posse (revisão do Codex, PR #172): este worker reivindica
+            # a execução. Toda escrita abaixo só vale se o token ainda bater --
+            # se a importação for declarada abandonada (token zerado) e outro
+            # worker assumir, este aqui é cercado e encerra no próximo checkpoint,
+            # evitando dois ETLs simultâneos sobre o mesmo cache/índice.
+            token = str(uuid4())
+            async with session_factory() as sessao_claim:
+                reivindicou = await sessao_claim.execute(
+                    update(ImportacaoCnpjRfb)
+                    .where(
+                        ImportacaoCnpjRfb.id == execucao_id,
+                        ImportacaoCnpjRfb.status.in_(("executando", "erro")),
+                    )
+                    .values(status="executando", worker_token=token, erro=None, concluido_em=None, progresso_em=datetime.now(UTC))
+                )
+                await sessao_claim.commit()
+            if reivindicou.rowcount == 0:
+                # Já concluída, cancelada ou assumida por outro worker: não roda.
+                logger.info("Importação do cache nacional %s não pôde ser reivindicada; ignorando.", execucao_id)
+                return
 
             async def _progresso(etapa: str, processados: int, validos: int) -> None:
                 async with session_factory() as sessao_progresso:
-                    execucao = await sessao_progresso.get(ImportacaoCnpjRfb, execucao_id)
-                    # Parada pela tela (30/09/2026): encerra no próximo checkpoint.
-                    if execucao is not None and execucao.status == "cancelado":
-                        raise ImportacaoInterrompida(execucao.status)
-                    if execucao is not None:
-                        # Uma nova tentativa da fila retomou: sai do "erro" da anterior.
-                        execucao.status = "executando"
-                        execucao.erro = None
-                        execucao.concluido_em = None
-                        execucao.etapa_atual = etapa
-                        if processados or validos:
-                            execucao.total_processados = processados
-                            execucao.total_validos = validos
-                        await sessao_progresso.commit()
+                    # Grava só se o token ainda é nosso: fecha a janela do
+                    # cancelamento (achado 5) E impede um worker cercado de
+                    # ressuscitar a execução (revisão do Codex). progresso_em
+                    # marca o avanço, para detectar travamento (achado 4).
+                    valores = {
+                        "etapa_atual": etapa,
+                        "progresso_em": datetime.now(UTC),
+                    }
+                    if processados or validos:
+                        valores["total_processados"] = processados
+                        valores["total_validos"] = validos
+                    resultado = await sessao_progresso.execute(
+                        update(ImportacaoCnpjRfb)
+                        .where(
+                            ImportacaoCnpjRfb.id == execucao_id,
+                            ImportacaoCnpjRfb.worker_token == token,
+                            ImportacaoCnpjRfb.status != "cancelado",
+                        )
+                        .values(**valores)
+                    )
+                    await sessao_progresso.commit()
+                    if resultado.rowcount == 0:
+                        # Cancelado pela tela ou cercado (abandono + novo worker).
+                        raise ImportacaoInterrompida("cercado")
 
             try:
                 resultado = await importar(
                     periodo=payload.get("periodo"), limite_linhas=payload.get("limite_linhas"), progresso=_progresso
                 )
             except ImportacaoInterrompida:
-                logger.info("Importação do cache nacional %s interrompida pela tela.", execucao_id)
+                logger.info("Importação do cache nacional %s interrompida (cancelada/cercada).", execucao_id)
                 return
             except Exception as exc:  # noqa: BLE001 - registra o erro na execução antes de propagar para o retry padrão da fila
                 # Achado (30/09/2026): o erro ia para a sessão principal, que não
                 # comita quando a exceção propaga -- a tela ficava "Em andamento"
-                # 0% em vez de "Falhou". Grava numa sessão própria.
+                # 0% em vez de "Falhou". Grava numa sessão própria, só se ainda
+                # for nosso token (não sobrescreve um cancelamento/novo worker).
                 async with session_factory() as sessao_erro:
-                    execucao = await sessao_erro.get(ImportacaoCnpjRfb, execucao_id)
-                    if execucao is not None and execucao.status != "cancelado":
-                        execucao.status = "erro"
-                        execucao.erro = f"Falha ao acessar a Receita Federal ou processar os arquivos: {exc}"[:4000]
-                        execucao.concluido_em = datetime.now(UTC)
-                        await sessao_erro.commit()
+                    await sessao_erro.execute(
+                        update(ImportacaoCnpjRfb)
+                        .where(ImportacaoCnpjRfb.id == execucao_id, ImportacaoCnpjRfb.worker_token == token)
+                        .values(
+                            status="erro",
+                            erro=f"Falha ao acessar a Receita Federal ou processar os arquivos: {exc}"[:4000],
+                            concluido_em=datetime.now(UTC),
+                        )
+                    )
+                    await sessao_erro.commit()
                 raise
-            execucao = await session.get(ImportacaoCnpjRfb, execucao_id)
-            # Parada pedida depois do último checkpoint prevalece (revisão do Codex, PR #161).
-            if execucao is not None and execucao.status != "cancelado":
-                execucao.status = "concluido"
-                execucao.periodo = resultado["periodo"]
-                execucao.etapa_atual = "Concluído"
-                execucao.total_processados = resultado["processados"]
-                execucao.total_validos = resultado["validos"]
-                execucao.concluido_em = datetime.now(UTC)
+            # Conclui só se ainda formos o dono (token bate).
+            await session.execute(
+                update(ImportacaoCnpjRfb)
+                .where(ImportacaoCnpjRfb.id == execucao_id, ImportacaoCnpjRfb.worker_token == token)
+                .values(
+                    status="concluido",
+                    periodo=resultado["periodo"],
+                    etapa_atual="Concluído",
+                    total_processados=resultado["processados"],
+                    total_validos=resultado["validos"],
+                    concluido_em=datetime.now(UTC),
+                )
+            )
         elif tipo == "prospeccao.importar_cache_enviado":
             # Pedido do usuário (30/09/2026): a Receita recusa a VPS; os arquivos
             # chegam por envio agendado e a importação dispara sozinha.

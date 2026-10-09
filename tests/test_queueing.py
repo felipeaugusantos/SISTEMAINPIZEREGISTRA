@@ -28,6 +28,9 @@ async def test_enfileiramento_idempotente_nao_duplica_job(monkeypatch) -> None:
         async def rpush(self, _chave, valor):
             self.jobs.append(valor)
 
+        async def delete(self, chave):
+            self.valores.pop(chave, None)
+
         async def hincrby(self, *_args):
             return 1
 
@@ -79,6 +82,16 @@ class _RedisFilaFalhas:
     async def hincrby(self, chave: str, campo: str, valor: int = 1) -> int:
         self.metricas[campo] = self.metricas.get(campo, 0) + valor
         return self.metricas[campo]
+
+    async def eval(self, _script: str, _numkeys: int, *args: str) -> int:
+        # Emula _LUA_REPROCESSAR_FALHA: LREM 1 da dead-letter + RPUSH na fila.
+        failed, queue, bruto, novo = args[0], args[1], args[2], args[3]
+        lista = self.listas.setdefault(failed, [])
+        if bruto in lista:
+            lista.remove(bruto)
+            self.listas.setdefault(queue, []).append(novo)
+            return 1
+        return 0
 
     async def aclose(self) -> None:
         return None
@@ -159,3 +172,37 @@ async def test_descartar_falha_remove_sem_reenfileirar(monkeypatch) -> None:
     assert resultado is True
     assert redis.listas["ze-registra:jobs:failed"] == []
     assert redis.listas["ze-registra:jobs"] == []
+
+
+# --- Achado 2 da auditoria (07/10/2026): promover retentativas atômico ---
+
+
+class _RedisRetry:
+    """Fake de ZSET (retry) + lista (fila) que emula o script Lua de promoção."""
+
+    def __init__(self, membros: dict[str, float]) -> None:
+        self.zset = dict(membros)
+        self.fila: list[str] = []
+
+    async def eval(self, _script: str, _numkeys: int, *args: str) -> int:
+        _retry, _queue, agora = args[0], args[1], float(args[2])
+        vencidos = [m for m, score in self.zset.items() if score <= agora]
+        for m in vencidos:
+            self.fila.append(m)
+            del self.zset[m]
+        return len(vencidos)
+
+    async def aclose(self) -> None:
+        return None
+
+
+async def test_promover_retentativas_move_vencidos_para_a_fila() -> None:
+    from app.queueing import promover_retentativas
+
+    redis = _RedisRetry({"job-vencido": 100.0, "job-futuro": 10_000_000_000.0})
+    promovidos = await promover_retentativas(redis, agora=1000.0)
+
+    assert promovidos == 1
+    assert redis.fila == ["job-vencido"]
+    assert "job-vencido" not in redis.zset
+    assert "job-futuro" in redis.zset

@@ -51,17 +51,16 @@ jobs:
           cache: npm
       - run: uv sync --frozen
       - run: uv run ruff check app tests migrations --ignore E501
-      # Fase 5 da missao de maturidade tecnica: auditoria automatica de
-      # dependencias. Comeca non-blocking (continue-on-error) de proposito --
-      # ainda nao sabemos se ha achados hoje; so depois de ver o resultado
-      # real desta CI e decidir achado por achado (regra 5: nao corrigir em
-      # lote) que faz sentido travar o pipeline nisso.
+      # Achado 11 da auditoria (07/10/2026): as auditorias de dependencia eram
+      # non-blocking (continue-on-error), entao podiam falhar sem reprovar o
+      # pipeline. Agora sao GATE: reprovam o merge em qualquer vulnerabilidade
+      # com correcao conhecida. O backlog de 08/10/2026 (mako/pypdf/urllib3) ja
+      # foi atualizado no uv.lock, entao nao ha allowlist.
       - name: Auditoria de dependencias Python (pip-audit)
-        continue-on-error: true
         run: uvx pip-audit --strict -r <(uv export --frozen --no-hashes --no-dev)
+      # Reprova so em vulnerabilidade alta ou critica no JavaScript (producao).
       - name: Auditoria de dependencias JavaScript (npm audit)
-        continue-on-error: true
-        run: npm audit --omit=dev
+        run: npm audit --omit=dev --audit-level=high
       - name: Enforce search ranking regression contract
         run: uv run pytest -q tests/test_search_benchmark.py tests/test_search_ranking.py
       - name: Create restricted application role

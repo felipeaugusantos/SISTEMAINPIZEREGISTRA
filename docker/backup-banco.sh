@@ -38,18 +38,31 @@ if [ -z "$CONTAINER" ]; then
     exit 1
 fi
 
+# Achado 10 da auditoria (07/10/2026): o docker cp escrevia direto no nome
+# definitivo (backups/inpi-DATA.dump). Um cp interrompido deixava um arquivo
+# PARCIAL com o nome final, que (a) nao era validado e (b) fazia a verificacao
+# de "ja existe backup de hoje" pular o backup. Agora grava num .part, confere
+# o tamanho contra o original e so entao renomeia (atomico) para o nome final.
+rm -f backups/*.part 2>/dev/null || true
+PARCIAL="backups/${NOME}.part"
+
 docker compose exec -T db pg_dump -U inpi -d inpi -Fc -f "$TEMP"
 # Falha cedo se o dump estiver corrompido -- pg_restore -l so le o cabecalho,
 # nao aplica nada.
 docker compose exec -T db pg_restore -l "$TEMP" >/dev/null
-docker cp "${CONTAINER}:${TEMP}" "backups/${NOME}"
+TAMANHO_ORIG="$(docker compose exec -T db stat -c%s "$TEMP" | tr -d '\r')"
+docker cp "${CONTAINER}:${TEMP}" "$PARCIAL"
 docker compose exec -T db rm -f "$TEMP"
 
-TAMANHO="$(stat -c%s "backups/${NOME}" 2>/dev/null || stat -f%z "backups/${NOME}")"
-if [ "$TAMANHO" -le 0 ]; then
-    echo "O arquivo de backup foi criado vazio." >&2
+TAMANHO="$(stat -c%s "$PARCIAL" 2>/dev/null || stat -f%z "$PARCIAL")"
+if [ -z "$TAMANHO" ] || [ "$TAMANHO" -le 0 ] || [ "$TAMANHO" != "$TAMANHO_ORIG" ]; then
+    echo "Copia do backup incompleta ($TAMANHO de $TAMANHO_ORIG bytes) -- descartando." >&2
+    rm -f "$PARCIAL"
     exit 1
 fi
+
+# Renomeia atomicamente: o nome definitivo so aparece apos a copia integra.
+mv "$PARCIAL" "backups/${NOME}"
 
 find backups -name 'inpi-*.dump' -type f -mtime "+${RETENCAO_DIAS}" -delete
 

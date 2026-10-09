@@ -29,7 +29,7 @@ _TENTATIVAS_DOWNLOAD = 5
 _INPI_CA_EXTRA = Path(__file__).parent / "inpi_fortinet_ca.pem"
 
 
-def _contexto_ssl_rpi() -> ssl.SSLContext:
+def contexto_ssl_rpi() -> ssl.SSLContext:
     contexto = ssl.create_default_context()
     contexto.load_verify_locations(cafile=str(_INPI_CA_EXTRA))
     return contexto
@@ -43,7 +43,7 @@ def nome_zip(numero_rpi: int, tipo: TipoProcesso) -> str:
 def _baixar_zip_atomico(url: str, arquivo_zip: Path) -> None:
     arquivo_temporario = arquivo_zip.with_suffix(f"{arquivo_zip.suffix}.part")
     requisicao = urllib.request.Request(url, headers={"User-Agent": "INPI-API/0.1"})
-    contexto_ssl = _contexto_ssl_rpi()
+    contexto_ssl = contexto_ssl_rpi()
     try:
         for tentativa in range(_TENTATIVAS_DOWNLOAD):
             try:

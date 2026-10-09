@@ -53,21 +53,11 @@ jobs:
       - run: uv run ruff check app tests migrations --ignore E501
       # Achado 11 da auditoria (07/10/2026): as auditorias de dependencia eram
       # non-blocking (continue-on-error), entao podiam falhar sem reprovar o
-      # pipeline. Agora sao GATE: reprovam o merge. As vulnerabilidades ja
-      # conhecidas em 08/10/2026 (todas com correcao, a aplicar via
-      # `uv lock --upgrade-package mako pypdf urllib3`) estao na allowlist
-      # abaixo com o GHSA; assim o gate pega qualquer vulnerabilidade NOVA sem
-      # travar no backlog atual. Ao atualizar as libs, remover os --ignore-vuln.
+      # pipeline. Agora sao GATE: reprovam o merge em qualquer vulnerabilidade
+      # com correcao conhecida. O backlog de 08/10/2026 (mako/pypdf/urllib3) ja
+      # foi atualizado no uv.lock, entao nao ha allowlist.
       - name: Auditoria de dependencias Python (pip-audit)
-        run: >
-          uvx pip-audit --strict -r <(uv export --frozen --no-hashes --no-dev)
-          --ignore-vuln GHSA-5639-2j2p-m4mx
-          --ignore-vuln GHSA-v247-6f48-mgcj
-          --ignore-vuln GHSA-php9-fj8v-98fj
-          --ignore-vuln GHSA-w23x-9jrw-r45c
-          --ignore-vuln GHSA-gh4c-6fx4-qh6g
-          --ignore-vuln GHSA-vxq7-64xx-v4gw
-          --ignore-vuln GHSA-8988-9cw3-xx77
+        run: uvx pip-audit --strict -r <(uv export --frozen --no-hashes --no-dev)
       # Reprova so em vulnerabilidade alta ou critica no JavaScript (producao).
       - name: Auditoria de dependencias JavaScript (npm audit)
         run: npm audit --omit=dev --audit-level=high

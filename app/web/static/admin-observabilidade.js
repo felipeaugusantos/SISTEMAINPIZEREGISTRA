@@ -120,13 +120,20 @@ async function carregarPainelTecnico() {
     ].join("");
 
     const orgRows = document.querySelector("#painel-tecnico-organizacoes-rows");
-    orgRows.innerHTML = dados.organizacoes_afetadas.length
-      ? dados.organizacoes_afetadas.map((item) => `<tr>
+    const orgSecao = orgRows.closest("section");
+    // A API só envia esta lista ao superadmin (dado cross-tenant); para os demais vem null.
+    if (dados.organizacoes_afetadas === null) {
+      if (orgSecao) orgSecao.hidden = true;
+    } else {
+      if (orgSecao) orgSecao.hidden = false;
+      orgRows.innerHTML = dados.organizacoes_afetadas.length
+        ? dados.organizacoes_afetadas.map((item) => `<tr>
           <td>${escapeHtmlSeguro(item.organizacao_nome)}</td>
           <td>${item.eventos}</td>
           <td>${item.flags.map((f) => `${escapeHtmlSeguro(f.codigo)} (${f.eventos})`).join(", ")}</td>
         </tr>`).join("")
-      : `<tr><td colspan="3">Nenhuma organização afetada nas últimas 24 horas.</td></tr>`;
+        : `<tr><td colspan="3">Nenhuma organização afetada nas últimas 24 horas.</td></tr>`;
+    }
 
     const deployTarget = document.querySelector("#painel-tecnico-deploy");
     const deploy = dados.ultimo_deploy;

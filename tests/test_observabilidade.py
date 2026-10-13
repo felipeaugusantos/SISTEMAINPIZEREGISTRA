@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -348,7 +349,6 @@ def test_painel_tecnico_com_dados_vazios_nao_quebra() -> None:
         [
             FakeResult(scalar=None),  # heartbeat do worker
             FakeResult(itens=[]),  # feature flags ativas
-            FakeResult(itens=[]),  # organizacoes afetadas
             FakeResult(scalar=None),  # ultimo deploy
             FakeResult(scalar=None),  # migration atual
             FakeResult(itens=[]),  # versoes publicadas (erros_por_versao)
@@ -363,9 +363,53 @@ def test_painel_tecnico_com_dados_vazios_nao_quebra() -> None:
     assert resposta["processos"]["worker"]["status"] == "indisponivel"
     assert resposta["processos"]["rpi_sync"]["status"] == "indisponivel"
     assert resposta["feature_flags_ativas"] == []
-    assert resposta["organizacoes_afetadas"] == []
+    # perfil tech sem superadmin: lista cross-tenant não é enviada
+    assert resposta["organizacoes_afetadas"] is None
     assert resposta["erros_por_versao"] == []
     assert resposta["latencia_por_endpoint"] == []
     assert resposta["ultimo_deploy"] is None
     assert resposta["recursos_host"]["disco"]["total_bytes"] > 0
     assert resposta["emails_rejeitados"] == []
+
+
+def test_painel_tecnico_superadmin_recebe_organizacoes_afetadas() -> None:
+    session = FakeSession(
+        [
+            FakeResult(scalar=None),  # heartbeat do worker
+            FakeResult(itens=[]),  # feature flags ativas
+            FakeResult(itens=[(1, "Escritório A", "flag-x", 3), (1, "Escritório A", "flag-y", 2), (2, "Escritório B", "flag-x", 9)]),
+            FakeResult(scalar=None),  # ultimo deploy
+            FakeResult(scalar=None),  # migration atual
+            FakeResult(itens=[]),  # versoes publicadas (erros_por_versao)
+            FakeResult(itens=[]),  # latencia_por_endpoint
+            FakeResult(itens=[]),  # emails_rejeitados
+        ],
+        objetos_get=[None],  # RpiSyncEstado
+    )
+    superadmin = replace(usuario_teste(perfil="administrador"), superadmin=True)
+
+    resposta = asyncio.run(painel_tecnico(session, superadmin))
+
+    afetadas = resposta["organizacoes_afetadas"]
+    assert [item["organizacao_nome"] for item in afetadas] == ["Escritório B", "Escritório A"]
+    assert afetadas[1]["eventos"] == 5
+    assert afetadas[1]["flags"] == [{"codigo": "flag-x", "eventos": 3}, {"codigo": "flag-y", "eventos": 2}]
+
+
+def test_painel_tecnico_administrador_comum_nao_recebe_organizacoes_afetadas() -> None:
+    session = FakeSession(
+        [
+            FakeResult(scalar=None),  # heartbeat do worker
+            FakeResult(itens=[]),  # feature flags ativas
+            FakeResult(scalar=None),  # ultimo deploy
+            FakeResult(scalar=None),  # migration atual
+            FakeResult(itens=[]),  # versoes publicadas (erros_por_versao)
+            FakeResult(itens=[]),  # latencia_por_endpoint
+            FakeResult(itens=[]),  # emails_rejeitados
+        ],
+        objetos_get=[None],  # RpiSyncEstado
+    )
+
+    resposta = asyncio.run(painel_tecnico(session, usuario_teste(perfil="administrador")))
+
+    assert resposta["organizacoes_afetadas"] is None

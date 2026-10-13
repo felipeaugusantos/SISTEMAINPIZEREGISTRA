@@ -102,3 +102,23 @@ uploads de clientes; o script não contém `prune -a`, `volume prune`, `system p
   `BACKUP_ROTINA` (crítico).
 - Para atualizar o relatório na hora: `sh docker/manutencao-limpeza.sh --relatorio`.
 - Log do cron: `/var/log/zeregistra-manutencao.log`.
+
+## 8. Rate limit (Semana 2)
+
+**Aplicação (vale com o deploy):** `POST /v1/auth/recuperacao/redefinir`, `POST /v1/auth/convites/aceitar`
+e `POST /v1/privacidade/confirmar-exclusao` passam a responder 429 após 10 tentativas em 5 minutos por IP.
+
+**Nginx (manual na VPS, com teste antes de recarregar):**
+
+```bash
+cd /opt/zeregistra && git pull
+cp docker/nginx-limit-req.conf /etc/nginx/conf.d/zeregistra-limit-req.conf
+cp /etc/nginx/sites-enabled/zeregistra /root/zeregistra-nginx.bak      # ajuste o nome do arquivo do site
+# no bloco "location /" do site, acrescente as duas linhas limit_req que estão em nginx-zeregistra.conf
+nginx -t && systemctl reload nginx
+```
+
+Se `nginx -t` acusar erro, **não recarregue**: restaure o backup (`cp /root/zeregistra-nginx.bak ...`)
+e remova o `conf.d/zeregistra-limit-req.conf`. Rollback depois de recarregado: remova as linhas
+`limit_req` do site, apague o arquivo do `conf.d` e `systemctl reload nginx`.
+Respostas 429 do Nginx aparecem em `/var/log/nginx/error.log` (nível `warn`).

@@ -4,57 +4,58 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>Observabilidade — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=67">
+  <link rel="stylesheet" href="/static/styles.css?v=68">
   <script src="/static/admin-shell.js?v=55" defer></script>
-  <script src="/static/admin-observabilidade.js?v=9" defer></script>
+  <script src="/static/observabilidade-graficos.js?v=1" defer></script>
+  <script src="/static/admin-observabilidade.js?v=10" defer></script>
 </head>
 <body class="admin-body" data-admin-section="observability">
   <main class="admin-main admin-dashboard">
     <section class="admin-overview-hero">
-      <div><p class="eyebrow">Tech / Operações</p><h1>Observabilidade</h1><p>Saúde da aplicação, banco, filas, RPI e recursos operacionais.</p></div>
-      <div class="observability-toolbar"><span id="observability-updated">Carregando…</span><button id="observability-refresh" class="secondary-button" type="button">Atualizar</button></div>
+      <div><p class="eyebrow">Tech / Operações</p><h1>Observabilidade</h1><p>Saúde da aplicação, banco, filas, RPI, backups e recursos operacionais.</p></div>
+      <div class="observability-toolbar">
+        <span id="observability-updated">Carregando…</span>
+        <label class="dash-auto"><input id="observability-auto" type="checkbox" checked><span>Atualizar a cada 60 s</span></label>
+        <button id="observability-refresh" class="secondary-button" type="button">Atualizar</button>
+      </div>
     </section>
+
     <div id="observability-message" class="status-message loading" role="status" aria-live="polite">Carregando saúde da plataforma…</div>
 
+    <nav class="dash-abas" role="tablist" aria-label="Seções da observabilidade">
+      <button type="button" role="tab" id="aba-geral" class="dash-aba" data-aba="geral" aria-controls="painel-geral" aria-selected="true">Visão geral</button>
+      <button type="button" role="tab" id="aba-aplicacao" class="dash-aba" data-aba="aplicacao" aria-controls="painel-aplicacao" aria-selected="false">Aplicação</button>
+      <button type="button" role="tab" id="aba-infra" class="dash-aba" data-aba="infra" aria-controls="painel-infra" aria-selected="false">Infraestrutura</button>
+      <button type="button" role="tab" id="aba-backups" class="dash-aba" data-aba="backups" aria-controls="painel-backups" aria-selected="false" hidden>Backups e disco</button>
+      <button type="button" role="tab" id="aba-eventos" class="dash-aba" data-aba="eventos" aria-controls="painel-eventos" aria-selected="false">Eventos</button>
+    </nav>
+
+    <div id="painel-geral" class="dash-painel" role="tabpanel" aria-labelledby="aba-geral">
+      <section class="overview-section">
+        <header><div><p class="eyebrow">Agora</p><h2>Situação dos serviços</h2></div></header>
+        <div class="dash-status">
+          <div id="observability-services" class="dash-status-grid"></div>
+          <div id="dash-status-extra" class="dash-status-grid"></div>
+        </div>
+      </section>
+    <section class="overview-section"><header><div><p class="eyebrow">Indicadores</p><h2>Aplicação e infraestrutura</h2></div></header><div id="observability-metrics" class="overview-primary-metrics"></div></section>
+      <section class="overview-section">
+        <header><div><p class="eyebrow">Últimas 24 horas</p><h2>Tráfego e latência</h2><p>Uma barra por hora; passe o mouse sobre uma barra ou ponto para ver o valor.</p></div><span id="dash-graficos-atualizado"></span></header>
+        <div id="dash-graficos-message" class="status-message loading" role="status">Carregando gráficos…</div>
+        <div class="dash-graficos">
+          <article class="dash-cartao"><h3>Requisições e erros por hora</h3><div id="dash-grafico-trafego"></div><ul class="dash-legenda"><li><span class="dash-chave dash-barra"></span>Requisições</li><li><span class="dash-chave dash-barra-erro"></span>Erros</li></ul></article>
+          <article class="dash-cartao"><h3>Latência por hora</h3><div id="dash-grafico-latencia"></div><div id="dash-legenda-latencia"></div></article>
+        </div>
+      </section>
+    </div>
+
+    <div id="painel-aplicacao" class="dash-painel" role="tabpanel" aria-labelledby="aba-aplicacao" hidden>
     <section class="overview-section">
       <header><div><p class="eyebrow">Fase 7</p><h2>Painel técnico — versão e processos</h2></div><span id="painel-tecnico-atualizado"></span></header>
       <div id="painel-tecnico-message" class="status-message loading" role="status">Carregando…</div>
       <div id="painel-tecnico-processos" class="observability-detail-grid"></div>
       <p><small>Migration atual: <strong id="painel-tecnico-migration">—</strong></small></p>
     </section>
-
-    <section id="limpeza-disco" class="overview-section" hidden>
-      <header><div><p class="eyebrow">Superadmin</p><h2>Limpeza de disco</h2><p>Imagens Docker órfãs, cache de build antigo, containers parados e temporários. Nunca toca em volumes, backups nem uploads de clientes. A limpeza é executada pela VPS em até 5 minutos.</p></div><span id="limpeza-disco-atualizado"></span></header>
-      <div id="limpeza-disco-message" class="status-message loading" role="status">Carregando…</div>
-      <div id="limpeza-disco-resumo" class="observability-detail-grid"></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Categoria</th><th>Ocupa</th><th>Itens</th><th>Detalhe</th></tr></thead>
-          <tbody id="limpeza-disco-rows"></tbody>
-        </table>
-      </div>
-      <p><button id="limpeza-disco-botao" class="secondary-button" type="button">Solicitar limpeza agora</button> <small id="limpeza-disco-situacao"></small></p>
-      <div id="limpeza-disco-resultado"></div>
-    </section>
-
-    <section id="saude-backups" class="overview-section" hidden>
-      <header><div><p class="eyebrow">Superadmin</p><h2>Saúde dos backups</h2><p>Dump do banco, envio externo cifrado, simulado de restauração, cópia no PC e disco da VPS. Atualizado pelo worker a cada hora.</p></div><span id="saude-backups-atualizado"></span></header>
-      <div id="saude-backups-message" class="status-message loading" role="status">Carregando…</div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Etapa</th><th>Situação</th><th>Última execução</th><th>Tamanho</th><th>Detalhe</th></tr></thead>
-          <tbody id="saude-backups-rows"></tbody>
-        </table>
-      </div>
-      <h3>Últimos 14 dias</h3>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Dia (UTC)</th><th>Dump</th><th>Envio externo</th><th>Simulado</th></tr></thead>
-          <tbody id="saude-backups-historico-rows"></tbody>
-        </table>
-      </div>
-    </section>
-
     <section class="overview-section">
       <header><div><p class="eyebrow">Rollback</p><h2>Feature flags ativas</h2><p>Desligar corta a flag para todas as organizações imediatamente — para recuar só um estágio, use a tela de Feature Flags.</p></div></header>
       <div class="table-wrap">
@@ -96,11 +97,6 @@
     </section>
 
     <section class="overview-section">
-      <header><div><p class="eyebrow">Infraestrutura</p><h2>Recursos do host</h2><p>CPU, memória e disco da máquina onde a API roda.</p></div></header>
-      <div id="painel-tecnico-recursos" class="observability-detail-grid"></div>
-    </section>
-
-    <section class="overview-section">
       <header><div><p class="eyebrow">Impacto</p><h2>Organizações afetadas (24h)</h2><p>Organizações com erro ou falha de integração registrados por alguma feature flag nas últimas 24 horas.</p></div></header>
       <div class="table-wrap">
         <table>
@@ -115,9 +111,57 @@
       <div id="painel-tecnico-deploy"></div>
     </section>
 
-    <section class="overview-section"><header><div><p class="eyebrow">Serviços</p><h2>Status atual</h2></div></header><div id="observability-services" class="overview-primary-metrics"></div></section>
-    <section class="overview-section"><header><div><p class="eyebrow">Indicadores</p><h2>Aplicação e infraestrutura</h2></div></header><div id="observability-metrics" class="overview-primary-metrics"></div></section>
+    </div>
+
+    <div id="painel-infra" class="dash-painel" role="tabpanel" aria-labelledby="aba-infra" hidden>
+      <section class="overview-section">
+        <header><div><p class="eyebrow">Host</p><h2>Uso de recursos</h2><p>CPU (carga de 1 min por núcleo), memória e disco da máquina onde a API roda.</p></div></header>
+        <div id="dash-gauges" class="dash-gauges"></div>
+      </section>
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Infraestrutura</p><h2>Recursos do host</h2><p>CPU, memória e disco da máquina onde a API roda.</p></div></header>
+      <div id="painel-tecnico-recursos" class="observability-detail-grid"></div>
+    </section>
+
     <section class="overview-section"><header><div><p class="eyebrow">RPI</p><h2>Sincronização e integridade</h2></div></header><div id="observability-rpi" class="observability-detail-grid"></div></section>
+    </div>
+
+    <div id="painel-backups" class="dash-painel" role="tabpanel" aria-labelledby="aba-backups" hidden>
+    <section id="limpeza-disco" class="overview-section" hidden>
+      <header><div><p class="eyebrow">Superadmin</p><h2>Limpeza de disco</h2><p>Imagens Docker órfãs, cache de build antigo, containers parados e temporários. Nunca toca em volumes, backups nem uploads de clientes. A limpeza é executada pela VPS em até 5 minutos.</p></div><span id="limpeza-disco-atualizado"></span></header>
+      <div id="limpeza-disco-message" class="status-message loading" role="status">Carregando…</div>
+      <div id="limpeza-disco-resumo" class="observability-detail-grid"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Categoria</th><th>Ocupa</th><th>Itens</th><th>Detalhe</th></tr></thead>
+          <tbody id="limpeza-disco-rows"></tbody>
+        </table>
+      </div>
+      <p><button id="limpeza-disco-botao" class="secondary-button" type="button">Solicitar limpeza agora</button> <small id="limpeza-disco-situacao"></small></p>
+      <div id="limpeza-disco-resultado"></div>
+    </section>
+
+    <section id="saude-backups" class="overview-section" hidden>
+      <header><div><p class="eyebrow">Superadmin</p><h2>Saúde dos backups</h2><p>Dump do banco, envio externo cifrado, simulado de restauração, cópia no PC e disco da VPS. Atualizado pelo worker a cada hora.</p></div><span id="saude-backups-atualizado"></span></header>
+      <div id="saude-backups-message" class="status-message loading" role="status">Carregando…</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Etapa</th><th>Situação</th><th>Última execução</th><th>Tamanho</th><th>Detalhe</th></tr></thead>
+          <tbody id="saude-backups-rows"></tbody>
+        </table>
+      </div>
+      <h3>Últimos 14 dias</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Dia (UTC)</th><th>Dump</th><th>Envio externo</th><th>Simulado</th></tr></thead>
+          <tbody id="saude-backups-historico-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    </div>
+
+    <div id="painel-eventos" class="dash-painel" role="tabpanel" aria-labelledby="aba-eventos" hidden>
     <section class="overview-section">
       <header><div><p class="eyebrow">Diagnóstico</p><h2>Eventos recentes</h2><p>Requisições individuais dos últimos dias — use para investigar um erro específico visto nos indicadores acima.</p></div></header>
       <form id="events-filter" class="admin-filters">
@@ -139,12 +183,7 @@
         <button id="events-next" class="secondary-button" type="button">Próxima</button>
       </nav>
     </section>
+    </div>
   </main>
-  <style>
-    .events-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 18px; }
-    .events-pagination button:disabled { opacity: .45; cursor: not-allowed; }
-    #events-rows tr.is-erro { background: #fdf0ee; }
-    #events-rows td.events-detalhes-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  </style>
 </body>
 </html>

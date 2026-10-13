@@ -413,3 +413,37 @@ def test_painel_tecnico_administrador_comum_nao_recebe_organizacoes_afetadas() -
     resposta = asyncio.run(painel_tecnico(session, usuario_teste(perfil="administrador")))
 
     assert resposta["organizacoes_afetadas"] is None
+
+
+def test_series_operacionais_preenche_horas_sem_trafego() -> None:
+    from app.api.observabilidade import series_operacionais
+
+    hora_atual = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    session = FakeSession(
+        [
+            FakeResult(
+                itens=[
+                    (hora_atual - timedelta(hours=2), 10, 3, 120.04, 480.0),
+                    (hora_atual, 4, 0, 80.0, 95.5),
+                ]
+            )
+        ]
+    )
+
+    resposta = asyncio.run(series_operacionais(session, usuario_teste(perfil="tech"), horas=4))
+
+    pontos = resposta["pontos"]
+    assert resposta["horas"] == 4
+    assert [p["requisicoes"] for p in pontos] == [0, 10, 0, 4]
+    assert [p["erros"] for p in pontos] == [0, 3, 0, 0]
+    assert pontos[1]["latencia_media_ms"] == 120.0
+    assert pontos[1]["latencia_p95_ms"] == 480.0
+    assert pontos[0]["latencia_media_ms"] == 0.0
+
+
+def test_series_operacionais_exige_acesso_tech() -> None:
+    from app.api.observabilidade import series_operacionais
+
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(series_operacionais(FakeSession([]), usuario_teste(perfil="operador"), horas=24))
+    assert erro.value.status_code == 403

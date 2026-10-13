@@ -575,6 +575,54 @@ async def solicitar_limpeza_disco(request: Request, session: SessionDep, usuario
     return {"solicitado": True, "id": pedido["id"]}
 
 
+@router.get("/observabilidade/series")
+async def series_operacionais(
+    session: SessionDep,
+    usuario: TechDep,
+    horas: Annotated[int, Query(ge=1, le=168)] = 24,
+) -> dict:
+    """Série por hora (requisições, erros, latência média e p95) para os gráficos
+    do dashboard. Horas sem tráfego voltam zeradas para o eixo X ficar contínuo."""
+    _exigir_acesso_tech(usuario)
+    agora = datetime.now(UTC)
+    ultima_hora = agora.replace(minute=0, second=0, microsecond=0)
+    primeira_hora = ultima_hora - timedelta(hours=horas - 1)
+    hora = func.date_trunc("hour", EventoOperacional.criado_em)
+    linhas = (
+        await session.execute(
+            select(
+                hora,
+                func.count(),
+                func.sum(case((EventoOperacional.sucesso.is_(False), 1), else_=0)),
+                func.avg(EventoOperacional.duracao_ms),
+                func.percentile_cont(0.95).within_group(EventoOperacional.duracao_ms),
+            )
+            .where(EventoOperacional.criado_em >= primeira_hora)
+            .group_by(hora)
+            .order_by(hora)
+        )
+    ).all()
+    por_hora: dict[datetime, tuple] = {}
+    for instante, requisicoes, erros, media, p95 in linhas:
+        if instante.tzinfo is None:
+            instante = instante.replace(tzinfo=UTC)
+        por_hora[instante.astimezone(UTC)] = (requisicoes, erros, media, p95)
+    pontos = []
+    for deslocamento in range(horas):
+        instante = primeira_hora + timedelta(hours=deslocamento)
+        requisicoes, erros, media, p95 = por_hora.get(instante, (0, 0, 0, 0))
+        pontos.append(
+            {
+                "hora": instante.isoformat(),
+                "requisicoes": int(requisicoes or 0),
+                "erros": int(erros or 0),
+                "latencia_media_ms": round(float(media or 0), 1),
+                "latencia_p95_ms": round(float(p95 or 0), 1),
+            }
+        )
+    return {"horas": horas, "gerado_em": agora, "pontos": pontos}
+
+
 @router.get("/observabilidade/painel-tecnico")
 async def painel_tecnico(session: SessionDep, usuario: TechDep) -> dict:
     _exigir_acesso_tech(usuario)

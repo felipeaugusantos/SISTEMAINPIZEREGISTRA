@@ -119,6 +119,19 @@ async def _verificar_rotina_backups(session: AsyncSession, diretorio: Path) -> N
             )
         else:
             await resolver_alerta_plataforma(session, codigo="BACKUP_ROTINA")
+        disco = next((etapa for etapa in saude["etapas"] if etapa["chave"] == "disco"), None)
+        if disco is not None and disco["status"] == "atencao":
+            # Acima do limite de atenção e abaixo do crítico (o crítico já entra em
+            # BACKUP_ROTINA): aviso para limpar pelo painel antes de faltar espaço.
+            await registrar_alerta_plataforma(
+                session,
+                codigo="DISCO_USO_ALTO",
+                severidade="aviso",
+                mensagem=f"Disco da VPS: {disco['detalhe']} Use a limpeza em Observabilidade.",
+                detalhes={"detalhe": disco["detalhe"]},
+            )
+        else:
+            await resolver_alerta_plataforma(session, codigo="DISCO_USO_ALTO")
     except Exception:
         logger.exception("Falha ao avaliar a saúde da rotina de backups")
 

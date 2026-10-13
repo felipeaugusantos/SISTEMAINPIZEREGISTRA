@@ -6,7 +6,7 @@
   <title>Observabilidade — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=67">
   <script src="/static/admin-shell.js?v=55" defer></script>
-  <script src="/static/admin-observabilidade.js?v=8" defer></script>
+  <script src="/static/admin-observabilidade.js?v=9" defer></script>
 </head>
 <body class="admin-body" data-admin-section="observability">
   <main class="admin-main admin-dashboard">
@@ -21,6 +21,20 @@
       <div id="painel-tecnico-message" class="status-message loading" role="status">Carregando…</div>
       <div id="painel-tecnico-processos" class="observability-detail-grid"></div>
       <p><small>Migration atual: <strong id="painel-tecnico-migration">—</strong></small></p>
+    </section>
+
+    <section id="limpeza-disco" class="overview-section" hidden>
+      <header><div><p class="eyebrow">Superadmin</p><h2>Limpeza de disco</h2><p>Imagens Docker órfãs, cache de build antigo, containers parados e temporários. Nunca toca em volumes, backups nem uploads de clientes. A limpeza é executada pela VPS em até 5 minutos.</p></div><span id="limpeza-disco-atualizado"></span></header>
+      <div id="limpeza-disco-message" class="status-message loading" role="status">Carregando…</div>
+      <div id="limpeza-disco-resumo" class="observability-detail-grid"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Categoria</th><th>Ocupa</th><th>Itens</th><th>Detalhe</th></tr></thead>
+          <tbody id="limpeza-disco-rows"></tbody>
+        </table>
+      </div>
+      <p><button id="limpeza-disco-botao" class="secondary-button" type="button">Solicitar limpeza agora</button> <small id="limpeza-disco-situacao"></small></p>
+      <div id="limpeza-disco-resultado"></div>
     </section>
 
     <section id="saude-backups" class="overview-section" hidden>

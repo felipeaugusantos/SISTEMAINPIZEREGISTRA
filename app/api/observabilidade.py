@@ -13,6 +13,7 @@ from app.auditing import criar_evento_auditoria
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import engine, get_session
 from app.feature_flags import obter_flag
+from app.manutencao_limpeza import LimpezaJaSolicitada, ler_estado, solicitar_limpeza
 from app.models import (
     EventoAuditoria,
     EventoOperacional,
@@ -27,6 +28,7 @@ from app.models import (
 )
 from app.proxy import cliente_ip
 from app.queueing import descartar_falha, listar_falhas, reprocessar_falha, status_fila
+from app.ratelimit import RateLimiter
 from app.rpi.health import avaliar_saude_rpi
 from app.saude_backups import ler_snapshot
 from app.security_ext import proteger_segredo
@@ -36,6 +38,7 @@ router = APIRouter(prefix="/v1/admin", tags=["observabilidade"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 TechDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("production.view"))]
 SuperAdminDep = Annotated[UsuarioAutenticado, Depends(exigir_superadmin)]
+_limitar_limpeza = RateLimiter(limite=3, janela_segundos=3600, escopo="limpeza-disco")
 
 
 class ClicksignConfigInput(BaseModel):
@@ -535,6 +538,41 @@ async def saude_backups(_usuario: SuperAdminDep) -> dict:
             "motivo": "Ainda não há leitura da rotina de backups (o worker publica a cada hora).",
         }
     return {"disponivel": True, **snapshot}
+
+
+@router.get("/observabilidade/limpeza")
+async def estado_limpeza(_usuario: SuperAdminDep) -> dict:
+    """Quanto cada categoria de lixo ocupa e o resultado da última limpeza.
+    Exclusivo do superadmin; dados publicados pelo script do host
+    (docker/manutencao-limpeza.sh) no Redis -- ver app/manutencao_limpeza.py."""
+    return await ler_estado()
+
+
+@router.post("/observabilidade/limpeza/solicitar", status_code=202)
+async def solicitar_limpeza_disco(request: Request, session: SessionDep, usuario: SuperAdminDep) -> dict:
+    """Pede a limpeza de disco. A API só enfileira o pedido: quem executa é o
+    script do host, com uma lista fixa de operações (nunca volumes, backups,
+    uploads nem `prune -a`). Auditado e limitado a poucos pedidos por hora."""
+    _limitar_limpeza.aplicar(f"usuario:{usuario.id}")
+    try:
+        pedido = await solicitar_limpeza(usuario.email)
+    except LimpezaJaSolicitada:
+        raise HTTPException(409, "Já existe uma limpeza solicitada ou em andamento.") from None
+    session.add(
+        EventoAuditoria(
+            organizacao_id=usuario.organizacao_id,
+            actor_id=usuario.id,
+            ator=usuario.ator,
+            acao="solicitar_limpeza"[:20],
+            recurso=f"limpeza_disco:{pedido['id']}"[:180],
+            sucesso=True,
+            status_http=202,
+            ip_hash=hash_ip(cliente_ip(request)),
+            detalhes={},
+        )
+    )
+    await session.commit()
+    return {"solicitado": True, "id": pedido["id"]}
 
 
 @router.get("/observabilidade/painel-tecnico")

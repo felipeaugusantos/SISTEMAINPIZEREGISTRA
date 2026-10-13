@@ -159,7 +159,20 @@ def test_endpoint_sem_leitura_ainda(monkeypatch: pytest.MonkeyPatch) -> None:
     assert corpo["disponivel"] is False
 
 
-async def test_alerta_backup_rotina_abre_e_resolve(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def _saude(status_dump: str, status_disco: str) -> dict:
+    return {
+        "coletado_em": AGORA.isoformat(),
+        "geral": "critico" if "critico" in (status_dump, status_disco) else status_disco,
+        "etapas": [
+            {"chave": "dump", "nome": "Dump do banco", "status": status_dump, "detalhe": "d"},
+            {"chave": "disco", "nome": "Disco da VPS", "status": status_disco, "detalhe": "85% usado, 20 GB livres."},
+        ],
+        "historico": [],
+    }
+
+
+@pytest.fixture
+def _alertas_isolados(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     publicados: list[dict] = []
 
     async def _publicar(dados: dict) -> None:
@@ -170,14 +183,37 @@ async def test_alerta_backup_rotina_abre_e_resolve(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr("app.alertas_plataforma.publicar_snapshot", _publicar)
     monkeypatch.setattr("app.alertas_plataforma.enviar_alerta_plataforma", _sem_email)
+    return publicados
 
-    # diretório vazio -> dump crítico -> alerta aberto
-    session = FakeSession([FakeResult(scalar=None)])
+
+async def test_alerta_backup_rotina_e_disco_alto_abrem(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _alertas_isolados: list[dict]
+) -> None:
+    monkeypatch.setattr("app.alertas_plataforma.coletar_saude_backups", lambda _d: _saude("critico", "atencao"))
+    session = FakeSession([FakeResult(scalar=None), FakeResult(scalar=None)])
     await _verificar_rotina_backups(session, tmp_path)
-    alertas = [obj for obj in session.adicionados if isinstance(obj, AlertaSistema)]
-    assert len(alertas) == 1
-    assert alertas[0].codigo == "BACKUP_ROTINA"
-    assert publicados and publicados[0]["geral"] == "critico"
+    codigos = [obj.codigo for obj in session.adicionados if isinstance(obj, AlertaSistema)]
+    assert codigos == ["BACKUP_ROTINA", "DISCO_USO_ALTO"]
+    assert _alertas_isolados[0]["geral"] == "critico"
+
+
+async def test_tudo_normal_resolve_os_alertas(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _alertas_isolados: list[dict]
+) -> None:
+    monkeypatch.setattr("app.alertas_plataforma.coletar_saude_backups", lambda _d: _saude("ok", "ok"))
+    aberto_rotina = AlertaSistema(
+        id=1, organizacao_id=None, severidade="critico", codigo="BACKUP_ROTINA", mensagem="m", detalhes={},
+        resolvido_em=None, criado_em=AGORA,
+    )
+    aberto_disco = AlertaSistema(
+        id=2, organizacao_id=None, severidade="aviso", codigo="DISCO_USO_ALTO", mensagem="m", detalhes={},
+        resolvido_em=None, criado_em=AGORA,
+    )
+    session = FakeSession([FakeResult(itens=[aberto_rotina]), FakeResult(itens=[aberto_disco])])
+    await _verificar_rotina_backups(session, tmp_path)
+    assert aberto_rotina.resolvido_em is not None
+    assert aberto_disco.resolvido_em is not None
+    assert session.adicionados == []
 
 
 async def test_falha_na_avaliacao_nao_propaga(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

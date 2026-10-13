@@ -21,6 +21,19 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
+# Auditoria de 13/10/2026: o volume do db-test (~33 GB, restore completo da
+# producao) ficava parado no disco depois de cada simulado. Ao sair -- com
+# sucesso, falha ou erro -- remove o container de teste e SO esse volume, pelo
+# NOME (nunca `down`, `-v` nem `prune`: o `down -v` de 16/09/2026 apagou a
+# producao). `docker volume rm` recusa volume em uso, e o nome so existe para o
+# projeto atual.
+VOLUME_TESTE="$(basename "$PWD")_test_postgres_data"
+limpar_banco_de_teste() {
+    docker compose --profile test rm -sf db-test >/dev/null 2>&1 || true
+    docker volume rm "$VOLUME_TESTE" >/dev/null 2>&1 || true
+}
+trap limpar_banco_de_teste EXIT
+
 DUMP="${1:-}"
 if [ -z "$DUMP" ]; then
     DUMP="$(ls -t backups/inpi-*.dump 2>/dev/null | head -n1 || true)"
@@ -92,7 +105,7 @@ for tabela in $TABELAS; do
     fi
 done
 
-echo "==> derrubando db-test (container efemero; --clean na proxima execucao substitui o conteudo)"
+echo "==> derrubando db-test e removendo o volume de teste (o proximo simulado restaura do zero)"
 docker compose --profile test rm -sf db-test >/dev/null 2>&1 || true
 
 DURACAO_SEGUNDOS="$(( $(date +%s) - INICIO_EPOCH ))"

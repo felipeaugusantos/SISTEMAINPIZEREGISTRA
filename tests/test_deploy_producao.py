@@ -125,6 +125,7 @@ _ENV_TESTE_PRODUCAO = {
     "UVICORN_FORWARDED_ALLOW_IPS": "172.28.0.1",
     "CORS_ALLOWED_ORIGINS": "https://teste.exemplo.com.br",
     "HEALTH_API_KEY": "chave-de-teste-descartavel-nao-e-segredo-real",
+    "POSTGRES_PASSWORD": "senha-de-teste-descartavel-nao-e-segredo-real",
     "SECURITY_MASTER_KEY": "chave-mestra-de-teste-com-mais-de-trinta-e-dois-caracteres",
     "AUDIT_IP_SALT": "sal-de-teste-com-mais-de-dezesseis-caracteres",
     "ADMIN_PASSWORD": "Senha-De-Teste-Descartavel-123!",

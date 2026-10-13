@@ -553,31 +553,38 @@ async def painel_tecnico(session: SessionDep, usuario: TechDep) -> dict:
         await session.execute(select(FeatureFlag).where(FeatureFlag.ativo.is_(True)).order_by(FeatureFlag.codigo))
     ).scalars().all()
 
-    desde_organizacoes = agora - timedelta(hours=24)
-    linhas_organizacoes = (
-        await session.execute(
-            select(
-                FeatureFlagEvento.organizacao_id,
-                Organizacao.nome,
-                FeatureFlag.codigo,
-                func.count(),
+    # Nomes de organizações afetadas são dado cross-tenant: só o superadmin da
+    # plataforma recebe esta lista (auditoria de segurança de 13/10/2026). Para
+    # os demais a chave vem None e o painel oculta a seção.
+    organizacoes_afetadas: list[dict] | None = None
+    if usuario.superadmin:
+        desde_organizacoes = agora - timedelta(hours=24)
+        linhas_organizacoes = (
+            await session.execute(
+                select(
+                    FeatureFlagEvento.organizacao_id,
+                    Organizacao.nome,
+                    FeatureFlag.codigo,
+                    func.count(),
+                )
+                .join(Organizacao, Organizacao.id == FeatureFlagEvento.organizacao_id)
+                .join(FeatureFlag, FeatureFlag.id == FeatureFlagEvento.feature_flag_id)
+                .where(
+                    FeatureFlagEvento.tipo.in_(("erro", "falha_integracao")),
+                    FeatureFlagEvento.criado_em >= desde_organizacoes,
+                )
+                .group_by(FeatureFlagEvento.organizacao_id, Organizacao.nome, FeatureFlag.codigo)
             )
-            .join(Organizacao, Organizacao.id == FeatureFlagEvento.organizacao_id)
-            .join(FeatureFlag, FeatureFlag.id == FeatureFlagEvento.feature_flag_id)
-            .where(
-                FeatureFlagEvento.tipo.in_(("erro", "falha_integracao")),
-                FeatureFlagEvento.criado_em >= desde_organizacoes,
+        ).all()
+        por_organizacao: dict[int, dict] = {}
+        for organizacao_id, nome, codigo_flag, total in linhas_organizacoes:
+            item = por_organizacao.setdefault(
+                organizacao_id,
+                {"organizacao_id": organizacao_id, "organizacao_nome": nome, "eventos": 0, "flags": []},
             )
-            .group_by(FeatureFlagEvento.organizacao_id, Organizacao.nome, FeatureFlag.codigo)
-        )
-    ).all()
-    organizacoes_afetadas: dict[int, dict] = {}
-    for organizacao_id, nome, codigo_flag, total in linhas_organizacoes:
-        item = organizacoes_afetadas.setdefault(
-            organizacao_id, {"organizacao_id": organizacao_id, "organizacao_nome": nome, "eventos": 0, "flags": []}
-        )
-        item["eventos"] += total
-        item["flags"].append({"codigo": codigo_flag, "eventos": total})
+            item["eventos"] += total
+            item["flags"].append({"codigo": codigo_flag, "eventos": total})
+        organizacoes_afetadas = sorted(por_organizacao.values(), key=lambda item: -item["eventos"])
 
     ultimo_deploy_item = (
         await session.execute(
@@ -616,7 +623,7 @@ async def painel_tecnico(session: SessionDep, usuario: TechDep) -> dict:
             }
             for flag in flags
         ],
-        "organizacoes_afetadas": sorted(organizacoes_afetadas.values(), key=lambda item: -item["eventos"]),
+        "organizacoes_afetadas": organizacoes_afetadas,
         "ultimo_deploy": (
             {
                 "versao_id": ultimo_deploy_item.id,

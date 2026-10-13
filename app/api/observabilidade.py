@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.saas import exigir_superadmin
 from app.auditing import criar_evento_auditoria
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import engine, get_session
@@ -27,12 +28,14 @@ from app.models import (
 from app.proxy import cliente_ip
 from app.queueing import descartar_falha, listar_falhas, reprocessar_falha, status_fila
 from app.rpi.health import avaliar_saude_rpi
+from app.saude_backups import ler_snapshot
 from app.security_ext import proteger_segredo
 from app.settings import get_settings
 
 router = APIRouter(prefix="/v1/admin", tags=["observabilidade"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 TechDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("production.view"))]
+SuperAdminDep = Annotated[UsuarioAutenticado, Depends(exigir_superadmin)]
 
 
 class ClicksignConfigInput(BaseModel):
@@ -517,6 +520,21 @@ async def _emails_rejeitados_24h(session: AsyncSession) -> list[dict]:
         {"operacao": operacao, "quantidade": int(quantidade), "ultima_em": ultima_em}
         for operacao, quantidade, ultima_em in linhas
     ]
+
+
+@router.get("/observabilidade/saude-backups")
+async def saude_backups(_usuario: SuperAdminDep) -> dict:
+    """Saúde da rotina de backups (dump, envio externo, simulado, cópia no PC e
+    disco). Exclusivo do superadmin da plataforma: o estado da infraestrutura
+    não deve aparecer para escritórios clientes (white-label). Lê o instantâneo
+    que o worker publica no Redis (app/saude_backups.py)."""
+    snapshot = await ler_snapshot()
+    if snapshot is None:
+        return {
+            "disponivel": False,
+            "motivo": "Ainda não há leitura da rotina de backups (o worker publica a cada hora).",
+        }
+    return {"disponivel": True, **snapshot}
 
 
 @router.get("/observabilidade/painel-tecnico")

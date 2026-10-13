@@ -12,6 +12,7 @@ RETENCAO_PENDENTE já usava em app/worker.py) -- evita reenviar e-mail e
 recriar linha a cada ciclo de manutenção enquanto o problema persiste.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -22,7 +23,10 @@ from app.emailing import enviar_alerta_plataforma
 from app.models import AlertaSistema, EventoOperacional, RpiImportacao, RpiSyncEstado
 from app.queueing import status_fila
 from app.rpi.health import avaliar_saude_rpi
+from app.saude_backups import coletar_saude_backups, publicar_snapshot
 from app.settings import get_settings
+
+logger = logging.getLogger("ze_registra.alertas_plataforma")
 
 
 def _backup_mais_recente(diretorio: Path) -> datetime | None:
@@ -93,6 +97,30 @@ async def resolver_alerta_plataforma(session: AsyncSession, *, codigo: str, orga
     agora = datetime.now(UTC)
     for alerta in abertos:
         alerta.resolvido_em = agora
+
+
+async def _verificar_rotina_backups(session: AsyncSession, diretorio: Path) -> None:
+    """Painel de saúde dos backups (superadmin): consolida dump, envio externo,
+    simulado, cópia no PC e disco num instantâneo no Redis (a API não enxerga
+    backups/) e alerta quando alguma etapa está crítica. Falha aqui nunca
+    interrompe os demais alertas de plataforma."""
+    try:
+        saude = coletar_saude_backups(diretorio)
+        await publicar_snapshot(saude)
+        criticas = [etapa for etapa in saude["etapas"] if etapa["status"] == "critico"]
+        if criticas:
+            await registrar_alerta_plataforma(
+                session,
+                codigo="BACKUP_ROTINA",
+                severidade="critico",
+                mensagem="Rotina de backup com etapa crítica: "
+                + "; ".join(f"{etapa['nome']} ({etapa['detalhe']})" for etapa in criticas),
+                detalhes={"etapas": [etapa["chave"] for etapa in criticas]},
+            )
+        else:
+            await resolver_alerta_plataforma(session, codigo="BACKUP_ROTINA")
+    except Exception:
+        logger.exception("Falha ao avaliar a saúde da rotina de backups")
 
 
 async def verificar_saude_plataforma(session: AsyncSession) -> None:
@@ -203,6 +231,7 @@ async def verificar_saude_plataforma(session: AsyncSession) -> None:
                 )
             else:
                 await resolver_alerta_plataforma(session, codigo="BACKUP_AUSENTE")
+        await _verificar_rotina_backups(session, Path(settings.backups_dir))
 
     desde = datetime.now(UTC) - timedelta(hours=24)
     metricas = (

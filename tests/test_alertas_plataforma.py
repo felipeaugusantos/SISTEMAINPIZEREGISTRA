@@ -25,6 +25,13 @@ def _mock_email(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.alertas_plataforma.enviar_alerta_plataforma", _sem_email)
 
 
+@pytest.fixture(autouse=True)
+def _sem_rotina_backups(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A avaliação da rotina de backups (painel do superadmin) tem testes próprios
+    # em tests/test_saude_backups.py e consumiria resultados da sessão falsa daqui.
+    monkeypatch.setattr("app.alertas_plataforma._verificar_rotina_backups", _sem_email)
+
+
 async def test_registrar_alerta_plataforma_cria_quando_nao_existe() -> None:
     session = FakeSession([FakeResult(scalar=None)])
     await registrar_alerta_plataforma(session, codigo="X", severidade="aviso", mensagem="teste")

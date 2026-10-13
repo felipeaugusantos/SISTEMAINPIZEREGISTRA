@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     # FASE6-11) cobre um atraso ocasional sem gerar alerta a cada execução.
     backups_dir: str = "/app/backups"
     alerta_backup_max_horas: float = 26.0
+    # Painel de saude dos backups (app/saude_backups.py): o envio externo termina
+    # depois do dump (cifra + upload de ~5 GB), por isso a folga maior.
+    alerta_offsite_max_horas: float = 30.0
+    alerta_simulado_max_dias: float = 8.0
+    alerta_copia_pc_max_horas: float = 48.0
+    alerta_disco_atencao_percentual: float = 80.0
+    alerta_disco_critico_percentual: float = 90.0
     # Fase 3 (notificações e confirmação de leitura): tempo de tolerância
     # antes de lembrar (via app.avisos_versao) as organizações com usuários
     # que ainda não confirmaram um AvisoVersao crítico.

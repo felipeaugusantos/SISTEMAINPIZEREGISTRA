@@ -6,7 +6,7 @@
   <title>Observabilidade — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=67">
   <script src="/static/admin-shell.js?v=55" defer></script>
-  <script src="/static/admin-observabilidade.js?v=6" defer></script>
+  <script src="/static/admin-observabilidade.js?v=7" defer></script>
 </head>
 <body class="admin-body" data-admin-section="observability">
   <main class="admin-main admin-dashboard">
@@ -21,6 +21,24 @@
       <div id="painel-tecnico-message" class="status-message loading" role="status">Carregando…</div>
       <div id="painel-tecnico-processos" class="observability-detail-grid"></div>
       <p><small>Migration atual: <strong id="painel-tecnico-migration">—</strong></small></p>
+    </section>
+
+    <section id="saude-backups" class="overview-section" hidden>
+      <header><div><p class="eyebrow">Superadmin</p><h2>Saúde dos backups</h2><p>Dump do banco, envio externo cifrado, simulado de restauração, cópia no PC e disco da VPS. Atualizado pelo worker a cada hora.</p></div><span id="saude-backups-atualizado"></span></header>
+      <div id="saude-backups-message" class="status-message loading" role="status">Carregando…</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Etapa</th><th>Situação</th><th>Última execução</th><th>Tamanho</th><th>Detalhe</th></tr></thead>
+          <tbody id="saude-backups-rows"></tbody>
+        </table>
+      </div>
+      <h3>Últimos 14 dias</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Dia (UTC)</th><th>Dump</th><th>Envio externo</th><th>Simulado</th></tr></thead>
+          <tbody id="saude-backups-historico-rows"></tbody>
+        </table>
+      </div>
     </section>
 
     <section class="overview-section">

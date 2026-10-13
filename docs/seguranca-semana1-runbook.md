@@ -1,0 +1,66 @@
+# Segurança — Semana 1 (auditoria de 13/10/2026): passo a passo na VPS
+
+Tudo abaixo roda na VPS (`/opt/zeregistra`), depois do merge do PR. A ordem importa.
+
+## 1. Trocar a senha do superusuário do Postgres (`inpi`)
+
+A imagem do Postgres só lê `POSTGRES_PASSWORD` na criação do volume. Como o banco já
+existe, **primeiro** altere a role, **depois** grave a mesma senha no `.env` e faça o deploy.
+
+```bash
+cd /opt/zeregistra
+NOVA=$(openssl rand -hex 24)                      # só hexadecimal: entra em URL sem escape
+docker compose exec -T db psql -U inpi -d inpi -c "ALTER ROLE inpi PASSWORD '$NOVA';"
+echo "POSTGRES_PASSWORD=$NOVA" >> .env            # guarde também no seu gerenciador de senhas
+FORCAR=1 ./docker/backup-banco.sh                 # backup antes do deploy
+./docker/deploy.sh
+```
+
+Verificação: `docker compose exec -T db psql -U inpi -d inpi -c "select 1"` continua
+funcionando (socket local) e `./docker/deploy.sh` roda a migração sem erro de autenticação.
+A role `inpi_app` (usada pela aplicação) **não muda**.
+
+## 2. Backup externo cifrado
+
+```bash
+apt install -y rclone openssl
+rclone config                                      # crie um remote (ex.: b2, s3, drive)
+openssl rand -base64 48 > /root/.backup-passphrase && chmod 600 /root/.backup-passphrase
+# COPIE o conteúdo de /root/.backup-passphrase para o gerenciador de senhas AGORA:
+# sem ele o backup cifrado não pode ser restaurado.
+cat > /opt/zeregistra/.backup-offsite.env <<'ENV'
+BACKUP_OFFSITE_REMOTE=meuremote:zeregistra-backups/db
+BACKUP_PASSPHRASE_FILE=/root/.backup-passphrase
+ENV
+chmod 600 /opt/zeregistra/.backup-offsite.env
+cd /opt/zeregistra && set -a && . ./.backup-offsite.env && set +a && FORCAR=1 ./docker/backup-offsite.sh
+```
+
+## 3. Agendar backup, envio externo e simulado semanal
+
+```bash
+./docker/instalar-cron-seguranca.sh
+```
+
+Se já havia um cron de backup antigo (sem a marca `# zeregistra-seguranca`), remova-o
+com `crontab -e` para não duplicar (o script de backup já evita dois dumps no mesmo dia).
+
+## 4. Testar a restauração de verdade (anotar o tempo)
+
+Baixe um `.enc` do destino externo e confira que decifra e restaura no banco de teste:
+
+```bash
+rclone copyto meuremote:zeregistra-backups/db/inpi-AAAAMMDD-HHMMSS.dump.enc /tmp/teste.dump.enc
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in /tmp/teste.dump.enc \
+  -out /tmp/teste.dump -pass file:/root/.backup-passphrase
+./docker/simulado-restauracao.sh /tmp/teste.dump ; rm -f /tmp/teste.dump /tmp/teste.dump.enc
+```
+
+## 5. Conferir o RLS em produção
+
+```bash
+./docker/verificar-rls.sh
+```
+
+Saída `OK` = nada a fazer. Se listar tabelas, envie a lista para criarmos a migration
+de correção (não corrija à mão em produção).

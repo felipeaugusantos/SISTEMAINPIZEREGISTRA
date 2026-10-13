@@ -72,3 +72,18 @@ services:
       INPI_INTEGRATION_TOKEN: ${INPI_INTEGRATION_TOKEN:?configure INPI_INTEGRATION_TOKEN}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?configure CORS_ALLOWED_ORIGINS}
     restart: unless-stopped
+
+  # Auditoria de seguranca (13/10/2026, item 5): o superusuario do Postgres
+  # usava a senha fixa "inpi" tambem em producao. Em producao a senha agora
+  # vem obrigatoriamente do .env do VPS (POSTGRES_PASSWORD, sem caracteres
+  # especiais de URL -- use `openssl rand -hex 24`). ATENCAO: a imagem do
+  # Postgres so le essa variavel na PRIMEIRA criacao do volume; num banco ja
+  # existente e preciso rodar antes `ALTER ROLE inpi PASSWORD '...'`
+  # (ver docs/seguranca-semana1-runbook.md).
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?configure POSTGRES_PASSWORD no .env do VPS}
+
+  migrate:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?configure POSTGRES_PASSWORD no .env do VPS}

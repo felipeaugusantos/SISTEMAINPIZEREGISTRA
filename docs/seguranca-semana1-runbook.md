@@ -81,3 +81,24 @@ dump, envio externo, simulado, cópia no PC e disco, com semáforo e histórico 
 - O script do PC (`scripts/sincronizar-backup-vps-pc.ps1`) grava `backups/.pc-<dump>` na VPS
   depois de validar o hash; sem isso a linha "Cópia no PC" fica "Sem dados".
 - O painel só passa a ter dados depois do **deploy do worker** e da primeira execução da rotina diária.
+
+## 7. Limpeza de disco pelo painel (superadmin)
+
+Em **Observabilidade → Limpeza de disco** o superadmin vê quanto cada categoria ocupa e pode
+solicitar a limpeza. A API **não** executa nada nem tem acesso ao Docker: ela só grava um
+pedido no Redis, e o script do host `docker/manutencao-limpeza.sh` (cron, a cada 5 minutos,
+instalado por `sh docker/instalar-cron-seguranca.sh`) atende o pedido.
+
+**O que é limpo (lista fixa):** imagens Docker órfãs, cache de build com mais de 7 dias,
+containers parados fora do projeto, resíduos `inpi-*.dump` (mais de 1 dia) no `/tmp` do
+container do banco, temporários antigos do `/tmp` da VPS, `backups/*.part` e logs
+`/var/log/zeregistra-*.log` acima de 50 MB.
+
+**O que nunca é tocado:** volumes (postgres, redis, clamav, ollama), `backups/`, `data/`,
+uploads de clientes; o script não contém `prune -a`, `volume prune`, `system prune` nem `down`.
+
+- Relatório de espaço: publicado a cada 2 h (ou logo após cada limpeza).
+- Alerta `DISCO_USO_ALTO` (aviso) quando o disco passa de 80%; acima de 90% entra em
+  `BACKUP_ROTINA` (crítico).
+- Para atualizar o relatório na hora: `sh docker/manutencao-limpeza.sh --relatorio`.
+- Log do cron: `/var/log/zeregistra-manutencao.log`.

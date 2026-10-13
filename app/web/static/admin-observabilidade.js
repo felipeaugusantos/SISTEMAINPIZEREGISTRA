@@ -246,3 +246,65 @@ document.querySelector("#events-next").addEventListener("click", () => {
   eventsState.offset += eventsState.pageSize; carregarEventos();
 });
 carregarEventos();
+
+// Limpeza de disco -- exclusivo do superadmin. A API só enfileira o pedido; a VPS
+// executa uma lista fixa de limpezas e publica o resultado (app/manutencao_limpeza.py).
+let limpezaTemporizador = null;
+async function carregarLimpezaDisco() {
+  const secao = document.querySelector("#limpeza-disco");
+  const message = document.querySelector("#limpeza-disco-message");
+  const botao = document.querySelector("#limpeza-disco-botao");
+  if (!secao) return;
+  try {
+    const dados = await apiPainel("/v1/admin/observabilidade/limpeza");
+    secao.hidden = false;
+    if (!dados.disponivel) {
+      message.className = "status-message error";
+      message.textContent = dados.motivo || "Indisponível.";
+      botao.disabled = true;
+      return;
+    }
+    const ocupado = dados.pendente || dados.em_andamento;
+    botao.disabled = ocupado;
+    document.querySelector("#limpeza-disco-situacao").textContent = dados.em_andamento ? "Limpeza em andamento…" : dados.pendente ? "Pedido na fila; a VPS atende em até 5 minutos." : "";
+    const relatorio = dados.relatorio;
+    if (!relatorio) {
+      message.className = "status-message";
+      message.textContent = "A VPS ainda não publicou o relatório (o script roda a cada 5 minutos).";
+      document.querySelector("#limpeza-disco-rows").innerHTML = "";
+    } else {
+      message.hidden = true;
+      document.querySelector("#limpeza-disco-atualizado").textContent = `Lido em ${dataHoraCurta(relatorio.gerado_em)}`;
+      const disco = relatorio.disco || {};
+      const pct = disco.total_bytes ? Math.round((disco.usado_bytes / disco.total_bytes) * 100) : null;
+      document.querySelector("#limpeza-disco-resumo").innerHTML = metric(pct != null ? `${pct}%` : "—", "Disco em uso", `${bytes(disco.usado_bytes)} de ${bytes(disco.total_bytes)} · ${bytes(disco.livre_bytes)} livres`);
+      document.querySelector("#limpeza-disco-rows").innerHTML = relatorio.itens.map((item) => `<tr>
+        <td>${escapeHtmlSeguro(item.nome)}</td>
+        <td>${item.bytes ? escapeHtmlSeguro(bytes(item.bytes)) : "—"}</td>
+        <td>${escapeHtmlSeguro(item.quantidade)}</td>
+        <td>${escapeHtmlSeguro(item.detalhe)}</td>
+      </tr>`).join("");
+    }
+    const resultado = dados.resultado;
+    document.querySelector("#limpeza-disco-resultado").innerHTML = resultado
+      ? `<h3>Última limpeza</h3><p>${escapeHtmlSeguro(dataHoraCurta(resultado.concluido_em))} · liberou ${escapeHtmlSeguro(bytes(resultado.liberado_bytes) === "—" ? "0 B" : bytes(resultado.liberado_bytes))}</p><ul>${resultado.itens.map((item) => `<li>${item.ok ? "OK" : "Falhou"} — ${escapeHtmlSeguro(item.chave)}: ${escapeHtmlSeguro(item.detalhe)}</li>`).join("")}</ul>`
+      : "";
+    if (ocupado && !limpezaTemporizador) limpezaTemporizador = setInterval(carregarLimpezaDisco, 10000);
+    if (!ocupado && limpezaTemporizador) { clearInterval(limpezaTemporizador); limpezaTemporizador = null; }
+  } catch (error) {
+    // 403 para quem não é superadmin: a seção segue oculta.
+    secao.hidden = true;
+  }
+}
+document.querySelector("#limpeza-disco-botao")?.addEventListener("click", async (evento) => {
+  const botao = evento.currentTarget;
+  if (!window.confirm("Solicitar a limpeza de disco? Serão removidos apenas imagens Docker órfãs, cache de build antigo, containers parados fora do projeto e arquivos temporários. Volumes, backups e uploads não são tocados.")) return;
+  botao.disabled = true;
+  try {
+    await apiPainel("/v1/admin/observabilidade/limpeza/solicitar", { method: "POST" });
+  } catch (error) {
+    document.querySelector("#limpeza-disco-situacao").textContent = error.message;
+  }
+  carregarLimpezaDisco();
+});
+carregarLimpezaDisco();

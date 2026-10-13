@@ -28,6 +28,7 @@ router = APIRouter(tags=["privacidade"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 LeadsDeleteDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.delete"))]
 limitar_privacidade = RateLimiter(limite=5, janela_segundos=300, escopo="privacidade")
+limitar_confirmacao_privacidade = RateLimiter(limite=10, janela_segundos=300, escopo="privacidade-confirmar")
 
 RESPOSTA_GENERICA = {"status": "ok", "mensagem": "Se o e-mail existir na nossa base, você vai receber instruções."}
 
@@ -101,7 +102,7 @@ async def solicitar_exclusao(
     return RESPOSTA_GENERICA
 
 
-@router.post("/v1/privacidade/confirmar-exclusao")
+@router.post("/v1/privacidade/confirmar-exclusao", dependencies=[Depends(limitar_confirmacao_privacidade)])
 async def confirmar_exclusao(
     dados: ConfirmarExclusaoInput,
     session: SessionDep,

@@ -54,6 +54,11 @@ logger = logging.getLogger(__name__)
 limitar_login = RateLimiter(limite=10, janela_segundos=60, escopo="login")
 limitar_recuperacao = RateLimiter(limite=5, janela_segundos=300, escopo="recuperacao")
 limitar_mfa = RateLimiter(limite=10, janela_segundos=300, escopo="mfa")
+# Auditoria de seguranca (13/10/2026, item 9): redefinir senha e aceitar convite
+# eram publicas e sem limite. Os tokens sao fortes (inviavel adivinhar), mas sem
+# limite qualquer IP podia martelar o endpoint e o banco indefinidamente.
+limitar_redefinicao = RateLimiter(limite=10, janela_segundos=300, escopo="redefinicao")
+limitar_convite = RateLimiter(limite=10, janela_segundos=300, escopo="convite")
 
 
 class LoginInput(BaseModel):
@@ -510,6 +515,7 @@ async def redefinir_senha(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
+    limitar_redefinicao.aplicar(cliente_ip(request))
     agora = datetime.now(UTC)
     token_hash = hash_token(dados.token)
     await aplicar_contexto_autenticacao(session, "recuperacao_token", token_hash)
@@ -625,7 +631,12 @@ async def desativar_mfa(
 
 
 @router.post("/convites/aceitar", status_code=201)
-async def aceitar_convite(dados: AceitarConviteInput, session: AsyncSession = Depends(get_session)) -> dict:
+async def aceitar_convite(
+    dados: AceitarConviteInput,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    limitar_convite.aplicar(cliente_ip(request))
     agora = datetime.now(UTC)
     token_hash = hash_token(dados.token)
     await aplicar_contexto_autenticacao(session, "convite", token_hash)

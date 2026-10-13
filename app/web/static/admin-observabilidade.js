@@ -143,6 +143,42 @@ async function carregarPainelTecnico() {
 }
 carregarPainelTecnico();
 
+// Painel de saúde dos backups -- exclusivo do superadmin. Para os demais
+// usuários a API responde 403 e a seção continua oculta.
+const ROTULO_SAUDE = { ok: "OK", atencao: "Atenção", critico: "Crítico", desconhecido: "Sem dados" };
+function tamanhoLegivel(valor) { return bytes(valor); }
+function marcaDia(valor) { return valor === null || valor === undefined ? "—" : valor ? "OK" : "Falhou"; }
+async function carregarSaudeBackups() {
+  const secao = document.querySelector("#saude-backups");
+  const message = document.querySelector("#saude-backups-message");
+  if (!secao) return;
+  try {
+    const dados = await apiPainel("/v1/admin/observabilidade/saude-backups");
+    secao.hidden = false;
+    if (!dados.disponivel) {
+      message.className = "status-message";
+      message.textContent = dados.motivo || "Sem leitura disponível.";
+      return;
+    }
+    message.hidden = true;
+    document.querySelector("#saude-backups-atualizado").textContent = `Lido em ${dataHoraCurta(dados.coletado_em)} · situação geral: ${ROTULO_SAUDE[dados.geral] || dados.geral}`;
+    document.querySelector("#saude-backups-rows").innerHTML = dados.etapas.map(etapa => `<tr>
+      <td>${escapeHtmlSeguro(etapa.nome)}</td>
+      <td><span class="${etapa.status === "ok" ? "positive" : etapa.status === "critico" ? "negative" : ""}">${escapeHtmlSeguro(ROTULO_SAUDE[etapa.status] || etapa.status)}</span></td>
+      <td>${escapeHtmlSeguro(dataHoraCurta(etapa.ultima_em))}</td>
+      <td>${escapeHtmlSeguro(etapa.tamanho_bytes ? tamanhoLegivel(etapa.tamanho_bytes) : "—")}</td>
+      <td>${escapeHtmlSeguro(etapa.detalhe)}</td>
+    </tr>`).join("");
+    document.querySelector("#saude-backups-historico-rows").innerHTML = dados.historico.length
+      ? dados.historico.map(dia => `<tr><td>${escapeHtmlSeguro(dia.data)}</td><td>${marcaDia(dia.dump)}</td><td>${marcaDia(dia.offsite)}</td><td>${marcaDia(dia.simulado)}</td></tr>`).join("")
+      : `<tr><td colspan="4">Nenhuma execução registrada ainda.</td></tr>`;
+  } catch (error) {
+    // 403 para quem não é superadmin: a seção segue oculta, sem poluir a tela.
+    secao.hidden = true;
+  }
+}
+carregarSaudeBackups();
+
 // Achado de uma auditoria sistemática (08/09/2026, mesmo padrão do achado
 // de EnvioCadenciaEmail): EventoOperacional era gravado a cada requisição
 // mas só ficava visível de forma agregada (contagens/médias) -- ninguém

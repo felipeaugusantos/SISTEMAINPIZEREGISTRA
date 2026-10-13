@@ -68,3 +68,16 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in /tmp/teste.dump.enc \
 
 Saída `OK` = nada a fazer. Se listar tabelas, envie a lista para criarmos a migration
 de correção (não corrija à mão em produção).
+
+## 6. Painel de saúde dos backups (superadmin)
+
+Em **Observabilidade → Saúde dos backups** (visível só para o superadmin) o painel mostra
+dump, envio externo, simulado, cópia no PC e disco, com semáforo e histórico de 14 dias.
+
+- A rotina `docker/rotina-diaria-backup.sh` grava cada etapa em `backups/historico-rotina.jsonl`.
+- O worker lê `backups/` (somente leitura) a cada hora, publica o resultado no Redis e abre o
+  alerta `BACKUP_ROTINA` (e-mail de plataforma) se alguma etapa estiver crítica. A API não
+  enxerga os dumps.
+- O script do PC (`scripts/sincronizar-backup-vps-pc.ps1`) grava `backups/.pc-<dump>` na VPS
+  depois de validar o hash; sem isso a linha "Cópia no PC" fica "Sem dados".
+- O painel só passa a ter dados depois do **deploy do worker** e da primeira execução da rotina diária.

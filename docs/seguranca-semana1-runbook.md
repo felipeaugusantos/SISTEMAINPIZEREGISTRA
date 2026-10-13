@@ -36,14 +36,18 @@ chmod 600 /opt/zeregistra/.backup-offsite.env
 cd /opt/zeregistra && set -a && . ./.backup-offsite.env && set +a && FORCAR=1 ./docker/backup-offsite.sh
 ```
 
-## 3. Agendar backup, envio externo e simulado semanal
+## 3. Agendar a rotina diária (backup → envio externo cifrado → simulado aos domingos)
 
 ```bash
-./docker/instalar-cron-seguranca.sh
+sh ./docker/instalar-cron-seguranca.sh
 ```
 
-Se já havia um cron de backup antigo (sem a marca `# zeregistra-seguranca`), remova-o
-com `crontab -e` para não duplicar (o script de backup já evita dois dumps no mesmo dia).
+O cron roda às 02:00 (hora local da VPS, Brasília) e encadeia tudo em `docker/rotina-diaria-backup.sh`.
+O instalador substitui as linhas antigas de `backup-banco.sh` e `simulado-restauracao.sh`.
+
+**Atenção — rotina no PC que baixa e apaga o dump da VPS:** ela só pode apagar um dump depois que
+o marcador `backups/.offsite-<nome-do-dump>` existir na VPS (prova de que a cópia cifrada já está no
+destino externo). Sem essa checagem, o PC pode apagar o dump antes do envio e antes do simulado.
 
 ## 4. Testar a restauração de verdade (anotar o tempo)
 

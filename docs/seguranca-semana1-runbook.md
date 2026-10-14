@@ -129,3 +129,21 @@ Respostas 429 do Nginx aparecem em `/var/log/nginx/error.log` (nível `warn`).
 ```bash
 cp /opt/zeregistra/docker/nginx-limit-req.conf /etc/nginx/conf.d/zeregistra-limit-req.conf && nginx -t && systemctl reload nginx
 ```
+
+## 9. SSRF na verificação de sites (auditoria externa A09)
+
+O código agora resolve o host uma vez por salto, valida todos os IPs e conecta **direto no IP
+validado** (Host e SNI preservados), fechando a janela de DNS rebinding. O reforço de rede
+(política de saída que bloqueia destinos internos e serviços de metadata a partir dos containers)
+é opcional e fica na infraestrutura, não no código. Teste simples depois do deploy, no worker:
+
+```bash
+docker compose exec -T worker /app/.venv/bin/python - <<'PY'
+import asyncio
+from app.verificacao_site import verificar_site
+for site in ("http://169.254.169.254/", "http://127.0.0.1/", "http://[::1]/", "https://example.com"):
+    print(site, asyncio.run(verificar_site(site)))
+PY
+```
+
+Os três primeiros devem voltar `ativo: False, erro: DestinoBloqueado`; o último, `ativo: True`.

@@ -5726,7 +5726,8 @@ h1,h2,h3,h4,h5 { font-family:var(--font-display); font-weight:var(--fw-semibold)
 /* Dashboard de Observabilidade (abas, cartões de status, gráficos em SVG puro) */
 .observability-dot.warn { background: #c98a1b; box-shadow: 0 0 0 4px #fbefd6; }
 .observability-dot.off { background: #9aa59e; box-shadow: 0 0 0 4px #e9ede9; }
-.dash-auto { display: flex; align-items: center; gap: 6px; font-size: .82rem; color: #66736b; cursor: pointer; }
+.dash-auto { display: flex; align-items: center; gap: 6px; font-size: .82rem; color: #66736b; cursor: pointer; white-space: nowrap; }
+.dash-auto input[type="checkbox"] { appearance: auto; flex: 0 0 18px; width: 18px; height: 18px; min-height: 18px; margin: 0; padding: 0; accent-color: var(--forest); cursor: pointer; }
 .dash-abas { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 18px; border-bottom: 1px solid var(--line); }
 .dash-aba { min-height: 40px; padding: 8px 16px; border: 0; border-bottom: 3px solid transparent; border-radius: 10px 10px 0 0; background: transparent; color: var(--muted); font-weight: 600; }
 .dash-aba:hover { background: #f2f5f1; }

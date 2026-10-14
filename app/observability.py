@@ -151,6 +151,7 @@ async def _registrar(
 _ROTAS_DOCUMENTACAO = ("/docs", "/redoc", "/openapi.json")
 # Rotas sensiveis nao podem ser cacheadas por proxies/navegador.
 _ROTAS_SENSIVEIS = ("/admin", "/v1/admin", "/login", "/alterar-senha", "/v1/auth")
+_ROTAS_PORTAL = ("/portal", "/v1/portal")
 # CAPTCHA da consulta pública (Cloudflare Turnstile): o widget é um script
 # e um iframe servidos por challenges.cloudflare.com -- só essa origem é
 # liberada, e só para script e frame.
@@ -175,6 +176,10 @@ def _cabecalhos_seguranca(response: Response, request: Request) -> None:
     response.headers.setdefault("Content-Security-Policy", _CSP_PADRAO)
     if caminho.startswith(_ROTAS_SENSIVEIS):
         response.headers["Cache-Control"] = "no-store"
+    elif caminho.startswith(_ROTAS_PORTAL):
+        # Auditoria S07: dados e documentos do cliente não podem ficar em cache compartilhado ou do
+        # navegador. setdefault: um endpoint que escolhe o próprio cache privado (ex.: logo) mantém a escolha.
+        response.headers.setdefault("Cache-Control", "private, no-store")
 
 
 async def observar_requisicao(request: Request, call_next: CallNext) -> Response:

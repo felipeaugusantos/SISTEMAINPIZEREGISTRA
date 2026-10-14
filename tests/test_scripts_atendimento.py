@@ -86,3 +86,15 @@ def test_script_de_saida_de_rede_bloqueia_destinos_internos_sem_derrubar_o_dns()
     assert script.index('-d "$sub" -j RETURN') < script.index('for destino in $BLOQUEADOS')
     # nunca derruba serviços (regra de produção: nada de compose down)
     assert "compose down" not in script and "docker compose" not in script.replace("docker compose up", "")
+
+
+def test_script_de_saida_de_rede_cobre_o_proprio_host_e_recusa_backend_nftables() -> None:
+    # Revisão do Codex (PR #195): tráfego para o host entra por INPUT; backend nftables ignora DOCKER-USER.
+    from pathlib import Path
+
+    script = Path("docker/saida-rede-docker.sh").read_text(encoding="utf-8")
+    assert 'iptables -I INPUT 1 -s "$sub" -j "$CADEIA_HOST"' in script
+    assert "LIBERAR_HOST_PORTAS" in script
+    assert 'iptables -S FORWARD | grep -q -- "-j DOCKER-USER"' in script
+    # a verificação do backend acontece antes de qualquer alteração
+    assert script.index('grep -q -- "-j DOCKER-USER"') < script.index('iptables -N "$CADEIA_HOST"')

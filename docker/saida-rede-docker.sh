@@ -23,6 +23,11 @@ UNIDADE="zeregistra-saida-rede"
 # Destinos que os containers NÃO devem alcançar (metadata, CGNAT e redes privadas).
 BLOQUEADOS="169.254.0.0/16 100.64.0.0/10 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
 
+# Portas do PRÓPRIO host que os containers podem usar (separadas por espaço). Padrão: nenhuma.
+# Ex.: LIBERAR_HOST_PORTAS="25" sh docker/saida-rede-docker.sh aplicar
+CADEIA_HOST="ZEREGISTRA-ENTRADA"
+LIBERAR_HOST_PORTAS="${LIBERAR_HOST_PORTAS:-}"
+
 exigir_root() {
   [ "$(id -u)" -eq 0 ] || { echo "Rode como root (sudo)." >&2; exit 1; }
   command -v iptables >/dev/null 2>&1 || { echo "iptables não encontrado." >&2; exit 1; }
@@ -42,20 +47,26 @@ resolvedores() {
     | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | grep -v '^127\.' | sort -u || true
 }
 
+# Apaga toda regra de uma cadeia-mãe que salta para a cadeia $2 (uma por rede do projeto).
 remover_ligacoes() {
-  # Apaga toda regra de DOCKER-USER que salta para a nossa cadeia (uma por rede do projeto).
-  iptables -S DOCKER-USER | grep -- "-j $CADEIA\$" | sed 's/^-A /-D /' | while read -r regra; do
+  iptables -S "$1" 2>/dev/null | grep -- "-j $2\$" | sed 's/^-A /-D /' | while read -r regra; do
     iptables $regra
   done
 }
 
+apagar_cadeia() {
+  if iptables -S "$1" >/dev/null 2>&1; then
+    iptables -F "$1"
+    iptables -X "$1"
+  fi
+}
+
 remover() {
   exigir_root
-  iptables -S DOCKER-USER >/dev/null 2>&1 && remover_ligacoes
-  if iptables -S "$CADEIA" >/dev/null 2>&1; then
-    iptables -F "$CADEIA"
-    iptables -X "$CADEIA"
-  fi
+  remover_ligacoes DOCKER-USER "$CADEIA"
+  remover_ligacoes INPUT "$CADEIA_HOST"
+  apagar_cadeia "$CADEIA"
+  apagar_cadeia "$CADEIA_HOST"
   echo "Regras de saída removidas."
 }
 
@@ -66,7 +77,14 @@ aplicar() {
     echo "Nenhuma rede do projeto '$PROJETO' encontrada. Suba os serviços antes (docker compose up -d)." >&2
     exit 1
   fi
+  # Docker com backend nftables não liga a FORWARD a DOCKER-USER: as regras seriam ignoradas.
+  if ! iptables -S FORWARD | grep -q -- "-j DOCKER-USER"; then
+    echo "A cadeia FORWARD não passa por DOCKER-USER (Docker com backend nftables?). Nada foi alterado." >&2
+    exit 1
+  fi
   iptables -N DOCKER-USER 2>/dev/null || true
+  iptables -N "$CADEIA_HOST" 2>/dev/null || true
+  iptables -F "$CADEIA_HOST"
   iptables -N "$CADEIA" 2>/dev/null || true
   iptables -F "$CADEIA"
 
@@ -84,9 +102,20 @@ aplicar() {
   done
   iptables -A "$CADEIA" -j RETURN
 
-  remover_ligacoes
+  # Tráfego destinado ao PRÓPRIO host (gateway da bridge, IP público) entra por INPUT, não por FORWARD.
+  iptables -A "$CADEIA_HOST" -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+  iptables -A "$CADEIA_HOST" -p icmp -j RETURN
+  for porta in $LIBERAR_HOST_PORTAS; do
+    iptables -A "$CADEIA_HOST" -p tcp --dport "$porta" -j RETURN
+    iptables -A "$CADEIA_HOST" -p udp --dport "$porta" -j RETURN
+  done
+  iptables -A "$CADEIA_HOST" -j REJECT --reject-with icmp-port-unreachable
+
+  remover_ligacoes DOCKER-USER "$CADEIA"
+  remover_ligacoes INPUT "$CADEIA_HOST"
   for sub in $SUBREDES; do
     iptables -I DOCKER-USER 1 -s "$sub" -j "$CADEIA"
+    iptables -I INPUT 1 -s "$sub" -j "$CADEIA_HOST"
   done
   echo "Regras de saída aplicadas às redes: $(echo $SUBREDES)"
 }
@@ -102,10 +131,14 @@ status() {
   echo
   echo "== $CADEIA (a coluna pkts mostra quantos pacotes foram barrados) =="
   iptables -L "$CADEIA" -n -v --line-numbers
+  echo
+  echo "== $CADEIA_HOST (tráfego dos containers para o próprio host) =="
+  iptables -L "$CADEIA_HOST" -n -v --line-numbers
   atuais="$(sub_redes_do_projeto)"
   for sub in $atuais; do
     iptables -C DOCKER-USER -s "$sub" -j "$CADEIA" 2>/dev/null \
       || echo "ATENÇÃO: a rede $sub não está coberta; rode 'aplicar' de novo."
+    iptables -C INPUT -s "$sub" -j "$CADEIA_HOST" 2>/dev/null \n      || echo "ATENÇÃO: a rede $sub não protege o host; rode 'aplicar' de novo."
   done
 }
 

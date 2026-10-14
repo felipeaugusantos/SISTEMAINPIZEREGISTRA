@@ -34,6 +34,7 @@ const adminSections = [
   { id: "config-email-leads", label: "Modelo de e-mail (leads)", href: "/admin/configuracao/modelo-email-leads", symbol: "EM", permission: "leads.view", parent: "configuracao" },
   { id: "config-script-atendimento", label: "Script de atendimento", href: "/admin/configuracao/script-atendimento", symbol: "SC", permission: "leads.view", parent: "configuracao" },
   { id: "config-rpi", label: "Consulta RPI", href: "/admin/configuracao/consulta-rpi?v=7", symbol: "RPI", permission: "rpi.view", parent: "configuracao" },
+  { id: "config-whatsapp", label: "WhatsApp e consentimentos", href: "/admin/configuracao/whatsapp", symbol: "WA", permission: "leads.view", parent: "configuracao" },
   { id: "config-clicksign", label: "Clicksign", href: "/admin/configuracao/clicksign", symbol: "CS", permission: "production.view", parent: "configuracao" },
   { id: "config-onboarding", label: "Onboarding SaaS", href: "/admin/configuracao/onboarding", symbol: "ON", permission: "dashboard.view", parent: "configuracao", superadmin: true },
   { id: "config-feature-flags", label: "Feature flags", href: "/admin/feature-flags", symbol: "FF", permission: "dashboard.view", parent: "configuracao", superadmin: true },

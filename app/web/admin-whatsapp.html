@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>WhatsApp — Consentimentos</title>
+  <link rel="stylesheet" href="/static/styles.css?v=67">
+  <link rel="stylesheet" href="/static/admin-whatsapp.css?v=1">
+  <script src="/static/admin-shell.js?v=56" defer></script>
+  <script src="/static/admin-whatsapp.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="config-whatsapp">
+  <main class="admin-main">
+    <section class="admin-overview-hero">
+      <div>
+        <p class="eyebrow">Configuração</p>
+        <h1>WhatsApp: consentimentos e fila</h1>
+        <p>Registre quem aceitou receber mensagens, mantenha a lista de quem pediu para sair e acompanhe a fila de envio.</p>
+      </div>
+    </section>
+
+    <div id="wa-message" class="status-message loading" role="status">Carregando…</div>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Situação</p><h2>Envio de mensagens</h2></div></header>
+      <p id="wa-aviso" class="wa-aviso" hidden></p>
+      <div id="wa-status" class="wa-status-grid"></div>
+    </section>
+
+    <section id="wa-secao-registrar" class="overview-section" hidden>
+      <header><div><p class="eyebrow">Novo registro</p><h2>Registrar consentimento</h2></div></header>
+      <form id="wa-form-consentimento" class="wa-form">
+        <label>Finalidade
+          <select name="finalidade" required>
+            <option value="vigilancia">Vigilância de marcas</option>
+            <option value="andamento">Andamento de processos</option>
+            <option value="prospeccao">Prospecção comercial</option>
+          </select>
+        </label>
+        <label>Celular com DDD
+          <input name="telefone" type="tel" inputmode="tel" placeholder="(11) 99999-8888" required>
+        </label>
+        <label>Como foi obtido
+          <select name="origem" required>
+            <option value="portal">Portal do cliente</option>
+            <option value="contrato">Contrato ou proposta</option>
+            <option value="atendimento">Atendimento (conversa)</option>
+            <option value="formulario">Formulário</option>
+            <option value="outro">Outro</option>
+          </select>
+        </label>
+        <label id="wa-base-legal-rotulo" hidden>Base legal
+          <select name="base_legal">
+            <option value="consentimento">Consentimento do titular</option>
+            <option value="legitimo_interesse">Legítimo interesse (sem consentimento prévio)</option>
+          </select>
+        </label>
+        <label class="wa-largo">Evidência
+          <textarea name="evidencia" rows="3" maxlength="500" placeholder="Quando e como a pessoa aceitou, e o texto que ela aceitou (obrigatório no consentimento)"></textarea>
+        </label>
+        <div class="wa-acoes">
+          <button class="primary-button" type="submit">Registrar</button>
+          <span id="wa-form-msg" role="status"></span>
+        </div>
+      </form>
+      <p class="wa-ajuda">Vigilância e andamento só saem para quem tem consentimento registrado. Na prospecção, quem pediu para sair nunca volta por decisão interna: só com um novo consentimento da própria pessoa.</p>
+    </section>
+
+    <section id="wa-secao-revogar" class="overview-section" hidden>
+      <header><div><p class="eyebrow">Lista de supressão</p><h2>Revogar ou impedir contato</h2></div></header>
+      <form id="wa-form-revogar" class="wa-form">
+        <label>Finalidade
+          <select name="finalidade" required>
+            <option value="prospeccao">Prospecção comercial</option>
+            <option value="vigilancia">Vigilância de marcas</option>
+            <option value="andamento">Andamento de processos</option>
+          </select>
+        </label>
+        <label>Celular com DDD
+          <input name="telefone" type="tel" inputmode="tel" placeholder="(11) 99999-8888" required>
+        </label>
+        <div class="wa-acoes">
+          <button class="secondary-button" type="submit">Revogar e cancelar a fila</button>
+          <span id="wa-revogar-msg" role="status"></span>
+        </div>
+      </form>
+    </section>
+
+    <section class="overview-section">
+      <header>
+        <div><p class="eyebrow">Registros</p><h2>Consentimentos e supressões</h2></div>
+        <div class="wa-filtros">
+          <select id="wa-filtro-finalidade" aria-label="Filtrar por finalidade">
+            <option value="">Todas as finalidades</option>
+            <option value="vigilancia">Vigilância</option>
+            <option value="andamento">Andamento</option>
+            <option value="prospeccao">Prospecção</option>
+          </select>
+          <select id="wa-filtro-status" aria-label="Filtrar por situação">
+            <option value="">Todas as situações</option>
+            <option value="concedido">Concedido</option>
+            <option value="revogado">Revogado</option>
+          </select>
+        </div>
+      </header>
+      <div class="wa-tabela-rolavel">
+        <table class="wa-tabela">
+          <thead><tr><th>Finalidade</th><th>Telefone</th><th>Situação</th><th>Base legal</th><th>Origem</th><th>Data</th><th></th></tr></thead>
+          <tbody id="wa-consentimentos"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header>
+        <div><p class="eyebrow">Fila</p><h2>Mensagens</h2></div>
+        <div class="wa-filtros">
+          <select id="wa-filtro-fila" aria-label="Filtrar a fila por situação">
+            <option value="">Todas as situações</option>
+            <option value="pendente">Pendente</option>
+            <option value="enviando">Enviando</option>
+            <option value="enviada">Enviada</option>
+            <option value="incerta">Incerta (conferir)</option>
+            <option value="falhou">Falhou</option>
+            <option value="bloqueada">Bloqueada</option>
+            <option value="cancelada">Cancelada</option>
+          </select>
+        </div>
+      </header>
+      <div class="wa-tabela-rolavel">
+        <table class="wa-tabela">
+          <thead><tr><th>Finalidade</th><th>Telefone</th><th>Situação</th><th>Detalhe</th><th>Tentativas</th><th>Agendada</th><th>Prévia</th><th></th></tr></thead>
+          <tbody id="wa-fila"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

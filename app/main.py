@@ -653,6 +653,15 @@ async def painel_confiabilidade() -> FileResponse:
 
 
 @app.get(
+    "/admin/configuracao/whatsapp",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("leads.view"))],
+)
+async def painel_configuracao_whatsapp() -> FileResponse:
+    return FileResponse(web_dir / "admin-whatsapp.html")
+
+
+@app.get(
     "/admin/observabilidade",
     include_in_schema=False,
     dependencies=[Depends(exigir_permissao("production.view"))],

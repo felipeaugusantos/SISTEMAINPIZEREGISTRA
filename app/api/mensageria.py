@@ -29,8 +29,8 @@ from app.settings import get_settings
 
 router = APIRouter(prefix="/v1/admin/mensageria", tags=["mensageria"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-ViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("crm.view"))]
-ManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("crm.manage"))]
+ViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
+ManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.manage"))]
 
 
 class ConsentimentoInput(BaseModel):
@@ -180,6 +180,31 @@ async def revogar(dados: RevogacaoInput, session: SessionDep, usuario: ManageDep
         raise HTTPException(422, str(erro)) from erro
     await session.flush()
     _auditar(session, usuario, "CONSENT_REVOGAR", f"consentimento:{registro.id}", {"finalidade": dados.finalidade})
+    await session.commit()
+    return _serializar_consentimento(registro, usuario)
+
+
+@router.post("/consentimentos/{consentimento_id}/revogar")
+async def revogar_por_id(consentimento_id: int, session: SessionDep, usuario: ManageDep) -> dict:
+    """Revoga pelo registro (a tela só recebe o telefone mascarado para quem não vê contatos completos)."""
+    existente = (
+        await session.execute(
+            select(ConsentimentoCanal).where(
+                ConsentimentoCanal.id == consentimento_id, ConsentimentoCanal.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if existente is None:
+        raise HTTPException(404, "Consentimento não encontrado")
+    registro = await revogar_consentimento(
+        session,
+        organizacao_id=usuario.organizacao_id,
+        finalidade=existente.finalidade,
+        telefone=existente.telefone,
+        origem="atendimento",
+        registrado_por=usuario.email,
+    )
+    _auditar(session, usuario, "CONSENT_REVOGAR", f"consentimento:{registro.id}", {"finalidade": existente.finalidade})
     await session.commit()
     return _serializar_consentimento(registro, usuario)
 

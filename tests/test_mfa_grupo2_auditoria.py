@@ -230,3 +230,28 @@ def test_s03_abandonar_a_troca_nao_muda_o_login() -> None:
     cliente.post("/v1/auth/mfa/iniciar", json={"codigo": codigo_totp(segredo)}, headers=CABECALHO)
     assert registro.mfa_ativo is True
     assert passo_totp(revelar_segredo(registro.mfa_segredo), codigo_totp(segredo)) is not None
+
+
+def test_s03_confirmacao_que_perdeu_a_corrida_recebe_400_e_nao_500() -> None:
+    # Revisão do Codex (PR #198): sob a trava, o pendente já pode ter sido consumido por outra confirmação.
+    antigo, novo = gerar_segredo_totp(), gerar_segredo_totp()
+    registro = _registro(antigo)
+    registro.mfa_segredo_pendente = proteger_segredo(novo)
+    registro.mfa_pendente_expira_em = datetime.now(UTC) + timedelta(minutes=10)
+
+    class _SessaoQueConsomeAntes(_Sessao):
+        async def refresh(self, obj, *args, **kwargs):
+            # a outra requisição confirmou primeiro: o pendente some antes da releitura
+            obj.mfa_segredo_pendente = None
+            obj.mfa_pendente_expira_em = None
+            await super().refresh(obj, *args, **kwargs)
+
+    usuario = usuario_teste()
+    object.__setattr__(usuario, "csrf_hash", hash_token("csrf-teste"))
+    from tests.test_mfa_obrigatorio import _request
+
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(
+            confirmar_mfa(CodigoMfaInput(codigo=codigo_totp(novo)), _request(), usuario, _SessaoQueConsomeAntes(registro))
+        )
+    assert erro.value.status_code == 400

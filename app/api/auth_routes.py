@@ -662,9 +662,15 @@ async def confirmar_mfa(
         # (sob trava, para duas confirmações simultâneas não passarem juntas).
         await aplicar_contexto_tenant(session, registro.organizacao_id, superadmin=registro.superadmin)
         await session.refresh(registro, with_for_update=True)
-        segredo_novo = revelar_segredo(registro.mfa_segredo_pendente or "")
-        passo = passo_totp(segredo_novo, dados.codigo)
-        if not registro.mfa_segredo_pendente or passo is None:
+        # Relê o estado sob a trava: outra confirmação simultânea pode já ter consumido o pendente.
+        if not (
+            registro.mfa_segredo_pendente
+            and registro.mfa_pendente_expira_em
+            and registro.mfa_pendente_expira_em > agora
+        ):
+            raise HTTPException(400, "Código MFA inválido")
+        passo = passo_totp(revelar_segredo(registro.mfa_segredo_pendente), dados.codigo)
+        if passo is None:
             raise HTTPException(400, "Código MFA inválido")
         registro.mfa_segredo = registro.mfa_segredo_pendente
         registro.mfa_segredo_versao = versao_chave_atual()

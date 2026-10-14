@@ -138,7 +138,8 @@ status() {
   for sub in $atuais; do
     iptables -C DOCKER-USER -s "$sub" -j "$CADEIA" 2>/dev/null \
       || echo "ATENÇÃO: a rede $sub não está coberta; rode 'aplicar' de novo."
-    iptables -C INPUT -s "$sub" -j "$CADEIA_HOST" 2>/dev/null \n      || echo "ATENÇÃO: a rede $sub não protege o host; rode 'aplicar' de novo."
+    iptables -C INPUT -s "$sub" -j "$CADEIA_HOST" 2>/dev/null \
+      || echo "ATENÇÃO: a rede $sub não protege o host; rode 'aplicar' de novo."
   done
 }
 

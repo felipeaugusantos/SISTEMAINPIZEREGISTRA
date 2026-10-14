@@ -56,6 +56,39 @@ end
 return 0
 """
 
+# Auditoria externa A03: no tratamento de erro do worker a tarefa saía da lista de processamento (LREM)
+# ANTES de ser gravada em retry ou na dead-letter; se a gravação falhasse (Redis sem memória, tipo
+# errado, queda) a tarefa sumia. Estes scripts movem origem -> destino de forma atômica e, se o destino
+# recusar a escrita (pcall), devolvem a tarefa à origem e sinalizam -1: ela segue recuperável.
+_LUA_PROCESSANDO_PARA_RETRY = """
+if redis.call('LREM', KEYS[1], 1, ARGV[1]) == 1 then
+  local ok = pcall(function()
+    redis.call('ZADD', KEYS[2], tonumber(ARGV[3]), ARGV[2])
+    redis.call('HINCRBY', KEYS[3], 'retries', 1)
+  end)
+  if not ok then
+    redis.call('LPUSH', KEYS[1], ARGV[1])
+    return -1
+  end
+  return 1
+end
+return 0
+"""
+_LUA_PROCESSANDO_PARA_FALHA = """
+if redis.call('LREM', KEYS[1], 1, ARGV[1]) == 1 then
+  local ok = pcall(function()
+    redis.call('RPUSH', KEYS[2], ARGV[2])
+    redis.call('HINCRBY', KEYS[3], 'falhas', 1)
+  end)
+  if not ok then
+    redis.call('LPUSH', KEYS[1], ARGV[1])
+    return -1
+  end
+  return 1
+end
+return 0
+"""
+
 
 async def enfileirar(
     tipo: str,
@@ -113,6 +146,60 @@ async def agendar_retry(redis: Redis, job: dict) -> int:
     await redis.zadd(RETRY_KEY, {json.dumps(job): time.time() + atraso})
     await redis.hincrby(METRICS_KEY, "retries", 1)
     return atraso
+
+
+async def mover_processando_para_retry(
+    redis: Redis,
+    bruto_original: str,
+    job: dict,
+    *,
+    processando: str = PROCESSING_KEY,
+    retry: str = RETRY_KEY,
+    metricas: str = METRICS_KEY,
+) -> int:
+    """Move a tarefa de "em processamento" para a fila de retry atomicamente.
+
+    Devolve 1 se moveu, 0 se a tarefa já não estava em processamento (não duplica) e -1 se o
+    destino recusou a escrita -- nesse caso ela volta a "em processamento" (recuperável).
+    """
+    settings = get_settings()
+    atraso = calcular_atraso_retry(
+        int(job.get("tentativas", 1)), settings.queue_retry_base_seconds, settings.queue_retry_max_seconds
+    )
+    quando = time.time() + atraso
+    job["proxima_tentativa_em"] = datetime.fromtimestamp(quando, UTC).isoformat()
+    return int(
+        await redis.eval(
+            _LUA_PROCESSANDO_PARA_RETRY, 3, processando, retry, metricas, bruto_original, json.dumps(job), str(quando)
+        )
+    )
+
+
+async def mover_processando_para_falha(
+    redis: Redis,
+    bruto_original: str,
+    job: dict,
+    *,
+    processando: str = PROCESSING_KEY,
+    falhas: str = FAILED_KEY,
+    metricas: str = METRICS_KEY,
+) -> int:
+    """Move a tarefa de "em processamento" para a dead-letter atomicamente (mesmos retornos acima)."""
+    return int(
+        await redis.eval(_LUA_PROCESSANDO_PARA_FALHA, 3, processando, falhas, metricas, bruto_original, json.dumps(job))
+    )
+
+
+async def recuperar_processando(redis: Redis, *, processando: str = PROCESSING_KEY, fila: str = QUEUE_KEY) -> int:
+    """Devolve à fila as tarefas que ficaram em processamento (encerramento abrupto do worker).
+
+    RPOPLPUSH move cada item atomicamente; o par RPOP + LPUSH antigo deixava uma janela em que uma
+    interrupção entre os dois comandos perdia a tarefa (auditoria externa A03).
+    """
+    movidas = 0
+    while await redis.rpoplpush(processando, fila):
+        movidas += 1
+    return movidas
 
 
 async def promover_retentativas(redis: Redis, agora: float | None = None) -> int:

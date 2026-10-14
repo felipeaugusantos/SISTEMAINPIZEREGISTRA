@@ -70,3 +70,19 @@ def test_excluir_script_remove_da_lista() -> None:
     resultado = asyncio.run(excluir_script("abc123", session, usuario_teste()))
 
     assert [item["id"] for item in resultado["itens"]] == ["def456"]
+
+
+def test_script_de_saida_de_rede_bloqueia_destinos_internos_sem_derrubar_o_dns() -> None:
+    # Reforço do A09: o script não pode rodar em CI, então confere o essencial do conteúdo.
+    from pathlib import Path
+
+    script = Path("docker/saida-rede-docker.sh").read_text(encoding="utf-8")
+    assert "169.254.0.0/16" in script
+    for rede in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"):
+        assert rede in script
+    assert "DOCKER-USER" in script
+    # DNS do host e tráfego entre os containers do projeto vêm ANTES dos bloqueios
+    assert script.index("--dport 53") < script.index('for destino in $BLOQUEADOS')
+    assert script.index('-d "$sub" -j RETURN') < script.index('for destino in $BLOQUEADOS')
+    # nunca derruba serviços (regra de produção: nada de compose down)
+    assert "compose down" not in script and "docker compose" not in script.replace("docker compose up", "")

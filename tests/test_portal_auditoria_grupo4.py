@@ -48,7 +48,7 @@ def _login_com(monkeypatch: pytest.MonkeyPatch, cliente: ClientePortal | None) -
     with pytest.raises(HTTPException) as erro:
         asyncio.run(
             login_cliente(
-                ClienteLogin(email="cliente@empresa.test", senha="senha-errada"), _request(), Response(), sessao
+                ClienteLogin(email="cliente@empresa.com.br", senha="senha-errada"), _request(), Response(), sessao
             )
         )
     assert erro.value.status_code == 401
@@ -61,7 +61,7 @@ def _cliente_com_senha(**extras) -> ClientePortal:
         id=1,
         organizacao_id=1,
         lead_id=9,
-        email="cliente@empresa.test",
+        email="cliente@empresa.com.br",
         senha_hash=hash_senha("Senha-Correta-123"),
         ativo=True,
         tentativas_falhas=0,
@@ -141,7 +141,7 @@ def test_s08_pedir_novo_link_invalida_os_anteriores_pendentes() -> None:
     sessao = FakeSession([FakeResult(scalar=_cliente())])
     asyncio.run(
         solicitar_recuperacao_portal(
-            RecuperacaoSolicitacao(email="cliente@empresa.test"), _request(), sessao, BackgroundTasks()
+            RecuperacaoSolicitacao(email="cliente@empresa.com.br"), _request(), sessao, BackgroundTasks()
         )
     )
     (atualizacao,) = _atualizacoes_de_recuperacao(sessao)

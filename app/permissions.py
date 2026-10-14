@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 
@@ -223,6 +224,24 @@ PERFIS_MFA_OBRIGATORIO = frozenset({"administrador", "ceo", "tech", "supervisor"
 
 def permissoes_do_perfil(perfil: str) -> frozenset[str]:
     return PERFIS.get(perfil, PERFIS["operador"])
+
+
+# Perfis de acesso total: podem atribuir qualquer perfil e conceder qualquer permissão.
+PERFIS_ACESSO_TOTAL = frozenset({"administrador", "ceo", "tech"})
+# Perfis que recebem TODAS as permissões, inclusive as criadas depois da conta (o administrador já é
+# liberado pelo próprio nome do perfil em UsuarioAutenticado.pode).
+PERFIS_PERMISSOES_TOTAIS = frozenset({"ceo", "tech"})
+
+
+def permissoes_efetivas(perfil: str, chaves_concedidas: Iterable[str]) -> frozenset[str]:
+    """Permissões que a conta realmente tem: as concedidas e, para ceo/tech, todas as existentes.
+
+    ``_validar`` (app/api/usuarios.py) já dava todas as permissões a ceo/tech na criação/edição, mas
+    as criadas depois (ex.: Radar de Prospecção) nunca chegavam a contas antigas. Calcular no login
+    fecha isso para sempre, sem depender de migração a cada permissão nova.
+    """
+    concedidas = frozenset(chaves_concedidas)
+    return concedidas | CHAVES_PERMISSAO if perfil in PERFIS_PERMISSOES_TOTAIS else concedidas
 
 
 def destino_inicial(perfil: str, permissoes: set[str] | frozenset[str]) -> str:

@@ -20,6 +20,7 @@ from app.models import (
 from app.permissions import (
     CHAVES_PERMISSAO,
     PERFIS,
+    PERFIS_ACESSO_TOTAL,
     PERMISSOES,
     PERMISSOES_FINANCEIRO,
     permissoes_do_perfil,
@@ -83,6 +84,22 @@ def _validar(perfil: str, permissoes: list[str]) -> set[str]:
     if perfil in {"ceo", "tech"}:
         return set(CHAVES_PERMISSAO)
     return set(permissoes_do_perfil(perfil) if perfil != "operador" and not permissoes else permissoes)
+
+
+def _exigir_delegavel(ator: UsuarioAutenticado, chaves: set[str]) -> None:
+    """Quem não tem acesso total só concede permissões que ele próprio possui (auditoria externa A05).
+
+    Antes só o NOME do perfil era conferido: um usuário com users.manage fora dos perfis de acesso
+    total podia criar/editar um ``operador`` com a lista inteira de permissões (aprovação financeira,
+    confirmação jurídica crítica...), elevando privilégios sem passar por quem os detém.
+    """
+    if ator.superadmin or ator.perfil in PERFIS_ACESSO_TOTAL:
+        return
+    excedentes = chaves - set(ator.permissoes)
+    if excedentes:
+        raise HTTPException(
+            403, "Voce so pode conceder permissoes que voce mesmo possui: " + ", ".join(sorted(excedentes))
+        )
 
 
 async def _objetos(session: AsyncSession, chaves: set[str]) -> list[PermissaoOperacoes]:
@@ -163,12 +180,10 @@ async def listar(session: SessionDep, ator: ViewDep) -> dict:
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def criar(dados: UsuarioInput, session: SessionDep, ator: ManageDep) -> dict:
-    if dados.perfil in {"administrador", "ceo", "tech"} and ator.perfil not in {
-        "administrador",
-        "ceo",
-        "tech",
-    }:
+    if dados.perfil in PERFIS_ACESSO_TOTAL and ator.perfil not in PERFIS_ACESSO_TOTAL:
         raise HTTPException(403, "Somente um perfil de acesso total pode atribuir esse perfil")
+    chaves = _validar(dados.perfil, dados.permissoes)
+    _exigir_delegavel(ator, chaves)
     await validar_limite_usuarios(session, ator.organizacao_id)
     duplicado = (
         await session.execute(
@@ -182,7 +197,6 @@ async def criar(dados: UsuarioInput, session: SessionDep, ator: ManageDep) -> di
     ).scalar_one_or_none()
     if duplicado:
         raise HTTPException(409, "Usuario ou email ja cadastrado")
-    chaves = _validar(dados.perfil, dados.permissoes)
     senha = _temporaria()
     usuario = UsuarioOperacoes(
         nome=dados.nome.strip(),
@@ -219,12 +233,12 @@ async def atualizar(usuario_id: int, dados: UsuarioUpdate, session: SessionDep, 
     if not alvo:
         raise HTTPException(404, "Usuario nao encontrado")
     novo_perfil = dados.perfil or alvo.perfil
-    if novo_perfil in {"administrador", "ceo", "tech"} and ator.perfil not in {
-        "administrador",
-        "ceo",
-        "tech",
-    }:
+    if novo_perfil in PERFIS_ACESSO_TOTAL and ator.perfil not in PERFIS_ACESSO_TOTAL:
         raise HTTPException(403, "Somente um perfil de acesso total pode atribuir esse perfil")
+    novas_chaves = None
+    if dados.permissoes is not None or dados.perfil is not None:
+        novas_chaves = _validar(novo_perfil, dados.permissoes or [])
+        _exigir_delegavel(ator, novas_chaves)
     despromove = alvo.perfil == "administrador" and (novo_perfil != "administrador" or dados.ativo is False)
     if alvo.id == ator.id and despromove:
         raise HTTPException(409, "Nao e permitido remover o proprio acesso administrativo")
@@ -259,8 +273,8 @@ async def atualizar(usuario_id: int, dados: UsuarioUpdate, session: SessionDep, 
         valor = getattr(dados, campo)
         if valor is not None:
             setattr(alvo, campo, str(valor).lower() if campo == "email" else valor)
-    if dados.permissoes is not None or dados.perfil is not None:
-        alvo.permissoes = await _objetos(session, _validar(novo_perfil, dados.permissoes or []))
+    if novas_chaves is not None:
+        alvo.permissoes = await _objetos(session, novas_chaves)
     if dados.ativo is False:
         await session.execute(
             update(SessaoOperacoes)

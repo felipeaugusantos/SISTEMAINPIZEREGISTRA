@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import aplicar_contexto_autenticacao, get_session
 from app.models import SessaoOperacoes, UsuarioOperacoes
-from app.permissions import CHAVES_PERMISSAO, PERFIS_MFA_OBRIGATORIO
+from app.permissions import CHAVES_PERMISSAO, PERFIS_MFA_OBRIGATORIO, permissoes_efetivas
 from app.proxy import cliente_ip, requisicao_https
 from app.ratelimit import RateLimiter
 from app.settings import get_settings
@@ -200,7 +200,7 @@ async def obter_usuario_atual(
         email=usuario.email,
         departamento=usuario.departamento,
         perfil=usuario.perfil,
-        permissoes=frozenset(p.chave for p in usuario.permissoes),
+        permissoes=permissoes_efetivas(usuario.perfil, (p.chave for p in usuario.permissoes)),
         alterar_senha=usuario.alterar_senha,
         sessao_id=sessao.id,
         csrf_hash=sessao.csrf_hash,

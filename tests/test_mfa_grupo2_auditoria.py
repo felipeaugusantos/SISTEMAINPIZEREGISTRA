@@ -38,6 +38,11 @@ class _Sessao(FakeSession):
     def __init__(self, registro: UsuarioOperacoes | None = None) -> None:
         super().__init__([], objetos_get=[registro] if registro else [])
         self.info = {"organizacao_id": 1}
+        self._registro = registro
+
+    async def get(self, *_args, **_kwargs):
+        # várias requisições na mesma sessão de teste: o registro vale para todas
+        return self._registro
 
 
 def _registro(segredo: str | None, *, ativo: bool = True) -> UsuarioOperacoes:

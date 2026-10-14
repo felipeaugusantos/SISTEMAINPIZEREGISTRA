@@ -90,6 +90,12 @@ def test_criar_sessao_guarda_a_geracao_informada() -> None:
     assert sessao.senha_versao == 5
 
 
+def _e_incremento_do_banco(valor: object) -> bool:
+    """True se o valor é uma expressão SQL do tipo ``senha_versao + 1`` (e não um int calculado)."""
+    texto = str(valor)
+    return not isinstance(valor, int) and "senha_versao" in texto and "+" in texto
+
+
 class _SessaoComTenant(FakeSession):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -129,10 +135,12 @@ def test_trocar_a_propria_senha_sobe_a_geracao_e_mantem_a_sessao_atual_valida() 
         app.dependency_overrides.clear()
 
     assert resposta.status_code == 200
-    assert registro.senha_versao == 5
+    # O incremento é do BANCO (senha_versao = senha_versao + 1), não um inteiro calculado em Python.
+    assert _e_incremento_do_banco(registro.senha_versao)
     comandos = [str(instrucao) for instrucao in sessao_fake.executados]
-    # uma atualização revoga as OUTRAS sessões; outra passa a sessão em uso para a nova geração
-    assert any("senha_versao" in comando and comando.lstrip().upper().startswith("UPDATE") for comando in comandos)
+    # uma atualização revoga as OUTRAS sessões; outra passa a sessão em uso para a nova geração,
+    # lida do próprio banco por subconsulta (nenhum valor calculado no Python)
+    assert any("SET senha_versao=(SELECT usuarios_operacoes.senha_versao" in comando for comando in comandos)
 
 
 async def test_migration_cria_as_colunas_com_padrao_1_sem_quebrar_linhas_existentes() -> None:
@@ -169,3 +177,39 @@ async def test_migration_cria_as_colunas_com_padrao_1_sem_quebrar_linhas_existen
         assert divergentes == 0
     finally:
         await conexao.close()
+
+
+def test_redefinicao_pelo_administrador_incrementa_a_geracao_no_banco() -> None:
+    from app.api.usuarios import redefinir_senha
+
+    alvo = UsuarioOperacoes(
+        id=5,
+        organizacao_id=1,
+        nome="Operador",
+        usuario="operador",
+        email="operador@teste.local",
+        perfil="operador",
+        senha_hash="hash-antigo",
+        ativo=True,
+        senha_versao=1,
+        permissoes=[],
+    )
+    sessao = _SessaoComTenant([FakeResult(scalar=alvo)])
+
+    resultado = asyncio.run(redefinir_senha(5, sessao, usuario_teste(perfil="administrador")))
+
+    assert "senha_temporaria" in resultado
+    assert _e_incremento_do_banco(alvo.senha_versao)
+
+
+def test_nenhum_caminho_calcula_a_geracao_da_senha_em_python() -> None:
+    # Revisão do Codex (PR #192): ler e somar em Python deixa duas trocas simultâneas gravarem o mesmo número.
+    from pathlib import Path
+
+    raiz = Path(__file__).resolve().parent.parent / "app"
+    suspeitos = [
+        str(arquivo.relative_to(raiz.parent))
+        for arquivo in raiz.rglob("*.py")
+        if "senha_versao or 1) + 1" in arquivo.read_text(encoding="utf-8")
+    ]
+    assert suspeitos == []

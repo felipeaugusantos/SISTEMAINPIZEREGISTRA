@@ -431,7 +431,9 @@ async def trocar_senha(
         raise HTTPException(status_code=400, detail="A nova senha deve ser diferente")
     registro.senha_hash = hash_senha(dados.nova_senha)
     registro.alterar_senha = False
-    registro.senha_versao = (registro.senha_versao or 1) + 1
+    # Incremento feito pelo BANCO (SET senha_versao = senha_versao + 1), não lido e somado em Python:
+    # duas trocas simultâneas lendo a mesma geração gravariam o mesmo número (revisão do Codex, PR #192).
+    registro.senha_versao = UsuarioOperacoes.senha_versao + 1
     await session.execute(
         update(SessaoOperacoes)
         .where(
@@ -441,9 +443,16 @@ async def trocar_senha(
         )
         .values(revogada_em=datetime.now(UTC), motivo_revogacao="troca_senha")
     )
-    # A sessão em uso continua válida: passa para a nova geração da senha.
+    # A sessão em uso continua válida: passa para a nova geração, lida do próprio banco (o execute faz
+    # autoflush do incremento acima na mesma transação).
     await session.execute(
-        update(SessaoOperacoes).where(SessaoOperacoes.id == usuario.sessao_id).values(senha_versao=registro.senha_versao)
+        update(SessaoOperacoes)
+        .where(SessaoOperacoes.id == usuario.sessao_id)
+        .values(
+            senha_versao=select(UsuarioOperacoes.senha_versao)
+            .where(UsuarioOperacoes.id == usuario.id)
+            .scalar_subquery()
+        )
     )
     await _auditar(session, request, usuario.email, "TROCA_SENHA", True, {"usuario_id": usuario.id})
     await session.commit()
@@ -561,7 +570,7 @@ async def redefinir_senha(
     if consumo.first() is None:
         raise HTTPException(400, "Token inválido ou expirado")
     usuario.senha_hash = hash_senha(dados.nova_senha)
-    usuario.senha_versao = (usuario.senha_versao or 1) + 1
+    usuario.senha_versao = UsuarioOperacoes.senha_versao + 1  # incremento atômico no banco
     usuario.alterar_senha = False
     await session.execute(
         update(SessaoOperacoes)

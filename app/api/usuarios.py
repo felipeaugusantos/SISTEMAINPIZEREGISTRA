@@ -171,6 +171,7 @@ async def listar(session: SessionDep, ator: ViewDep) -> dict:
     )
     return {
         "usuarios": [_serializar(u, contagens.get(u.id, 0)) for u in usuarios],
+        "usuario_atual_id": ator.id,
         "permissoes": [
             {"chave": p.chave, "modulo": p.modulo, "nome": p.nome, "descricao": p.descricao} for p in PERMISSOES
         ],

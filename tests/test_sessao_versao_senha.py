@@ -213,3 +213,14 @@ def test_nenhum_caminho_calcula_a_geracao_da_senha_em_python() -> None:
         if "senha_versao or 1) + 1" in arquivo.read_text(encoding="utf-8")
     ]
     assert suspeitos == []
+
+
+def test_tela_de_usuarios_avisa_ao_redefinir_a_propria_senha() -> None:
+    # Redefinir a própria senha encerra a sessão (A04): a tela avisa antes e leva ao login depois,
+    # em vez de mostrar "Falha na operação" quando a lista é recarregada com 401.
+    from pathlib import Path
+
+    script = Path("app/web/static/admin-usuarios.js").read_text(encoding="utf-8")
+    assert "state.usuario_atual_id" in script
+    assert "sua sessão será encerrada" in script
+    assert 'location.href="/login"' in script

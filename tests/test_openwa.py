@@ -408,7 +408,8 @@ def test_eventos_do_webhook_cobrem_o_que_o_painel_trata() -> None:
 
 
 def test_composicao_do_gateway_e_restrita_e_separada_do_deploy() -> None:
-    texto = (RAIZ / "compose.openwa.yaml").read_text(encoding="utf-8")
+    bruto = (RAIZ / "compose.openwa.yaml").read_text(encoding="utf-8")
+    texto = "\n".join(linha for linha in bruto.splitlines() if not linha.lstrip().startswith("#"))
     assert "ghcr.io/rmyndharis/openwa:v" in texto and ":latest" not in texto  # versão fixada
     assert "docker.sock" not in texto  # sem acesso ao Docker do servidor
     assert '"127.0.0.1:2785:2785"' in texto  # porta só no próprio servidor

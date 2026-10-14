@@ -43,22 +43,62 @@ LIMITE_DESCOMPRIMIDO = 200 * 1024 * 1024
 LIMITE_ENTRADAS = 5000
 
 
-def _zip_office(conteudo: bytes) -> str | None:
-    """DOCX/XLSX só se for um zip OOXML íntegro, sem macro e sem zip bomb."""
+# Parte principal e tipo de conteúdo que o pacote OOXML precisa declarar. O sufixo "main+xml" sem
+# "macroEnabled" também exclui .docm/.xlsm e modelos (.dotx/.xltx) pelo próprio tipo declarado.
+PARTE_PRINCIPAL = {
+    DOCX: ("word/document.xml", "wordprocessingml.document.main+xml"),
+    XLSX: ("xl/workbook.xml", "spreadsheetml.sheet.main+xml"),
+}
+LIMITE_CONTENT_TYPES = 1024 * 1024
+
+
+def _ler_parte(pacote: zipfile.ZipFile, nome: str, limite: int, *, guardar: bool = True) -> bytes | None:
+    """Lê a parte até o fim -- o zipfile confere o CRC no EOF --, em pedaços e com teto de tamanho.
+
+    Devolve o conteúdo (ou b"" se ``guardar`` for False, para partes grandes que só precisam do CRC
+    conferido sem ocupar memória); None se estiver corrompida, ausente ou acima do limite.
+    """
+    lido = 0
+    pedacos: list[bytes] = []
     try:
-        with zipfile.ZipFile(io.BytesIO(conteudo)) as arquivo:
-            entradas = arquivo.infolist()
+        with pacote.open(nome) as parte:
+            while pedaco := parte.read(65536):
+                lido += len(pedaco)
+                if lido > limite:
+                    return None
+                if guardar:
+                    pedacos.append(pedaco)
+    except (zipfile.BadZipFile, KeyError, OSError, ValueError, RuntimeError):
+        return None
+    return b"".join(pedacos)
+
+
+def _zip_office(conteudo: bytes) -> str | None:
+    """DOCX/XLSX só se for um pacote OOXML íntegro, sem macro e sem zip bomb.
+
+    Não basta existir uma entrada com o nome certo (infolist só lê a lista de arquivos): o
+    [Content_Types].xml precisa declarar o tipo do documento principal e as duas partes são lidas
+    por inteiro, o que confere o CRC (revisão do Codex no PR #190).
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(conteudo)) as pacote:
+            entradas = pacote.infolist()
             if len(entradas) > LIMITE_ENTRADAS or sum(item.file_size for item in entradas) > LIMITE_DESCOMPRIMIDO:
                 return None
             nomes = {item.filename for item in entradas}
-    except (zipfile.BadZipFile, OSError, ValueError):
+            if any(nome.lower().endswith("vbaproject.bin") for nome in nomes) or "[Content_Types].xml" not in nomes:
+                return None
+            for tipo, (parte, tipo_declarado) in PARTE_PRINCIPAL.items():
+                if parte not in nomes:
+                    continue
+                declarados = _ler_parte(pacote, "[Content_Types].xml", LIMITE_CONTENT_TYPES)
+                if declarados is None or tipo_declarado.encode() not in declarados:
+                    return None
+                if _ler_parte(pacote, parte, LIMITE_DESCOMPRIMIDO, guardar=False) is None:
+                    return None
+                return tipo
+    except (zipfile.BadZipFile, OSError, ValueError, RuntimeError):
         return None
-    if any(nome.lower().endswith("vbaproject.bin") for nome in nomes):
-        return None
-    if "word/document.xml" in nomes:
-        return DOCX
-    if "xl/workbook.xml" in nomes:
-        return XLSX
     return None
 
 

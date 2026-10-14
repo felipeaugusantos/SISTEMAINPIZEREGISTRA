@@ -33,16 +33,26 @@ WEBP_BYTES = b"RIFF\x24\x00\x00\x00WEBPVP8 " + b"\x00" * 16
 EXECUTAVEL = b"MZ\x90\x00\x03\x00\x00\x00 programa.exe"
 
 
-def _zip(arquivos: dict[str, bytes]) -> bytes:
+def _zip(arquivos: dict[str, bytes], compressao: int = zipfile.ZIP_DEFLATED) -> bytes:
     saida = io.BytesIO()
-    with zipfile.ZipFile(saida, "w") as pacote:
+    with zipfile.ZipFile(saida, "w", compression=compressao) as pacote:
         for nome, conteudo in arquivos.items():
             pacote.writestr(nome, conteudo)
     return saida.getvalue()
 
 
-DOCX_BYTES = _zip({"[Content_Types].xml": b"<x/>", "word/document.xml": b"<w/>"})
-XLSX_BYTES = _zip({"[Content_Types].xml": b"<x/>", "xl/workbook.xml": b"<w/>"})
+def _tipos_declarados(sufixo: str) -> bytes:
+    return (
+        b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        b'<Override PartName="/parte" ContentType="application/vnd.openxmlformats-officedocument.' + sufixo.encode() + b'"/>'
+        b"</Types>"
+    )
+
+
+TIPOS_DOCX = _tipos_declarados("wordprocessingml.document.main+xml")
+TIPOS_XLSX = _tipos_declarados("spreadsheetml.sheet.main+xml")
+DOCX_BYTES = _zip({"[Content_Types].xml": TIPOS_DOCX, "word/document.xml": b"<w/>"})
+XLSX_BYTES = _zip({"[Content_Types].xml": TIPOS_XLSX, "xl/workbook.xml": b"<w/>"})
 
 
 @pytest.mark.parametrize(
@@ -101,8 +111,46 @@ def test_recusa_tipo_fora_da_lista_ou_extensao_divergente(nome, conteudo, permit
 
 
 def test_docx_com_macro_e_recusado() -> None:
-    com_macro = _zip({"word/document.xml": b"<w/>", "word/vbaProject.bin": b"\x00"})
+    com_macro = _zip(
+        {"[Content_Types].xml": TIPOS_DOCX, "word/document.xml": b"<w/>", "word/vbaProject.bin": b"\x00"}
+    )
     assert detectar_tipo(com_macro) is None
+
+
+def test_zip_qualquer_com_entrada_de_nome_office_nao_vira_docx() -> None:
+    # Revisão do Codex (PR #190): só existir "word/document.xml" na lista de arquivos não basta.
+    assert detectar_tipo(_zip({"word/document.xml": b"<w/>"})) is None
+    assert detectar_tipo(_zip({"xl/workbook.xml": b"<w/>"})) is None
+
+
+def test_pacote_que_declara_tipo_de_outro_documento_e_recusado() -> None:
+    # Parte de Word, mas o [Content_Types].xml declara planilha (e vice-versa).
+    assert detectar_tipo(_zip({"[Content_Types].xml": TIPOS_XLSX, "word/document.xml": b"<w/>"})) is None
+    assert detectar_tipo(_zip({"[Content_Types].xml": TIPOS_DOCX, "xl/workbook.xml": b"<w/>"})) is None
+
+
+def test_documento_habilitado_para_macro_ou_modelo_e_recusado_pelo_tipo_declarado() -> None:
+    docm = _tipos_declarados("ms-word.document.macroEnabled.main+xml")
+    dotx = _tipos_declarados("wordprocessingml.template.main+xml")
+    assert detectar_tipo(_zip({"[Content_Types].xml": docm, "word/document.xml": b"<w/>"})) is None
+    assert detectar_tipo(_zip({"[Content_Types].xml": dotx, "word/document.xml": b"<w/>"})) is None
+
+
+def test_parte_principal_com_crc_corrompido_e_recusada() -> None:
+    conteudo = b"<w/>" * 50
+    pacote = bytearray(_zip({"[Content_Types].xml": TIPOS_DOCX, "word/document.xml": conteudo}, zipfile.ZIP_STORED))
+    posicao = bytes(pacote).index(conteudo)
+    pacote[posicao] ^= 0xFF  # altera um byte dos dados sem atualizar o CRC
+    assert detectar_tipo(bytes(pacote)) is None
+
+
+def test_content_types_corrompido_e_recusado() -> None:
+    pacote = bytearray(
+        _zip({"[Content_Types].xml": TIPOS_DOCX, "word/document.xml": b"<w/>"}, zipfile.ZIP_STORED)
+    )
+    posicao = bytes(pacote).index(TIPOS_DOCX)
+    pacote[posicao + 5] ^= 0xFF
+    assert detectar_tipo(bytes(pacote)) is None
 
 
 def test_zip_que_nao_e_office_e_recusado() -> None:

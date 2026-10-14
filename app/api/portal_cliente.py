@@ -968,7 +968,10 @@ async def solicitar_recuperacao_portal(
     if cliente is not None:
         await aplicar_contexto_tenant(session, cliente.organizacao_id)
         # Auditoria S08: só o link mais recente vale (como na recuperação administrativa); os anteriores
-        # ainda pendentes são invalidados ao solicitar um novo.
+        # ainda pendentes são invalidados ao solicitar um novo. A linha do cliente é travada antes: duas
+        # solicitações simultâneas se serializam e a segunda invalida o link criado pela primeira
+        # (revisão do Codex no PR #200).
+        await session.refresh(cliente, with_for_update=True)
         await session.execute(
             update(RecuperacaoClientePortal)
             .where(RecuperacaoClientePortal.cliente_id == cliente.id, RecuperacaoClientePortal.usado_em.is_(None))

@@ -185,3 +185,13 @@ def test_s08_a_conta_e_travada_antes_de_consumir_o_token() -> None:
     fonte = Path("app/api/portal_cliente.py").read_text(encoding="utf-8")
     corpo = fonte.split("async def redefinir_acesso_portal(", 1)[1].split("\n@router", 1)[0]
     assert corpo.index("with_for_update=True") < corpo.index("update(RecuperacaoClientePortal)")
+
+
+def test_s08_a_solicitacao_trava_o_cliente_antes_de_invalidar_e_criar_o_link() -> None:
+    # Revisão do Codex (PR #200): sem a trava, duas solicitações simultâneas deixavam dois links válidos.
+    from pathlib import Path
+
+    fonte = Path("app/api/portal_cliente.py").read_text(encoding="utf-8")
+    corpo = fonte.split("async def solicitar_recuperacao_portal(", 1)[1].split("\n@router", 1)[0]
+    assert corpo.index("with_for_update=True") < corpo.index("update(RecuperacaoClientePortal)")
+    assert corpo.index("update(RecuperacaoClientePortal)") < corpo.index("session.add(")

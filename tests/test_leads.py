@@ -1830,8 +1830,7 @@ def test_importar_leads_arquivo_vazio_retorna_400() -> None:
 
 
 # O servidor agora confere o tipo pelos primeiros bytes (auditoria de seguranca, item 15).
-PDF_FAKE = b"%PDF-1.4
-"
+PDF_FAKE = b"%PDF-1.4\n"
 
 
 def test_enviar_arquivo_documento_lead_cria_documento_e_libera_gate(

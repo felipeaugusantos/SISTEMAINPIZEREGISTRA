@@ -71,6 +71,7 @@ from app.ratelimit import RateLimiter
 from app.settings import get_settings
 from app.storage import StorageError, delete_object, local_root, read_bytes, save_bytes
 from app.tenancy import aplicar_contexto_tenant
+from app.uploads import ARQUIVOS_PORTAL, MATERIAIS_MARCA, validar_tipo_arquivo
 
 logger = logging.getLogger("ze_registra.portal_cliente")
 router = APIRouter(tags=["portal-cliente"])
@@ -1499,6 +1500,7 @@ async def enviar_material_marca_admin(
     conteudo = await arquivo.read()
     if len(conteudo) > 15 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
+    tipo_real = validar_tipo_arquivo(arquivo.filename, conteudo, MATERIAIS_MARCA)
     await escanear_upload_ou_rejeitar(conteudo)
     try:
         caminho = save_bytes(f"materiais-marca/{usuario.organizacao_id}/{lead_id}/{nome}", conteudo)
@@ -1510,7 +1512,7 @@ async def enviar_material_marca_admin(
         nome=arquivo.filename or nome,
         descricao=(descricao or "").strip() or None,
         caminho=caminho,
-        content_type=arquivo.content_type,
+        content_type=tipo_real,
         tamanho=len(conteudo),
         arquivo_hash=hashlib.sha256(conteudo).hexdigest(),
         enviado_por_id=usuario.id,
@@ -2438,6 +2440,7 @@ async def enviar_arquivo_portal(
     conteudo = await arquivo.read()
     if len(conteudo) > 15 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
+    tipo_real = validar_tipo_arquivo(arquivo.filename, conteudo, ARQUIVOS_PORTAL)
     await escanear_upload_ou_rejeitar(conteudo)
     try:
         caminho = save_bytes(f"portal/{cliente.organizacao_id}/{cliente.id}/{nome}", conteudo)
@@ -2450,7 +2453,7 @@ async def enviar_arquivo_portal(
         cliente_id=cliente.id,
         nome=arquivo.filename or nome,
         caminho=caminho,
-        content_type=arquivo.content_type,
+        content_type=tipo_real,
         tamanho=len(conteudo),
         arquivo_hash=arquivo_hash,
     )

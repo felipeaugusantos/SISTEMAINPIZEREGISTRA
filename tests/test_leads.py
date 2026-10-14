@@ -1829,6 +1829,11 @@ def test_importar_leads_arquivo_vazio_retorna_400() -> None:
 # gate de avanço de fase. Upload de arquivo real, criado agora. ---
 
 
+# O servidor agora confere o tipo pelos primeiros bytes (auditoria de seguranca, item 15).
+PDF_FAKE = b"%PDF-1.4
+"
+
+
 def test_enviar_arquivo_documento_lead_cria_documento_e_libera_gate(
     monkeypatch: pytest.MonkeyPatch, tmp_path: object
 ) -> None:
@@ -1837,7 +1842,7 @@ def test_enviar_arquivo_documento_lead_cria_documento_e_libera_gate(
 
     resposta = TestClient(app).post(
         "/v1/admin/leads/9/documentos/procuracao/arquivo",
-        files={"arquivo": ("procuracao.pdf", b"conteudo-fake-pdf", "application/pdf")},
+        files={"arquivo": ("procuracao.pdf", PDF_FAKE + b"conteudo-fake-pdf", "application/pdf")},
         headers={"X-CSRF-Token": "csrf-teste"},
     )
 
@@ -1851,7 +1856,7 @@ def test_enviar_arquivo_documento_lead_cria_documento_e_libera_gate(
     assert documento.status == "recebido"
     assert documento.caminho is not None
     assert Path(documento.caminho).is_file()
-    assert documento.arquivo_hash == hashlib.sha256(b"conteudo-fake-pdf").hexdigest()
+    assert documento.arquivo_hash == hashlib.sha256(PDF_FAKE + b"conteudo-fake-pdf").hexdigest()
     assert session.commits == 1
 
 
@@ -1866,7 +1871,7 @@ def test_enviar_arquivo_documento_lead_nao_rebaixa_status_ja_validado(
 
     resposta = TestClient(app).post(
         "/v1/admin/leads/9/documentos/procuracao/arquivo",
-        files={"arquivo": ("procuracao.pdf", b"novo-conteudo", "application/pdf")},
+        files={"arquivo": ("procuracao.pdf", PDF_FAKE + b"novo-conteudo", "application/pdf")},
         headers={"X-CSRF-Token": "csrf-teste"},
     )
 
@@ -1891,7 +1896,7 @@ def test_enviar_arquivo_documento_lead_promove_status_legado_do_dropdown_antigo(
 
     resposta = TestClient(app).post(
         "/v1/admin/leads/9/documentos/procuracao/arquivo",
-        files={"arquivo": ("procuracao.pdf", b"conteudo", "application/pdf")},
+        files={"arquivo": ("procuracao.pdf", PDF_FAKE + b"conteudo", "application/pdf")},
         headers={"X-CSRF-Token": "csrf-teste"},
     )
 
@@ -1923,7 +1928,7 @@ def test_enviar_arquivo_documento_lead_substituir_versiona_e_invalida_assinatura
 
     resposta = TestClient(app).post(
         "/v1/admin/leads/9/documentos/procuracao/arquivo",
-        files={"arquivo": ("procuracao-v2.pdf", b"conteudo-novo", "application/pdf")},
+        files={"arquivo": ("procuracao-v2.pdf", PDF_FAKE + b"conteudo-novo", "application/pdf")},
         headers={"X-CSRF-Token": "csrf-teste"},
     )
 
@@ -1963,7 +1968,7 @@ def test_enviar_arquivo_documento_lead_libera_sla_da_proposta_quando_ultima_pend
 
     resposta = TestClient(app).post(
         "/v1/admin/leads/9/documentos/procuracao/arquivo",
-        files={"arquivo": ("procuracao.pdf", b"conteudo", "application/pdf")},
+        files={"arquivo": ("procuracao.pdf", PDF_FAKE + b"conteudo", "application/pdf")},
         headers={"X-CSRF-Token": "csrf-teste"},
     )
 
@@ -1995,6 +2000,39 @@ def test_enviar_arquivo_documento_lead_arquivo_grande_retorna_413() -> None:
     )
 
     assert resposta.status_code == 413
+
+
+def test_enviar_arquivo_documento_lead_recusa_executavel_renomeado_como_pdf(tmp_path: object) -> None:
+    # Auditoria de seguranca (item 15): o servidor decide o tipo pelos primeiros bytes, nao pelo nome.
+    session = _sessao_admin(FakeResult(scalar=9))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/9/documentos/procuracao/arquivo",
+        files={"arquivo": ("procuracao.pdf", b"MZ\x90\x00 programa.exe", "application/pdf")},
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 422
+    assert "Tipo de arquivo não permitido" in resposta.json()["detail"]
+    assert [obj for obj in session.adicionados if isinstance(obj, DocumentoLead)] == []
+    assert session.commits == 0
+
+
+def test_enviar_arquivo_documento_lead_grava_o_tipo_real_e_nao_o_declarado(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: object
+) -> None:
+    monkeypatch.setenv("STORAGE_LOCAL_ROOT", str(tmp_path))
+    session = _sessao_admin(FakeResult(scalar=9), FakeResult(scalar=None), FakeResult(itens=[]))
+
+    resposta = TestClient(app).post(
+        "/v1/admin/leads/9/documentos/procuracao/arquivo",
+        files={"arquivo": ("procuracao.pdf", PDF_FAKE + b"x", "text/html")},  # cabeçalho do navegador mente
+        headers={"X-CSRF-Token": "csrf-teste"},
+    )
+
+    assert resposta.status_code == 201
+    documento = next(obj for obj in session.adicionados if isinstance(obj, DocumentoLead))
+    assert documento.content_type == "application/pdf"
 
 
 def test_baixar_arquivo_documento_lead_serve_arquivo_existente(

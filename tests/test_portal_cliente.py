@@ -135,7 +135,7 @@ class _ArquivoFake:
     endpoints de material de marca realmente leem (size/filename/content_type
     e read() assíncrono)."""
 
-    def __init__(self, conteudo: bytes = b"conteudo-fake", filename: str = "logo.png") -> None:
+    def __init__(self, conteudo: bytes = b"\x89PNG\r\n\x1a\nconteudo-fake", filename: str = "logo.png") -> None:
         self.size = len(conteudo)
         self.filename = filename
         self.content_type = "image/png"

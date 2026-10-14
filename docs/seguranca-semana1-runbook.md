@@ -122,3 +122,10 @@ Se `nginx -t` acusar erro, **não recarregue**: restaure o backup (`cp /root/zer
 e remova o `conf.d/zeregistra-limit-req.conf`. Rollback depois de recarregado: remova as linhas
 `limit_req` do site, apague o arquivo do `conf.d` e `systemctl reload nginx`.
 Respostas 429 do Nginx aparecem em `/var/log/nginx/error.log` (nível `warn`).
+
+**Atualização (auditoria externa, A02):** o mapa de rotas sensíveis passou a incluir
+`/v1/auth/social/mfa`. Depois do deploy, reaplique o arquivo do `conf.d` e recarregue:
+
+```bash
+cp /opt/zeregistra/docker/nginx-limit-req.conf /etc/nginx/conf.d/zeregistra-limit-req.conf && nginx -t && systemctl reload nginx
+```

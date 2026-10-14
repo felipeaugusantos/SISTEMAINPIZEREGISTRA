@@ -131,7 +131,7 @@ class FakeSession:
     async def rollback(self) -> None:
         return None
 
-    async def refresh(self, obj: Any) -> None:
+    async def refresh(self, obj: Any, *_args: Any, **_kwargs: Any) -> None:
         # Simula o preenchimento de colunas geradas pelo banco após o commit.
         if getattr(obj, "id", None) is None:
             obj.id = 1

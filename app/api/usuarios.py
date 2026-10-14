@@ -301,7 +301,7 @@ async def redefinir_senha(usuario_id: int, session: SessionDep, ator: ResetDep) 
     senha = _temporaria()
     alvo.senha_hash = hash_senha(senha)
     alvo.alterar_senha = True
-    alvo.senha_versao = (alvo.senha_versao or 1) + 1
+    alvo.senha_versao = UsuarioOperacoes.senha_versao + 1  # incremento atômico no banco
     await session.execute(
         update(SessaoOperacoes)
         .where(SessaoOperacoes.usuario_id == alvo.id, SessaoOperacoes.revogada_em.is_(None))

@@ -482,7 +482,7 @@ async def gerar_acesso_administrador(organizacao_id: int, session: SessionDep, a
     senha = _senha_temporaria()
     administrador.senha_hash = hash_senha(senha)
     administrador.alterar_senha = True
-    administrador.senha_versao = (administrador.senha_versao or 1) + 1
+    administrador.senha_versao = UsuarioOperacoes.senha_versao + 1  # incremento atômico no banco
     await session.execute(
         update(SessaoOperacoes)
         .where(

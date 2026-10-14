@@ -213,3 +213,25 @@ def test_nenhum_caminho_calcula_a_geracao_da_senha_em_python() -> None:
         if "senha_versao or 1) + 1" in arquivo.read_text(encoding="utf-8")
     ]
     assert suspeitos == []
+
+
+def test_tela_de_usuarios_avisa_ao_redefinir_a_propria_senha() -> None:
+    # Redefinir a própria senha encerra a sessão (A04): a tela avisa antes e leva ao login depois,
+    # em vez de mostrar "Falha na operação" quando a lista é recarregada com 401.
+    from pathlib import Path
+
+    script = Path("app/web/static/admin-usuarios.js").read_text(encoding="utf-8")
+    assert "state.usuario_atual_id" in script
+    assert "sua sessão será encerrada" in script
+    assert 'location.href="/login"' in script
+
+
+def test_confirmacao_da_tela_nao_tem_quebra_de_linha_real_dentro_da_string() -> None:
+    # Revisão do Codex (PR #194): quebra real dentro de "..." é erro de sintaxe e derruba a página inteira.
+    from pathlib import Path
+
+    script = Path("app/web/static/admin-usuarios.js").read_text(encoding="utf-8")
+    barra_n = chr(92) + "n"
+    assert "SUA PRÓPRIA senha." + barra_n + barra_n + "Ao confirmar" in script
+    for numero, linha in enumerate(script.splitlines(), start=1):
+        assert linha.count('"') % 2 == 0, f"aspas desbalanceadas na linha {numero}"

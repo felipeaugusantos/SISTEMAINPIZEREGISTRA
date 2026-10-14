@@ -772,11 +772,14 @@ def test_login_cliente_bloqueia_conta_apos_5_tentativas_mesmo_com_ips_diferentes
                 "server": ("testserver", 80),
             }
         )
+        sessao = FakeSession([FakeResult(scalar=cliente)])
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(login_cliente(dados, request, Response(), FakeSession([FakeResult(scalar=cliente)])))
+            asyncio.run(login_cliente(dados, request, Response(), sessao))
         assert exc_info.value.status_code == 401
-        assert cliente.tentativas_falhas == (tentativa + 1) % 5
-    assert cliente.bloqueado_ate is not None
+        # Auditoria S05: cada falha vira um UPDATE atômico no banco (a contagem até 5 e o bloqueio
+        # saem do SQL, verificados contra PostgreSQL em tests/test_falhas_login_postgres.py).
+        assert sum(1 for c in sessao.executados if "UPDATE clientes_portal" in str(c)) == 1
+        assert cliente.tentativas_falhas == 0  # nada somado em Python
 
     cliente_bloqueado = ClientePortal(
         id=1,
@@ -801,11 +804,12 @@ def test_login_cliente_bloqueia_conta_apos_5_tentativas_mesmo_com_ips_diferentes
         }
     )
     dados_certos = ClienteLogin(email="cliente@empresa.com.br", senha="Senha-Correta-123")
+    sessao_bloqueada = FakeSession([FakeResult(scalar=cliente_bloqueado)])
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(
-            login_cliente(dados_certos, request_final, Response(), FakeSession([FakeResult(scalar=cliente_bloqueado)]))
-        )
+        asyncio.run(login_cliente(dados_certos, request_final, Response(), sessao_bloqueada))
     assert exc_info.value.status_code == 401
+    # conta já bloqueada: nenhuma tentativa é contada nem o bloqueio é prolongado
+    assert not [c for c in sessao_bloqueada.executados if "UPDATE clientes_portal" in str(c)]
 
 
 def test_login_cliente_com_sucesso_zera_tentativas_e_gera_par_csrf() -> None:

@@ -1600,8 +1600,9 @@ async def enviar_link_proposta(
                 proposta.dados = {**(proposta.dados or {}), "clicksign": ids}
                 await session.commit()
             except Exception as exc:
+                logger.exception("Falha ao criar o envelope na Clicksign (proposta %s)", proposta.numero)
                 raise HTTPException(
-                    status_code=502, detail=f"Não foi possível enviar à Clicksign: {type(exc).__name__}"
+                    status_code=502, detail="Não foi possível enviar à Clicksign. Tente novamente em instantes."
                 ) from exc
         await enviar_proposta_email(
             lead.email, lead.nome, link, pdf, proposta.numero, organizacao_nome=identidade_organizacao(org)["nome"]

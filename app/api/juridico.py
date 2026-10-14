@@ -18,6 +18,7 @@ from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.badepi.despachos_codigos import DESCRICOES_DESPACHO, codigo_numerico
 from app.crm import avancar_fase_lead, obter_ou_criar_empresa, registrar_evento_operacional
 from app.database import get_session
+from app.erros import erro_armazenamento
 from app.juridico_comunicacao import enfileirar_alerta_juridico
 from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import (
@@ -2193,7 +2194,7 @@ async def registrar_entrega(
                 conteudo,
             )
         except StorageError as exc:
-            raise HTTPException(503, str(exc)) from exc
+            raise erro_armazenamento(exc) from exc
         documento = DocumentoEntregaJuridico(
             organizacao_id=usuario.organizacao_id,
             prazo_id=prazo.id,

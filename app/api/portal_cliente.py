@@ -38,6 +38,7 @@ from app.clicksign import configuracao as configuracao_clicksign
 from app.crm import registrar_evento_operacional
 from app.database import get_session, session_factory
 from app.emailing import enviar_codigo_confirmacao_portal, enviar_recuperacao_portal
+from app.erros import erro_armazenamento
 from app.malware_scan import escanear_upload_ou_rejeitar
 from app.marca import nome_escritorio_para_email
 from app.models import (
@@ -1502,7 +1503,7 @@ async def enviar_material_marca_admin(
     try:
         caminho = save_bytes(f"materiais-marca/{usuario.organizacao_id}/{lead_id}/{nome}", conteudo)
     except StorageError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise erro_armazenamento(exc) from exc
     item = MaterialMarcaCliente(
         organizacao_id=usuario.organizacao_id,
         lead_id=lead_id,
@@ -1621,7 +1622,7 @@ async def enviar_logo_cliente_admin(
     try:
         localizacao = save_bytes(chave, normalizado)
     except StorageError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise erro_armazenamento(exc) from exc
     asset_anterior = dict(lead.logo_cliente or {})
     lead.logo_cliente = {
         "localizacao": localizacao,
@@ -2441,7 +2442,7 @@ async def enviar_arquivo_portal(
     try:
         caminho = save_bytes(f"portal/{cliente.organizacao_id}/{cliente.id}/{nome}", conteudo)
     except StorageError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise erro_armazenamento(exc) from exc
     arquivo_hash = hashlib.sha256(conteudo).hexdigest()
     item = ArquivoClientePortal(
         organizacao_id=cliente.organizacao_id,

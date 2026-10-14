@@ -47,6 +47,7 @@ from app.emailing import (
     erro_cota_diaria_email,
     listar_provedores_email,
 )
+from app.erros import erro_armazenamento
 from app.ia_sombra import enfileirar_qualificacao_ia_se_ativa
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
 from app.malware_scan import escanear_upload_ou_rejeitar
@@ -3014,7 +3015,7 @@ async def enviar_arquivo_documento_lead(
     try:
         caminho = save_bytes(f"documentos-lead/{usuario.organizacao_id}/{lead_id}/{tipo}/{nome}", conteudo)
     except StorageError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise erro_armazenamento(exc) from exc
     novo_hash = hashlib.sha256(conteudo).hexdigest()
     documento = (
         await session.execute(

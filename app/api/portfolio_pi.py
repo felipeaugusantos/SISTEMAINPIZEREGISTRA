@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.portal_cliente import ClientDep
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import get_session
+from app.erros import erro_armazenamento
 from app.models import (
     AtivoPartePI,
     AtivoPI,
@@ -300,7 +301,7 @@ async def adicionar_documento(
             conteudo,
         )
     except StorageError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise erro_armazenamento(exc) from exc
     documento = DocumentoAtivoPI(
         organizacao_id=usuario.organizacao_id,
         ativo_id=ativo.id,

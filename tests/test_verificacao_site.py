@@ -348,3 +348,66 @@ async def test_a09_ip_literal_publico_conecta_sem_resolver_nome(monkeypatch: pyt
     assert resultado["ativo"] is True
     assert vistas[0].url.host == "93.184.216.34"
     assert vistas[0].headers["host"] == "93.184.216.34"
+
+
+# --- Revisão do Codex no PR #191 ---
+
+
+async def test_a09_dominio_com_acento_vira_punycode_no_host_e_no_sni(monkeypatch: pytest.MonkeyPatch) -> None:
+    ascii_esperado = "münich.example".encode("idna").decode("ascii")
+    resolvidos: list[str] = []
+
+    def resolver(host: str, _porta: object):
+        resolvidos.append(host)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+
+    monkeypatch.setattr("app.verificacao_site.socket.getaddrinfo", resolver)
+    vistas: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        vistas.append(request)
+        return httpx.Response(200)
+
+    cliente = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    resultado = await verificar_site("https://münich.example/", cliente=cliente)
+    await cliente.aclose()
+
+    assert resultado["ativo"] is True  # não levanta UnicodeEncodeError ao montar o Host
+    assert resolvidos == [ascii_esperado]
+    assert vistas[0].headers["host"] == ascii_esperado
+    assert vistas[0].extensions["sni_hostname"] == ascii_esperado
+
+
+async def test_a09_nome_invalido_nao_escapa_como_excecao() -> None:
+    cliente = httpx.AsyncClient(transport=httpx.MockTransport(_handler_nunca_deveria_ser_chamado))
+    longo = await verificar_site("https://" + "a" * 70 + ".com", cliente=cliente)  # rótulo IDNA > 63
+    malformada = await verificar_site("http://[abc/", cliente=cliente)  # colchete de IPv6 sem fechar
+    await cliente.aclose()
+
+    assert longo["ativo"] is False and longo["erro"] == "DestinoBloqueado"
+    assert malformada["ativo"] is False and malformada["erro"] == "UrlInvalida"
+
+
+async def test_a09_cada_requisicao_abre_conexao_propria_mesmo_com_hosts_no_mesmo_ip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Dois nomes no mesmo IP/porta teriam a mesma origem no pool do httpcore e a segunda requisição
+    # reaproveitaria a conexão TLS da primeira (certificado do 2º nome nunca verificado).
+    _resolver_para_ip_publico(monkeypatch)
+    vistas: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        vistas.append(request)
+        if request.headers["host"] == "primeiro.com.br":
+            return httpx.Response(302, headers={"location": "https://segundo.com.br/"})
+        return httpx.Response(200)
+
+    cliente = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    resultado = await verificar_site("https://primeiro.com.br/", cliente=cliente)
+    await cliente.aclose()
+
+    assert resultado["ativo"] is True
+    assert [r.headers["host"] for r in vistas] == ["primeiro.com.br", "segundo.com.br"]
+    assert [r.extensions["sni_hostname"] for r in vistas] == ["primeiro.com.br", "segundo.com.br"]
+    assert all(r.url.host == "93.184.216.34" for r in vistas)  # mesmo IP, mesma origem no pool
+    assert all(r.headers["connection"] == "close" for r in vistas)

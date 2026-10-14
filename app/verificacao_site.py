@@ -82,6 +82,14 @@ def _bracket(ip_ou_host: str) -> str:
     return f"[{ip_ou_host}]" if ":" in ip_ou_host else ip_ou_host
 
 
+def _host_ascii(host: str) -> str:
+    """Nome em ASCII (IDNA/punycode): o Host e o SNI precisam ser ASCII e o getaddrinfo resolve o mesmo nome."""
+    try:
+        return host.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise DestinoBloqueadoError(f"host inválido: {host}") from exc
+
+
 def _host_literal_ip(host: str) -> str | None:
     try:
         return str(ipaddress.ip_address(host))
@@ -102,6 +110,7 @@ async def _resolver_e_validar(url: str) -> tuple[str, int, list[str]]:
     host = partes.hostname
     if not host:
         raise DestinoBloqueadoError("URL sem host")
+    host = _host_ascii(host)
     if host.lower() in HOSTS_BLOQUEADOS:
         raise DestinoBloqueadoError(f"host bloqueado: {host}")
     porta = partes.port or (443 if partes.scheme == "https" else 80)
@@ -132,7 +141,10 @@ def _requisicao_fixada(url: str, host: str, ip: str) -> tuple[str, dict[str, str
     netloc = _bracket(ip) + (f":{partes.port}" if partes.port else "")
     url_ip = partes._replace(netloc=netloc).geturl()
     host_header = _bracket(host) + (f":{partes.port}" if partes.port else "")
-    return url_ip, {"Host": host_header}, {"sni_hostname": host}
+    # Connection: close -- o pool do httpcore indexa a conexão por (esquema, IP, porta); sem isso um
+    # redirecionamento para OUTRO nome no mesmo IP reaproveitaria a conexão TLS do primeiro e o
+    # certificado do segundo nome nunca seria verificado (o SNI só vale ao abrir a conexão).
+    return url_ip, {"Host": host_header, "Connection": "close"}, {"sni_hostname": host}
 
 
 async def _requisitar_com_limite(
@@ -185,7 +197,10 @@ async def verificar_site(site: str | None, *, cliente: httpx.AsyncClient | None 
     cliente_proprio = cliente is None
     if cliente_proprio:
         cliente = httpx.AsyncClient(
-            timeout=TIMEOUT_SEGUNDOS, follow_redirects=False, headers={"User-Agent": USER_AGENT}
+            timeout=TIMEOUT_SEGUNDOS,
+            follow_redirects=False,
+            headers={"User-Agent": USER_AGENT},
+            limits=httpx.Limits(max_keepalive_connections=0),  # sem reaproveitar conexões (ver _requisicao_fixada)
         )
     try:
         url_atual = url
@@ -205,6 +220,9 @@ async def verificar_site(site: str | None, *, cliente: httpx.AsyncClient | None 
         return {"ativo": False, "status_code": None, "url_final": None, "erro": "DestinoBloqueado"}
     except httpx.HTTPError as exc:
         return {"ativo": False, "status_code": None, "url_final": None, "erro": type(exc).__name__}
+    except (httpx.InvalidURL, ValueError):
+        # URL malformada (ex.: colchete de IPv6 sem fechar): é dado ruim do prospect, não falha do job.
+        return {"ativo": False, "status_code": None, "url_final": None, "erro": "UrlInvalida"}
     finally:
         if cliente_proprio:
             await cliente.aclose()

@@ -5,12 +5,18 @@ const rpiTarget = document.querySelector("#observability-rpi");
 const updatedTarget = document.querySelector("#observability-updated");
 
 function escapeText(value) { return String(value ?? "—"); }
-function statusClass(status) { return ["ok", "saudavel", "healthy"].includes(String(status).toLowerCase()) ? "positive" : "negative"; }
+const estadoDash = { backups: null, recursos: null };
+function statusClass(status) {
+  const valor = String(status).toLowerCase();
+  if (["ok", "saudavel", "healthy"].includes(valor)) return "positive";
+  if (["atencao", "atrasado", "processando", "degradado"].includes(valor)) return "warn";
+  return "negative";
+}
 function metric(value, label, detail = "") { return `<article><strong>${escapeText(value)}</strong><span>${escapeText(label)}</span>${detail ? `<small>${escapeText(detail)}</small>` : ""}</article>`; }
 function bytes(value) { const n = Number(value || 0); if (!n) return "—"; const units = ["B", "KB", "MB", "GB", "TB"]; let i = 0; let v = n; while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; } return `${v.toFixed(i ? 1 : 0)} ${units[i]}`; }
 
-async function carregarObservabilidade() {
-  observabilityMessage.hidden = false; observabilityMessage.className = "status-message loading"; observabilityMessage.textContent = "Atualizando indicadores…";
+async function carregarObservabilidade(silencioso = false) {
+  if (!silencioso) { observabilityMessage.hidden = false; observabilityMessage.className = "status-message loading"; observabilityMessage.textContent = "Atualizando indicadores…"; }
   try {
     const response = await fetch("/v1/admin/observabilidade");
     const data = await response.json();
@@ -23,8 +29,7 @@ async function carregarObservabilidade() {
     observabilityMessage.hidden = true;
   } catch (error) { observabilityMessage.className = "status-message error"; observabilityMessage.textContent = error.message; }
 }
-document.querySelector("#observability-refresh").addEventListener("click", carregarObservabilidade);
-carregarObservabilidade();
+document.querySelector("#observability-refresh").addEventListener("click", () => carregarTudo(false));
 
 // Fase 7: painel técnico de observabilidade e rollback. Critério de
 // aceite: a equipe identifica rapidamente uma regressão e consegue
@@ -118,6 +123,9 @@ async function carregarPainelTecnico() {
       metric(recursos.memoria.percentual_uso != null ? `${recursos.memoria.percentual_uso}%` : "—", "Memória em uso", `${bytes(recursos.memoria.disponivel_bytes)} disponíveis de ${bytes(recursos.memoria.total_bytes)}`),
       metric(recursos.disco.percentual_uso != null ? `${recursos.disco.percentual_uso}%` : "—", "Disco em uso", `${bytes(recursos.disco.usado_bytes)} usados de ${bytes(recursos.disco.total_bytes)}`),
     ].join("");
+    estadoDash.recursos = recursos;
+    renderizarGauges(recursos);
+    renderizarStatusExtra();
 
     const orgRows = document.querySelector("#painel-tecnico-organizacoes-rows");
     const orgSecao = orgRows.closest("section");
@@ -148,7 +156,6 @@ async function carregarPainelTecnico() {
     message.textContent = error.message;
   }
 }
-carregarPainelTecnico();
 
 // Painel de saúde dos backups -- exclusivo do superadmin. Para os demais
 // usuários a API responde 403 e a seção continua oculta.
@@ -161,6 +168,8 @@ async function carregarSaudeBackups() {
   if (!secao) return;
   try {
     const dados = await apiPainel("/v1/admin/observabilidade/saude-backups");
+    estadoDash.backups = dados.disponivel ? dados : null;
+    renderizarStatusExtra();
     secao.hidden = false;
     if (!dados.disponivel) {
       message.className = "status-message";
@@ -184,7 +193,6 @@ async function carregarSaudeBackups() {
     secao.hidden = true;
   }
 }
-carregarSaudeBackups();
 
 // Achado de uma auditoria sistemática (08/09/2026, mesmo padrão do achado
 // de EnvioCadenciaEmail): EventoOperacional era gravado a cada requisição
@@ -307,4 +315,137 @@ document.querySelector("#limpeza-disco-botao")?.addEventListener("click", async 
   }
   carregarLimpezaDisco();
 });
-carregarLimpezaDisco();
+
+// ---------------------------------------------------------------------------
+// Dashboard: abas, gráficos em SVG puro (observabilidade-graficos.js), medidores,
+// cartões de status e atualização automática.
+// ---------------------------------------------------------------------------
+function cartaoStatus(nome, classe, texto) {
+  return `<article class="observability-service"><span class="observability-dot ${classe}"></span><strong>${escapeHtmlSeguro(nome)}</strong><small>${escapeHtmlSeguro(texto)}</small></article>`;
+}
+
+function renderizarStatusExtra() {
+  const alvo = document.querySelector("#dash-status-extra");
+  if (!alvo) return;
+  const rotuloSaude = { ok: "Em dia", atencao: "Atenção", critico: "Crítico", desconhecido: "Sem dados" };
+  const classeSaude = { ok: "positive", atencao: "warn", critico: "negative", desconhecido: "off" };
+  const cartoes = [];
+  if (estadoDash.backups) {
+    const geral = estadoDash.backups.geral;
+    cartoes.push(cartaoStatus("Backups", classeSaude[geral] || "off", rotuloSaude[geral] || geral));
+  }
+  const disco = estadoDash.recursos?.disco;
+  if (disco && disco.percentual_uso != null) {
+    const pct = Number(disco.percentual_uso);
+    cartoes.push(cartaoStatus("Disco", pct >= 90 ? "negative" : pct >= 80 ? "warn" : "positive", `${pct}% em uso`));
+  }
+  alvo.innerHTML = cartoes.join("");
+}
+
+function renderizarGauges(recursos) {
+  const alvo = document.querySelector("#dash-gauges");
+  if (!alvo || !window.ObsGraficos) return;
+  const G = window.ObsGraficos;
+  const nucleos = recursos.cpu.nucleos || 1;
+  const carga = recursos.cpu.carga_1min;
+  const cpu = carga == null ? null : Math.min(100, (Number(carga) / nucleos) * 100);
+  alvo.innerHTML = [
+    G.gauge({ percentual: cpu, rotulo: "CPU", detalhe: `carga ${carga ?? "—"} em ${nucleos} núcleo(s)` }),
+    G.gauge({ percentual: recursos.memoria.percentual_uso, rotulo: "Memória", detalhe: `${bytes(recursos.memoria.disponivel_bytes)} livres de ${bytes(recursos.memoria.total_bytes)}` }),
+    G.gauge({ percentual: recursos.disco.percentual_uso, rotulo: "Disco", detalhe: `${bytes(recursos.disco.usado_bytes)} de ${bytes(recursos.disco.total_bytes)}` }),
+  ].join("");
+}
+
+async function carregarGraficos() {
+  const mensagem = document.querySelector("#dash-graficos-message");
+  try {
+    const dados = await apiPainel("/v1/admin/observabilidade/series?horas=24");
+    const G = window.ObsGraficos;
+    const rotulos = dados.pontos.map((ponto) => new Date(ponto.hora).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }));
+    document.querySelector("#dash-grafico-trafego").innerHTML = G.graficoBarras({
+      rotulos,
+      valores: dados.pontos.map((ponto) => ponto.requisicoes),
+      erros: dados.pontos.map((ponto) => ponto.erros),
+      titulo: "Requisições e erros por hora nas últimas 24 horas",
+    });
+    const series = [
+      { nome: "Média", classe: "dash-linha-media", valores: dados.pontos.map((ponto) => ponto.latencia_media_ms) },
+      { nome: "p95", classe: "dash-linha-p95", valores: dados.pontos.map((ponto) => ponto.latencia_p95_ms) },
+    ];
+    document.querySelector("#dash-grafico-latencia").innerHTML = G.graficoLinhas({ rotulos, series, titulo: "Latência média e p95 por hora nas últimas 24 horas" });
+    document.querySelector("#dash-legenda-latencia").innerHTML = G.legenda(series);
+    mensagem.hidden = true;
+    document.querySelector("#dash-graficos-atualizado").textContent = `Atualizado ${new Date(dados.gerado_em).toLocaleTimeString("pt-BR")}`;
+  } catch (error) {
+    mensagem.hidden = false;
+    mensagem.className = "status-message error";
+    mensagem.textContent = error.message;
+  }
+}
+
+const ABAS_DASHBOARD = ["geral", "aplicacao", "infra", "backups", "eventos"];
+function abaAtual() {
+  return document.querySelector('.dash-aba[aria-selected="true"]')?.dataset.aba || "geral";
+}
+function abrirAba(nome, atualizarHash = true) {
+  const alvo = ABAS_DASHBOARD.includes(nome) ? nome : "geral";
+  document.querySelectorAll(".dash-aba").forEach((botao) => {
+    const ativa = botao.dataset.aba === alvo;
+    botao.setAttribute("aria-selected", String(ativa));
+    botao.tabIndex = ativa ? 0 : -1;
+  });
+  document.querySelectorAll(".dash-painel").forEach((painel) => { painel.hidden = painel.id !== `painel-${alvo}`; });
+  if (atualizarHash) history.replaceState(null, "", `#${alvo}`);
+}
+// A aba de backups só existe para o superadmin: aparece quando alguma das duas
+// seções (saúde dos backups, limpeza de disco) foi liberada pela API.
+function atualizarAbaBackups() {
+  const visivel = ["#saude-backups", "#limpeza-disco"].some((seletor) => document.querySelector(seletor)?.hidden === false);
+  const botao = document.querySelector("#aba-backups");
+  if (botao) botao.hidden = !visivel;
+  if (!visivel && abaAtual() === "backups") abrirAba("geral");
+}
+document.querySelectorAll(".dash-aba").forEach((botao) => {
+  botao.addEventListener("click", () => abrirAba(botao.dataset.aba));
+  botao.addEventListener("keydown", (evento) => {
+    if (evento.key !== "ArrowRight" && evento.key !== "ArrowLeft") return;
+    const abas = [...document.querySelectorAll(".dash-aba")].filter((item) => !item.hidden);
+    const proxima = abas[(abas.indexOf(botao) + (evento.key === "ArrowRight" ? 1 : -1) + abas.length) % abas.length];
+    abrirAba(proxima.dataset.aba);
+    proxima.focus();
+  });
+});
+abrirAba(location.hash.slice(1), false);
+
+async function carregarTudo(silencioso = false) {
+  await Promise.allSettled([
+    carregarObservabilidade(silencioso),
+    carregarPainelTecnico(),
+    carregarGraficos(),
+    carregarSaudeBackups(),
+    carregarLimpezaDisco(),
+  ]);
+  atualizarAbaBackups();
+}
+
+let temporizadorDashboard = null;
+function configurarAtualizacaoAutomatica() {
+  const caixa = document.querySelector("#observability-auto");
+  if (!caixa) return;
+  try {
+    const salvo = localStorage.getItem("observabilidade-auto");
+    if (salvo !== null) caixa.checked = salvo === "1";
+  } catch (_erro) { /* armazenamento indisponível: segue com o padrão */ }
+  const aplicar = () => {
+    clearInterval(temporizadorDashboard);
+    temporizadorDashboard = caixa.checked ? setInterval(() => { if (!document.hidden) carregarTudo(true); }, 60000) : null;
+  };
+  caixa.addEventListener("change", () => {
+    try { localStorage.setItem("observabilidade-auto", caixa.checked ? "1" : "0"); } catch (_erro) { /* ignora */ }
+    aplicar();
+  });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && caixa.checked) carregarTudo(true); });
+  aplicar();
+}
+configurarAtualizacaoAutomatica();
+carregarTudo();

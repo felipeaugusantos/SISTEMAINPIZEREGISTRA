@@ -48,9 +48,16 @@ def _registro(mfa_ativo: bool, segredo: str | None = None) -> UsuarioOperacoes:
     )
 
 
+class _SessaoComTenant(FakeSession):
+    # _auditar lê o tenant de session.info, que a autenticação real preenche.
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.info = {"organizacao_id": 1}
+
+
 def _cliente(registro: UsuarioOperacoes) -> TestClient:
     async def _sessao():
-        yield FakeSession([], objetos_get=[registro])
+        yield _SessaoComTenant([], objetos_get=[registro])
 
     app.dependency_overrides[get_session] = _sessao
     app.dependency_overrides[obter_usuario_atual] = auth_override(

@@ -231,6 +231,7 @@ def test_confirmacao_da_tela_nao_tem_quebra_de_linha_real_dentro_da_string() -> 
     from pathlib import Path
 
     script = Path("app/web/static/admin-usuarios.js").read_text(encoding="utf-8")
-    assert "SUA PRÓPRIA senha.\n\nAo confirmar" in script
+    barra_n = chr(92) + "n"
+    assert "SUA PRÓPRIA senha." + barra_n + barra_n + "Ao confirmar" in script
     for numero, linha in enumerate(script.splitlines(), start=1):
         assert linha.count('"') % 2 == 0, f"aspas desbalanceadas na linha {numero}"

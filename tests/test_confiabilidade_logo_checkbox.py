@@ -75,7 +75,7 @@ def test_previa_da_tela_usa_o_endereco_autenticado() -> None:
     script = (WEB / "static" / "admin-confiabilidade.js").read_text(encoding="utf-8")
     assert '.replace("/v1/tenant/logo", "/v1/auth/me/logo")' in script
     html = (WEB / "admin-confiabilidade.html").read_text(encoding="utf-8")
-    assert "/static/admin-confiabilidade.js?v=10" in html
+    assert "/static/admin-confiabilidade.js?v=11" in html
 
 
 def test_checkbox_de_consentimento_tem_o_estilo_padrao() -> None:

@@ -75,13 +75,19 @@ async def test_desafio_mfa_pode_ser_consumido_e_nao_afeta_outras_linhas() -> Non
             assert status == "UPDATE 0"
 
             # O desafio da própria pessoa pode ser consumido (token -> NULL) pela role restrita.
-            async with app.transaction():
-                await _contexto_oauth_mfa(app, hash_propria)
-                status = await app.execute(
-                    "UPDATE tentativas_oauth SET mfa_token_hash = NULL WHERE id = $1 AND mfa_token_hash = $2",
-                    propria,
-                    hash_propria,
+            try:
+                async with app.transaction():
+                    await _contexto_oauth_mfa(app, hash_propria)
+                    status = await app.execute(
+                        "UPDATE tentativas_oauth SET mfa_token_hash = NULL WHERE id = $1 AND mfa_token_hash = $2",
+                        propria,
+                        hash_propria,
+                    )
+            except asyncpg.InsufficientPrivilegeError as erro:
+                politicas = await admin.fetch(
+                    "SELECT policyname, cmd, qual, with_check FROM pg_policies WHERE tablename = 'tentativas_oauth'"
                 )
+                raise AssertionError(f"RLS recusou a transição: {erro}; políticas: {[dict(p) for p in politicas]}") from erro
             assert status == "UPDATE 1"
 
             # Já consumido: uma segunda conclusão com o mesmo token não afeta nenhuma linha.

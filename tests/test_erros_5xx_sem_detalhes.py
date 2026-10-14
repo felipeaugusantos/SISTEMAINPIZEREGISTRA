@@ -40,7 +40,9 @@ def _violacoes() -> list[str]:
             if not _status_5xx(no):
                 continue
             detalhe = _detail(no)
-            if detalhe is not None and not (isinstance(detalhe, ast.Constant) and isinstance(detalhe.value, str)):
+            fixo = isinstance(detalhe, ast.Constant) and isinstance(detalhe.value, str)
+            constante = isinstance(detalhe, ast.Name) and detalhe.id.isupper()  # MENSAGEM_FIXA = "..." no módulo
+            if detalhe is not None and not (fixo or constante):
                 achadas.append(f"{arquivo.relative_to(RAIZ.parent)}:{no.lineno}")
     return achadas
 

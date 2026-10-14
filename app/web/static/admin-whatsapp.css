@@ -1,0 +1,26 @@
+.wa-aviso { margin:0 0 14px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--muted); line-height:1.5; }
+.wa-status-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
+.wa-status-item { display:grid; gap:7px; padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
+.wa-status-item span { color:var(--muted); font-size:.78rem; }
+.wa-status-item strong { overflow-wrap:anywhere; }
+.wa-status-item .ok { color:var(--forest); }
+.wa-status-item .muted { color:var(--muted); }
+.wa-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; max-width:820px; }
+.wa-form label { display:grid; gap:6px; font-weight:700; }
+.wa-form label[hidden] { display:none; }
+.wa-form .wa-largo,.wa-form .wa-acoes { grid-column:1 / -1; }
+.wa-form input,.wa-form select,.wa-form textarea { width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px; background:#fff; font:inherit; }
+.wa-acoes { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.wa-ajuda { max-width:820px; color:var(--muted); line-height:1.6; }
+.wa-filtros { display:flex; gap:10px; flex-wrap:wrap; }
+.wa-filtros select { padding:8px 10px; border:1px solid var(--line); border-radius:9px; background:#fff; font:inherit; }
+.wa-tabela-rolavel { overflow-x:auto; }
+.wa-tabela { width:100%; border-collapse:collapse; font-size:.9rem; }
+.wa-tabela th,.wa-tabela td { padding:10px 12px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+.wa-tabela th { color:var(--muted); font-size:.78rem; font-weight:700; white-space:nowrap; }
+.wa-vazio { color:var(--muted); text-align:center; }
+.wa-selo { display:inline-block; padding:2px 9px; border-radius:999px; background:var(--surface); border:1px solid var(--line); font-size:.78rem; font-weight:700; }
+.wa-selo.ok { color:var(--forest); }
+.wa-selo.alerta { color:#8a5a00; }
+.wa-selo.erro { color:#9b2c2c; }
+@media(max-width:700px) { .wa-form { grid-template-columns:1fr; } }

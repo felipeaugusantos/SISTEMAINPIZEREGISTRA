@@ -184,6 +184,31 @@ async def revogar(dados: RevogacaoInput, session: SessionDep, usuario: ManageDep
     return _serializar_consentimento(registro, usuario)
 
 
+@router.post("/consentimentos/{consentimento_id}/revogar")
+async def revogar_por_id(consentimento_id: int, session: SessionDep, usuario: ManageDep) -> dict:
+    """Revoga pelo registro (a tela só recebe o telefone mascarado para quem não vê contatos completos)."""
+    existente = (
+        await session.execute(
+            select(ConsentimentoCanal).where(
+                ConsentimentoCanal.id == consentimento_id, ConsentimentoCanal.organizacao_id == usuario.organizacao_id
+            )
+        )
+    ).scalar_one_or_none()
+    if existente is None:
+        raise HTTPException(404, "Consentimento não encontrado")
+    registro = await revogar_consentimento(
+        session,
+        organizacao_id=usuario.organizacao_id,
+        finalidade=existente.finalidade,
+        telefone=existente.telefone,
+        origem="atendimento",
+        registrado_por=usuario.email,
+    )
+    _auditar(session, usuario, "CONSENT_REVOGAR", f"consentimento:{registro.id}", {"finalidade": existente.finalidade})
+    await session.commit()
+    return _serializar_consentimento(registro, usuario)
+
+
 @router.get("/fila")
 async def listar_fila(
     session: SessionDep,

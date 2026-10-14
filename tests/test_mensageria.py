@@ -448,3 +448,17 @@ def test_api_exige_permissao_de_gestao_para_alterar() -> None:
         "/v1/admin/mensageria/consentimentos/revogar", json={"finalidade": "prospeccao", "telefone": TELEFONE}
     )
     assert resposta.status_code == 403
+
+
+def test_api_revoga_pelo_id_do_registro_mesmo_com_telefone_mascarado() -> None:
+    operador = usuario_teste(perfil="operador", permissoes={"crm.view", "crm.manage"})
+    concedido = _consentimento()
+    sessao = FakeSession([FakeResult(scalar=concedido)])
+    resposta = _cliente(sessao, operador).post("/v1/admin/mensageria/consentimentos/1/revogar")
+    assert resposta.status_code == 200
+    assert resposta.json()["status"] == "revogado" and resposta.json()["telefone"] == "••••••8888"
+    assert any(isinstance(o, EventoAuditoria) and o.acao == "CONSENT_REVOGAR" for o in sessao.adicionados)
+
+
+def test_api_revogar_pelo_id_de_outro_registro_da_404() -> None:
+    assert _cliente(FakeSession([])).post("/v1/admin/mensageria/consentimentos/99/revogar").status_code == 404

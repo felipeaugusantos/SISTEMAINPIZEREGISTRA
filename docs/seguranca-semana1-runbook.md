@@ -147,3 +147,43 @@ PY
 ```
 
 Os três primeiros devem voltar `ativo: False, erro: DestinoBloqueado`; o último, `ativo: True`.
+
+## 10. Saída de rede dos containers (reforço do A09)
+
+Segunda camada contra SSRF: os containers do projeto deixam de alcançar `169.254.0.0/16`
+(metadata de nuvem), `100.64.0.0/10` e as redes privadas `10/8`, `172.16/12` e `192.168/16`.
+A internet pública segue liberada (e-mail, Stripe, Gemini, Receita, INPI) e os containers
+continuam se falando normalmente (api → db, redis, clamav). Nada é reiniciado.
+
+Na VPS, como root, em `/opt/zeregistra`:
+
+```bash
+sh docker/saida-rede-docker.sh instalar
+sh docker/saida-rede-docker.sh status
+```
+
+`instalar` aplica as regras agora e cria a unidade `zeregistra-saida-rede` (systemd) para
+reaplicá-las a cada boot. Teste depois, no worker (o primeiro deve falhar rápido; o segundo, responder):
+
+```bash
+docker compose exec -T worker /app/.venv/bin/python - <<'PY'
+import socket
+for destino, porta in (("169.254.169.254", 80), ("example.com", 443)):
+    try:
+        socket.create_connection((destino, porta), timeout=5).close()
+        print(destino, "ALCANCADO")
+    except OSError as erro:
+        print(destino, "BLOQUEADO/FALHOU:", erro)
+PY
+```
+
+Esperado: `169.254.169.254 BLOQUEADO/FALHOU` e `example.com ALCANCADO`. Se a rede do
+projeto for recriada (novo sub-rede), rode `sh docker/saida-rede-docker.sh aplicar` outra vez;
+`status` avisa quando alguma rede ficou sem cobertura. Para desfazer na hora:
+`sh docker/saida-rede-docker.sh remover`.
+
+O script também barra o que os containers tentam abrir no PRÓPRIO servidor (gateway da bridge,
+IP público), que não passa pelo filtro de encaminhamento do Docker. Se algum dia um container
+precisar de uma porta do host, libere-a de forma explícita, por exemplo
+`LIBERAR_HOST_PORTAS="443" sh docker/saida-rede-docker.sh instalar`. Se o Docker usar o backend
+nftables, o script recusa e não altera nada.

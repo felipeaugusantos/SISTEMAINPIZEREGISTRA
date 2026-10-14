@@ -340,6 +340,9 @@ class UsuarioOperacoes(Base):
     mfa_segredo_versao: Mapped[int | None] = mapped_column(Integer, nullable=True)
     codigos_recuperacao: Mapped[list[str]] = mapped_column(JSON, default=list)
     alterar_senha: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Geração da senha (auditoria externa A04): sobe a cada troca/redefinição; a sessão guarda a geração
+    # com que foi autenticada e deixa de valer se divergir (fecha a corrida login x redefinição).
+    senha_versao: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
     tentativas_falhas: Mapped[int] = mapped_column(Integer, default=0)
     bloqueado_ate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     ultimo_login_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -378,6 +381,8 @@ class SessaoOperacoes(Base):
     expira_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     revogada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     motivo_revogacao: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    # Geração da senha com que esta sessão foi autenticada (ver UsuarioOperacoes.senha_versao).
+    senha_versao: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
     usuario: Mapped[UsuarioOperacoes] = relationship(back_populates="sessoes")
 
 

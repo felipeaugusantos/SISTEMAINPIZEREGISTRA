@@ -14,6 +14,7 @@ from app.api.versoes_sistema import MODULOS_RELEASE, ViewDep, _texto_seguro
 from app.auditing import criar_evento_auditoria
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
+from app.erros import erro_armazenamento
 from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import InteracaoVersaoSistema, Organizacao, ProblemaVersaoSistema, UsuarioOperacoes, VersaoSistema
 from app.relatorios import gerar_pdf_atualizacoes
@@ -387,7 +388,7 @@ async def _anexar_arquivo(
             conteudo,
         )
     except StorageError as exc:
-        raise HTTPException(503, str(exc)) from exc
+        raise erro_armazenamento(exc) from exc
     problema.anexo_nome = anexo.nome
     problema.anexo_caminho = caminho
     problema.anexo_content_type = anexo.content_type

@@ -28,6 +28,8 @@ from app.ia_sombra import (
 )
 from app.imap_polling import verificar_respostas_email
 from app.juridico_comunicacao import agendar_resumos_juridicos_diarios, processar_saidas_email_juridico
+from app.mensageria import obter_provedor as obter_provedor_mensageria
+from app.mensageria import processar_fila as processar_fila_mensageria
 from app.models import (
     AlertaSistema,
     Lead,
@@ -426,6 +428,8 @@ async def processar(tipo: str, payload: dict) -> None:
             await agendar_resumos_juridicos_diarios(session)
         elif tipo == "juridico.processar_comunicacoes":
             await processar_saidas_email_juridico(session)
+        elif tipo == "mensageria.processar_fila":
+            await processar_fila_mensageria(session, obter_provedor_mensageria())
         elif tipo == "cadencia.enviar_emails_pendentes":
             resultado = await processar_envios_cadencia_pendentes(session)
             # Achado 17.4: um alerta por organização, só com os números
@@ -835,6 +839,7 @@ TAREFAS_MANUTENCAO_HORARIA: tuple[str, ...] = (
 )
 INTERVALO_MANUTENCAO_HORARIA = timedelta(hours=1)
 INTERVALO_COMUNICACAO_JURIDICA = timedelta(minutes=1)
+INTERVALO_MENSAGERIA = timedelta(minutes=1)
 INTERVALO_ALTO_RENOME = timedelta(days=7)
 
 
@@ -963,11 +968,26 @@ async def _loop_comunicacao_juridica(redis) -> None:
         await asyncio.sleep(10)
 
 
+async def _loop_mensageria(redis) -> None:
+    """Processa a fila de mensagens (WhatsApp) a cada minuto; fica inerte enquanto estiver desligada."""
+    proxima_execucao = datetime.now(UTC)
+    while True:
+        if datetime.now(UTC) >= proxima_execucao:
+            await _executar_tarefa_manutencao(redis, "mensageria.processar_fila")
+            proxima_execucao = datetime.now(UTC) + INTERVALO_MENSAGERIA
+        await asyncio.sleep(10)
+
+
 async def main() -> None:
     redis = cliente_redis()
     # Recupera trabalhos que ficaram em processamento apos encerramento abrupto (movimento atômico).
     await recuperar_processando(redis)
-    await asyncio.gather(_loop_fila_principal(redis), _loop_manutencao(redis), _loop_comunicacao_juridica(redis))
+    await asyncio.gather(
+        _loop_fila_principal(redis),
+        _loop_manutencao(redis),
+        _loop_comunicacao_juridica(redis),
+        _loop_mensageria(redis),
+    )
 
 
 if __name__ == "__main__":

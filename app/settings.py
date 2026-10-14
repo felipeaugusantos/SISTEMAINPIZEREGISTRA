@@ -182,6 +182,14 @@ class Settings(BaseSettings):
     whatsapp_max_tentativas: int = 3
     # Pausa automática: com tantas falhas na última hora a prospecção para até a causa ser vista.
     whatsapp_pausa_falhas_por_hora: int = 3
+    # Gateway OpenWA (WhatsApp). Sem URL e chave, nenhum provedor é criado e nada é enviado. Os nomes das sessões
+    # são os que o comando app.cli.openwa_configurar cria (um número para vigilância, outro para prospecção).
+    openwa_base_url: str = ""
+    openwa_api_key: str = ""
+    openwa_webhook_secret: str = ""
+    openwa_sessao_vigilancia: str = "vigilancia"
+    openwa_sessao_prospeccao: str = "prospeccao"
+    openwa_timeout_segundos: int = 15
     # Detecção de resposta + pausa automática exige uma caixa de e-mail dedicada
     # via IMAP. Desligado por padrão -- fica inerte até credenciais reais serem
     # configuradas (mesmo princípio de email_enabled).

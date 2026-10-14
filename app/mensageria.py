@@ -25,7 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cadencia_email import FUSO_COMERCIAL, dentro_do_horario_comercial
-from app.models import ConsentimentoCanal, MensagemSaida
+from app.models import AlertaSistema, ConsentimentoCanal, MensagemSaida
 from app.settings import get_settings
 
 logger = logging.getLogger("ze_registra.mensageria")
@@ -50,9 +50,15 @@ class ProvedorMensagens(Protocol):
     async def enviar_texto(self, sessao: str, telefone: str, texto: str, chave_idempotencia: str) -> str: ...
 
 
+class ErroEnvioPermanente(Exception):
+    """O provedor recusou de um jeito que repetir não adianta (ex.: número que não existe no WhatsApp)."""
+
+
 def obter_provedor() -> ProvedorMensagens | None:
-    """Provedor configurado, ou None. Ainda não há nenhum: o gateway entra quando houver número."""
-    return None
+    """Provedor configurado (gateway OpenWA), ou None quando faltam a URL ou a chave."""
+    from app.openwa import criar_provedor
+
+    return criar_provedor()
 
 
 def normalizar_telefone(valor: str | None) -> str | None:
@@ -474,7 +480,7 @@ async def processar_fila(
         except Exception as exc:
             mensagem.ultimo_erro = str(exc)[:300] or type(exc).__name__
             mensagem.ultima_falha_em = agora
-            if mensagem.tentativas >= settings.whatsapp_max_tentativas:
+            if isinstance(exc, ErroEnvioPermanente) or mensagem.tentativas >= settings.whatsapp_max_tentativas:
                 mensagem.status = "falhou"
             else:
                 mensagem.status = "pendente"
@@ -492,3 +498,134 @@ async def processar_fila(
             prospeccao_ja_enviou_nesta_rodada.add(mensagem.organizacao_id)
         await session.commit()  # grava o resultado já, sem esperar o fim do lote
     return {"enviadas": enviadas, "falhas": falhas, "bloqueadas": bloqueadas, "interrompidas": interrompidas}
+
+
+# --- eventos do gateway (webhook) ---
+
+FINALIDADES_DA_SESSAO = {"vigilancia": ("vigilancia", "andamento"), "prospeccao": ("prospeccao",)}
+PAUSA_POR_RESTRICAO = timedelta(hours=24)
+JANELA_ALERTA_REPETIDO = timedelta(minutes=10)
+
+
+def telefone_do_remetente(dados: dict) -> str | None:
+    """Telefone de quem escreveu (celular em dígitos), ou None para grupos, mensagens nossas e ids sem número."""
+    if dados.get("fromMe") or dados.get("isGroup"):
+        return None
+    candidato = str(dados.get("senderPhone") or "")
+    if not candidato:
+        origem = str(dados.get("from") or "")
+        if origem.endswith("@c.us"):
+            candidato = origem[: -len("@c.us")]
+    return normalizar_telefone(candidato)
+
+
+async def _alertar(
+    session: AsyncSession, organizacao_id: int, severidade: str, codigo: str, texto: str, detalhes: dict, agora: datetime
+) -> None:
+    """Cria um alerta no painel, sem repetir o mesmo alerta nos últimos minutos (o webhook entrega ao menos uma vez)."""
+    recente = (
+        await session.execute(
+            select(func.count())
+            .select_from(AlertaSistema)
+            .where(
+                AlertaSistema.organizacao_id == organizacao_id,
+                AlertaSistema.codigo == codigo,
+                AlertaSistema.criado_em >= agora - JANELA_ALERTA_REPETIDO,
+            )
+        )
+    ).scalar_one()
+    if recente:
+        return
+    session.add(
+        AlertaSistema(
+            organizacao_id=organizacao_id, severidade=severidade, codigo=codigo, mensagem=texto, detalhes=detalhes
+        )
+    )
+
+
+async def _registrar_recibo(session: AsyncSession, organizacao_id: int, dados: dict, agora: datetime) -> bool:
+    id_provedor = str(dados.get("messageId") or dados.get("id") or "")
+    status = dados.get("status")
+    if not id_provedor or status not in ("delivered", "read", "failed"):
+        return False
+    mensagem = (
+        await session.execute(
+            select(MensagemSaida).where(
+                MensagemSaida.organizacao_id == organizacao_id, MensagemSaida.provedor_mensagem_id == id_provedor
+            )
+        )
+    ).scalar_one_or_none()
+    if mensagem is None:
+        return False
+    if status == "failed":
+        mensagem.status = "falhou"
+        mensagem.ultimo_erro = "A entrega falhou no WhatsApp."
+        mensagem.ultima_falha_em = agora
+        return True
+    mensagem.entregue_em = mensagem.entregue_em or agora
+    if status == "read":
+        mensagem.lida_em = mensagem.lida_em or agora
+    return True
+
+
+async def processar_evento_gateway(
+    session: AsyncSession,
+    *,
+    organizacao_id: int,
+    evento: str,
+    dados: dict,
+    sessao_logica: str | None = None,
+    agora: datetime | None = None,
+) -> str:
+    """Aplica um evento do gateway. Devolve o que foi feito: saida, recibo, alerta ou ignorado. Não commita."""
+    agora = agora or datetime.now(UTC)
+    if evento == "message.received":
+        telefone = telefone_do_remetente(dados)
+        if telefone and eh_pedido_de_saida(dados.get("body")):
+            await processar_pedido_de_saida(
+                session, organizacao_id=organizacao_id, telefone=telefone, texto=dados["body"], agora=agora
+            )
+            return "saida"
+        return "ignorado"
+    if evento in ("message.ack", "message.failed"):
+        if evento == "message.failed":
+            dados = {**dados, "status": "failed"}
+        return "recibo" if await _registrar_recibo(session, organizacao_id, dados, agora) else "ignorado"
+    if evento == "session.restriction":
+        if dados.get("active"):
+            await _alertar(
+                session,
+                organizacao_id,
+                "critico",
+                "WHATSAPP_RESTRICAO",
+                "O WhatsApp restringiu o número: os envios dele foram pausados por 24 horas.",
+                {"sessao": sessao_logica, "tipo": dados.get("kind"), "codigo": dados.get("code")},
+                agora,
+            )
+            if sessao_logica in FINALIDADES_DA_SESSAO:
+                await session.execute(
+                    update(MensagemSaida)
+                    .where(
+                        MensagemSaida.organizacao_id == organizacao_id,
+                        MensagemSaida.canal == CANAL_WHATSAPP,
+                        MensagemSaida.finalidade.in_(FINALIDADES_DA_SESSAO[sessao_logica]),
+                        MensagemSaida.status == "pendente",
+                    )
+                    .values(agendada_para=agora + PAUSA_POR_RESTRICAO)
+                    .execution_options(synchronize_session=False)
+                )
+        else:
+            await _alertar(
+                session, organizacao_id, "info", "WHATSAPP_RESTRICAO_ENCERRADA",
+                "A restrição do número no WhatsApp foi encerrada.", {"sessao": sessao_logica}, agora,
+            )
+        return "alerta"
+    if evento in ("session.disconnected", "session.reconnect_loop"):
+        codigo = "WHATSAPP_DESCONECTADO" if evento == "session.disconnected" else "WHATSAPP_RECONEXAO_EM_LOOP"
+        await _alertar(
+            session, organizacao_id, "aviso", codigo,
+            "A sessão do WhatsApp perdeu a conexão. Confira o aparelho e o QR code no gateway.",
+            {"sessao": sessao_logica, "motivo": dados.get("reason")}, agora,
+        )
+        return "alerta"
+    return "ignorado"

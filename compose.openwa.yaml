@@ -1,0 +1,58 @@
+# WhatsApp: gateway OpenWA (https://github.com/rmyndharis/OpenWA).
+#
+# Arquivo À PARTE de propósito: o deploy normal (docker/deploy.sh) só usa compose.yaml + compose.production.yaml e
+# nunca sobe nem derruba o gateway. Para operar o gateway, use sempre os três arquivos e o nome do serviço:
+#
+#   docker compose -f compose.yaml -f compose.production.yaml -f compose.openwa.yaml up -d openwa
+#
+# Roda na rede do projeto, então as regras de saída de docker/saida-rede-docker.sh valem para ele (internet
+# pública sim; metadata e redes privadas não). Sem o docker.sock (a orquestração embutida do gateway fica
+# indisponível, o que é o desejado), versão fixada, sistema de arquivos somente leitura, sem capacidades extras e
+# porta só em 127.0.0.1: o QR code é lido pelo painel do gateway via túnel SSH (docs/whatsapp-openwa-runbook.md).
+
+services:
+  openwa:
+    image: ghcr.io/rmyndharis/openwa:v0.24.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:2785:2785"
+    environment:
+      NODE_ENV: production
+      HOME: /tmp
+      PORT: "2785"
+      ENGINE_TYPE: ${OPENWA_ENGINE:-whatsapp-web.js}
+      DATABASE_TYPE: sqlite
+      DATABASE_NAME: ./data/openwa.sqlite
+      SESSION_DATA_PATH: ./data/sessions
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: ./data/media
+      AUTO_START_SESSIONS: "true"
+      # Chave mestra do gateway: a mesma que o Zé Registra usa em OPENWA_API_KEY (sem ela a API ficaria aberta).
+      API_MASTER_KEY: ${OPENWA_API_KEY:?configure OPENWA_API_KEY no .env antes de subir o gateway}
+      # Quem escreve por identificador privado (@lid) chega com o telefone, para o "SAIR" funcionar.
+      RESOLVE_LID_TO_PHONE: "true"
+      REDIS_ENABLED: "false"
+      QUEUE_ENABLED: "false"
+      CACHE_ENABLED: "false"
+    volumes:
+      - openwa_data:/app/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - KILL
+      - SETGID
+      - SETUID
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 2g
+    pids_limit: 512
+    stop_grace_period: 75s
+
+volumes:
+  openwa_data:

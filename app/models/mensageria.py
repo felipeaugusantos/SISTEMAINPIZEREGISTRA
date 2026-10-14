@@ -73,6 +73,8 @@ class MensagemSaida(Base):
     enviada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     ultimo_erro: Mapped[str | None] = mapped_column(String(300), nullable=True)
     ultima_falha_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    entregue_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lida_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     chave_idempotencia: Mapped[str] = mapped_column(String(120))
     provedor_mensagem_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

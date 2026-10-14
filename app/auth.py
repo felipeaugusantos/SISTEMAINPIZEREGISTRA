@@ -18,6 +18,7 @@ from app.models import SessaoOperacoes, UsuarioOperacoes
 from app.permissions import CHAVES_PERMISSAO, PERFIS_MFA_OBRIGATORIO, permissoes_efetivas
 from app.proxy import cliente_ip, requisicao_https
 from app.ratelimit import RateLimiter
+from app.security_ext import passo_totp
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
 
@@ -147,6 +148,25 @@ async def consumir_codigo_recuperacao(session: AsyncSession, usuario: UsuarioOpe
         return False
     codigos.remove(hash_codigo)
     usuario.codigos_recuperacao = codigos
+    return True
+
+
+async def consumir_totp(session: AsyncSession, usuario: UsuarioOperacoes, segredo: str, codigo: str) -> bool:
+    """Valida o TOTP e o consome: o mesmo código (ou um mais antigo) não vale uma segunda vez (S04).
+
+    O passo de 30 s aceito fica em ``mfa_ultimo_passo``; só vale passo MAIOR que o último. A linha do
+    usuário é travada (SELECT ... FOR UPDATE), então duas validações simultâneas do mesmo código
+    disputam a trava e só a primeira passa, mesmo entre processos e endpoints. O contexto do tenant é
+    aplicado antes (a política de escrita exige) e o chamador confirma a transação.
+    """
+    passo = passo_totp(segredo, codigo)
+    if passo is None:
+        return False
+    await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
+    await session.refresh(usuario, attribute_names=["mfa_ultimo_passo"], with_for_update=True)
+    if (usuario.mfa_ultimo_passo or 0) >= passo:
+        return False
+    usuario.mfa_ultimo_passo = passo
     return True
 
 

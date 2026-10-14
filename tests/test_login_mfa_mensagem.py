@@ -16,9 +16,11 @@ tocar banco real.
 """
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException, Response
+from sqlalchemy.dialects import postgresql
 from starlette.requests import Request
 
 from app.api.auth_routes import LoginInput, login
@@ -85,26 +87,36 @@ def _usuario(**overrides: object) -> UsuarioOperacoes:
     return usuario
 
 
+
+def _falhas_registradas(sessao: FakeSession) -> int:
+    """Quantos UPDATE atômicos de falha de login (auditoria S05) a sessão executou."""
+    return sum(1 for comando in sessao.executados if "UPDATE usuarios_operacoes" in str(comando))
+
+
+def _falhar(usuario: UsuarioOperacoes, dados: LoginInput) -> tuple[HTTPException, FakeSession]:
+    sessao = _sessao(usuario)
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(login(dados, _request(), Response(), sessao))
+    return exc_info.value, sessao
+
+
 def test_senha_errada_sem_mfa_mostra_mensagem_generica() -> None:
     usuario = _usuario(mfa_ativo=False)
-    dados = LoginInput(identificador="operador", senha="senha-errada")
-    with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(login(dados, _request(), Response(), _sessao(usuario)))
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Usuário ou senha inválidos"
-    assert usuario.tentativas_falhas == 1
+    erro, sessao = _falhar(usuario, LoginInput(identificador="operador", senha="senha-errada"))
+    assert erro.status_code == 401
+    assert erro.detail == "Usuário ou senha inválidos"
+    assert _falhas_registradas(sessao) == 1
 
 
 def test_senha_certa_mfa_ativo_sem_codigo_pede_codigo_sem_penalizar() -> None:
     segredo = "JBSWY3DPEHPK3PXP"
     usuario = _usuario(mfa_ativo=True, mfa_segredo=proteger_segredo(segredo))
-    dados = LoginInput(identificador="operador", senha="Senha-Correta-123")
-    with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(login(dados, _request(), Response(), _sessao(usuario)))
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Informe o código do seu autenticador"
+    erro, sessao = _falhar(usuario, LoginInput(identificador="operador", senha="Senha-Correta-123"))
+    assert erro.status_code == 401
+    assert erro.detail == "Informe o código do seu autenticador"
     # Achado principal: essa etapa esperada do fluxo não pode contar como
     # tentativa falha pro bloqueio de 5 tentativas.
+    assert _falhas_registradas(sessao) == 0
     assert usuario.tentativas_falhas == 0
     assert usuario.bloqueado_ate is None
 
@@ -112,23 +124,39 @@ def test_senha_certa_mfa_ativo_sem_codigo_pede_codigo_sem_penalizar() -> None:
 def test_senha_certa_mfa_ativo_codigo_errado_mostra_mensagem_especifica() -> None:
     segredo = "JBSWY3DPEHPK3PXP"
     usuario = _usuario(mfa_ativo=True, mfa_segredo=proteger_segredo(segredo))
-    dados = LoginInput(identificador="operador", senha="Senha-Correta-123", codigo_mfa="000000")
-    with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(login(dados, _request(), Response(), _sessao(usuario)))
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Código MFA inválido"
-    assert usuario.tentativas_falhas == 1
+    erro, sessao = _falhar(
+        usuario, LoginInput(identificador="operador", senha="Senha-Correta-123", codigo_mfa="000000")
+    )
+    assert erro.status_code == 401
+    assert erro.detail == "Código MFA inválido"
+    assert _falhas_registradas(sessao) == 1
 
 
 def test_senha_errada_mesmo_com_mfa_ativo_nao_mostra_mensagem_de_mfa() -> None:
     segredo = "JBSWY3DPEHPK3PXP"
     usuario = _usuario(mfa_ativo=True, mfa_segredo=proteger_segredo(segredo))
-    dados = LoginInput(identificador="operador", senha="senha-errada")
-    with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(login(dados, _request(), Response(), _sessao(usuario)))
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Usuário ou senha inválidos"
-    assert usuario.tentativas_falhas == 1
+    erro, sessao = _falhar(usuario, LoginInput(identificador="operador", senha="senha-errada"))
+    assert erro.status_code == 401
+    assert erro.detail == "Usuário ou senha inválidos"
+    assert _falhas_registradas(sessao) == 1
+
+
+def test_s05_tentativa_com_a_conta_ja_bloqueada_nao_conta_nem_prolonga() -> None:
+    usuario = _usuario(mfa_ativo=False, bloqueado_ate=datetime.now(UTC) + timedelta(minutes=10))
+    erro, sessao = _falhar(usuario, LoginInput(identificador="operador", senha="Senha-Correta-123"))
+    assert erro.status_code == 401
+    assert _falhas_registradas(sessao) == 0
+
+
+def test_s05_falha_de_login_usa_um_unico_update_atomico_no_banco() -> None:
+    usuario = _usuario(mfa_ativo=False)
+    _, sessao = _falhar(usuario, LoginInput(identificador="operador", senha="senha-errada"))
+    (comando,) = [c for c in sessao.executados if "UPDATE usuarios_operacoes" in str(c)]
+    texto = str(comando.compile(dialect=postgresql.dialect()))
+    # contador e bloqueio calculados pelo banco, só em contas não bloqueadas
+    assert "tentativas_falhas + " in texto
+    assert "CASE" in texto and "bloqueado_ate IS NULL OR" in texto
+    assert usuario.tentativas_falhas == 0  # nada foi somado em Python
 
 
 def test_senha_certa_mfa_ativo_codigo_correto_autentica() -> None:

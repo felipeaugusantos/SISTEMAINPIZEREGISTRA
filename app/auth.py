@@ -9,7 +9,7 @@ from typing import Annotated
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import Depends, HTTPException, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import case, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -149,6 +149,35 @@ async def consumir_codigo_recuperacao(session: AsyncSession, usuario: UsuarioOpe
     codigos.remove(hash_codigo)
     usuario.codigos_recuperacao = codigos
     return True
+
+
+LIMITE_FALHAS_LOGIN = 5
+BLOQUEIO_LOGIN = timedelta(minutes=15)
+
+
+async def registrar_falha_login(session: AsyncSession, modelo: type, registro_id: int, agora: datetime) -> bool:
+    """Conta uma falha de login e, na quinta, bloqueia a conta por 15 minutos (auditoria S05).
+
+    Ler, somar em Python e gravar deixava requisições simultâneas perderem tentativas (todas liam o mesmo
+    valor) e adiar o bloqueio. Aqui a conta e o bloqueio saem de um único UPDATE, que o banco serializa
+    por linha: cada falha é contada uma vez. O UPDATE só atinge contas que NÃO estão bloqueadas, então
+    tentativas feitas durante o bloqueio não contam e não o prolongam. Devolve True quando ESTA falha
+    bloqueou a conta. O chamador aplica o contexto do tenant antes e confirma a transação.
+    """
+    novo = modelo.tentativas_falhas + 1
+    estoura = novo >= LIMITE_FALHAS_LOGIN
+    resultado = await session.execute(
+        update(modelo)
+        .where(modelo.id == registro_id, or_(modelo.bloqueado_ate.is_(None), modelo.bloqueado_ate <= agora))
+        .values(
+            tentativas_falhas=case((estoura, 0), else_=novo),
+            bloqueado_ate=case((estoura, agora + BLOQUEIO_LOGIN), else_=modelo.bloqueado_ate),
+        )
+        .returning(modelo.tentativas_falhas)
+        .execution_options(synchronize_session=False)
+    )
+    linha = resultado.first()
+    return linha is not None and linha[0] == 0
 
 
 async def consumir_totp(session: AsyncSession, usuario: UsuarioOperacoes, segredo: str, codigo: str) -> bool:

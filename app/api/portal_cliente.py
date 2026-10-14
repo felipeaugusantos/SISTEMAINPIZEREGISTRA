@@ -33,7 +33,7 @@ from app.api.leads_propostas import (
     criar_contratacao_automatica_proposta,
     motivo_bloqueio_aceite,
 )
-from app.auth import exigir_permissao, hash_ip, hash_senha, hash_token, verificar_senha
+from app.auth import exigir_permissao, hash_ip, hash_senha, hash_token, registrar_falha_login, verificar_senha
 from app.clicksign import configuracao as configuracao_clicksign
 from app.crm import registrar_evento_operacional
 from app.database import get_session, session_factory
@@ -908,10 +908,9 @@ async def login_cliente(dados: ClienteLogin, request: Request, response: Respons
         # Mesmo limiar (5 falhas / 15 min) usado no login administrativo.
         if cliente is not None and not bloqueado_por_conta:
             await aplicar_contexto_tenant(session, cliente.organizacao_id)
-            cliente.tentativas_falhas += 1
-            if cliente.tentativas_falhas >= 5:
-                cliente.bloqueado_ate = agora + timedelta(minutes=15)
-                cliente.tentativas_falhas = 0
+            # Auditoria S05: contagem e bloqueio atômicos no banco (um UPDATE), sem perder tentativas
+            # simultâneas e sem prolongar um bloqueio já em vigor.
+            await registrar_falha_login(session, ClientePortal, cliente.id, agora)
             await session.commit()
         raise HTTPException(status_code=401, detail="E-mail ou senha inválidos")
     # O login do cliente ocorre sem a sessão do operador; estabeleça o tenant

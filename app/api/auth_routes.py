@@ -22,6 +22,7 @@ from app.auth import (
     hash_senha,
     hash_token,
     normalizar_modulos_plano,
+    registrar_falha_login,
     verificar_senha,
 )
 from app.database import aplicar_contexto_autenticacao, get_session
@@ -234,18 +235,16 @@ async def login(
         )
         raise HTTPException(status_code=401, detail="Informe o código do seu autenticador")
     if not valido:
-        bloqueou = False
-        if usuario is not None:
-            usuario.tentativas_falhas += 1
-            if usuario.tentativas_falhas >= 5:
-                usuario.bloqueado_ate = agora + timedelta(minutes=15)
-                usuario.tentativas_falhas = 0
-                bloqueou = True
         request.state.auth_user = None
         await aplicar_contexto_tenant(
             session,
             usuario.organizacao_id if usuario else get_settings().default_organization_id,
         )
+        # Auditoria S05: a contagem e o bloqueio são decididos pelo banco, num único UPDATE atômico, e
+        # tentativas feitas com a conta já bloqueada não contam nem prolongam o bloqueio.
+        bloqueou = False
+        if usuario is not None and not (usuario.bloqueado_ate and usuario.bloqueado_ate > agora):
+            bloqueou = await registrar_falha_login(session, UsuarioOperacoes, usuario.id, agora)
         await _auditar(
             session,
             request,

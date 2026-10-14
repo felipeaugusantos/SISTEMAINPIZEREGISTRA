@@ -587,7 +587,7 @@ async def iniciar_mfa(
         # uma sessão roubada trocaria o MFA por um segredo que ele conhece (auditoria A01).
         codigo = ((dados.codigo if dados else None) or "").strip()
         if not codigo or not validar_totp(revelar_segredo(registro.mfa_segredo or ""), codigo):
-            await _auditar(session, request, usuario.email, "MFA_SUBSTITUICAO_NEGADA", False, {})
+            await _auditar(session, request, usuario.email, "MFA_SUBST_NEGADA", False, {})
             await session.commit()
             raise HTTPException(403, "Para substituir o MFA ativo, informe o código atual do autenticador")
     segredo = gerar_segredo_totp()

@@ -26,7 +26,11 @@ async function api(url, options = {}) {
   const response = await fetch(url, options);
   const payload = await response.json().catch(() => ({}));
   const detalhe = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail || {});
-  if (!response.ok) throw new Error(detalhe || `Falha na operação (${response.status})`);
+  if (!response.ok) {
+    const erro = new Error(detalhe || `Falha na operação (${response.status})`);
+    erro.status = response.status;
+    throw erro;
+  }
   return payload;
 }
 
@@ -353,10 +357,24 @@ async function copiar(texto, aoConfirmar) {
   }
 }
 
+// Com o MFA já ativo, reconfigurar exige provar o fator atual (auditoria externa A01): se o servidor
+// recusar pedindo o código, pergunta o código de 6 dígitos do autenticador e tenta de novo uma vez.
+async function iniciarMfa() {
+  const url = "/v1/auth/mfa/iniciar";
+  try {
+    return await api(url, { method: "POST", body: "{}" });
+  } catch (error) {
+    if (error.status !== 403 || !error.message.includes("MFA ativo")) throw error;
+    const codigo = (window.prompt("O MFA já está ativo. Para reconfigurá-lo, digite o código de 6 dígitos atual do seu autenticador:") || "").trim();
+    if (!/^\d{6}$/.test(codigo)) throw new Error("Reconfiguração cancelada: informe o código de 6 dígitos atual do autenticador.");
+    return api(url, { method: "POST", body: JSON.stringify({ codigo }) });
+  }
+}
+
 mfaButton.addEventListener("click", async () => {
   mfaButton.disabled = true;
   try {
-    const inicio = await api("/v1/auth/mfa/iniciar", { method: "POST", body: "{}" });
+    const inicio = await iniciarMfa();
     document.querySelector("#mfa-secret").textContent = inicio.segredo;
     document.querySelector("#mfa-qrcode").replaceChildren();
     new QRCode(document.querySelector("#mfa-qrcode"), {

@@ -30,7 +30,7 @@ async def executar() -> None:
         resultado = await session.execute(
             text(
                 "UPDATE usuarios_operacoes SET senha_hash = :h, tentativas_falhas = 0, "
-                "bloqueado_ate = NULL, alterar_senha = false WHERE usuario = :u"
+                "bloqueado_ate = NULL, alterar_senha = false, senha_versao = senha_versao + 1 WHERE usuario = :u"
             ),
             {"h": hash_senha(nova), "u": usuario},
         )

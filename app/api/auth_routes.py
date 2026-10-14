@@ -185,6 +185,8 @@ async def login(
         )
     ).scalar_one_or_none()
     agora = datetime.now(UTC)
+    # Geração da senha lida JUNTO com o hash que será verificado: a sessão nasce com ela (A04).
+    versao_senha_lida = (usuario.senha_versao or 1) if usuario is not None else 1
     # Achado do usuário (23/09/2026): a mensagem "Código MFA inválido ou
     # ausente" aparecia até com senha certa, na primeira etapa normal do
     # login em duas etapas (o campo de código só existe na tela depois da
@@ -257,7 +259,7 @@ async def login(
     usuario.ultimo_login_em = agora
     request.state.auth_user = type("LoginTenant", (), {"organizacao_id": usuario.organizacao_id})()
     await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
-    sessao, token, csrf = criar_sessao(usuario.id, request)
+    sessao, token, csrf = criar_sessao(usuario.id, request, senha_versao=versao_senha_lida)
     session.add(sessao)
     await _auditar(session, request, usuario.email, "LOGIN", True, {"usuario_id": usuario.id})
     await session.commit()
@@ -429,6 +431,7 @@ async def trocar_senha(
         raise HTTPException(status_code=400, detail="A nova senha deve ser diferente")
     registro.senha_hash = hash_senha(dados.nova_senha)
     registro.alterar_senha = False
+    registro.senha_versao = (registro.senha_versao or 1) + 1
     await session.execute(
         update(SessaoOperacoes)
         .where(
@@ -437,6 +440,10 @@ async def trocar_senha(
             SessaoOperacoes.revogada_em.is_(None),
         )
         .values(revogada_em=datetime.now(UTC), motivo_revogacao="troca_senha")
+    )
+    # A sessão em uso continua válida: passa para a nova geração da senha.
+    await session.execute(
+        update(SessaoOperacoes).where(SessaoOperacoes.id == usuario.sessao_id).values(senha_versao=registro.senha_versao)
     )
     await _auditar(session, request, usuario.email, "TROCA_SENHA", True, {"usuario_id": usuario.id})
     await session.commit()
@@ -554,6 +561,7 @@ async def redefinir_senha(
     if consumo.first() is None:
         raise HTTPException(400, "Token inválido ou expirado")
     usuario.senha_hash = hash_senha(dados.nova_senha)
+    usuario.senha_versao = (usuario.senha_versao or 1) + 1
     usuario.alterar_senha = False
     await session.execute(
         update(SessaoOperacoes)

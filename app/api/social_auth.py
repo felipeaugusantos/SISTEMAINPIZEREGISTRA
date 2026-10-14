@@ -386,7 +386,7 @@ async def _concluir_sessao(
     destino: str,
 ) -> None:
     usuario.ultimo_login_em = datetime.now(UTC)
-    sessao, token, csrf = criar_sessao(usuario.id, request)
+    sessao, token, csrf = criar_sessao(usuario.id, request, senha_versao=usuario.senha_versao or 1)
     session.add(sessao)
     await _auditar(session, request, usuario, "OAUTH_LOGIN", provedor)
     await session.commit()

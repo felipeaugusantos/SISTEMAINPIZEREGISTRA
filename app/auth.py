@@ -189,6 +189,13 @@ async def obter_usuario_atual(
         sessao.motivo_revogacao = "inatividade"
         await session.commit()
         raise _erro_nao_autenticado(request)
+    if (sessao.senha_versao or 1) != (usuario.senha_versao or 1):
+        # A senha mudou depois que esta sessão foi autenticada (ex.: login que validou a senha antiga e
+        # gravou a sessão depois da redefinição) -- a sessão não vale mais (auditoria externa A04).
+        sessao.revogada_em = agora
+        sessao.motivo_revogacao = "senha_alterada"
+        await session.commit()
+        raise _erro_nao_autenticado(request)
     if not usuario.ativo or (usuario.bloqueado_ate and usuario.bloqueado_ate > agora):
         raise HTTPException(status_code=403, detail="Usuario bloqueado")
     if usuario.organizacao.status not in {"ativa", "trial"}:
@@ -334,7 +341,13 @@ def exigir_qualquer_permissao(*chaves: str) -> Callable:
     return dependencia
 
 
-def criar_sessao(usuario_id: int, request: Request) -> tuple[SessaoOperacoes, str, str]:
+def criar_sessao(usuario_id: int, request: Request, *, senha_versao: int) -> tuple[SessaoOperacoes, str, str]:
+    """Cria a sessão guardando a geração da senha com que a pessoa foi autenticada.
+
+    ``senha_versao`` deve ser lida junto com o hash que foi verificado (mesma consulta): se a senha
+    mudar entre a verificação e a criação da sessão, a sessão nasce com a geração antiga e deixa de
+    valer na primeira requisição (auditoria externa A04).
+    """
     token, csrf = gerar_credenciais_sessao()
     settings = get_settings()
     sessao = SessaoOperacoes(
@@ -344,6 +357,7 @@ def criar_sessao(usuario_id: int, request: Request) -> tuple[SessaoOperacoes, st
         user_agent=request.headers.get("user-agent", "")[:500] or None,
         ip_hash=hash_ip(cliente_ip(request)),
         expira_em=datetime.now(UTC) + timedelta(hours=settings.session_duration_hours),
+        senha_versao=senha_versao,
     )
     return sessao, token, csrf
 

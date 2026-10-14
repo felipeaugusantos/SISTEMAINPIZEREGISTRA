@@ -91,8 +91,10 @@ def test_a01_com_o_codigo_atual_a_substituicao_e_permitida() -> None:
     resposta = _cliente(registro).post(URL_INICIAR, json={"codigo": codigo_totp(segredo)}, headers=CABECALHO)
     assert resposta.status_code == 200
     assert resposta.json()["status"] == "aguardando_confirmacao"
-    assert registro.mfa_ativo is False
-    assert registro.mfa_segredo != antigo
+    # S03: o fator ativo segue valendo; o segredo novo fica pendente até ser confirmado.
+    assert registro.mfa_ativo is True
+    assert registro.mfa_segredo == antigo
+    assert registro.mfa_segredo_pendente is not None
 
 
 def test_a01_primeira_configuracao_nao_exige_codigo() -> None:
@@ -157,7 +159,10 @@ def _concluir(session: FakeSession, cookie: str | None = "desafio") -> dict:
 
 
 def _stubs(monkeypatch: pytest.MonkeyPatch, totp_valido: bool) -> None:
-    monkeypatch.setattr(modulo_social_auth, "validar_totp", lambda *_a, **_k: totp_valido)
+    async def _consumir_totp(*_a, **_k):
+        return totp_valido
+
+    monkeypatch.setattr(modulo_social_auth, "consumir_totp", _consumir_totp)
     monkeypatch.setattr(modulo_social_auth, "revelar_segredo", lambda *_a, **_k: "")
 
 

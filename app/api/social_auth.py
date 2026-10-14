@@ -19,6 +19,7 @@ from app.auditing import criar_evento_auditoria
 from app.auth import (
     UsuarioAtualDep,
     consumir_codigo_recuperacao,
+    consumir_totp,
     criar_sessao,
     definir_cookies_sessao,
     exigir_csrf,
@@ -34,7 +35,7 @@ from app.models import (
 from app.permissions import destino_inicial
 from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
-from app.security_ext import proteger_segredo, revelar_segredo, validar_totp, versao_chave_atual
+from app.security_ext import proteger_segredo, revelar_segredo, versao_chave_atual
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
 
@@ -578,7 +579,7 @@ async def concluir_mfa(
         raise
     codigo = dados.codigo.strip().upper()
     segredo_mfa = revelar_segredo(usuario.mfa_segredo or "")
-    valido = validar_totp(segredo_mfa, codigo)
+    valido = await consumir_totp(session, usuario, segredo_mfa, codigo)
     hash_codigo = hash_token(codigo)
     if not valido and hash_codigo in (usuario.codigos_recuperacao or []):
         valido = await consumir_codigo_recuperacao(session, usuario, hash_codigo)

@@ -85,9 +85,22 @@ def codigo_totp(segredo: str, instante: int | None = None) -> str:
     return f"{numero:06d}"
 
 
-def validar_totp(segredo: str, codigo: str, instante: int | None = None) -> bool:
+def passo_totp(segredo: str, codigo: str, instante: int | None = None) -> int | None:
+    """Passo de 30 s do TOTP que corresponde ao código, ou None se nenhuma das janelas aceitas confere.
+
+    O passo permite consumir o código uma única vez (auditoria S04): ver ``consumir_totp`` em app/auth.py.
+    """
     agora = int(time.time()) if instante is None else instante
-    return any(hmac.compare_digest(codigo_totp(segredo, agora + desvio), codigo.strip()) for desvio in (-30, 0, 30))
+    informado = codigo.strip().encode()
+    encontrado = None
+    for desvio in (-30, 0, 30):
+        if hmac.compare_digest(codigo_totp(segredo, agora + desvio).encode(), informado):
+            encontrado = (agora + desvio) // 30
+    return encontrado
+
+
+def validar_totp(segredo: str, codigo: str, instante: int | None = None) -> bool:
+    return passo_totp(segredo, codigo, instante) is not None
 
 
 def uri_totp(segredo: str, email: str) -> str:

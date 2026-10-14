@@ -338,6 +338,12 @@ class UsuarioOperacoes(Base):
     mfa_ativo: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     mfa_segredo: Mapped[str | None] = mapped_column(Text, nullable=True)
     mfa_segredo_versao: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Auditoria S04: último passo de 30 s de TOTP aceito; um código só vale uma vez (replay recusado).
+    mfa_ultimo_passo: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Auditoria S03: segredo novo aguardando confirmação durante a troca do autenticador. O fator
+    # ativo (mfa_segredo/mfa_ativo) só é substituído quando o novo é confirmado.
+    mfa_segredo_pendente: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mfa_pendente_expira_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     codigos_recuperacao: Mapped[list[str]] = mapped_column(JSON, default=list)
     alterar_senha: Mapped[bool] = mapped_column(Boolean, default=True)
     # Geração da senha (auditoria externa A04): sobe a cada troca/redefinição; a sessão guarda a geração

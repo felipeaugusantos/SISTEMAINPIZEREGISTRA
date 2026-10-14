@@ -15,6 +15,7 @@ from app.auth import (
     UsuarioAtualDep,
     consumir_codigo_recuperacao,
     consumir_tempo_hash,
+    consumir_totp,
     criar_sessao,
     definir_cookies_sessao,
     exigir_csrf,
@@ -39,11 +40,11 @@ from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
 from app.security_ext import (
     gerar_segredo_totp,
+    passo_totp,
     proteger_segredo,
     revelar_segredo,
     uri_totp,
     validar_forca_senha,
-    validar_totp,
     versao_chave_atual,
 )
 from app.settings import TAMANHO_MINIMO_SENHA, get_settings
@@ -55,6 +56,8 @@ logger = logging.getLogger(__name__)
 limitar_login = RateLimiter(limite=10, janela_segundos=60, escopo="login")
 limitar_recuperacao = RateLimiter(limite=5, janela_segundos=300, escopo="recuperacao")
 limitar_mfa = RateLimiter(limite=10, janela_segundos=300, escopo="mfa")
+# Quanto tempo o segredo novo pode ficar pendente durante a troca do autenticador (auditoria S03).
+PRAZO_TROCA_MFA = timedelta(minutes=15)
 # Auditoria de seguranca (13/10/2026, item 9): redefinir senha e aceitar convite
 # eram publicas e sem limite. Os tokens sao fortes (inviavel adivinhar), mas sem
 # limite qualquer IP podia martelar o endpoint e o banco indefinidamente.
@@ -211,7 +214,7 @@ async def login(
         else:
             codigo = dados.codigo_mfa or ""
             segredo_mfa = revelar_segredo(usuario.mfa_segredo or "")
-            valido = validar_totp(segredo_mfa, codigo)
+            valido = await consumir_totp(session, usuario, segredo_mfa, codigo)
             hash_codigo = hash_token(codigo.upper())
             if not valido and hash_codigo in (usuario.codigos_recuperacao or []):
                 valido = await consumir_codigo_recuperacao(session, usuario, hash_codigo)
@@ -599,18 +602,25 @@ async def iniciar_mfa(
     limitar_mfa.aplicar(f"usuario:{usuario.id}")
     exigir_csrf(request, usuario)
     registro = await session.get(UsuarioOperacoes, usuario.id)
+    segredo = gerar_segredo_totp()
     if registro.mfa_ativo:
         # Substituir o segundo fator exige provar o fator atual: sem isso, quem controla
         # uma sessão roubada trocaria o MFA por um segredo que ele conhece (auditoria A01).
         codigo = ((dados.codigo if dados else None) or "").strip()
-        if not codigo or not validar_totp(revelar_segredo(registro.mfa_segredo or ""), codigo):
+        segredo_atual = revelar_segredo(registro.mfa_segredo or "")
+        if not codigo or not await consumir_totp(session, registro, segredo_atual, codigo):
             await _auditar(session, request, usuario.email, "MFA_SUBST_NEGADA", False, {})
             await session.commit()
             raise HTTPException(403, "Para substituir o MFA ativo, informe o código atual do autenticador")
-    segredo = gerar_segredo_totp()
-    registro.mfa_segredo = proteger_segredo(segredo)
-    registro.mfa_segredo_versao = versao_chave_atual()
-    registro.mfa_ativo = False
+        # Auditoria S03: o fator ativo continua valendo. O segredo novo fica PENDENTE e só substitui o
+        # atual quando for confirmado; abandonar a troca não derruba a proteção da conta.
+        registro.mfa_segredo_pendente = proteger_segredo(segredo)
+        registro.mfa_pendente_expira_em = datetime.now(UTC) + PRAZO_TROCA_MFA
+    else:
+        registro.mfa_segredo = proteger_segredo(segredo)
+        registro.mfa_segredo_versao = versao_chave_atual()
+        registro.mfa_segredo_pendente = None
+        registro.mfa_pendente_expira_em = None
     await _auditar(session, request, usuario.email, "MFA_INICIADO", True, {})
     await session.commit()
     return {
@@ -618,6 +628,19 @@ async def iniciar_mfa(
         "uri": uri_totp(segredo, registro.email),
         "status": "aguardando_confirmacao",
     }
+
+
+async def _revogar_outras_sessoes(session: AsyncSession, usuario: UsuarioAtualDep) -> None:
+    """Depois de mudar o segundo fator, encerra as demais sessões da conta (auditoria S02)."""
+    await session.execute(
+        update(SessaoOperacoes)
+        .where(
+            SessaoOperacoes.usuario_id == usuario.id,
+            SessaoOperacoes.id != usuario.sessao_id,
+            SessaoOperacoes.revogada_em.is_(None),
+        )
+        .values(revogada_em=datetime.now(UTC), motivo_revogacao="mfa_alterado")
+    )
 
 
 @router.post("/mfa/confirmar")
@@ -630,12 +653,39 @@ async def confirmar_mfa(
     limitar_mfa.aplicar(f"usuario:{usuario.id}")
     exigir_csrf(request, usuario)
     registro = await session.get(UsuarioOperacoes, usuario.id)
-    if not registro.mfa_segredo or not validar_totp(revelar_segredo(registro.mfa_segredo), dados.codigo):
+    agora = datetime.now(UTC)
+    troca = bool(
+        registro.mfa_segredo_pendente and registro.mfa_pendente_expira_em and registro.mfa_pendente_expira_em > agora
+    )
+    if troca:
+        # Segredo novo: ninguém usou códigos dele ainda, então o passo aceito só precisa ser registrado
+        # (sob trava, para duas confirmações simultâneas não passarem juntas).
+        await aplicar_contexto_tenant(session, registro.organizacao_id, superadmin=registro.superadmin)
+        await session.refresh(registro, with_for_update=True)
+        # Relê o estado sob a trava: outra confirmação simultânea pode já ter consumido o pendente.
+        if not (
+            registro.mfa_segredo_pendente
+            and registro.mfa_pendente_expira_em
+            and registro.mfa_pendente_expira_em > agora
+        ):
+            raise HTTPException(400, "Código MFA inválido")
+        passo = passo_totp(revelar_segredo(registro.mfa_segredo_pendente), dados.codigo)
+        if passo is None:
+            raise HTTPException(400, "Código MFA inválido")
+        registro.mfa_segredo = registro.mfa_segredo_pendente
+        registro.mfa_segredo_versao = versao_chave_atual()
+        registro.mfa_segredo_pendente = None
+        registro.mfa_pendente_expira_em = None
+        registro.mfa_ultimo_passo = passo
+    elif not registro.mfa_segredo or not await consumir_totp(
+        session, registro, revelar_segredo(registro.mfa_segredo), dados.codigo
+    ):
         raise HTTPException(400, "Código MFA inválido")
     codigos = [secrets.token_hex(5).upper() for _ in range(8)]
     registro.codigos_recuperacao = [hash_token(c) for c in codigos]
     registro.mfa_ativo = True
-    await _auditar(session, request, usuario.email, "MFA_ATIVADO", True, {})
+    await _revogar_outras_sessoes(session, usuario)
+    await _auditar(session, request, usuario.email, "MFA_ATIVADO", True, {"troca": troca})
     await session.commit()
     return {
         "status": "ativo",
@@ -651,14 +701,24 @@ async def desativar_mfa(
     usuario: UsuarioAtualDep,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
+    # Auditoria S02: limite compartilhado por conta (Redis, atômico), como iniciar e confirmar.
+    limitar_mfa.aplicar(f"usuario:{usuario.id}")
     exigir_csrf(request, usuario)
     registro = await session.get(UsuarioOperacoes, usuario.id)
-    if not registro.mfa_ativo or not validar_totp(revelar_segredo(registro.mfa_segredo or ""), dados.codigo):
+    if not registro.mfa_ativo or not await consumir_totp(
+        session, registro, revelar_segredo(registro.mfa_segredo or ""), dados.codigo
+    ):
+        await _auditar(session, request, usuario.email, "MFA_DESATIV_NEGADO", False, {})
+        await session.commit()
         raise HTTPException(400, "Código MFA inválido")
     registro.mfa_ativo = False
     registro.mfa_segredo = None
     registro.mfa_segredo_versao = None
+    registro.mfa_segredo_pendente = None
+    registro.mfa_pendente_expira_em = None
+    registro.mfa_ultimo_passo = None
     registro.codigos_recuperacao = []
+    await _revogar_outras_sessoes(session, usuario)
     await _auditar(session, request, usuario.email, "MFA_DESATIVADO", True, {})
     await session.commit()
     return {"status": "desativado"}

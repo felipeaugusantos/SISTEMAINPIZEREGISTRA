@@ -130,7 +130,10 @@ def test_concluir_mfa_aplica_tenant_antes_de_consumir_codigo_recuperacao(
         ordem.append("tenant")
 
     monkeypatch.setattr(modulo_social_auth, "aplicar_contexto_tenant", aplicar_tenant_sem_autoflush)
-    monkeypatch.setattr(modulo_social_auth, "validar_totp", lambda *_args, **_kwargs: False)
+    async def _consumir_totp_falso(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(modulo_social_auth, "consumir_totp", _consumir_totp_falso)
     monkeypatch.setattr(modulo_social_auth, "revelar_segredo", lambda *_args, **_kwargs: "")
 
     request = Request(

@@ -62,14 +62,17 @@ return 0
 # recusar a escrita (pcall), devolvem a tarefa à origem e sinalizam -1: ela segue recuperável.
 _LUA_PROCESSANDO_PARA_RETRY = """
 if redis.call('LREM', KEYS[1], 1, ARGV[1]) == 1 then
+  -- Só o ZADD (um único comando: se falhar, nada foi gravado) decide se a tarefa volta à origem.
+  -- A métrica fica fora desse bloco: o Redis não desfaz comandos já executados, então uma falha
+  -- nela depois do ZADD deixaria a tarefa duplicada (em retry E em processamento).
   local ok = pcall(function()
     redis.call('ZADD', KEYS[2], tonumber(ARGV[3]), ARGV[2])
-    redis.call('HINCRBY', KEYS[3], 'retries', 1)
   end)
   if not ok then
     redis.call('LPUSH', KEYS[1], ARGV[1])
     return -1
   end
+  pcall(function() redis.call('HINCRBY', KEYS[3], 'retries', 1) end)
   return 1
 end
 return 0
@@ -78,12 +81,12 @@ _LUA_PROCESSANDO_PARA_FALHA = """
 if redis.call('LREM', KEYS[1], 1, ARGV[1]) == 1 then
   local ok = pcall(function()
     redis.call('RPUSH', KEYS[2], ARGV[2])
-    redis.call('HINCRBY', KEYS[3], 'falhas', 1)
   end)
   if not ok then
     redis.call('LPUSH', KEYS[1], ARGV[1])
     return -1
   end
+  pcall(function() redis.call('HINCRBY', KEYS[3], 'falhas', 1) end)
   return 1
 end
 return 0

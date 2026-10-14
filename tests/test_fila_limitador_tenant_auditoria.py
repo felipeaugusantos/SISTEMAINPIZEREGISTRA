@@ -108,6 +108,33 @@ async def test_a03_dead_letter_que_recusa_a_escrita_nao_perde_a_tarefa(redis_rea
     assert await redis_real.lrange(chaves.processando, 0, -1) == [bruto]
     await _limpar(redis_real, chaves)
 
+async def test_a03_metrica_com_tipo_errado_nao_duplica_a_tarefa_no_retry(redis_real, chaves) -> None:
+    bruto, job = _job()
+    await redis_real.lpush(chaves.processando, bruto)
+    await redis_real.set(chaves.metricas, "tipo-errado")  # HINCRBY nessa chave dá WRONGTYPE
+    resultado = await mover_processando_para_retry(
+        redis_real, bruto, job, processando=chaves.processando, retry=chaves.retry, metricas=chaves.metricas
+    )
+    # A métrica é secundária: o movimento vale e a tarefa existe em UM só lugar (revisão do Codex, PR #188).
+    assert resultado == 1
+    assert await redis_real.llen(chaves.processando) == 0
+    assert await redis_real.zcard(chaves.retry) == 1
+    await _limpar(redis_real, chaves)
+
+
+async def test_a03_metrica_com_tipo_errado_nao_duplica_a_tarefa_na_dead_letter(redis_real, chaves) -> None:
+    bruto, job = _job(tentativas=3)
+    await redis_real.lpush(chaves.processando, bruto)
+    await redis_real.set(chaves.metricas, "tipo-errado")
+    resultado = await mover_processando_para_falha(
+        redis_real, bruto, job, processando=chaves.processando, falhas=chaves.falhas, metricas=chaves.metricas
+    )
+    assert resultado == 1
+    assert await redis_real.llen(chaves.processando) == 0
+    assert await redis_real.llen(chaves.falhas) == 1
+    await _limpar(redis_real, chaves)
+
+
 
 async def test_a03_tarefa_que_ja_saiu_de_processamento_nao_e_duplicada(redis_real, chaves) -> None:
     bruto, job = _job()

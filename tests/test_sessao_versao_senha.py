@@ -224,3 +224,13 @@ def test_tela_de_usuarios_avisa_ao_redefinir_a_propria_senha() -> None:
     assert "state.usuario_atual_id" in script
     assert "sua sessão será encerrada" in script
     assert 'location.href="/login"' in script
+
+
+def test_confirmacao_da_tela_nao_tem_quebra_de_linha_real_dentro_da_string() -> None:
+    # Revisão do Codex (PR #194): quebra real dentro de "..." é erro de sintaxe e derruba a página inteira.
+    from pathlib import Path
+
+    script = Path("app/web/static/admin-usuarios.js").read_text(encoding="utf-8")
+    assert "SUA PRÓPRIA senha.\n\nAo confirmar" in script
+    for numero, linha in enumerate(script.splitlines(), start=1):
+        assert linha.count('"') % 2 == 0, f"aspas desbalanceadas na linha {numero}"

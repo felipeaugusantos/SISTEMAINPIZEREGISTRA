@@ -11,7 +11,7 @@ from joserfc import jwt
 from joserfc.errors import JoseError
 from joserfc.jwk import KeySet, import_key
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -523,6 +523,21 @@ async def callback(
     return resposta
 
 
+async def _consumir_desafio_mfa(session: AsyncSession, tentativa: TentativaOAuth, token_hash: str) -> bool:
+    """Consome (apaga) o desafio de MFA social de forma atômica; True se esta chamada o consumiu.
+
+    DELETE condicional em vez de UPDATE ... SET mfa_token_hash = NULL: a política de RLS de
+    tentativas_oauth só enxerga a linha enquanto o token casa com o contexto, e o PostgreSQL também
+    aplica a política de SELECT à linha NOVA de um UPDATE que lê colunas -- o token nulo era
+    recusado (violação de RLS). O DELETE não tem verificação de linha nova e continua atômico:
+    duas conclusões simultâneas disputam a linha e só uma afeta 1 linha.
+    """
+    resultado = await session.execute(
+        delete(TentativaOAuth).where(TentativaOAuth.id == tentativa.id, TentativaOAuth.mfa_token_hash == token_hash)
+    )
+    return resultado.rowcount == 1
+
+
 @router.post("/mfa")
 async def concluir_mfa(
     dados: CodigoMfaSocialInput,
@@ -557,9 +572,8 @@ async def concluir_mfa(
     try:
         limitar_mfa_social_desafio.aplicar(token_hash)
     except HTTPException:
-        # Tentativas demais neste desafio: queima o desafio (não adianta tentar de outro IP).
-        # Feito depois do contexto do tenant, como a escrita final, por causa da RLS.
-        tentativa.mfa_token_hash = None
+        # Tentativas demais neste desafio: queima (apaga) o desafio -- não adianta tentar de outro IP.
+        await _consumir_desafio_mfa(session, tentativa, token_hash)
         await session.commit()
         raise
     codigo = dados.codigo.strip().upper()
@@ -573,14 +587,9 @@ async def concluir_mfa(
     if usuario.mfa_segredo_versao != versao_chave_atual():
         usuario.mfa_segredo = proteger_segredo(segredo_mfa)
         usuario.mfa_segredo_versao = versao_chave_atual()
-    # Reivindica o desafio com UPDATE condicional: duas conclusões simultâneas com o mesmo
-    # cookie disputam a linha; só uma afeta 1 linha, a outra recebe 401 (auditoria A02).
-    reivindicado = await session.execute(
-        update(TentativaOAuth)
-        .where(TentativaOAuth.id == tentativa.id, TentativaOAuth.mfa_token_hash == token_hash)
-        .values(mfa_token_hash=None)
-    )
-    if reivindicado.rowcount != 1:
+    # Reivindica o desafio: duas conclusões simultâneas com o mesmo cookie disputam a linha;
+    # só uma a consome, a outra recebe 401 (auditoria A02).
+    if not await _consumir_desafio_mfa(session, tentativa, token_hash):
         raise HTTPException(status_code=401, detail="Desafio MFA expirado")
     destino = _destino_da_conta(usuario, tentativa.destino)
     await _concluir_sessao(session, request, response, usuario, tentativa.provedor, destino)

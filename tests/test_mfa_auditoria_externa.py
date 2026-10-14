@@ -173,7 +173,9 @@ def test_a02_desafio_e_queimado_apos_cinco_tentativas_erradas(monkeypatch: pytes
         except HTTPException as erro:
             codigos.append(erro.status_code)
     assert codigos == [401, 401, 401, 401, 401, 429]
-    assert tentativa.mfa_token_hash is None
+    # O desafio foi queimado com um DELETE condicional (e confirmado) na 6ª tentativa.
+    assert any(str(instrucao).lstrip().upper().startswith("DELETE") for instrucao in sessao.executados)
+    assert sessao.commits == 1
 
 
 def test_a02_limite_por_ip_na_conclusao_do_mfa_social(monkeypatch: pytest.MonkeyPatch) -> None:

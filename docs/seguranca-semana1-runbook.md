@@ -181,3 +181,9 @@ Esperado: `169.254.169.254 BLOQUEADO/FALHOU` e `example.com ALCANCADO`. Se a red
 projeto for recriada (novo sub-rede), rode `sh docker/saida-rede-docker.sh aplicar` outra vez;
 `status` avisa quando alguma rede ficou sem cobertura. Para desfazer na hora:
 `sh docker/saida-rede-docker.sh remover`.
+
+O script também barra o que os containers tentam abrir no PRÓPRIO servidor (gateway da bridge,
+IP público), que não passa pelo filtro de encaminhamento do Docker. Se algum dia um container
+precisar de uma porta do host, libere-a de forma explícita, por exemplo
+`LIBERAR_HOST_PORTAS="443" sh docker/saida-rede-docker.sh instalar`. Se o Docker usar o backend
+nftables, o script recusa e não altera nada.

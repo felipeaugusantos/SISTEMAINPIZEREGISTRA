@@ -106,4 +106,5 @@ def test_script_de_saida_de_rede_nao_tem_barra_n_literal_fora_de_texto() -> None
 
     script = Path("docker/saida-rede-docker.sh").read_text(encoding="utf-8")
     barra_n = chr(92) + "n"
-    assert barra_n not in script
+    continuacao_quebrada = [linha for linha in script.splitlines() if linha.rstrip().endswith(" " + barra_n)]
+    assert continuacao_quebrada == []

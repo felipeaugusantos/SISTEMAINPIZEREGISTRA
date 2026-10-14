@@ -1,4 +1,5 @@
 const msg = document.querySelector("#wa-message");
+let podeGerir = false;
 const esc = value => String(value ?? "—").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#039;" }[c]));
 const FINALIDADES = { vigilancia: "Vigilância", andamento: "Andamento", prospeccao: "Prospecção" };
 const SITUACOES = {
@@ -64,7 +65,7 @@ async function carregarConsentimentos() {
       <td>${c.base_legal === "legitimo_interesse" ? "Legítimo interesse" : "Consentimento"}</td>
       <td>${esc(c.origem)}</td>
       <td>${dataCurta(c.status === "revogado" ? c.revogado_em : c.concedido_em)}</td>
-      <td>${c.status === "concedido" ? `<button class="secondary-button" type="button" data-revogar-id="${esc(c.id)}">Revogar</button>` : ""}</td>
+      <td>${podeGerir && c.status === "concedido" ? `<button class="secondary-button" type="button" data-revogar-id="${esc(c.id)}">Revogar</button>` : ""}</td>
     </tr>`).join("") : '<tr><td colspan="7" class="wa-vazio">Nenhum registro.</td></tr>';
 }
 
@@ -80,7 +81,7 @@ async function carregarFila() {
       <td>${esc(m.tentativas)}</td>
       <td>${dataCurta(m.agendada_para)}</td>
       <td>${esc(m.previa)}</td>
-      <td>${m.status === "pendente" ? `<button class="secondary-button" type="button" data-cancelar="${esc(m.id)}">Cancelar</button>` : ""}</td>
+      <td>${podeGerir && m.status === "pendente" ? `<button class="secondary-button" type="button" data-cancelar="${esc(m.id)}">Cancelar</button>` : ""}</td>
     </tr>`).join("") : '<tr><td colspan="8" class="wa-vazio">A fila está vazia.</td></tr>';
 }
 
@@ -158,4 +159,15 @@ document.querySelector("#wa-fila").addEventListener("click", async evento => {
 for (const id of ["#wa-filtro-finalidade", "#wa-filtro-status", "#wa-filtro-fila"]) {
   document.querySelector(id).addEventListener("change", () => recarregar());
 }
-recarregar();
+
+// Quem só pode ler não vê os formulários nem os botões de alterar (os endpoints exigem leads.manage).
+fetch("/v1/auth/me")
+  .then(resposta => (resposta.ok ? resposta.json() : {}))
+  .catch(() => ({}))
+  .then(usuario => {
+    const permissoes = usuario.permissoes || [];
+    podeGerir = Boolean(usuario.superadmin || usuario.perfil === "administrador" || permissoes.includes("leads.manage"));
+    document.querySelector("#wa-secao-registrar").hidden = !podeGerir;
+    document.querySelector("#wa-secao-revogar").hidden = !podeGerir;
+    return recarregar();
+  });

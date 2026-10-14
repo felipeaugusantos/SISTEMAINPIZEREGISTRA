@@ -56,3 +56,16 @@ def test_rota_da_pagina_exige_permissao_e_responde() -> None:
         app.dependency_overrides.clear()
     assert resposta.status_code == 200
     assert "Consentimentos" in resposta.text
+
+
+def test_controles_de_alteracao_ficam_ocultos_ate_confirmar_a_permissao_de_gestao() -> None:
+    # Revisão do Codex (PR #202): quem só lê não deve ver formulários que sempre resultariam em 403.
+    assert re.search(r'id="wa-secao-registrar"[^>]*\bhidden\b', HTML)
+    assert re.search(r'id="wa-secao-revogar"[^>]*\bhidden\b', HTML)
+    assert '"leads.manage"' in JS and "podeGerir &&" in JS
+
+
+def test_menu_usa_a_mesma_permissao_do_menu_pai_para_nao_ficar_inalcancavel() -> None:
+    # Revisão do Codex (PR #202): o pai "Configuração" exige leads.view; o item filho não pode exigir só crm.view.
+    entrada = re.search(r'\{ id: "config-whatsapp"[^}]*\}', SHELL).group(0)
+    assert 'permission: "leads.view"' in entrada and "crm.view" not in entrada

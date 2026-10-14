@@ -24,3 +24,4 @@
 .wa-selo.alerta { color:#8a5a00; }
 .wa-selo.erro { color:#9b2c2c; }
 @media(max-width:700px) { .wa-form { grid-template-columns:1fr; } }
+.overview-section[hidden] { display:none; }

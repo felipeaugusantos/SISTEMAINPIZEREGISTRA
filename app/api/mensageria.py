@@ -29,8 +29,8 @@ from app.settings import get_settings
 
 router = APIRouter(prefix="/v1/admin/mensageria", tags=["mensageria"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-ViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("crm.view"))]
-ManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("crm.manage"))]
+ViewDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.view"))]
+ManageDep = Annotated[UsuarioAutenticado, Depends(exigir_permissao("leads.manage"))]
 
 
 class ConsentimentoInput(BaseModel):

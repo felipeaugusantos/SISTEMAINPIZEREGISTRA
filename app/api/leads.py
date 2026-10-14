@@ -109,6 +109,7 @@ from app.storage import StorageError, local_root, read_bytes, save_bytes
 from app.tenancy import OrganizacaoPublicaDep
 from app.trademarks.analysis_workflow import EstadoAnalise, revisao_obrigatoria_pendente
 from app.trademarks.consolidated import analise_para_exibicao
+from app.uploads import DOCUMENTOS, validar_tipo_arquivo
 
 router = APIRouter(tags=["leads"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -771,6 +772,7 @@ async def importar_leads(
         raise HTTPException(400, "Arquivo vazio.")
     if len(conteudo) > TAMANHO_MAXIMO_IMPORTACAO:
         raise HTTPException(413, "Arquivo muito grande (máximo 5 MB).")
+    await escanear_upload_ou_rejeitar(conteudo)
     registros = ler_planilha(conteudo, arquivo.filename or "")
     if not registros:
         raise HTTPException(400, "Planilha vazia ou sem cabeçalho reconhecível. Inclua uma coluna 'nome'.")
@@ -3010,6 +3012,8 @@ async def enviar_arquivo_documento_lead(
     conteudo = await arquivo.read()
     if len(conteudo) > 15 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
+    # Auditoria de seguranca (13/10/2026, item 15): tipo pelo conteudo real, nao pelo cabecalho do navegador.
+    tipo_real = validar_tipo_arquivo(arquivo.filename, conteudo, DOCUMENTOS)
     await escanear_upload_ou_rejeitar(conteudo)
     nome = f"{secrets.token_hex(12)}-{Path(arquivo.filename or 'arquivo').name}"
     try:
@@ -3064,7 +3068,7 @@ async def enviar_arquivo_documento_lead(
         documento.assinado_ip_hash = None
         documento.assinado_por_cliente_id = None
     documento.caminho = caminho
-    documento.content_type = arquivo.content_type
+    documento.content_type = tipo_real
     documento.tamanho = len(conteudo)
     documento.arquivo_hash = novo_hash
     # O upload por si só já satisfaz o gate de avanço de fase

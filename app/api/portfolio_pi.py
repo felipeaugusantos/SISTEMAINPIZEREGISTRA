@@ -13,6 +13,7 @@ from app.api.portal_cliente import ClientDep
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.database import get_session
 from app.erros import erro_armazenamento
+from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import (
     AtivoPartePI,
     AtivoPI,
@@ -25,6 +26,7 @@ from app.models import (
     Titular,
 )
 from app.storage import StorageError, save_bytes
+from app.uploads import DOCUMENTOS, validar_tipo_arquivo
 
 router = APIRouter(prefix="/v1/admin/portfolio", tags=["portfolio de propriedade intelectual"])
 portal_router = APIRouter(tags=["portal-cliente"])
@@ -70,7 +72,8 @@ class ProcessoInput(BaseModel):
 
 class DocumentoInput(BaseModel):
     nome: str = Field(min_length=1, max_length=255)
-    conteudo_base64: str = Field(min_length=1)
+    # 21 milhoes de caracteres de base64 ~ 15 MB (limite dos demais uploads)
+    conteudo_base64: str = Field(min_length=1, max_length=21_000_000)
     content_type: str | None = Field(default=None, max_length=120)
 
 
@@ -290,6 +293,11 @@ async def adicionar_documento(
         conteudo = base64.b64decode(dados.conteudo_base64, validate=True)
     except Exception as exc:
         raise HTTPException(status_code=422, detail="conteúdo base64 inválido") from exc
+    if len(conteudo) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Arquivo maior que 15 MB")
+    # Tipo pelo conteudo real (nao pelo content_type declarado) e antivirus, como nos demais uploads.
+    tipo_real = validar_tipo_arquivo(dados.nome, conteudo, DOCUMENTOS)
+    await escanear_upload_ou_rejeitar(conteudo)
     digest = hashlib.sha256(conteudo).hexdigest()
     ultima = (
         await session.execute(select(func.max(DocumentoAtivoPI.versao)).where(DocumentoAtivoPI.ativo_id == ativo.id))
@@ -309,7 +317,7 @@ async def adicionar_documento(
         versao=versao,
         hash_documento=digest,
         caminho=caminho,
-        content_type=dados.content_type,
+        content_type=tipo_real,
         criado_por=usuario.ator,
     )
     session.add(documento)

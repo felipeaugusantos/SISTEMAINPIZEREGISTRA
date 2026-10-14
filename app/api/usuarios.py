@@ -261,6 +261,7 @@ async def atualizar(usuario_id: int, dados: UsuarioUpdate, session: SessionDep, 
                 UsuarioOperacoes.id == usuario_id,
                 UsuarioOperacoes.organizacao_id == ator.organizacao_id,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if not alvo:
@@ -330,6 +331,7 @@ async def redefinir_senha(usuario_id: int, session: SessionDep, ator: ResetDep) 
                 UsuarioOperacoes.id == usuario_id,
                 UsuarioOperacoes.organizacao_id == ator.organizacao_id,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if not alvo:
@@ -359,6 +361,7 @@ async def revogar_sessoes(usuario_id: int, session: SessionDep, ator: RevokeDep)
                 UsuarioOperacoes.id == usuario_id,
                 UsuarioOperacoes.organizacao_id == ator.organizacao_id,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if alvo is None:
@@ -384,6 +387,7 @@ async def desbloquear(usuario_id: int, session: SessionDep, ator: ManageDep) -> 
                 UsuarioOperacoes.id == usuario_id,
                 UsuarioOperacoes.organizacao_id == ator.organizacao_id,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if not alvo:

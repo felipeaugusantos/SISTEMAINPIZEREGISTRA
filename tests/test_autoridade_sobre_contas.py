@@ -158,3 +158,14 @@ def test_fluxo_autorizado_continua_funcionando() -> None:
     resultado = asyncio.run(redefinir_senha(5, sessao, _gestor()))
     assert "senha_temporaria" in resultado
     assert _negacoes(sessao) == []
+
+
+def test_endpoints_travam_a_linha_do_alvo_enquanto_checam_a_autoridade() -> None:
+    # Revisão do Codex (PR #197): sem FOR UPDATE, uma promoção feita em paralelo por outro
+    # administrador passaria despercebida pela checagem (leitura sem trava).
+    from pathlib import Path
+
+    fonte = Path("app/api/usuarios.py").read_text(encoding="utf-8")
+    for nome in ("atualizar", "redefinir_senha", "revogar_sessoes", "desbloquear"):
+        corpo = fonte.split(f"async def {nome}(", 1)[1].split("\n@router", 1)[0]
+        assert ".with_for_update()" in corpo, nome

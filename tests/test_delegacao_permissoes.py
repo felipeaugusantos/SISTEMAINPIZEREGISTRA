@@ -63,6 +63,7 @@ def test_a05_atualizar_para_operador_com_a_lista_inteira_e_recusado_para_gestor_
         id = 99
         perfil = "operador"
         ativo = True
+        superadmin = False
         permissoes: list = []
 
     sessao = FakeSession([FakeResult(scalar=Alvo())])

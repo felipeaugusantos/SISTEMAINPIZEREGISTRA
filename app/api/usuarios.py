@@ -24,6 +24,7 @@ from app.permissions import (
     PERMISSOES,
     PERMISSOES_FINANCEIRO,
     permissoes_do_perfil,
+    permissoes_efetivas,
 )
 from app.tenancy import validar_limite_usuarios
 
@@ -130,7 +131,9 @@ def _serializar(u: UsuarioOperacoes, sessoes: int = 0) -> dict:
     }
 
 
-async def _auditar(session: AsyncSession, ator: UsuarioAutenticado, acao: str, alvo: int, detalhes: dict) -> None:
+async def _auditar(
+    session: AsyncSession, ator: UsuarioAutenticado, acao: str, alvo: int, detalhes: dict, *, sucesso: bool = True
+) -> None:
     session.add(
         EventoAuditoria(
             organizacao_id=ator.organizacao_id,
@@ -138,11 +141,40 @@ async def _auditar(session: AsyncSession, ator: UsuarioAutenticado, acao: str, a
             ator=ator.email,
             acao=acao[:20],
             recurso=f"usuario:{alvo}",
-            sucesso=True,
-            status_http=200,
+            sucesso=sucesso,
+            status_http=200 if sucesso else 403,
             detalhes=detalhes,
         )
     )
+
+
+async def _exigir_autoridade(
+    session: AsyncSession, ator: UsuarioAutenticado, alvo: UsuarioOperacoes, acao_negada: str
+) -> None:
+    """Autoridade única sobre contas de outras pessoas (auditoria externa de 14/10/2026, S01).
+
+    Vale para editar, redefinir senha, revogar sessões e desbloquear. Conta de superadmin só é
+    alcançada por superadmin; quem não tem acesso total só age sobre contas que não são de acesso
+    total e cujas permissões EFETIVAS (não só o nome do perfil) ele próprio possui. Agir sobre a
+    própria conta não passa por aqui. Toda recusa é auditada com ator e alvo.
+    """
+    if alvo.id == ator.id:
+        return
+    motivo = None
+    if alvo.superadmin and not ator.superadmin:
+        motivo = "conta_superadmin"
+    elif not (ator.superadmin or ator.perfil in PERFIS_ACESSO_TOTAL):
+        if alvo.perfil in PERFIS_ACESSO_TOTAL:
+            motivo = "perfil_acesso_total"
+        else:
+            efetivas = permissoes_efetivas(alvo.perfil, (p.chave for p in alvo.permissoes))
+            if efetivas - set(ator.permissoes):
+                motivo = "permissoes_superiores"
+    if motivo is None:
+        return
+    await _auditar(session, ator, acao_negada, alvo.id, {"motivo": motivo}, sucesso=False)
+    await session.commit()
+    raise HTTPException(403, "Voce nao tem autoridade sobre esta conta")
 
 
 @router.get("")
@@ -229,10 +261,12 @@ async def atualizar(usuario_id: int, dados: UsuarioUpdate, session: SessionDep, 
                 UsuarioOperacoes.id == usuario_id,
                 UsuarioOperacoes.organizacao_id == ator.organizacao_id,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if not alvo:
         raise HTTPException(404, "Usuario nao encontrado")
+    await _exigir_autoridade(session, ator, alvo, "NEGADO_ALTERAR")
     novo_perfil = dados.perfil or alvo.perfil
     if novo_perfil in PERFIS_ACESSO_TOTAL and ator.perfil not in PERFIS_ACESSO_TOTAL:
         raise HTTPException(403, "Somente um perfil de acesso total pode atribuir esse perfil")
@@ -291,14 +325,18 @@ async def atualizar(usuario_id: int, dados: UsuarioUpdate, session: SessionDep, 
 async def redefinir_senha(usuario_id: int, session: SessionDep, ator: ResetDep) -> dict:
     alvo = (
         await session.execute(
-            select(UsuarioOperacoes).where(
+            select(UsuarioOperacoes)
+            .options(selectinload(UsuarioOperacoes.permissoes))
+            .where(
                 UsuarioOperacoes.id == usuario_id,
                 UsuarioOperacoes.organizacao_id == ator.organizacao_id,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if not alvo:
         raise HTTPException(404, "Usuario nao encontrado")
+    await _exigir_autoridade(session, ator, alvo, "NEGADO_REDEF_SENHA")
     senha = _temporaria()
     alvo.senha_hash = hash_senha(senha)
     alvo.alterar_senha = True
@@ -317,14 +355,18 @@ async def redefinir_senha(usuario_id: int, session: SessionDep, ator: ResetDep) 
 async def revogar_sessoes(usuario_id: int, session: SessionDep, ator: RevokeDep) -> dict:
     alvo = (
         await session.execute(
-            select(UsuarioOperacoes.id).where(
+            select(UsuarioOperacoes)
+            .options(selectinload(UsuarioOperacoes.permissoes))
+            .where(
                 UsuarioOperacoes.id == usuario_id,
                 UsuarioOperacoes.organizacao_id == ator.organizacao_id,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if alvo is None:
         raise HTTPException(404, "Usuario nao encontrado")
+    await _exigir_autoridade(session, ator, alvo, "NEGADO_REVOGAR")
     resultado = await session.execute(
         update(SessaoOperacoes)
         .where(SessaoOperacoes.usuario_id == usuario_id, SessaoOperacoes.revogada_em.is_(None))
@@ -339,14 +381,18 @@ async def revogar_sessoes(usuario_id: int, session: SessionDep, ator: RevokeDep)
 async def desbloquear(usuario_id: int, session: SessionDep, ator: ManageDep) -> dict:
     alvo = (
         await session.execute(
-            select(UsuarioOperacoes).where(
+            select(UsuarioOperacoes)
+            .options(selectinload(UsuarioOperacoes.permissoes))
+            .where(
                 UsuarioOperacoes.id == usuario_id,
                 UsuarioOperacoes.organizacao_id == ator.organizacao_id,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if not alvo:
         raise HTTPException(404, "Usuario nao encontrado")
+    await _exigir_autoridade(session, ator, alvo, "NEGADO_DESBLOQUEAR")
     alvo.bloqueado_ate = None
     alvo.tentativas_falhas = 0
     await _auditar(session, ator, "DESBLOQUEAR", alvo.id, {})

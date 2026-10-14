@@ -55,6 +55,7 @@ from app.api.privacidade import router as privacidade_router
 from app.api.processos import router as processos_router
 from app.api.producao import router as producao_router
 from app.api.propostas_config import router as propostas_config_router
+from app.api.mensageria import router as mensageria_router
 from app.api.prospeccao import router as prospeccao_router
 from app.api.prospeccao import router_campanhas as prospeccao_campanhas_router
 from app.api.rpi_admin import router as rpi_admin_router
@@ -141,6 +142,7 @@ app.include_router(processos_router)
 app.include_router(leads_router)
 app.include_router(leads_guias_router)
 app.include_router(leads_propostas_router)
+app.include_router(mensageria_router)
 app.include_router(prospeccao_router)
 app.include_router(prospeccao_campanhas_router)
 app.include_router(privacidade_router)

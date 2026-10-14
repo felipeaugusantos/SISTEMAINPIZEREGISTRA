@@ -87,6 +87,8 @@ from app.models.marca_busca import ProjetoBuscaMarca as ProjetoBuscaMarca
 from app.models.marca_busca import RotuloHistoricoMarca as RotuloHistoricoMarca
 from app.models.marca_busca import SolicitacaoExclusaoPesquisa as SolicitacaoExclusaoPesquisa
 from app.models.marca_busca import VersaoRelatorioMarca as VersaoRelatorioMarca
+from app.models.mensageria import ConsentimentoCanal as ConsentimentoCanal
+from app.models.mensageria import MensagemSaida as MensagemSaida
 from app.models.observabilidade import ControleProducao as ControleProducao
 from app.models.observabilidade import EventoAuditoria as EventoAuditoria
 from app.models.observabilidade import EventoOperacional as EventoOperacional

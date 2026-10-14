@@ -168,6 +168,20 @@ class Settings(BaseSettings):
     cadencia_email_horario_inicio: int = 8
     cadencia_email_horario_fim: int = 19
     cadencia_email_max_tentativas: int = 3
+    # Mensageria (WhatsApp). DESLIGADA por padrão: nada sai enquanto whatsapp_enabled for falso (trava de
+    # emergência) ou não houver um provedor configurado. Limites pensados para não queimar o número.
+    whatsapp_enabled: bool = False
+    whatsapp_limite_diario_vigilancia: int = 200
+    whatsapp_limite_diario_prospeccao: int = 20
+    # Prospecção só em dias úteis, neste intervalo de horas (fuso America/Sao_Paulo).
+    whatsapp_horario_inicio: int = 9
+    whatsapp_horario_fim: int = 18
+    # Espera mínima/máxima (segundos, sorteada a cada envio) entre duas mensagens de prospecção.
+    whatsapp_intervalo_min_segundos: int = 60
+    whatsapp_intervalo_max_segundos: int = 180
+    whatsapp_max_tentativas: int = 3
+    # Pausa automática: com tantas falhas na última hora a prospecção para até a causa ser vista.
+    whatsapp_pausa_falhas_por_hora: int = 3
     # Detecção de resposta + pausa automática exige uma caixa de e-mail dedicada
     # via IMAP. Desligado por padrão -- fica inerte até credenciais reais serem
     # configuradas (mesmo princípio de email_enabled).

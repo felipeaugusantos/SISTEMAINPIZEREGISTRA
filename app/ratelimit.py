@@ -28,6 +28,24 @@ def _obter_cliente_redis():
     return _cliente_redis
 
 
+# Auditoria externa A08: limpeza, contagem, decisão, inserção e TTL numa única operação atômica.
+# Antes eram dois pipelines separados: duas requisições simultâneas observavam a mesma vaga e as
+# duas eram aceitas. Devolve {1, ""} se admitiu ou {0, "<score do mais antigo>"} se estourou.
+_LUA_LIMITE_JANELA = """
+local chave = KEYS[1]
+local agora = tonumber(ARGV[1])
+local janela = tonumber(ARGV[2])
+local limite = tonumber(ARGV[3])
+redis.call('ZREMRANGEBYSCORE', chave, 0, agora - janela)
+if redis.call('ZCARD', chave) >= limite then
+  local antigo = redis.call('ZRANGE', chave, 0, 0, 'WITHSCORES')
+  return {0, antigo[2] or ''}
+end
+redis.call('ZADD', chave, agora, ARGV[4])
+redis.call('EXPIRE', chave, math.ceil(janela) + 1)
+return {1, ''}
+"""
+
 _TODAS_INSTANCIAS: list["RateLimiter"] = []
 
 
@@ -96,20 +114,14 @@ class RateLimiter:
         cliente = _obter_cliente_redis()
         chave = f"ratelimit:{chave_escopo}"
         agora = time.time()
-        pipe = cliente.pipeline()
-        pipe.zremrangebyscore(chave, 0, agora - self.janela)
-        pipe.zcard(chave)
-        atual = pipe.execute()[1]
-        if atual >= self.limite:
-            mais_antigo = cliente.zrange(chave, 0, 0, withscores=True)
+        admitido, mais_antigo = cliente.eval(
+            _LUA_LIMITE_JANELA, 1, chave, agora, self.janela, self.limite, f"{agora}:{secrets.token_hex(6)}"
+        )
+        if not int(admitido):
             espera = 1
-            if mais_antigo:
-                espera = max(1, int(self.janela - (agora - mais_antigo[0][1])) + 1)
+            if mais_antigo not in ("", b"", None):
+                espera = max(1, int(self.janela - (agora - float(mais_antigo))) + 1)
             raise self._excedido(espera)
-        pipe = cliente.pipeline()
-        pipe.zadd(chave, {f"{agora}:{secrets.token_hex(6)}": agora})
-        pipe.expire(chave, int(self.janela) + 1)
-        pipe.execute()
 
     def _aplicar_memoria(self, chave_escopo: str) -> None:
         agora = time.monotonic()

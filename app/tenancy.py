@@ -101,6 +101,10 @@ async def resolver_organizacao_publica(
             )
         ).scalar_one_or_none()
         if credencial and (credencial.expira_em is None or credencial.expira_em > datetime.now(UTC)):
+            # Auditoria externa A06: o tenant da credencial precisa estar aplicado ANTES de marcar o
+            # uso e de consultar a organização -- com autoflush, a consulta persistiria o UPDATE
+            # da credencial fora do contexto exigido pela política de escrita (RLS).
+            await aplicar_contexto_tenant(session, credencial.organizacao_id)
             credencial.ultimo_uso_em = datetime.now(UTC)
             organizacao = (
                 await session.execute(

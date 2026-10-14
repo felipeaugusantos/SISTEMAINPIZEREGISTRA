@@ -45,10 +45,12 @@ from app.queueing import (
     METRICS_KEY,
     PROCESSING_KEY,
     QUEUE_KEY,
-    agendar_retry,
     cliente_redis,
     enfileirar,
+    mover_processando_para_falha,
+    mover_processando_para_retry,
     promover_retentativas,
+    recuperar_processando,
 )
 from app.request_context import definir_request_id, request_id_atual, restaurar_request_id
 from app.retencao import simular_retencao_leads
@@ -866,7 +868,6 @@ async def _loop_fila_principal(redis) -> None:
             await redis.lrem(PROCESSING_KEY, 1, bruto)
             await redis.hincrby(METRICS_KEY, "concluidos", 1)
         except Exception as exc:
-            await redis.lrem(PROCESSING_KEY, 1, bruto)
             try:
                 job = json.loads(bruto)
             except (TypeError, json.JSONDecodeError):
@@ -887,11 +888,24 @@ async def _loop_fila_principal(redis) -> None:
                     ensure_ascii=False,
                 )
             )
+            # A tarefa só sai de "em processamento" junto com a gravação no destino (atômico, ver
+            # app/queueing.py); se o destino recusar, ela fica recuperável em vez de sumir (A03).
             if job["tentativas"] < MAX_ATTEMPTS:
-                await agendar_retry(redis, job)
+                resultado = await mover_processando_para_retry(redis, bruto, job)
             else:
-                await redis.rpush(FAILED_KEY, json.dumps(job))
-                await redis.hincrby(METRICS_KEY, "falhas", 1)
+                resultado = await mover_processando_para_falha(redis, bruto, job)
+            if resultado < 0:
+                logger.error(
+                    json.dumps(
+                        {
+                            "event": "WORKER_JOB_DESTINATION_REJECTED",
+                            "job_id": job.get("id"),
+                            "job_type": job.get("tipo"),
+                            "detail": "retry/falha recusou a escrita; tarefa mantida em processamento",
+                        },
+                        ensure_ascii=False,
+                    )
+                )
 
 
 async def _atualizar_heartbeat_worker() -> None:
@@ -951,11 +965,8 @@ async def _loop_comunicacao_juridica(redis) -> None:
 
 async def main() -> None:
     redis = cliente_redis()
-    # Recupera trabalhos que ficaram em processamento apos encerramento abrupto.
-    while await redis.llen(PROCESSING_KEY):
-        bruto_pendente = await redis.rpop(PROCESSING_KEY)
-        if bruto_pendente:
-            await redis.lpush(QUEUE_KEY, bruto_pendente)
+    # Recupera trabalhos que ficaram em processamento apos encerramento abrupto (movimento atômico).
+    await recuperar_processando(redis)
     await asyncio.gather(_loop_fila_principal(redis), _loop_manutencao(redis), _loop_comunicacao_juridica(redis))
 
 

@@ -40,10 +40,11 @@ def test_scripts_e_estilo_da_pagina_existem() -> None:
         assert (WEB / "static" / caminho).exists(), caminho
 
 
-def test_script_nao_monta_html_com_dados_sem_escapar() -> None:
-    # Todo valor vindo da API entra no HTML por esc(); a única exceção são os selos, que escapam por dentro.
+def test_script_nao_monta_html_com_campo_da_api_sem_escapar() -> None:
+    # Campos das linhas vindas da API (c.* e m.*) só entram no HTML por esc(); a data vai por dataCurta()
+    # e a situação por selo(), que escapam por dentro.
     assert "const esc = " in JS
-    crus = re.findall(r"\$\{(?!esc\(|selo\(|dataCurta\(|FINALIDADES|MOTIVOS|c\.status ===|c\.base_legal ===|m\.status ===)[^}]+\}", JS)
+    crus = re.findall(r"\$\{[cm]\.[\w.]+\}", JS)
     assert crus == [], crus
 
 

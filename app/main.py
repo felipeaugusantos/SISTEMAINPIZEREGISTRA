@@ -40,6 +40,7 @@ from app.api.juridico import router as juridico_router
 from app.api.leads import router as leads_router
 from app.api.leads_guias import router as leads_guias_router
 from app.api.leads_propostas import router as leads_propostas_router
+from app.api.mensageria import router as mensageria_router
 from app.api.nfse import router as nfse_router
 from app.api.observabilidade import router as observabilidade_router
 from app.api.pagamentos import router_admin as pagamentos_admin_router
@@ -55,7 +56,6 @@ from app.api.privacidade import router as privacidade_router
 from app.api.processos import router as processos_router
 from app.api.producao import router as producao_router
 from app.api.propostas_config import router as propostas_config_router
-from app.api.mensageria import router as mensageria_router
 from app.api.prospeccao import router as prospeccao_router
 from app.api.prospeccao import router_campanhas as prospeccao_campanhas_router
 from app.api.rpi_admin import router as rpi_admin_router

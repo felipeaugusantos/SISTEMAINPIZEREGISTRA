@@ -33,7 +33,15 @@ from app.api.leads_propostas import (
     criar_contratacao_automatica_proposta,
     motivo_bloqueio_aceite,
 )
-from app.auth import exigir_permissao, hash_ip, hash_senha, hash_token, registrar_falha_login, verificar_senha
+from app.auth import (
+    consumir_tempo_hash,
+    exigir_permissao,
+    hash_ip,
+    hash_senha,
+    hash_token,
+    registrar_falha_login,
+    verificar_senha,
+)
 from app.clicksign import configuracao as configuracao_clicksign
 from app.crm import registrar_evento_operacional
 from app.database import get_session, session_factory
@@ -895,13 +903,14 @@ async def login_cliente(dados: ClienteLogin, request: Request, response: Respons
     ).scalar_one_or_none()
     agora = datetime.now(UTC)
     bloqueado_por_conta = cliente is not None and cliente.bloqueado_ate and cliente.bloqueado_ate > agora
-    valido = (
-        cliente is not None
-        and cliente.ativo
-        and not cliente.bloqueado_em
-        and not bloqueado_por_conta
-        and verificar_senha(cliente.senha_hash, dados.senha)
-    )
+    elegivel = cliente is not None and cliente.ativo and not cliente.bloqueado_em and not bloqueado_por_conta
+    if elegivel:
+        valido = verificar_senha(cliente.senha_hash, dados.senha)
+    else:
+        # Auditoria S06: conta inexistente, inativa ou bloqueada gasta o mesmo tempo de Argon2 de uma
+        # senha errada, para o tempo de resposta não revelar se o e-mail é de um cliente.
+        consumir_tempo_hash()
+        valido = False
     if not valido:
         # Achado alto da Fase 9 (21/09/2026): faltava bloqueio da própria
         # conta -- só havia rate-limit por IP, contornável rotacionando IP.
@@ -958,6 +967,13 @@ async def solicitar_recuperacao_portal(
     # Resposta indistinguível evita enumeração de clientes.
     if cliente is not None:
         await aplicar_contexto_tenant(session, cliente.organizacao_id)
+        # Auditoria S08: só o link mais recente vale (como na recuperação administrativa); os anteriores
+        # ainda pendentes são invalidados ao solicitar um novo.
+        await session.execute(
+            update(RecuperacaoClientePortal)
+            .where(RecuperacaoClientePortal.cliente_id == cliente.id, RecuperacaoClientePortal.usado_em.is_(None))
+            .values(usado_em=datetime.now(UTC))
+        )
         token = secrets.token_urlsafe(48)
         session.add(
             RecuperacaoClientePortal(
@@ -1001,6 +1017,12 @@ async def redefinir_acesso_portal(
     if cliente is None or not cliente.ativo:
         raise HTTPException(status_code=400, detail="Conta indisponível")
     await aplicar_contexto_tenant(session, cliente.organizacao_id)
+    # Auditoria S08: as redefinições da MESMA conta são serializadas pela trava da linha do cliente.
+    # Quem chega depois espera, já encontra os demais links invalidados (abaixo) e recebe 400, mesmo
+    # usando um token diferente e ainda dentro da validade.
+    await session.refresh(cliente, with_for_update=True)
+    if not cliente.ativo:
+        raise HTTPException(status_code=400, detail="Conta indisponível")
     # Consumo atômico do token, já sob o tenant (achado 8): a segunda
     # requisição simultânea com o mesmo token recebe 400.
     consumo = await session.execute(
@@ -1025,6 +1047,12 @@ async def redefinir_acesso_portal(
         )
     ).scalars():
         sessao.revogada_em = datetime.now(UTC)
+    # Auditoria S08: trocada a senha, os OUTROS links de recuperação da conta deixam de valer.
+    await session.execute(
+        update(RecuperacaoClientePortal)
+        .where(RecuperacaoClientePortal.cliente_id == cliente.id, RecuperacaoClientePortal.usado_em.is_(None))
+        .values(usado_em=agora_token)
+    )
     _auditar_cliente(session, cliente, request, "recuperacao_redefinida", "portal:recuperacao")
     await session.commit()
     response.delete_cookie(SESSION_COOKIE, path="/")

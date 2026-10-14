@@ -11,13 +11,14 @@ from joserfc import jwt
 from joserfc.errors import JoseError
 from joserfc.jwk import KeySet, import_key
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auditing import criar_evento_auditoria
 from app.auth import (
     UsuarioAtualDep,
+    consumir_codigo_recuperacao,
     criar_sessao,
     definir_cookies_sessao,
     exigir_csrf,
@@ -39,6 +40,10 @@ from app.tenancy import aplicar_contexto_tenant
 
 router = APIRouter(prefix="/v1/auth/social", tags=["autenticacao-social"])
 limitar_oauth = RateLimiter(limite=20, janela_segundos=300, escopo="oauth")
+# Auditoria externa A02: a conclusão do MFA social não tinha limite próprio. Limite por IP e,
+# principalmente, por desafio: estourou, o desafio é queimado e a pessoa precisa refazer o login.
+limitar_mfa_social_ip = RateLimiter(limite=10, janela_segundos=300, escopo="oauth-mfa-ip")
+limitar_mfa_social_desafio = RateLimiter(limite=5, janela_segundos=600, escopo="oauth-mfa-desafio")
 MFA_COOKIE = "zr_oauth_mfa"
 OAUTH_BROWSER_COOKIE = "zr_oauth_browser"
 
@@ -525,6 +530,7 @@ async def concluir_mfa(
     response: Response,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
+    limitar_mfa_social_ip.aplicar(cliente_ip(request))
     token = request.cookies.get(MFA_COOKIE, "")
     token_hash = hash_token(token)
     await aplicar_contexto_autenticacao(session, "oauth_mfa", token_hash)
@@ -548,19 +554,34 @@ async def concluir_mfa(
     # autoflush do SQLAlchemy grava a mudança fora do contexto de RLS
     # correto (StaleDataError ou escrita silenciosamente descartada).
     await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
+    try:
+        limitar_mfa_social_desafio.aplicar(token_hash)
+    except HTTPException:
+        # Tentativas demais neste desafio: queima o desafio (não adianta tentar de outro IP).
+        # Feito depois do contexto do tenant, como a escrita final, por causa da RLS.
+        tentativa.mfa_token_hash = None
+        await session.commit()
+        raise
     codigo = dados.codigo.strip().upper()
     segredo_mfa = revelar_segredo(usuario.mfa_segredo or "")
     valido = validar_totp(segredo_mfa, codigo)
     hash_codigo = hash_token(codigo)
     if not valido and hash_codigo in (usuario.codigos_recuperacao or []):
-        usuario.codigos_recuperacao = [item for item in usuario.codigos_recuperacao if item != hash_codigo]
-        valido = True
+        valido = await consumir_codigo_recuperacao(session, usuario, hash_codigo)
     if not valido:
         raise HTTPException(status_code=401, detail="Codigo MFA invalido")
     if usuario.mfa_segredo_versao != versao_chave_atual():
         usuario.mfa_segredo = proteger_segredo(segredo_mfa)
         usuario.mfa_segredo_versao = versao_chave_atual()
-    tentativa.mfa_token_hash = None
+    # Reivindica o desafio com UPDATE condicional: duas conclusões simultâneas com o mesmo
+    # cookie disputam a linha; só uma afeta 1 linha, a outra recebe 401 (auditoria A02).
+    reivindicado = await session.execute(
+        update(TentativaOAuth)
+        .where(TentativaOAuth.id == tentativa.id, TentativaOAuth.mfa_token_hash == token_hash)
+        .values(mfa_token_hash=None)
+    )
+    if reivindicado.rowcount != 1:
+        raise HTTPException(status_code=401, detail="Desafio MFA expirado")
     destino = _destino_da_conta(usuario, tentativa.destino)
     await _concluir_sessao(session, request, response, usuario, tentativa.provedor, destino)
     response.delete_cookie(MFA_COOKIE, path="/v1/auth/social")

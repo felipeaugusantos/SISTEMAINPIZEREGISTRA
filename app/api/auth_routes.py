@@ -13,6 +13,7 @@ from app.auth import (
     CSRF_COOKIE,
     SESSION_COOKIE,
     UsuarioAtualDep,
+    consumir_codigo_recuperacao,
     consumir_tempo_hash,
     criar_sessao,
     definir_cookies_sessao,
@@ -87,6 +88,11 @@ class RedefinirSenhaInput(BaseModel):
 
 class CodigoMfaInput(BaseModel):
     codigo: str = Field(min_length=6, max_length=20)
+
+
+class IniciarMfaInput(BaseModel):
+    # Obrigatório só para SUBSTITUIR um MFA já ativo (auditoria externa A01).
+    codigo: str | None = Field(default=None, max_length=20)
 
 
 class AceitarConviteInput(BaseModel):
@@ -204,11 +210,9 @@ async def login(
             codigo = dados.codigo_mfa or ""
             segredo_mfa = revelar_segredo(usuario.mfa_segredo or "")
             valido = validar_totp(segredo_mfa, codigo)
-            if not valido and hash_token(codigo.upper()) in (usuario.codigos_recuperacao or []):
-                usuario.codigos_recuperacao = [
-                    item for item in usuario.codigos_recuperacao if item != hash_token(codigo.upper())
-                ]
-                valido = True
+            hash_codigo = hash_token(codigo.upper())
+            if not valido and hash_codigo in (usuario.codigos_recuperacao or []):
+                valido = await consumir_codigo_recuperacao(session, usuario, hash_codigo)
             if valido and usuario.mfa_segredo_versao != versao_chave_atual():
                 usuario.mfa_segredo = proteger_segredo(segredo_mfa)
                 usuario.mfa_segredo_versao = versao_chave_atual()
@@ -569,10 +573,23 @@ async def redefinir_senha(
 
 
 @router.post("/mfa/iniciar")
-async def iniciar_mfa(request: Request, usuario: UsuarioAtualDep, session: AsyncSession = Depends(get_session)) -> dict:
+async def iniciar_mfa(
+    request: Request,
+    usuario: UsuarioAtualDep,
+    session: AsyncSession = Depends(get_session),
+    dados: IniciarMfaInput | None = None,
+) -> dict:
     limitar_mfa.aplicar(f"usuario:{usuario.id}")
     exigir_csrf(request, usuario)
     registro = await session.get(UsuarioOperacoes, usuario.id)
+    if registro.mfa_ativo:
+        # Substituir o segundo fator exige provar o fator atual: sem isso, quem controla
+        # uma sessão roubada trocaria o MFA por um segredo que ele conhece (auditoria A01).
+        codigo = ((dados.codigo if dados else None) or "").strip()
+        if not codigo or not validar_totp(revelar_segredo(registro.mfa_segredo or ""), codigo):
+            await _auditar(session, request, usuario.email, "MFA_SUBSTITUICAO_NEGADA", False, {})
+            await session.commit()
+            raise HTTPException(403, "Para substituir o MFA ativo, informe o código atual do autenticador")
     segredo = gerar_segredo_totp()
     registro.mfa_segredo = proteger_segredo(segredo)
     registro.mfa_segredo_versao = versao_chave_atual()

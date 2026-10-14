@@ -129,6 +129,27 @@ def hash_ip(ip: str | None) -> str | None:
     return hmac.new(salt, ip.encode(), hashlib.sha256).hexdigest()
 
 
+async def consumir_codigo_recuperacao(session: AsyncSession, usuario: UsuarioOperacoes, hash_codigo: str) -> bool:
+    """Consome UM código de recuperação MFA de forma atômica (uso único de verdade).
+
+    Auditoria externa de 13/10/2026 (A07): ler a lista, conferir e regravar sem trava
+    deixava duas autenticações simultâneas consumirem o mesmo código. Aqui a linha do
+    usuário é travada (SELECT ... FOR UPDATE) e a lista é relida sob a trava: a segunda
+    chamada espera a primeira confirmar e já encontra o código removido. O contexto do
+    tenant é aplicado antes, porque a política de escrita (RLS) exige. A trava vale até o
+    commit de quem chamou (login/conclusão de MFA social). Devolve False se o código não
+    existe (mais) na lista.
+    """
+    await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
+    await session.refresh(usuario, attribute_names=["codigos_recuperacao"], with_for_update=True)
+    codigos = list(usuario.codigos_recuperacao or [])
+    if hash_codigo not in codigos:
+        return False
+    codigos.remove(hash_codigo)
+    usuario.codigos_recuperacao = codigos
+    return True
+
+
 def gerar_credenciais_sessao() -> tuple[str, str]:
     return secrets.token_urlsafe(48), secrets.token_urlsafe(32)
 

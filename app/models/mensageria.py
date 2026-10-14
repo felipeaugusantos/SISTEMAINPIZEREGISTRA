@@ -65,13 +65,14 @@ class MensagemSaida(Base):
     titular_tipo: Mapped[str | None] = mapped_column(String(20), nullable=True)
     titular_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     corpo: Mapped[str] = mapped_column(Text)
-    # pendente | enviada | falhou | bloqueada | cancelada
+    # pendente | enviando | enviada | incerta | falhou | bloqueada | cancelada
     status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
     motivo_bloqueio: Mapped[str | None] = mapped_column(String(120), nullable=True)
     tentativas: Mapped[int] = mapped_column(Integer, default=0)
     agendada_para: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     enviada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     ultimo_erro: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    ultima_falha_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     chave_idempotencia: Mapped[str] = mapped_column(String(120))
     provedor_mensagem_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

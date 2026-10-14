@@ -24,12 +24,14 @@ TELEFONE = "5511999998888"
 class _Provedor:
     def __init__(self, erro: Exception | None = None) -> None:
         self.chamadas: list[tuple[str, str, str]] = []
+        self.chaves: list[str] = []
         self.erro = erro
 
-    async def enviar_texto(self, sessao: str, telefone: str, texto: str) -> str:
+    async def enviar_texto(self, sessao: str, telefone: str, texto: str, chave_idempotencia: str) -> str:
         if self.erro:
             raise self.erro
         self.chamadas.append((sessao, telefone, texto))
+        self.chaves.append(chave_idempotencia)
         return "msg-1"
 
 
@@ -245,6 +247,16 @@ def test_enfileirar_recusa_dados_invalidos(extras) -> None:
 # --- fila: processar ---
 
 
+def _fila(*resultados: FakeResult) -> FakeSession:
+    """Sessão de teste: a 1ª consulta do job é a marcação de envios interrompidos (sem resultado útil)."""
+    return FakeSession([FakeResult(), *resultados])
+
+
+def _reserva() -> FakeResult:
+    """Resultado do UPDATE atômico que reserva a mensagem (pendente -> enviando)."""
+    return FakeResult(itens=[(7,)])
+
+
 def _processar(sessao: FakeSession, provedor, agora=QUARTA_MEIO_DIA):
     return asyncio.run(mensageria.processar_fila(sessao, provedor, agora=agora, sortear=lambda a, b: a))
 
@@ -252,7 +264,8 @@ def _processar(sessao: FakeSession, provedor, agora=QUARTA_MEIO_DIA):
 def test_desligada_ou_sem_provedor_nada_sai(monkeypatch: pytest.MonkeyPatch) -> None:
     assert _processar(FakeSession([]), None)["motivo"] == "sem_provedor"
     ligado = mensageria.get_settings()
-    monkeypatch.setattr(mensageria, "get_settings", lambda: SimpleNamespace(**{**vars(ligado), "whatsapp_enabled": False}))
+    desligado = SimpleNamespace(**{**vars(ligado), "whatsapp_enabled": False})
+    monkeypatch.setattr(mensageria, "get_settings", lambda: desligado)
     provedor = _Provedor()
     assert _processar(FakeSession([]), provedor)["motivo"] == "desligado"
     assert provedor.chamadas == []
@@ -260,41 +273,50 @@ def test_desligada_ou_sem_provedor_nada_sai(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_vigilancia_com_consentimento_e_enviada_pela_sessao_de_vigilancia() -> None:
     mensagem = _mensagem()
-    sessao = FakeSession(
-        [FakeResult(itens=[mensagem]), FakeResult(scalar=_consentimento()), FakeResult(scalar=0)]
-    )
+    sessao = _fila(FakeResult(itens=[mensagem]), FakeResult(scalar=_consentimento()), FakeResult(scalar=0), _reserva())
     provedor = _Provedor()
     assert _processar(sessao, provedor)["enviadas"] == 1
     assert provedor.chamadas == [("vigilancia", TELEFONE, "Olá")]
+    assert provedor.chaves == ["k"]  # o provedor recebe a chave estável para não duplicar
     assert mensagem.status == "enviada" and mensagem.enviada_em == QUARTA_MEIO_DIA
     assert mensagem.provedor_mensagem_id == "msg-1" and mensagem.tentativas == 1
+    assert sessao.commits == 2  # a reserva é gravada ANTES do envio e o resultado logo depois
+
+
+def test_mensagem_cancelada_depois_da_leitura_nao_e_enviada() -> None:
+    # A reserva atômica não encontra mais a linha pendente (o admin cancelou entre a leitura e o envio).
+    mensagem = _mensagem()
+    sessao = _fila(FakeResult(itens=[mensagem]), FakeResult(scalar=_consentimento()), FakeResult(scalar=0), FakeResult())
+    provedor = _Provedor()
+    assert _processar(sessao, provedor)["enviadas"] == 0
+    assert provedor.chamadas == [] and mensagem.status == "pendente"
 
 
 def test_consentimento_revogado_depois_de_enfileirar_bloqueia_no_envio() -> None:
     mensagem = _mensagem()
-    sessao = FakeSession([FakeResult(itens=[mensagem]), FakeResult(scalar=_consentimento("revogado"))])
+    sessao = _fila(FakeResult(itens=[mensagem]), FakeResult(scalar=_consentimento("revogado")))
     provedor = _Provedor()
     assert _processar(sessao, provedor)["bloqueadas"] == 1
     assert mensagem.status == "bloqueada" and provedor.chamadas == []
 
 
-def test_limite_diario_segura_o_que_passou_do_teto() -> None:
+def test_limite_diario_segura_e_empurra_a_mensagem_para_nao_travar_a_fila() -> None:
     mensagem = _mensagem()
-    sessao = FakeSession([FakeResult(itens=[mensagem]), FakeResult(scalar=_consentimento()), FakeResult(scalar=200)])
+    sessao = _fila(FakeResult(itens=[mensagem]), FakeResult(scalar=_consentimento()), FakeResult(scalar=200))
     provedor = _Provedor()
     assert _processar(sessao, provedor)["enviadas"] == 0
     assert mensagem.status == "pendente" and provedor.chamadas == []
+    assert mensagem.agendada_para == QUARTA_MEIO_DIA + timedelta(minutes=10)
 
 
 def _fila_prospeccao(mensagem, *, enviadas=0, falhas=0, ultimo=None) -> FakeSession:
-    return FakeSession(
-        [
-            FakeResult(itens=[mensagem]),
-            FakeResult(scalar=None),  # sem registro de supressão
-            FakeResult(scalar=enviadas),
-            FakeResult(scalar=falhas),
-            FakeResult(scalar=ultimo),
-        ]
+    return _fila(
+        FakeResult(itens=[mensagem]),
+        FakeResult(scalar=None),  # sem registro de supressão
+        FakeResult(scalar=enviadas),
+        FakeResult(scalar=falhas),
+        FakeResult(scalar=ultimo),
+        _reserva(),
     )
 
 
@@ -305,12 +327,13 @@ def test_prospeccao_envia_em_dia_util_pela_sessao_de_prospeccao() -> None:
     assert provedor.chamadas[0][0] == "prospeccao"
 
 
-def test_prospeccao_nao_sai_no_fim_de_semana() -> None:
+def test_prospeccao_nao_sai_no_fim_de_semana_e_e_empurrada() -> None:
     mensagem = _mensagem("prospeccao", agendada_para=SABADO_MEIO_DIA - timedelta(minutes=1))
     provedor = _Provedor()
-    sessao = FakeSession([FakeResult(itens=[mensagem]), FakeResult(scalar=None), FakeResult(scalar=0)])
+    sessao = _fila(FakeResult(itens=[mensagem]), FakeResult(scalar=None), FakeResult(scalar=0))
     assert _processar(sessao, provedor, agora=SABADO_MEIO_DIA)["enviadas"] == 0
     assert provedor.chamadas == []
+    assert mensagem.agendada_para == SABADO_MEIO_DIA + timedelta(minutes=10)
 
 
 def test_prospeccao_pausa_sozinha_quando_as_falhas_aumentam() -> None:
@@ -318,6 +341,7 @@ def test_prospeccao_pausa_sozinha_quando_as_falhas_aumentam() -> None:
     provedor = _Provedor()
     assert _processar(_fila_prospeccao(mensagem, falhas=3), provedor)["enviadas"] == 0
     assert provedor.chamadas == []
+    assert mensagem.agendada_para > QUARTA_MEIO_DIA
 
 
 def test_prospeccao_respeita_a_espera_entre_mensagens() -> None:
@@ -325,6 +349,7 @@ def test_prospeccao_respeita_a_espera_entre_mensagens() -> None:
     provedor = _Provedor()
     recente = QUARTA_MEIO_DIA - timedelta(seconds=30)
     assert _processar(_fila_prospeccao(mensagem, ultimo=recente), provedor)["enviadas"] == 0
+    assert mensagem.agendada_para == QUARTA_MEIO_DIA + timedelta(minutes=1)
     antigo = QUARTA_MEIO_DIA - timedelta(minutes=10)
     assert _processar(_fila_prospeccao(_mensagem("prospeccao"), ultimo=antigo), provedor)["enviadas"] == 1
 
@@ -332,14 +357,32 @@ def test_prospeccao_respeita_a_espera_entre_mensagens() -> None:
 def test_falha_de_envio_reagenda_e_na_terceira_vez_desiste() -> None:
     mensagem = _mensagem()
     for esperado_status, esperado_tentativas in (("pendente", 1), ("pendente", 2), ("falhou", 3)):
-        sessao = FakeSession(
-            [FakeResult(itens=[mensagem]), FakeResult(scalar=_consentimento()), FakeResult(scalar=0)]
+        sessao = _fila(
+            FakeResult(itens=[mensagem]), FakeResult(scalar=_consentimento()), FakeResult(scalar=0), _reserva()
         )
         resultado = _processar(sessao, _Provedor(erro=RuntimeError("gateway fora do ar")))
         assert resultado["falhas"] == 1
         assert (mensagem.status, mensagem.tentativas) == (esperado_status, esperado_tentativas)
         mensagem.agendada_para = QUARTA_MEIO_DIA - timedelta(minutes=1)
     assert mensagem.ultimo_erro == "gateway fora do ar"
+    assert mensagem.ultima_falha_em == QUARTA_MEIO_DIA  # é a data da falha que alimenta a pausa automática
+
+
+def test_envio_interrompido_vira_incerta_e_nao_e_reenviado() -> None:
+    sessao = _fila(FakeResult(itens=[]))
+    _processar(sessao, _Provedor())
+    primeiro = str(sessao.executados[0])
+    assert "UPDATE mensagens_saida" in primeiro and "status" in primeiro
+    compilado = sessao.executados[0].compile()
+    assert "incerta" in compilado.params.values()
+    assert "enviando" in compilado.params.values()
+
+
+def test_instrucao_de_saida_nao_e_confundida_com_a_palavra_sair_solta() -> None:
+    mensagem = _enfileirar(FakeSession([]), finalidade="prospeccao", corpo="Vamos sair da informalidade juntos.")
+    assert mensagem.corpo.endswith(mensageria.AVISO_SAIDA)
+    com_instrucao = _enfileirar(FakeSession([]), finalidade="prospeccao", corpo="Se não quiser, digite SAIR.")
+    assert com_instrucao.corpo == "Se não quiser, digite SAIR."
 
 
 # --- API de administração ---

@@ -42,9 +42,12 @@ PALAVRAS_DE_SAIDA = frozenset(
 
 
 class ProvedorMensagens(Protocol):
-    """Quem entrega a mensagem de fato (ex.: um gateway de WhatsApp). Devolve o id da mensagem no provedor."""
+    """Quem entrega a mensagem de fato (ex.: um gateway de WhatsApp). Devolve o id da mensagem no provedor.
 
-    async def enviar_texto(self, sessao: str, telefone: str, texto: str) -> str: ...
+    ``chave_idempotencia`` é estável por mensagem: o provedor deve usá-la para não duplicar um envio repetido.
+    """
+
+    async def enviar_texto(self, sessao: str, telefone: str, texto: str, chave_idempotencia: str) -> str: ...
 
 
 def obter_provedor() -> ProvedorMensagens | None:
@@ -67,6 +70,12 @@ def normalizar_telefone(valor: str | None) -> str | None:
 
 def _sem_acento(texto: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", texto) if not unicodedata.combining(c))
+
+
+def _tem_instrucao_de_saida(texto: str) -> bool:
+    """True se o texto já ensina a sair (ex.: "responda SAIR"), e não só contém a palavra "sair" por acaso."""
+    normalizado = _sem_acento(texto.lower())
+    return bool(re.search(r"\b(responda|digite|envie|mande|escreva|responder)\b[^.\n]{0,30}\bsair\b", normalizado))
 
 
 def eh_pedido_de_saida(texto: str | None) -> bool:
@@ -241,7 +250,7 @@ async def enfileirar_mensagem(
     texto = (corpo or "").strip()
     if not texto:
         raise ValueError("A mensagem não pode ser vazia")
-    if finalidade == "prospeccao" and "sair" not in _sem_acento(texto.lower()):
+    if finalidade == "prospeccao" and not _tem_instrucao_de_saida(texto):
         texto = f"{texto}\n\n{AVISO_SAIDA}"
     if len(texto) > TAMANHO_MAXIMO_MENSAGEM:
         raise ValueError("Mensagem longa demais")
@@ -326,8 +335,7 @@ async def _prospeccao_pausada_por_falhas(session: AsyncSession, organizacao_id: 
             .where(
                 MensagemSaida.organizacao_id == organizacao_id,
                 MensagemSaida.finalidade == "prospeccao",
-                MensagemSaida.ultimo_erro.is_not(None),
-                MensagemSaida.atualizado_em >= agora - timedelta(hours=1),
+                MensagemSaida.ultima_falha_em >= agora - timedelta(hours=1),
             )
         )
     ).scalar_one()
@@ -346,6 +354,50 @@ async def _ultimo_envio_prospeccao(session: AsyncSession, organizacao_id: int) -
     ).scalar_one_or_none()
 
 
+PRAZO_ENVIO_INTERROMPIDO = timedelta(minutes=15)
+
+
+async def _marcar_envios_interrompidos(session: AsyncSession, agora: datetime) -> int:
+    """Mensagem reservada ("enviando") há muito tempo: o worker caiu no meio do envio.
+
+    Não sabemos se a mensagem saiu. Reenviar poderia duplicar para o titular; por isso ela vira "incerta"
+    e fica para conferência humana (aparece na fila), sem reenvio automático.
+    """
+    resultado = await session.execute(
+        update(MensagemSaida)
+        .where(MensagemSaida.status == "enviando", MensagemSaida.atualizado_em < agora - PRAZO_ENVIO_INTERROMPIDO)
+        .values(status="incerta", ultimo_erro="Envio interrompido: confira no WhatsApp antes de reenviar.")
+        .execution_options(synchronize_session=False)
+    )
+    return resultado.rowcount or 0
+
+
+async def _reservar(session: AsyncSession, mensagem: MensagemSaida) -> bool:
+    """Reserva a mensagem para este worker de forma atômica (pendente -> enviando).
+
+    Só vale se ela ainda estiver pendente: um cancelamento ou revogação que tenha acontecido depois da
+    leitura impede o envio, e dois workers nunca enviam a mesma mensagem.
+    """
+    resultado = await session.execute(
+        update(MensagemSaida)
+        .where(MensagemSaida.id == mensagem.id, MensagemSaida.status == "pendente")
+        .values(status="enviando", tentativas=MensagemSaida.tentativas + 1)
+        .returning(MensagemSaida.id)
+        .execution_options(synchronize_session=False)
+    )
+    if resultado.first() is None:
+        return False
+    mensagem.status = "enviando"
+    mensagem.tentativas = (mensagem.tentativas or 0) + 1
+    await session.commit()  # a reserva fica gravada ANTES de falar com o provedor
+    return True
+
+
+def _adiar(mensagem: MensagemSaida, agora: datetime, minutos: int) -> None:
+    """Empurra para frente uma mensagem que não pode sair agora, para não travar a cabeça da fila."""
+    mensagem.agendada_para = agora + timedelta(minutes=minutos)
+
+
 async def processar_fila(
     session: AsyncSession,
     provedor: ProvedorMensagens | None,
@@ -361,6 +413,7 @@ async def processar_fila(
     if provedor is None:
         return {"enviadas": 0, "falhas": 0, "bloqueadas": 0, "motivo": "sem_provedor"}
 
+    interrompidas = await _marcar_envios_interrompidos(session, agora)
     pendentes = (
         (
             await session.execute(
@@ -391,39 +444,51 @@ async def processar_fila(
         if await _enviadas_hoje(session, mensagem.organizacao_id, mensagem.finalidade, agora) >= _limite_diario(
             mensagem.finalidade
         ):
+            _adiar(mensagem, agora, 10)
             continue
         if mensagem.finalidade == "prospeccao":
             if mensagem.organizacao_id in prospeccao_ja_enviou_nesta_rodada:
+                _adiar(mensagem, agora, 1)
                 continue
             if not dentro_do_horario_comercial(agora, settings.whatsapp_horario_inicio, settings.whatsapp_horario_fim):
+                _adiar(mensagem, agora, 10)
                 continue
             if await _prospeccao_pausada_por_falhas(session, mensagem.organizacao_id, agora):
                 logger.warning("Prospecção por WhatsApp pausada por falhas (org %s).", mensagem.organizacao_id)
+                _adiar(mensagem, agora, 10)
                 continue
             ultimo = await _ultimo_envio_prospeccao(session, mensagem.organizacao_id)
             espera = sortear(settings.whatsapp_intervalo_min_segundos, settings.whatsapp_intervalo_max_segundos)
             if ultimo is not None and (agora - ultimo).total_seconds() < espera:
+                _adiar(mensagem, agora, 1)
                 continue
+        if not await _reservar(session, mensagem):
+            continue  # cancelada (ou tratada por outro worker) depois da leitura
         try:
             id_provedor = await provedor.enviar_texto(
-                _sessao_do_provedor(mensagem.finalidade), mensagem.telefone, mensagem.corpo
+                _sessao_do_provedor(mensagem.finalidade),
+                mensagem.telefone,
+                mensagem.corpo,
+                mensagem.chave_idempotencia,
             )
         except Exception as exc:
-            mensagem.tentativas += 1
             mensagem.ultimo_erro = str(exc)[:300] or type(exc).__name__
+            mensagem.ultima_falha_em = agora
             if mensagem.tentativas >= settings.whatsapp_max_tentativas:
                 mensagem.status = "falhou"
             else:
+                mensagem.status = "pendente"
                 mensagem.agendada_para = agora + timedelta(minutes=5 * mensagem.tentativas)
             falhas += 1
             logger.warning("Falha ao enviar mensagem (id=%s): %s", mensagem.id, exc)
+            await session.commit()
             continue
         mensagem.status = "enviada"
-        mensagem.tentativas += 1
         mensagem.enviada_em = agora
         mensagem.provedor_mensagem_id = (id_provedor or "")[:120] or None
         mensagem.ultimo_erro = None
         enviadas += 1
         if mensagem.finalidade == "prospeccao":
             prospeccao_ja_enviou_nesta_rodada.add(mensagem.organizacao_id)
-    return {"enviadas": enviadas, "falhas": falhas, "bloqueadas": bloqueadas}
+        await session.commit()  # grava o resultado já, sem esperar o fim do lote
+    return {"enviadas": enviadas, "falhas": falhas, "bloqueadas": bloqueadas, "interrompidas": interrompidas}

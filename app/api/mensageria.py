@@ -188,7 +188,7 @@ async def revogar(dados: RevogacaoInput, session: SessionDep, usuario: ManageDep
 async def listar_fila(
     session: SessionDep,
     usuario: ViewDep,
-    status: str | None = Query(default=None, pattern=r"^(pendente|enviada|falhou|bloqueada|cancelada)$"),
+    status: str | None = Query(default=None, pattern=r"^(pendente|enviando|enviada|incerta|falhou|bloqueada|cancelada)$"),
 ) -> list[dict]:
     consulta = select(MensagemSaida).where(MensagemSaida.organizacao_id == usuario.organizacao_id)
     if status:

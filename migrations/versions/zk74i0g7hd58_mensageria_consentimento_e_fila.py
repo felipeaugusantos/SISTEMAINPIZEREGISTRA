@@ -74,6 +74,7 @@ def upgrade() -> None:
         sa.Column("agendada_para", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("enviada_em", sa.DateTime(timezone=True), nullable=True),
         sa.Column("ultimo_erro", sa.String(300), nullable=True),
+        sa.Column("ultima_falha_em", sa.DateTime(timezone=True), nullable=True),
         sa.Column("chave_idempotencia", sa.String(120), nullable=False),
         sa.Column("provedor_mensagem_id", sa.String(120), nullable=True),
         sa.Column("criado_em", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),

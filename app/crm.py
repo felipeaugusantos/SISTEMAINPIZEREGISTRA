@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.cadencia_email import montar_envio_pendente
+from app.cadencia_whatsapp import agendar_whatsapp_do_passo
 from app.models import (
     ORDEM_FASE_LEAD,
     Cadencia,
@@ -774,6 +775,10 @@ async def aplicar_cadencia_a_lead(
             payload={"cadencia_id": cadencia.id, "passo_id": passo.id},
             idempotency_key=chave_idempotencia,
         )
+        if passo.canal == "whatsapp":
+            # Além do lembrete manual acima, o passo vira mensagem na fila de prospecção (só sai com o WhatsApp
+            # ligado, respeitando a lista de supressão, o horário comercial e os limites do número).
+            await agendar_whatsapp_do_passo(session, lead, cadencia, passo, agora)
         if passo.canal == "email":
             await session.execute(
                 pg_insert(EnvioCadenciaEmail)

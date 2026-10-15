@@ -229,7 +229,6 @@ def test_remetente_com_id_privado_usa_o_telefone_resolvido() -> None:
     [
         {"from": f"{TELEFONE}@c.us", "body": "SAIR", "isGroup": True},
         {"from": f"{TELEFONE}@c.us", "body": "SAIR", "fromMe": True},
-        {"from": f"{TELEFONE}@c.us", "body": "obrigado, até logo"},
         {"from": "120363@g.us", "body": "sair"},
     ],
 )
@@ -494,3 +493,14 @@ def test_envio_incerto_fica_para_conferencia_humana_sem_nova_tentativa(monkeypat
     )
     base._processar(sessao, base._Provedor(erro=ErroEnvioIncerto("sem resposta")))
     assert mensagem.status == "incerta" and mensagem.tentativas == 1
+
+
+def test_resposta_comum_do_cliente_pausa_a_prospeccao_pendente_daquele_telefone() -> None:
+    sessao = FakeSession([])
+    dados = {"from": f"{TELEFONE}@c.us", "body": "obrigado, até logo", "isGroup": False, "fromMe": False}
+    assert _evento(sessao, "message.received", dados) == "resposta"
+    assert sessao.adicionados == []  # não revoga nada
+    cancelamentos = [c for c in sessao.executados if "UPDATE mensagens_saida" in str(c)]
+    assert len(cancelamentos) == 1
+    params = cancelamentos[0].compile().params.values()
+    assert "cancelada" in params and "prospeccao" in params and TELEFONE in params

@@ -25,7 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cadencia_email import FUSO_COMERCIAL, dentro_do_horario_comercial
-from app.models import AlertaSistema, ConsentimentoCanal, HistoricoAlertaVigilancia, MensagemSaida, PausaCanal
+from app.models import AlertaSistema, ConsentimentoCanal, HistoricoAlertaVigilancia, Lead, MensagemSaida, PausaCanal
 from app.settings import get_settings
 
 logger = logging.getLogger("ze_registra.mensageria")
@@ -494,6 +494,14 @@ async def processar_fila(
             mensagem.motivo_bloqueio = motivo
             bloqueadas += 1
             continue
+        if mensagem.titular_tipo == "lead" and mensagem.finalidade == "prospeccao":
+            # Passo de cadência agendado dias antes: o lead é conferido de novo na hora de enviar.
+            lead = await session.get(Lead, mensagem.titular_id)
+            if lead is None or lead.anonimizado_em or lead.arquivado_em or lead.cadencia_opt_out_em:
+                mensagem.status = "cancelada"
+                mensagem.motivo_bloqueio = "lead_indisponivel"
+                bloqueadas += 1
+                continue
         if (mensagem.organizacao_id, _sessao_do_provedor(mensagem.finalidade)) in pausadas:
             _adiar(mensagem, agora, 10)  # sessão pausada (ex.: restrição do número); volta sozinha quando acabar
             continue
@@ -599,6 +607,20 @@ async def _alertar(
     )
 
 
+async def _cancelar_prospeccao_pendente_do_telefone(session: AsyncSession, telefone: str) -> None:
+    await session.execute(
+        update(MensagemSaida)
+        .where(
+            MensagemSaida.telefone == telefone,
+            MensagemSaida.canal == CANAL_WHATSAPP,
+            MensagemSaida.finalidade == "prospeccao",
+            MensagemSaida.status == "pendente",
+        )
+        .values(status="cancelada", motivo_bloqueio="cliente_respondeu")
+        .execution_options(synchronize_session=False)
+    )
+
+
 async def _organizacoes_do_telefone(session: AsyncSession, telefone: str, padrao: int) -> list[int]:
     """Organizações com registro ou mensagem para o telefone, mais a padrão (consulta cross-tenant, só leitura)."""
     achadas = set(
@@ -675,6 +697,11 @@ async def processar_evento_gateway(
                     session, organizacao_id=organizacao, telefone=telefone, texto=dados["body"], agora=agora
                 )
             return "saida"
+        if telefone:
+            # Quem respondeu abriu uma conversa de verdade: a cadência automática daquele telefone para e a
+            # equipe assume. (Resposta que não é pedido de saída.)
+            await _cancelar_prospeccao_pendente_do_telefone(session, telefone)
+            return "resposta"
         return "ignorado"
     if evento in ("message.ack", "message.failed"):
         if evento == "message.failed":

@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const fs = require("fs");
 const { test, expect } = require("@playwright/test");
 
 function base32Decode(segredo) {
@@ -125,7 +126,8 @@ test("o administrador entra pelo formulário e acessa a visão geral", async ({ 
   await expect(page.getByText("CENTRAL DE NOTIFICAÇÕES")).toBeVisible();
 
   // Guarda a sessão para as jornadas de negócio abaixo (A15), sem repetir o login com MFA.
-  estadoAdmin = await page.context().storageState();
+  fs.mkdirSync("test-results", { recursive: true });
+  fs.writeFileSync(ARQUIVO_SESSAO, JSON.stringify(await page.context().storageState()));
 });
 
 // --- Auditoria A15 (15/10/2026): jornadas críticas com persistência real ---------------------------
@@ -133,11 +135,17 @@ test("o administrador entra pelo formulário e acessa a visão geral", async ({ 
 // contra a API e o banco reais da CI e conferem o que ficou gravado. Reaproveitam a sessão do teste do
 // administrador (o MFA é configurado uma única vez, ali).
 
-let estadoAdmin = null;
+const ARQUIVO_SESSAO = "test-results/e2e-admin-state.json";
+
+function estadoAdmin() {
+  // Em arquivo (e nao em variavel) para sobreviver a reinicio do worker do Playwright apos uma falha.
+  return fs.existsSync(ARQUIVO_SESSAO) ? JSON.parse(fs.readFileSync(ARQUIVO_SESSAO, "utf-8")) : null;
+}
 
 async function contextoAdmin(playwright, baseURL) {
-  const api = await playwright.request.newContext({ baseURL, storageState: estadoAdmin });
-  const csrf = estadoAdmin.cookies.find((c) => c.name === "zr_csrf")?.value || "";
+  const estado = estadoAdmin();
+  const api = await playwright.request.newContext({ baseURL, storageState: estado });
+  const csrf = estado.cookies.find((c) => c.name === "zr_csrf")?.value || "";
   return { api, cabecalhos: { "X-CSRF-Token": csrf } };
 }
 
@@ -168,7 +176,7 @@ async function buscarLeadAdmin(api, email) {
 }
 
 test("jornada: lead público chega ao painel e a mudança de status persiste", async ({ playwright, request, baseURL }) => {
-  test.skip(!estadoAdmin, "Sessão de administrador E2E indisponível.");
+  test.skip(!estadoAdmin(), "Sessão de administrador E2E indisponível.");
   const { api, cabecalhos } = await contextoAdmin(playwright, baseURL);
   const email = emailUnico("jornada-lead");
 
@@ -180,7 +188,7 @@ test("jornada: lead público chega ao painel e a mudança de status persiste", a
     headers: cabecalhos,
     data: { status: "em_contato", notas: "Contato feito no E2E" },
   });
-  expect(alteracao.ok()).toBeTruthy();
+  expect(alteracao.ok(), `PATCH lead: ${alteracao.status()} ${await alteracao.text()}`).toBeTruthy();
 
   // Persistência: nova leitura (outra requisição) devolve o estado gravado.
   const detalhe = await (await api.get(`/v1/admin/leads/${lead.id}`)).json();
@@ -193,7 +201,7 @@ test("jornada: exclusão pelo titular respeita atendimento ativo e anonimiza dep
   request,
   baseURL,
 }) => {
-  test.skip(!estadoAdmin, "Sessão de administrador E2E indisponível.");
+  test.skip(!estadoAdmin(), "Sessão de administrador E2E indisponível.");
   const { api, cabecalhos } = await contextoAdmin(playwright, baseURL);
   const email = emailUnico("jornada-lgpd");
   await criarLeadPublico(request, email);
@@ -215,7 +223,7 @@ test("jornada: exclusão pelo titular respeita atendimento ativo e anonimiza dep
     headers: cabecalhos,
     data: { status: "descartado", motivo_perda: "outro", motivo_perda_detalhe: "Teste E2E" },
   });
-  expect(descarte.ok()).toBeTruthy();
+  expect(descarte.ok(), `PATCH descarte: ${descarte.status()} ${await descarte.text()}`).toBeTruthy();
   pedido = await request.post("/v1/privacidade/solicitar-exclusao", { data: { email } });
   token = (await pedido.json()).token_teste_local;
   expect(token).toBeTruthy();

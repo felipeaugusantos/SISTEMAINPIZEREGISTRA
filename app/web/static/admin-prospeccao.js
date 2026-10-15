@@ -572,7 +572,7 @@ document.querySelector("#campanhas-rows").addEventListener("click", async event 
       await api(`/v1/admin/prospeccao/campanhas/${id}${excluirProspects ? "?excluir_prospects=true" : ""}`, { method: "DELETE" });
       showMessage(excluirProspects ? "Campanha e empresas coletadas excluídas." : "Campanha excluída; as empresas continuam no radar.");
       await loadCampanhas();
-      if (excluirProspects) await loadProspects();
+      if (excluirProspects) await reloadAll();  // atualiza também o painel (funil) e a lista
     } catch (error) { showMessage(error.message, "error"); excluirButton.disabled = false; }
   }
 });

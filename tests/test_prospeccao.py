@@ -1802,3 +1802,10 @@ def test_tela_pergunta_se_as_empresas_coletadas_tambem_devem_ser_excluidas() -> 
     assert "excluir_prospects=true" in script
     assert "campanha_id=${encodeURIComponent(id)}&limite=1" in script
     assert "Excluir também essas empresas do radar" in script
+
+
+def test_tela_atualiza_o_painel_e_a_lista_depois_de_excluir_as_empresas_da_campanha() -> None:
+    # Revisão do Codex (PR #210): só a lista era recarregada e o funil continuava com os totais antigos.
+    script = Path("app/web/static/admin-prospeccao.js").read_text(encoding="utf-8")
+    assert "if (excluirProspects) await reloadAll();" in script
+    assert "if (excluirProspects) await loadProspects();" not in script

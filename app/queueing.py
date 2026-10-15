@@ -1,3 +1,4 @@
+import hashlib
 import json
 import time
 from datetime import UTC, datetime
@@ -93,6 +94,25 @@ return 0
 """
 
 
+# Auditoria A03: reserva de idempotência + RPUSH em uma única operação atômica. Retorna {1, id} quando
+# enfileirou, {0, id_existente} quando a chave já estava reservada e {-1} quando o RPUSH foi recusado
+# (a reserva é desfeita para não bloquear a nova tentativa). A métrica fica fora da decisão (pcall).
+_LUA_ENFILEIRAR = """
+if ARGV[1] == '1' then
+  if not redis.call('SET', KEYS[1], ARGV[2], 'NX', 'EX', tonumber(ARGV[3])) then
+    return {0, redis.call('GET', KEYS[1])}
+  end
+end
+local ok = pcall(function() redis.call('RPUSH', KEYS[2], ARGV[4]) end)
+if not ok then
+  if ARGV[1] == '1' then redis.call('DEL', KEYS[1]) end
+  return {-1}
+end
+pcall(function() redis.call('HINCRBY', KEYS[3], 'enfileirados', 1) end)
+return {1, ARGV[2]}
+"""
+
+
 async def enfileirar(
     tipo: str,
     payload: dict | None = None,
@@ -111,28 +131,30 @@ async def enfileirar(
         "criado_em": datetime.now(UTC).isoformat(),
     }
     redis = cliente_redis()
-    chave = f"{IDEMPOTENCY_PREFIX}{tipo}:{idempotency_key}" if idempotency_key else None
+    chave = f"{IDEMPOTENCY_PREFIX}{tipo}:{idempotency_key}" if idempotency_key else IDEMPOTENCY_PREFIX + "-"
     try:
-        if chave is not None:
-            criado = await redis.set(chave, job["id"], nx=True, ex=settings.queue_idempotency_ttl_seconds)
-            if not criado:
-                return {
-                    "id": await redis.get(chave),
-                    "tipo": tipo,
-                    "duplicado": True,
-                    "request_id": job["request_id"],
-                }
-        try:
-            await redis.rpush(QUEUE_KEY, json.dumps(job))
-        except Exception:
-            # Achado 3 da auditoria: se o enfileiramento falhasse depois de
-            # gravar a chave de dedup, a chave ficava no Redis e bloqueava a
-            # nova tentativa para sempre (tratada como duplicada). Libera a
-            # chave antes de propagar o erro.
-            if chave is not None:
-                await redis.delete(chave)
-            raise
-        await redis.hincrby(METRICS_KEY, "enfileirados", 1)
+        # Auditoria A03 (15/10/2026): a reserva de idempotência (SET NX) e o RPUSH eram comandos separados;
+        # uma queda entre eles deixava a chave reservada sem trabalho na fila. O script faz tudo atômico.
+        resultado = await redis.eval(
+            _LUA_ENFILEIRAR,
+            3,
+            chave,
+            QUEUE_KEY,
+            METRICS_KEY,
+            "1" if idempotency_key else "0",
+            job["id"],
+            str(settings.queue_idempotency_ttl_seconds),
+            json.dumps(job),
+        )
+        if int(resultado[0]) == -1:
+            raise RuntimeError("Redis recusou o enfileiramento do trabalho")
+        if int(resultado[0]) == 0:
+            return {
+                "id": resultado[1],
+                "tipo": tipo,
+                "duplicado": True,
+                "request_id": job["request_id"],
+            }
     finally:
         await redis.aclose()
     return job
@@ -193,16 +215,72 @@ async def mover_processando_para_falha(
     )
 
 
-async def recuperar_processando(redis: Redis, *, processando: str = PROCESSING_KEY, fila: str = QUEUE_KEY) -> int:
-    """Devolve à fila as tarefas que ficaram em processamento (encerramento abrupto do worker).
+# Auditoria A05 (15/10/2026): iniciar um worker devolvia à fila TODOS os itens em processamento, inclusive
+# os de outro worker ainda vivo (execução duplicada). Agora cada tarefa em andamento tem um lease
+# (hash field = sha1 do JSON -> expiração em epoch) renovado pelo worker dono. A varredura só devolve à
+# fila o que está com lease vencido; item sem lease (ex.: acabou de ser pego, ou legado) ganha um lease
+# novo e só é recuperado se esse prazo também vencer.
+LEASES_KEY = "ze-registra:jobs:leases"
+LEASE_TTL_SECONDS = 60
+LEASE_RENOVACAO_SECONDS = 15
+_LUA_RECUPERAR_VENCIDOS = """
+local itens = redis.call('LRANGE', KEYS[1], 0, -1)
+local agora = tonumber(ARGV[1])
+local movidas = 0
+for _, item in ipairs(itens) do
+  local campo = redis.sha1hex(item)
+  local expira = redis.call('HGET', KEYS[3], campo)
+  if not expira then
+    redis.call('HSET', KEYS[3], campo, agora + tonumber(ARGV[2]))
+  elseif tonumber(expira) <= agora then
+    if redis.call('LREM', KEYS[1], 1, item) == 1 then
+      redis.call('LPUSH', KEYS[2], item)
+      movidas = movidas + 1
+    end
+    redis.call('HDEL', KEYS[3], campo)
+  end
+end
+return movidas
+"""
 
-    RPOPLPUSH move cada item atomicamente; o par RPOP + LPUSH antigo deixava uma janela em que uma
-    interrupção entre os dois comandos perdia a tarefa (auditoria externa A03).
-    """
-    movidas = 0
-    while await redis.rpoplpush(processando, fila):
-        movidas += 1
-    return movidas
+
+def _campo_lease(bruto: str) -> str:
+    return hashlib.sha1(bruto.encode("utf-8")).hexdigest()  # noqa: S324 - só identifica o item, igual ao redis.sha1hex
+
+
+async def registrar_lease(
+    redis: Redis, bruto: str, *, leases: str = LEASES_KEY, ttl: int = LEASE_TTL_SECONDS, agora: float | None = None
+) -> None:
+    """Cria ou renova o lease da tarefa em processamento (chamado pelo worker dono)."""
+    await redis.hset(leases, _campo_lease(bruto), str((time.time() if agora is None else agora) + ttl))
+
+
+async def liberar_lease(redis: Redis, bruto: str, *, leases: str = LEASES_KEY) -> None:
+    await redis.hdel(leases, _campo_lease(bruto))
+
+
+async def recuperar_processando(
+    redis: Redis,
+    *,
+    processando: str = PROCESSING_KEY,
+    fila: str = QUEUE_KEY,
+    leases: str = LEASES_KEY,
+    ttl: int = LEASE_TTL_SECONDS,
+    agora: float | None = None,
+) -> int:
+    """Devolve à fila as tarefas em processamento cujo lease venceu (worker morto), sem tocar nas que
+    outro worker ainda renova. Atômico no Redis (script), então não há janela entre remover e reenfileirar."""
+    return int(
+        await redis.eval(
+            _LUA_RECUPERAR_VENCIDOS,
+            3,
+            processando,
+            fila,
+            leases,
+            str(time.time() if agora is None else agora),
+            str(ttl),
+        )
+    )
 
 
 async def promover_retentativas(redis: Redis, agora: float | None = None) -> int:

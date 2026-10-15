@@ -153,7 +153,6 @@ services:
       RUN_MIGRATIONS: "false"
       BOOTSTRAP_ADMIN: "true"
       DATABASE_URL: postgresql+asyncpg://inpi_app:${APP_DB_PASSWORD:-inpi-app-local-change-me}@db:5432/inpi
-      MIGRATION_DATABASE_URL: postgresql+asyncpg://inpi:${POSTGRES_PASSWORD:-inpi}@db:5432/inpi
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@zeregistra.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}

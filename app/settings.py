@@ -4,6 +4,16 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SENHAS_PLACEHOLDER = frozenset({"", "altere-esta-senha", "defina-uma-senha-forte"})
+# Padrões de desenvolvimento e exemplos do .env.example: proibidos em produção (auditoria A01).
+SEGREDOS_PLACEHOLDER = frozenset(
+    {
+        "desenvolvimento-local",
+        "desenvolvimento-local-chave-mestra",
+        "defina-um-segredo-de-auditoria",
+        "gere-uma-chave-mestra-local-com-mais-de-32-caracteres",
+        "teste-local",
+    }
+)
 TAMANHO_MINIMO_SENHA = 12
 TAMANHO_MINIMO_TOKEN_INTEGRACAO = 32
 
@@ -322,6 +332,10 @@ class Settings(BaseSettings):
             )
         if len(self.admin_password) < TAMANHO_MINIMO_SENHA:
             raise ValueError(f"ADMIN_PASSWORD deve ter ao menos {TAMANHO_MINIMO_SENHA} caracteres em produção.")
+        if self.audit_ip_salt in SEGREDOS_PLACEHOLDER:
+            raise ValueError("AUDIT_IP_SALT não pode usar o valor padrão ou de exemplo em produção.")
+        if self.security_master_key in SEGREDOS_PLACEHOLDER:
+            raise ValueError("SECURITY_MASTER_KEY não pode usar o valor padrão ou de exemplo em produção.")
         if len(self.audit_ip_salt) < 16:
             raise ValueError("AUDIT_IP_SALT deve ter ao menos 16 caracteres em produção.")
         if len(self.security_master_key) < 32:

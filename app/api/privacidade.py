@@ -132,12 +132,76 @@ async def confirmar_exclusao(
             )
         ).scalars()
     )
-    for lead in leads:
-        _anonimizar_lead(lead)
+    # Auditoria A07 (15/10/2026): o autoatendimento anonimizava sem consultar as regras de retenção e sem
+    # apagar os arquivos do portal. Agora usa as mesmas regras do descarte administrativo: o que tem
+    # bloqueio (atendimento/processo/contrato ativo, documento obrigatório, legal hold) é conservado e
+    # informado ao titular; o restante tem os arquivos físicos apagados e o cadastro anonimizado.
+    anonimizados = 0
+    arquivos_removidos = 0
+    conservados: list[dict] = []
+    try:
+        for lead in leads:
+            bloqueios = await motivos_bloqueio_lead(session, lead)
+            if bloqueios:
+                conservados.append({"lead_id": lead.id, "motivos": bloqueios})
+                continue
+            arquivos = (
+                (
+                    await session.execute(
+                        select(ArquivoClientePortal).where(
+                            ArquivoClientePortal.lead_id == lead.id,
+                            ArquivoClientePortal.organizacao_id == organizacao.id,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for arquivo in arquivos:
+                delete_object(arquivo.caminho)
+            for arquivo in arquivos:
+                await session.delete(arquivo)
+            arquivos_removidos += len(arquivos)
+            _anonimizar_lead(lead)
+            anonimizados += 1
+    except Exception:
+        # Falha no storage: nada é confirmado e o link continua válido para o titular tentar de novo.
+        # Arquivos já apagados não voltam; a nova tentativa os trata como inexistentes (idempotente).
+        await session.rollback()
+        raise HTTPException(503, "Não foi possível concluir a exclusão agora. Tente novamente em instantes.") from None
     solicitacao.usado_em = agora
-    solicitacao.leads_anonimizados = len(leads)
+    solicitacao.leads_anonimizados = anonimizados
+    session.add(
+        EventoAuditoria(
+            organizacao_id=organizacao.id,
+            ator="titular",
+            acao="exclusao_titular",
+            recurso=f"solicitacao:{solicitacao.id}",
+            sucesso=True,
+            status_http=200,
+            detalhes={
+                "anonimizados": anonimizados,
+                "conservados": [{"lead_id": c["lead_id"], "motivos": c["motivos"]} for c in conservados],
+                "arquivos_removidos": arquivos_removidos,
+            },
+        )
+    )
     await session.commit()
-    return {"status": "ok", "mensagem": "Seus dados foram removidos.", "registros_afetados": len(leads)}
+    if conservados:
+        mensagem = (
+            f"Removemos {anonimizados} registro(s). {len(conservados)} registro(s) foram mantidos por "
+            "obrigação legal ou atendimento em andamento e serão tratados pelo escritório."
+            if anonimizados
+            else "Seus dados não puderam ser removidos agora: há atendimento, contrato, processo ou "
+            "obrigação legal em andamento. O escritório foi notificado e tratará a solicitação."
+        )
+        return {
+            "status": "parcial" if anonimizados else "conservado",
+            "mensagem": mensagem,
+            "registros_afetados": anonimizados,
+            "registros_conservados": len(conservados),
+        }
+    return {"status": "ok", "mensagem": "Seus dados foram removidos.", "registros_afetados": anonimizados}
 
 
 # --- Achado FASE6-14 da auditoria (04/09/2026): retenção -- app/worker.py

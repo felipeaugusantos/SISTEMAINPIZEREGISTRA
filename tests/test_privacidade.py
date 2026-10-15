@@ -109,8 +109,8 @@ def test_confirmar_exclusao_anonimiza_todos_os_leads_do_email() -> None:
         token_hash=hash_token("token-valido"),
         expira_em=datetime.now(UTC) + timedelta(hours=1),
     )
-    lead1 = _lead(id=9)
-    lead2 = _lead(id=10, marca="Outra Marca")
+    lead1 = _lead(id=9, status=StatusLead.DESCARTADO)
+    lead2 = _lead(id=10, marca="Outra Marca", status=StatusLead.DESCARTADO)
     app.dependency_overrides[get_session] = sessao_override(
         FakeResult(scalar=solicitacao),
         FakeResult(itens=[lead1, lead2]),
@@ -132,6 +132,86 @@ def test_confirmar_exclusao_anonimiza_todos_os_leads_do_email() -> None:
         assert lead.anonimizado_em is not None
     assert solicitacao.usado_em is not None
     assert solicitacao.leads_anonimizados == 2
+
+
+# --- Auditoria A07 (15/10/2026): o autoatendimento segue as mesmas regras de retenção do descarte
+# administrativo e apaga os arquivos do portal. ---
+
+
+def _solicitacao_valida() -> SolicitacaoAnonimizacaoLead:
+    return SolicitacaoAnonimizacaoLead(
+        id=1,
+        organizacao_id=1,
+        email="fulano@example.com",
+        token_hash=hash_token("token-valido"),
+        expira_em=datetime.now(UTC) + timedelta(hours=1),
+    )
+
+
+def test_confirmar_exclusao_conserva_lead_com_atendimento_ativo() -> None:
+    solicitacao = _solicitacao_valida()
+    lead = _lead(id=9)  # status padrão: atendimento em andamento
+    sessao = FakeSession([FakeResult(scalar=solicitacao), FakeResult(itens=[lead])])
+    app.dependency_overrides[get_session] = lambda: sessao
+
+    resposta = TestClient(app).post("/v1/privacidade/confirmar-exclusao", json={"token": "token-valido"})
+
+    corpo = resposta.json()
+    assert corpo["status"] == "conservado"
+    assert corpo["registros_afetados"] == 0 and corpo["registros_conservados"] == 1
+    assert lead.anonimizado_em is None
+    assert solicitacao.usado_em is not None and solicitacao.leads_anonimizados == 0
+    auditoria = [o for o in sessao.adicionados if isinstance(o, EventoAuditoria)]
+    assert auditoria and auditoria[0].detalhes["conservados"][0]["motivos"] == ["atendimento_ativo"]
+
+
+def test_confirmar_exclusao_apaga_arquivos_do_portal(monkeypatch: pytest.MonkeyPatch) -> None:
+    removidos: list[str] = []
+    monkeypatch.setattr("app.api.privacidade.delete_object", removidos.append)
+    solicitacao = _solicitacao_valida()
+    lead = _lead(id=9, status=StatusLead.DESCARTADO)
+    arquivo = ArquivoClientePortal(id=1, organizacao_id=1, lead_id=9, caminho="portal/9/rg.pdf")
+    sessao = FakeSession(
+        [
+            FakeResult(scalar=solicitacao),
+            FakeResult(itens=[lead]),
+            *[FakeResult(scalar=0) for _ in range(4)],
+            FakeResult(itens=[arquivo]),
+        ]
+    )
+    app.dependency_overrides[get_session] = lambda: sessao
+
+    corpo = TestClient(app).post("/v1/privacidade/confirmar-exclusao", json={"token": "token-valido"}).json()
+
+    assert corpo["status"] == "ok"
+    assert removidos == ["portal/9/rg.pdf"]
+    assert sessao.deletados == [arquivo]
+    assert lead.anonimizado_em is not None
+
+
+def test_confirmar_exclusao_falha_no_storage_nao_consome_o_link(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _falha(_caminho: str) -> None:
+        raise OSError("storage fora")
+
+    monkeypatch.setattr("app.api.privacidade.delete_object", _falha)
+    solicitacao = _solicitacao_valida()
+    lead = _lead(id=9, status=StatusLead.DESCARTADO)
+    arquivo = ArquivoClientePortal(id=1, organizacao_id=1, lead_id=9, caminho="portal/9/rg.pdf")
+    sessao = FakeSession(
+        [
+            FakeResult(scalar=solicitacao),
+            FakeResult(itens=[lead]),
+            *[FakeResult(scalar=0) for _ in range(4)],
+            FakeResult(itens=[arquivo]),
+        ]
+    )
+    app.dependency_overrides[get_session] = lambda: sessao
+
+    resposta = TestClient(app).post("/v1/privacidade/confirmar-exclusao", json={"token": "token-valido"})
+
+    assert resposta.status_code == 503
+    assert solicitacao.usado_em is None
+    assert sessao.commits == 0
 
 
 # --- Achado FASE6-14 da auditoria (04/09/2026): descarte seguro por

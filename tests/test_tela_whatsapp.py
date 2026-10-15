@@ -76,3 +76,11 @@ def test_tela_distingue_enviada_de_entregue_e_lida_pelos_recibos() -> None:
     assert "function situacaoDaMensagem" in JS
     assert 'm.entregue_em' in JS and 'm.lida_em' in JS
     assert 'entregue: ["Entregue"' in JS and 'lida: ["Lida"' in JS
+
+
+def test_cabecalho_da_pagina_tem_titulo_curto_e_ocupa_a_largura_toda() -> None:
+    # O título longo quebrava e aparecia cortado ("WhatsApp: consentimentos e").
+    assert "<h1>WhatsApp e consentimentos</h1>" in HTML
+    css = (WEB / "static" / "admin-whatsapp.css").read_text(encoding="utf-8")
+    assert 'data-admin-section="config-whatsapp"] .admin-overview-hero > div { flex: 1 1 100%' in css
+    assert "admin-whatsapp.css?v=2" in HTML

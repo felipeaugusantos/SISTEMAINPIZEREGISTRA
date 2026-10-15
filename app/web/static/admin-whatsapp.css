@@ -25,3 +25,10 @@
 .wa-selo.erro { color:#9b2c2c; }
 @media(max-width:700px) { .wa-form { grid-template-columns:1fr; } }
 .overview-section[hidden] { display:none; }
+
+/* Cabeçalho: o texto ocupa a largura toda (antes encolhia ao tamanho do conteúdo e quebrava o título). */
+.admin-body[data-admin-section="config-whatsapp"] .admin-overview-hero > div { flex: 1 1 100%; max-width: 100%; }
+.admin-body[data-admin-section="config-whatsapp"] .admin-overview-hero h1 {
+  font-size: clamp(1.7rem, 2.4vw, 2.4rem);
+  overflow-wrap: anywhere;
+}

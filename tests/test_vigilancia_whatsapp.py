@@ -1,7 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
 
-
 from app.models import (
     ClientePortal,
     ColidenciaVigilancia,

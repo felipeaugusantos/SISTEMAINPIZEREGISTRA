@@ -16,7 +16,14 @@ from sqlalchemy.orm import selectinload
 
 from app.api.email_leads_config import config_email_leads, substituir_placeholders_organizacao
 from app.api.juridico import FUSO_BRASIL
-from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, exigir_qualquer_permissao, fora_do_loop, hash_ip
+from app.auth import (
+    AcaoAdminDep,
+    UsuarioAutenticado,
+    exigir_permissao,
+    exigir_qualquer_permissao,
+    fora_do_loop,
+    hash_ip,
+)
 from app.cadencia_email import processar_descadastro_cadencia, registrar_abertura
 from app.captcha import exigir_captcha
 from app.crm import (

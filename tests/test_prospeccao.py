@@ -1810,7 +1810,7 @@ def test_tela_atualiza_o_painel_e_a_lista_depois_de_excluir_as_empresas_da_campa
 def test_coletar_campanha_restaura_status_quando_enfileirar_falha(monkeypatch: pytest.MonkeyPatch) -> None:
     # Auditoria A06: o status é gravado antes de enfileirar; se a fila recusar, volta ao estado anterior.
     campanha = _campanha(status="pausada")
-    session = _sessao_admin(FakeResult(scalar=campanha))
+    _sessao_admin(FakeResult(scalar=campanha))
 
     class RedisQuebrado:
         async def eval(self, *_args: object) -> list:

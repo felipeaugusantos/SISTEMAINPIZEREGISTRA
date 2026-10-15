@@ -1754,3 +1754,58 @@ def test_exportar_excel_nao_quebra_com_caractere_de_controle_nos_dados() -> None
     _, _, planilha = _baixar_xlsx([sujo, limpo])
     assert planilha["A2"].value == "EmpresaSuja Ltda" and planilha["J2"].value == "SãoPaulo"
     assert planilha["A3"].value == "Empresa Limpa Ltda"  # as demais linhas seguem normalmente
+
+
+# --- Excluir campanha junto com as empresas coletadas ---
+
+
+def _excluir_com_prospects(*resultados: FakeResult, query: str = "?excluir_prospects=true"):
+    campanha = _campanha(status="encerrada")
+    session = _sessao_admin(FakeResult(scalar=campanha), *resultados)
+    resposta = TestClient(app).delete(
+        f"/v1/admin/prospeccao/campanhas/4{query}", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+    return resposta, campanha, session
+
+
+def test_excluir_campanha_sem_o_parametro_mantem_os_prospects() -> None:
+    resposta, campanha, session = _excluir_com_prospects(query="")
+    assert resposta.status_code == 204 and campanha in session.deletados
+    assert not [c for c in session.executados if "DELETE FROM prospects" in str(c)]
+
+
+def test_excluir_campanha_com_prospects_apaga_so_os_que_nao_viraram_lead() -> None:
+    # 1ª consulta: a campanha; 2ª: quantos serão preservados; 3ª: o DELETE (rowcount = quantos foram apagados)
+    resposta, campanha, session = _excluir_com_prospects(FakeResult(scalar=2), FakeResult(rowcount=7))
+    assert resposta.status_code == 204 and campanha in session.deletados
+    (exclusao,) = [c for c in session.executados if "DELETE FROM prospects" in str(c)]
+    sql = str(exclusao.compile(compile_kwargs={"literal_binds": True}))
+    assert "prospects.organizacao_id = 1" in sql and "prospects.campanha_id = 4" in sql
+    assert "prospects.lead_id IS NULL" in sql and "prospects.empresa_crm_id IS NULL" in sql
+    assert "prospects.status != 'convertido_lead'" in sql  # o que já virou lead nunca é apagado
+    auditoria = next(i for i in session.adicionados if str(getattr(i, "acao", "")).startswith("excluir_campanha"))
+    assert auditoria.detalhes["prospects_excluidos"] == 7 and auditoria.detalhes["prospects_preservados"] == 2
+
+
+def test_excluir_campanha_ativa_nao_apaga_nada_mesmo_com_o_parametro() -> None:
+    campanha = _campanha(status="ativa")
+    session = _sessao_admin(FakeResult(scalar=campanha))
+    resposta = TestClient(app).delete(
+        "/v1/admin/prospeccao/campanhas/4?excluir_prospects=true", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+    assert resposta.status_code == 422
+    assert not [c for c in session.executados if "DELETE FROM prospects" in str(c)]
+
+
+def test_tela_pergunta_se_as_empresas_coletadas_tambem_devem_ser_excluidas() -> None:
+    script = Path("app/web/static/admin-prospeccao.js").read_text(encoding="utf-8")
+    assert "excluir_prospects=true" in script
+    assert "campanha_id=${encodeURIComponent(id)}&limite=1" in script
+    assert "Excluir também essas empresas do radar" in script
+
+
+def test_tela_atualiza_o_painel_e_a_lista_depois_de_excluir_as_empresas_da_campanha() -> None:
+    # Revisão do Codex (PR #210): só a lista era recarregada e o funil continuava com os totais antigos.
+    script = Path("app/web/static/admin-prospeccao.js").read_text(encoding="utf-8")
+    assert "if (excluirProspects) await reloadAll();" in script
+    assert "if (excluirProspects) await loadProspects();" not in script

@@ -559,12 +559,20 @@ document.querySelector("#campanhas-rows").addEventListener("click", async event 
     const row = excluirButton.closest("[data-id]");
     const id = row.dataset.id;
     const nome = row.querySelector("strong")?.textContent || "esta campanha";
-    if (!confirm(`Excluir "${nome}"? Os prospects já gerados por ela permanecem no radar, só perdem o vínculo com a campanha.`)) return;
+    if (!confirm(`Excluir a campanha "${nome}"?`)) return;
     excluirButton.disabled = true;
     try {
-      await api(`/v1/admin/prospeccao/campanhas/${id}`, { method: "DELETE" });
-      showMessage("Campanha excluída.");
+      // As empresas coletadas só saem junto se a pessoa pedir: a segunda pergunta traz o número exato.
+      const coletadas = (await api(`/v1/admin/prospects?campanha_id=${encodeURIComponent(id)}&limite=1`)).total || 0;
+      const excluirProspects = coletadas > 0 && confirm(
+        `Esta campanha coletou ${coletadas} empresa(s). Excluir também essas empresas do radar?\n\n` +
+        "OK: exclui as empresas junto com a campanha (as que já viraram lead ou empresa no CRM são preservadas).\n" +
+        "Cancelar: mantém as empresas no radar, só sem vínculo com a campanha.",
+      );
+      await api(`/v1/admin/prospeccao/campanhas/${id}${excluirProspects ? "?excluir_prospects=true" : ""}`, { method: "DELETE" });
+      showMessage(excluirProspects ? "Campanha e empresas coletadas excluídas." : "Campanha excluída; as empresas continuam no radar.");
       await loadCampanhas();
+      if (excluirProspects) await reloadAll();  // atualiza também o painel (funil) e a lista
     } catch (error) { showMessage(error.message, "error"); excluirButton.disabled = false; }
   }
 });

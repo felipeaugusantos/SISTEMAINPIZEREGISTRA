@@ -1745,3 +1745,12 @@ def test_tela_de_prospeccao_tem_o_botao_exportar_excel_com_os_filtros_da_tela() 
     assert 'id="export-prospects-xlsx"' in html and "Exportar Excel" in html
     assert "/v1/admin/prospects/exportar.xlsx?${prospectFilterParams()}" in script
     assert 'document.querySelector("#export-prospects-xlsx").hidden = !state.canExport;' in script
+
+
+def test_exportar_excel_nao_quebra_com_caractere_de_controle_nos_dados() -> None:
+    # Revisão do Codex (PR #208): um cadastro com tabulação vertical (vindo de importação) derrubava a exportação inteira.
+    sujo = _prospect(razao_social="Empresa\x0bSuja\x00 Ltda", cidade="São\x1fPaulo")
+    limpo = _prospect(id=6, razao_social="Empresa Limpa Ltda")
+    _, _, planilha = _baixar_xlsx([sujo, limpo])
+    assert planilha["A2"].value == "EmpresaSuja Ltda" and planilha["J2"].value == "SãoPaulo"
+    assert planilha["A3"].value == "Empresa Limpa Ltda"  # as demais linhas seguem normalmente

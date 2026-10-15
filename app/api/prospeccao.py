@@ -514,9 +514,16 @@ def _cnpj_formatado(valor: str | None) -> str:
     return f"{digitos[:2]}.{digitos[2:5]}.{digitos[5:8]}/{digitos[8:12]}-{digitos[12:]}"
 
 
+def _texto_para_excel(valor: object) -> str:
+    """Remove os caracteres de controle que o formato XLSX proíbe (ex.: tabulação vertical vinda de importação)."""
+    from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+
+    return ILLEGAL_CHARACTERS_RE.sub("", "" if valor is None else str(valor))
+
+
 def _celula_texto(planilha, linha: int, coluna: int, valor: object):
     """Grava como TEXTO: sem isso o Excel trataria um valor que começa com '=', '+', '-' ou '@' como fórmula."""
-    celula = planilha.cell(row=linha, column=coluna, value="" if valor is None else str(valor))
+    celula = planilha.cell(row=linha, column=coluna, value=_texto_para_excel(valor))
     celula.data_type = "s"
     return celula
 

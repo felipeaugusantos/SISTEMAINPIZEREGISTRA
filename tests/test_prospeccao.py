@@ -683,11 +683,11 @@ def test_coletar_campanha_enfileira_job(monkeypatch: pytest.MonkeyPatch) -> None
         def __init__(self) -> None:
             self.jobs: list[str] = []
 
-        async def set(self, *_args: object, **_kwargs: object) -> bool:
-            return True
-
-        async def rpush(self, _chave: str, valor: str) -> None:
-            self.jobs.append(valor)
+        async def eval(self, _script: str, _numkeys: int, *args: str) -> list:
+            # Emula o script atomico de enfileirar (idempotencia + RPUSH).
+            if hasattr(self, "jobs"):
+                self.jobs.append(args[6])
+            return [1, args[4]]
 
         async def hincrby(self, *_args: object) -> int:
             return 1
@@ -715,11 +715,11 @@ def test_coletar_campanha_concluida_enfileira_nova_execucao(monkeypatch: pytest.
         def __init__(self) -> None:
             self.jobs: list[str] = []
 
-        async def set(self, *_args: object, **_kwargs: object) -> bool:
-            return True
-
-        async def rpush(self, _chave: str, valor: str) -> None:
-            self.jobs.append(valor)
+        async def eval(self, _script: str, _numkeys: int, *args: str) -> list:
+            # Emula o script atomico de enfileirar (idempotencia + RPUSH).
+            if hasattr(self, "jobs"):
+                self.jobs.append(args[6])
+            return [1, args[4]]
 
         async def hincrby(self, *_args: object) -> int:
             return 1
@@ -942,11 +942,11 @@ def test_enriquecer_prospect_sem_verificacao_recente_enfileira_job(monkeypatch: 
     session = _sessao_admin(FakeResult(scalar=prospect), FakeResult(scalar=None))
 
     class RedisFalso:
-        async def set(self, *_args: object, **_kwargs: object) -> bool:
-            return True
-
-        async def rpush(self, *_args: object) -> None:
-            return None
+        async def eval(self, _script: str, _numkeys: int, *args: str) -> list:
+            # Emula o script atomico de enfileirar (idempotencia + RPUSH).
+            if hasattr(self, "jobs"):
+                self.jobs.append(args[6])
+            return [1, args[4]]
 
         async def hincrby(self, *_args: object) -> int:
             return 1
@@ -1001,11 +1001,11 @@ def test_triar_marca_prospect_enfileira_job(monkeypatch: pytest.MonkeyPatch) -> 
     session = _sessao_admin(FakeResult(scalar=prospect))
 
     class RedisFalso:
-        async def set(self, *_args: object, **_kwargs: object) -> bool:
-            return True
-
-        async def rpush(self, *_args: object) -> None:
-            return None
+        async def eval(self, _script: str, _numkeys: int, *args: str) -> list:
+            # Emula o script atomico de enfileirar (idempotencia + RPUSH).
+            if hasattr(self, "jobs"):
+                self.jobs.append(args[6])
+            return [1, args[4]]
 
         async def hincrby(self, *_args: object) -> int:
             return 1
@@ -1059,11 +1059,11 @@ def test_calcular_score_enfileira_job(monkeypatch: pytest.MonkeyPatch) -> None:
     session = _sessao_admin(FakeResult(scalar=prospect))
 
     class RedisFalso:
-        async def set(self, *_args: object, **_kwargs: object) -> bool:
-            return True
-
-        async def rpush(self, *_args: object) -> None:
-            return None
+        async def eval(self, _script: str, _numkeys: int, *args: str) -> list:
+            # Emula o script atomico de enfileirar (idempotencia + RPUSH).
+            if hasattr(self, "jobs"):
+                self.jobs.append(args[6])
+            return [1, args[4]]
 
         async def hincrby(self, *_args: object) -> int:
             return 1
@@ -1199,11 +1199,11 @@ def test_disparar_importacao_cnpj_rfb_enfileira_job(monkeypatch: pytest.MonkeyPa
     session = _sessao_superadmin(FakeResult(scalar=None))
 
     class RedisFalso:
-        async def set(self, *_args: object, **_kwargs: object) -> bool:
-            return True
-
-        async def rpush(self, *_args: object) -> None:
-            return None
+        async def eval(self, _script: str, _numkeys: int, *args: str) -> list:
+            # Emula o script atomico de enfileirar (idempotencia + RPUSH).
+            if hasattr(self, "jobs"):
+                self.jobs.append(args[6])
+            return [1, args[4]]
 
         async def hincrby(self, *_args: object) -> int:
             return 1

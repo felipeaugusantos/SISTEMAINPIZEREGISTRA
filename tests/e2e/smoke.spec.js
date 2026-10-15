@@ -149,6 +149,12 @@ async function contextoAdmin(playwright, baseURL) {
   return { api, cabecalhos: { "X-CSRF-Token": csrf } };
 }
 
+async function responsavelId(api) {
+  const resposta = await api.get("/v1/admin/leads-responsaveis");
+  expect(resposta.ok()).toBeTruthy();
+  return (await resposta.json()).itens[0].id;
+}
+
 function emailUnico(prefixo) {
   return `${prefixo}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@e2e.zeregistra.test`;
 }
@@ -186,7 +192,7 @@ test("jornada: lead público chega ao painel e a mudança de status persiste", a
 
   const alteracao = await api.patch(`/v1/admin/leads/${lead.id}`, {
     headers: cabecalhos,
-    data: { status: "em_contato", notas: "Contato feito no E2E" },
+    data: { status: "em_contato", responsavel_id: await responsavelId(api), notas: "Contato feito no E2E" },
   });
   expect(alteracao.ok(), `PATCH lead: ${alteracao.status()} ${await alteracao.text()}`).toBeTruthy();
 

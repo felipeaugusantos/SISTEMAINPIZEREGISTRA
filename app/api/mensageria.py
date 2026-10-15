@@ -79,6 +79,8 @@ def _serializar_mensagem(m: MensagemSaida, usuario: UsuarioAutenticado) -> dict:
         "tentativas": m.tentativas,
         "agendada_para": m.agendada_para,
         "enviada_em": m.enviada_em,
+        "entregue_em": m.entregue_em,
+        "lida_em": m.lida_em,
         "ultimo_erro": m.ultimo_erro,
         "previa": m.corpo[:80],
     }

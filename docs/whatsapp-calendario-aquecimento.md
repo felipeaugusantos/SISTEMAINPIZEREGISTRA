@@ -42,6 +42,12 @@ Se algo falhou, repita a semana anterior sem aumentar o volume e refaça a revis
 
 ## Parte 2: conectar ao gateway e começar a automação (Dias 15 a 35)
 
+> **Pré-requisito de software (confirmar antes do Dia 15).** A fila de envio, o consentimento, a tela e a integração
+> com o gateway estão prontos, mas **ainda não há quem coloque mensagens na fila automaticamente**: os alertas da
+> vigilância e as cadências de prospecção por WhatsApp ainda não geram mensagens. Até esses "produtores" existirem
+> (próximos PRs), a Parte 2 vale como meta de volume e a automação não envia nada sozinha. Enquanto isso, continue
+> o uso normal dos dois números (Parte 1) e registre os consentimentos na tela.
+
 | Dia | Data | Número A (vigilância) | Número B (prospecção) |
 |---|---|---|---|
 | 15 | ___ | Seguir como no Dia 14. Subir o gateway e ler o QR code só deste número (guia `whatsapp-openwa-runbook.md`, etapas 2 a 5) | Seguir como no Dia 14, sem gateway ainda |
@@ -58,15 +64,27 @@ Regras durante a Parte 2:
 
 ## Quando parar
 
-Pare a automação do número (`WHATSAPP_ENABLED=false` e deploy) e volte ao uso normal por 3 a 5 dias se houver:
+Pare a automação do número e volte ao uso normal por 3 a 5 dias se houver:
 - alerta de restrição ou de desconexão repetida no painel;
-- várias mensagens que não passam de "enviada" para "entregue";
+- várias mensagens que ficam em "Enviada" e nunca chegam a "Entregue" na tela *WhatsApp e consentimentos*
+  (a tela mostra "Entregue" e "Lida" a partir dos recibos do WhatsApp);
 - aviso do próprio WhatsApp sobre atividade suspeita;
 - duas ou mais denúncias ou bloqueios seguidos na prospecção.
 
 Depois de uma pausa, retome com **metade** do último volume e suba de novo devagar. Se o número B for banido, não
 reutilize o chip: arranje outro e refaça o calendário. O número A só volta a automatizar depois de uma semana
 inteira sem nenhum alerta.
+
+### Como parar só um dos números
+
+`WHATSAPP_ENABLED` é uma chave **global**: desligá-la interrompe os envios dos dois números. Para parar só um:
+1. Na tela *WhatsApp e consentimentos*, cancele as mensagens **pendentes** daquela finalidade (botão Cancelar).
+2. No painel do gateway (túnel SSH, `http://localhost:2785`), pare a sessão do número (`prospeccao` ou `vigilancia`).
+   Enquanto ela estiver parada, os envios daquela sessão falham como temporários e não saem.
+3. Se o WhatsApp restringir o número, o sistema já pausa sozinho aquela sessão por 24 horas (alerta crítico no painel).
+
+Para parar os dois ao mesmo tempo (emergência), use `WHATSAPP_ENABLED=false` e o deploy, como no guia de operação.
+Uma chave de pausa por número na própria tela está prevista como melhoria.
 
 ## O que não fazer, em nenhuma fase
 

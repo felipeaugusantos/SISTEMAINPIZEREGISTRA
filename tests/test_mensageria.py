@@ -462,3 +462,11 @@ def test_api_revoga_pelo_id_do_registro_mesmo_com_telefone_mascarado() -> None:
 
 def test_api_revogar_pelo_id_de_outro_registro_da_404() -> None:
     assert _cliente(FakeSession([])).post("/v1/admin/mensageria/consentimentos/99/revogar").status_code == 404
+
+
+def test_api_da_fila_informa_entrega_e_leitura_para_a_tela_mostrar_entregue_e_lida() -> None:
+    entregue = _mensagem(status="enviada", entregue_em=QUARTA_MEIO_DIA, lida_em=QUARTA_MEIO_DIA + timedelta(minutes=2))
+    resposta = _cliente(FakeSession([FakeResult(itens=[entregue])])).get("/v1/admin/mensageria/fila")
+    assert resposta.status_code == 200
+    item = resposta.json()[0]
+    assert item["entregue_em"] is not None and item["lida_em"] is not None

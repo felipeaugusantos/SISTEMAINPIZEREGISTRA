@@ -69,3 +69,10 @@ def test_menu_usa_a_mesma_permissao_do_menu_pai_para_nao_ficar_inalcancavel() ->
     # Revisão do Codex (PR #202): o pai "Configuração" exige leads.view; o item filho não pode exigir só crm.view.
     entrada = re.search(r'\{ id: "config-whatsapp"[^}]*\}', SHELL).group(0)
     assert 'permission: "leads.view"' in entrada and "crm.view" not in entrada
+
+
+def test_tela_distingue_enviada_de_entregue_e_lida_pelos_recibos() -> None:
+    # Revisão do Codex (PR #205): o critério de parada do calendário depende de ver "Entregue" na tela.
+    assert "function situacaoDaMensagem" in JS
+    assert 'm.entregue_em' in JS and 'm.lida_em' in JS
+    assert 'entregue: ["Entregue"' in JS and 'lida: ["Lida"' in JS

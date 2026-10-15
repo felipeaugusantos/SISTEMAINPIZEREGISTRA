@@ -181,6 +181,23 @@ async def test_a05_worker_novo_nao_recupera_tarefa_de_worker_vivo(redis_real, ch
     await _limpar(redis_real, chaves)
 
 
+async def test_a04_fila_principal_e_fifo(redis_real, chaves, monkeypatch) -> None:
+    import app.queueing as queueing
+
+    monkeypatch.setattr(queueing, "cliente_redis", lambda: redis_async.Redis.from_url(REDIS_URL, decode_responses=True))
+    monkeypatch.setattr(queueing, "QUEUE_KEY", chaves.fila)
+    monkeypatch.setattr(queueing, "METRICS_KEY", chaves.metricas)
+    ids = [(await queueing.enfileirar("t", {"n": n}))["id"] for n in range(3)]
+
+    # Mesma chamada do worker (_loop_fila_principal): consumo na ordem de chegada.
+    lidos = []
+    for _ in range(3):
+        bruto = await redis_real.blmove(chaves.fila, chaves.processando, 1, "LEFT", "LEFT")
+        lidos.append(json.loads(bruto)["id"])
+    assert lidos == ids
+    await _limpar(redis_real, chaves)
+
+
 async def test_a03_enfileirar_e_idempotencia_sao_atomicos(redis_real, chaves, monkeypatch) -> None:
     import app.queueing as queueing
 

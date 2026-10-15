@@ -19,6 +19,7 @@ from app.auth import (
     criar_sessao,
     definir_cookies_sessao,
     exigir_csrf,
+    fora_do_loop,
     hash_senha,
     hash_token,
     normalizar_modulos_plano,
@@ -54,9 +55,9 @@ from app.tenancy import aplicar_contexto_tenant, validar_limite_usuarios
 
 router = APIRouter(prefix="/v1/auth", tags=["autenticacao"])
 logger = logging.getLogger(__name__)
-limitar_login = RateLimiter(limite=10, janela_segundos=60, escopo="login")
-limitar_recuperacao = RateLimiter(limite=5, janela_segundos=300, escopo="recuperacao")
-limitar_mfa = RateLimiter(limite=10, janela_segundos=300, escopo="mfa")
+limitar_login = RateLimiter(limite=10, janela_segundos=60, escopo="login", sensivel=True)
+limitar_recuperacao = RateLimiter(limite=5, janela_segundos=300, escopo="recuperacao", sensivel=True)
+limitar_mfa = RateLimiter(limite=10, janela_segundos=300, escopo="mfa", sensivel=True)
 # Quanto tempo o segredo novo pode ficar pendente durante a troca do autenticador (auditoria S03).
 PRAZO_TROCA_MFA = timedelta(minutes=15)
 # Auditoria de seguranca (13/10/2026, item 9): redefinir senha e aceitar convite
@@ -198,11 +199,11 @@ async def login(
     # etapa normal ainda contava como tentativa falha pro bloqueio de 5
     # tentativas, penalizando quem usa MFA mais rápido que quem não usa.
     if usuario is not None and usuario.ativo:
-        senha_valida = verificar_senha(usuario.senha_hash, dados.senha)
+        senha_valida = await fora_do_loop(verificar_senha, usuario.senha_hash, dados.senha)
     else:
         # Usuário inexistente/inativo: gasta o mesmo tempo de Argon2 para a
         # resposta não denunciar, pelo tempo, se a conta existe.
-        consumir_tempo_hash()
+        await fora_do_loop(consumir_tempo_hash)
         senha_valida = False
     valido = senha_valida
     segredo_mfa = None
@@ -407,7 +408,7 @@ async def trocar_senha(
         await session.commit()
         raise HTTPException(status_code=422, detail=erro_forca)
     registro = await session.get(UsuarioOperacoes, usuario.id)
-    if not registro or not verificar_senha(registro.senha_hash, dados.senha_atual):
+    if not registro or not await fora_do_loop(verificar_senha, registro.senha_hash, dados.senha_atual):
         await _auditar(
             session,
             request,

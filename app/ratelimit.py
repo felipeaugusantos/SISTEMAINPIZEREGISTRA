@@ -1,3 +1,5 @@
+import json
+import logging
 import secrets
 import time
 from collections import defaultdict, deque
@@ -9,6 +11,7 @@ from app.settings import get_settings
 
 # Circuit breaker compartilhado: se o Redis falhar, para de tentar por um intervalo
 # curto e usa a memória local, evitando pagar timeout em toda requisição.
+logger = logging.getLogger("ze_registra.ratelimit")
 _COOLDOWN_REDIS_SEGUNDOS = 30.0
 _redis_indisponivel_ate = 0.0
 _cliente_redis = None
@@ -76,7 +79,12 @@ class RateLimiter:
         *,
         escopo: str = "geral",
         maximo_chaves: int = 20_000,
+        sensivel: bool = False,
     ) -> None:
+        # Auditoria A10: ``sensivel`` marca limitadores de autenticação/recuperação. Com o Redis fora, o
+        # contador local vale por processo e zera a cada reinício; por isso, nesses limitadores o teto
+        # degradado é a metade do normal (mínimo 1), em vez de afrouxar a proteção contra força bruta.
+        self.sensivel = sensivel
         self.limite = limite
         self.janela = janela_segundos
         self.escopo = escopo
@@ -100,7 +108,8 @@ class RateLimiter:
     def aplicar(self, chave: str) -> None:
         """Registra uma tentativa para uma chave definida pelo chamador."""
         chave_escopo = f"{self.escopo}:{chave}"
-        if get_settings().ratelimit_redis_enabled and time.monotonic() >= _redis_indisponivel_ate:
+        usa_redis = get_settings().ratelimit_redis_enabled
+        if usa_redis and time.monotonic() >= _redis_indisponivel_ate:
             try:
                 self._aplicar_redis(chave_escopo)
                 return
@@ -108,7 +117,8 @@ class RateLimiter:
                 raise
             except Exception:
                 _abrir_circuito()
-        self._aplicar_memoria(chave_escopo)
+        # Redis habilitado mas indisponível (circuito aberto): modo degradado.
+        self._aplicar_memoria(chave_escopo, degradado=usa_redis)
 
     def _aplicar_redis(self, chave_escopo: str) -> None:
         cliente = _obter_cliente_redis()
@@ -123,12 +133,13 @@ class RateLimiter:
                 espera = max(1, int(self.janela - (agora - float(mais_antigo))) + 1)
             raise self._excedido(espera)
 
-    def _aplicar_memoria(self, chave_escopo: str) -> None:
+    def _aplicar_memoria(self, chave_escopo: str, *, degradado: bool = False) -> None:
         agora = time.monotonic()
         registros = self._acessos[chave_escopo]
         while registros and agora - registros[0] > self.janela:
             registros.popleft()
-        if len(registros) >= self.limite:
+        limite = max(1, self.limite // 2) if degradado and self.sensivel else self.limite
+        if len(registros) >= limite:
             espera = max(1, int(self.janela - (agora - registros[0])) + 1)
             raise self._excedido(espera)
         registros.append(agora)
@@ -145,4 +156,8 @@ class RateLimiter:
 
 def _abrir_circuito() -> None:
     global _redis_indisponivel_ate
+    # Auditoria A10: a degradação precisa ser visível. Registra uma vez por abertura de circuito (não
+    # a cada requisição durante o cooldown), com um evento fixo que a observabilidade pode alertar.
+    if time.monotonic() >= _redis_indisponivel_ate:
+        logger.error(json.dumps({"event": "RATELIMIT_REDIS_DEGRADADO", "cooldown_s": _COOLDOWN_REDIS_SEGUNDOS}))
     _redis_indisponivel_ate = time.monotonic() + _COOLDOWN_REDIS_SEGUNDOS

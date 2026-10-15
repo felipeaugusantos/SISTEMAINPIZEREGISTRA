@@ -12,7 +12,7 @@ Gemini já configurados para a IA em sombra.
 Acesso (achado do usuário, 11/09/2026): o widget flutuante fica disponível
 para QUALQUER usuário autenticado, não só quem tem leads.view -- mas isso
 não abre uma brecha de permissão: cada ferramenta abaixo checa
-usuario.pode("leads.view") por conta própria e devolve uma recusa em texto
+usuario.pode_no_plano("leads.view") por conta própria e devolve uma recusa em texto
 em vez de consultar o banco quando falta a permissão, exatamente como o
 resto do sistema já faz (ex.: mascaramento de PII em _lead_resumo).
 
@@ -127,14 +127,14 @@ def _lead_resumo(lead: Lead, usuario: UsuarioAutenticado) -> dict:
     }
     # Mesma regra de mascaramento de PII já usada no resto do CRM
     # (app.api.leads._lead_response) -- o assistente não contorna essa regra.
-    if usuario.pode("leads.pii.view"):
+    if usuario.pode_no_plano("leads.pii.view"):
         item["email"] = lead.email
         item["telefone"] = lead.telefone
     return item
 
 
 async def _tool_contar_leads_por_status(session: AsyncSession, usuario: UsuarioAutenticado, _args: dict) -> dict:
-    if not usuario.pode("leads.view"):
+    if not usuario.pode_no_plano("leads.view"):
         return {"erro": MSG_SEM_PERMISSAO_LEADS}
     linhas = (
         await session.execute(
@@ -147,7 +147,7 @@ async def _tool_contar_leads_por_status(session: AsyncSession, usuario: UsuarioA
 
 
 async def _tool_buscar_leads(session: AsyncSession, usuario: UsuarioAutenticado, args: dict) -> dict:
-    if not usuario.pode("leads.view"):
+    if not usuario.pode_no_plano("leads.view"):
         return {"erro": MSG_SEM_PERMISSAO_LEADS}
     limite = max(1, min(int(args.get("limite") or LIMITE_PADRAO_LEADS), LIMITE_MAXIMO_LEADS))
     status_enum = None
@@ -166,7 +166,7 @@ async def _tool_buscar_leads(session: AsyncSession, usuario: UsuarioAutenticado,
 
 
 async def _tool_leads_prioritarios(session: AsyncSession, usuario: UsuarioAutenticado, args: dict) -> dict:
-    if not usuario.pode("leads.view"):
+    if not usuario.pode_no_plano("leads.view"):
         return {"erro": MSG_SEM_PERMISSAO_LEADS}
     limite = max(1, min(int(args.get("limite") or LIMITE_PADRAO_LEADS), LIMITE_MAXIMO_LEADS))
     criterio = args.get("criterio")
@@ -284,7 +284,7 @@ async def perguntar_endpoint(
     # 11/09/2026) -- não há Depends(exigir_permissao(...)) aqui, então o
     # CSRF (normalmente checado por exigir_permissao) precisa ser validado
     # manualmente. A restrição de dados real está dentro de cada ferramenta
-    # (usuario.pode("leads.view")), não no acesso ao endpoint.
+    # (usuario.pode_no_plano("leads.view")), não no acesso ao endpoint.
     exigir_csrf(request, usuario)
     settings = get_settings()
     if not settings.assistente_crm_enabled:

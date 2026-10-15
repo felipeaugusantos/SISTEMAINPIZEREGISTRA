@@ -1274,13 +1274,24 @@ async def coletar_campanha(
     # o status "ativa" acima impede dois disparos concorrentes.
     versao_execucao = campanha.encerrada_em.isoformat() if campanha.encerrada_em else datetime.now(UTC).date().isoformat()
 
-    job = await enfileirar(
-        "prospeccao.coletar_campanha",
-        {"campanha_id": campanha.id, "organizacao_id": usuario.organizacao_id},
-        idempotency_key=f"{campanha.id}:{versao_execucao}",
-    )
+    # Auditoria A06: o job era enfileirado ANTES de gravar o status; o worker podia pegá-lo enquanto a
+    # campanha ainda estava "pausada"/"concluida", ou o commit falhar com o job já na fila. Grava
+    # primeiro, enfileira depois; se enfileirar falhar, o status anterior é restaurado.
+    status_anterior, encerrada_anterior = campanha.status, campanha.encerrada_em
     campanha.status = "ativa"
     campanha.encerrada_em = None
+    await session.commit()
+    try:
+        job = await enfileirar(
+            "prospeccao.coletar_campanha",
+            {"campanha_id": campanha.id, "organizacao_id": usuario.organizacao_id},
+            idempotency_key=f"{campanha.id}:{versao_execucao}",
+        )
+    except Exception:
+        campanha.status = status_anterior
+        campanha.encerrada_em = encerrada_anterior
+        await session.commit()
+        raise
     _auditar(session, request, usuario, "coletar_campanha_prospeccao", f"campanha:{campanha.id}", {"job_id": job.get("id")})
     await session.commit()
     return {"job_id": job.get("id"), "duplicado": job.get("duplicado", False)}

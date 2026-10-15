@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import secrets
@@ -95,6 +96,29 @@ class UsuarioAutenticado:
 
     def pode(self, chave: str) -> bool:
         return self.superadmin or self.perfil == "administrador" or chave in self.permissoes
+
+    def pode_no_plano(self, chave: str) -> bool:
+        """Como ``pode``, mas também exige que o módulo da permissão esteja no plano contratado (auditoria A08).
+
+        É a mesma regra de ``exigir_permissao``, para código que checa permissão por conta própria
+        (ex.: ferramentas do assistente) sem passar pela dependência do FastAPI.
+        """
+        if not self.pode(chave):
+            return False
+        modulo = MODULO_POR_PERMISSAO.get(chave.split(".", 1)[0])
+        return not modulo or self.superadmin or modulo in self.modulos_plano
+
+
+# Auditoria A09: Argon2 (64 MiB, 3 passes) e I/O de arquivo síncrono dentro de handlers async bloqueavam o
+# event loop do processo da API. Estes helpers rodam a função em thread; o semáforo limita quantas rodam
+# ao mesmo tempo para a correção não virar exaustão de memória (cada hash usa ~64 MiB).
+LIMITE_CONCORRENCIA_FORA_DO_LOOP = 4
+_semaforo_fora_do_loop = asyncio.Semaphore(LIMITE_CONCORRENCIA_FORA_DO_LOOP)
+
+
+async def fora_do_loop(funcao: Callable, /, *args, **kwargs):
+    async with _semaforo_fora_do_loop:
+        return await asyncio.to_thread(funcao, *args, **kwargs)
 
 
 def hash_senha(senha: str) -> str:

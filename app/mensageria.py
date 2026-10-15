@@ -25,7 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cadencia_email import FUSO_COMERCIAL, dentro_do_horario_comercial
-from app.models import AlertaSistema, ConsentimentoCanal, MensagemSaida, PausaCanal
+from app.models import AlertaSistema, ConsentimentoCanal, HistoricoAlertaVigilancia, MensagemSaida, PausaCanal
 from app.settings import get_settings
 
 logger = logging.getLogger("ze_registra.mensageria")
@@ -267,6 +267,13 @@ async def enfileirar_mensagem(
         raise ValueError("Mensagem longa demais")
     existente = await _mensagem_por_chave(session, organizacao_id, chave_idempotencia)
     if existente is not None:
+        if existente.status == "bloqueada":
+            # Bloqueada por falta de consentimento: se ele chegou depois, a mesma mensagem passa a poder sair.
+            permitido_agora, _ = await verificar_permissao_envio(session, organizacao_id, finalidade, numero)
+            if permitido_agora:
+                existente.status = "pendente"
+                existente.motivo_bloqueio = None
+                existente.agendada_para = agendada_para or datetime.now(UTC)
         return existente
     permitido, motivo = await verificar_permissao_envio(session, organizacao_id, finalidade, numero)
     mensagem = MensagemSaida(
@@ -363,6 +370,40 @@ async def _ultimo_envio_prospeccao(session: AsyncSession, organizacao_id: int) -
             )
         )
     ).scalar_one_or_none()
+
+
+async def _refletir_no_alerta_da_vigilancia(
+    session: AsyncSession, mensagem: MensagemSaida, status: str, agora: datetime
+) -> None:
+    """Mensagem de vigilância: o alerta de origem (mesma chave) passa a "enviado" ou "falhou" no histórico."""
+    if mensagem.finalidade != "vigilancia" or not mensagem.chave_idempotencia.startswith("vigilancia:"):
+        return
+    valores = {"status": status}
+    if status == "enviado":
+        valores["enviado_em"] = agora
+    await session.execute(
+        update(HistoricoAlertaVigilancia)
+        .where(
+            HistoricoAlertaVigilancia.organizacao_id == mensagem.organizacao_id,
+            HistoricoAlertaVigilancia.idempotency_key == mensagem.chave_idempotencia,
+        )
+        .values(**valores)
+        .execution_options(synchronize_session=False)
+    )
+
+
+async def _refletir_incertas_no_historico_da_vigilancia(session: AsyncSession) -> None:
+    """Mensagem "incerta" (resposta perdida ou envio interrompido): o alerta de origem também vira "incerta",
+    para o relatório da vigilância não mostrar "pendente" para sempre."""
+    incertas = select(MensagemSaida.chave_idempotencia).where(
+        MensagemSaida.finalidade == "vigilancia", MensagemSaida.status == "incerta"
+    )
+    await session.execute(
+        update(HistoricoAlertaVigilancia)
+        .where(HistoricoAlertaVigilancia.status == "pendente", HistoricoAlertaVigilancia.idempotency_key.in_(incertas))
+        .values(status="incerta")
+        .execution_options(synchronize_session=False)
+    )
 
 
 PRAZO_ENVIO_INTERROMPIDO = timedelta(minutes=15)
@@ -498,6 +539,8 @@ async def processar_fila(
                 mensagem.agendada_para = agora + timedelta(minutes=5 * mensagem.tentativas)
             falhas += 1
             logger.warning("Falha ao enviar mensagem (id=%s): %s", mensagem.id, exc)
+            if mensagem.status == "falhou":
+                await _refletir_no_alerta_da_vigilancia(session, mensagem, "falhou", agora)
             await session.commit()
             continue
         mensagem.status = "enviada"
@@ -507,7 +550,9 @@ async def processar_fila(
         enviadas += 1
         if mensagem.finalidade == "prospeccao":
             prospeccao_ja_enviou_nesta_rodada.add(mensagem.organizacao_id)
+        await _refletir_no_alerta_da_vigilancia(session, mensagem, "enviado", agora)
         await session.commit()  # grava o resultado já, sem esperar o fim do lote
+    await _refletir_incertas_no_historico_da_vigilancia(session)
     return {"enviadas": enviadas, "falhas": falhas, "bloqueadas": bloqueadas, "interrompidas": interrompidas}
 
 

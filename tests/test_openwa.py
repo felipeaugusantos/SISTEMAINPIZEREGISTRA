@@ -229,7 +229,6 @@ def test_remetente_com_id_privado_usa_o_telefone_resolvido() -> None:
     [
         {"from": f"{TELEFONE}@c.us", "body": "SAIR", "isGroup": True},
         {"from": f"{TELEFONE}@c.us", "body": "SAIR", "fromMe": True},
-        {"from": f"{TELEFONE}@c.us", "body": "obrigado, até logo"},
         {"from": "120363@g.us", "body": "sair"},
     ],
 )
@@ -494,3 +493,38 @@ def test_envio_incerto_fica_para_conferencia_humana_sem_nova_tentativa(monkeypat
     )
     base._processar(sessao, base._Provedor(erro=ErroEnvioIncerto("sem resposta")))
     assert mensagem.status == "incerta" and mensagem.tentativas == 1
+
+
+def test_resposta_comum_do_cliente_pausa_a_prospeccao_pendente_daquele_telefone() -> None:
+    # 1ª consulta: organização da última mensagem enviada ao número; 2ª: leads daquela conversa.
+    sessao = FakeSession([FakeResult(scalar=7), FakeResult(itens=[9])])
+    dados = {"from": f"{TELEFONE}@c.us", "body": "obrigado, até logo", "isGroup": False, "fromMe": False}
+    assert _evento(sessao, "message.received", dados) == "resposta"
+    assert sessao.adicionados == []  # não revoga nada
+    atualizacoes = [str(c.compile().params.values()) for c in sessao.executados if "UPDATE" in str(c)]
+    # e-mails pendentes da cadência do lead, WhatsApp pendente do lead e prospecção pendente do telefone
+    assert any("pausado" in a for a in atualizacoes)
+    cancelamentos = [c for c in sessao.executados if "UPDATE mensagens_saida" in str(c)]
+    assert len(cancelamentos) == 2
+    for comando in cancelamentos:
+        params = list(comando.compile().params.values())
+        assert 7 in params or 7 in [p for p in params if isinstance(p, int)]  # só a organização da conversa
+    ultimo = list(cancelamentos[-1].compile().params.values())
+    assert "cancelada" in ultimo and "prospeccao" in ultimo and TELEFONE in ultimo
+
+
+def test_resposta_de_numero_que_nunca_recebeu_mensagem_nossa_e_ignorada() -> None:
+    sessao = FakeSession([FakeResult(scalar=None)])
+    dados = {"from": f"{TELEFONE}@c.us", "body": "bom dia", "isGroup": False, "fromMe": False}
+    assert _evento(sessao, "message.received", dados) == "ignorado"
+    assert not [c for c in sessao.executados if "UPDATE" in str(c)]
+
+
+def test_resposta_so_afeta_a_organizacao_da_conversa_e_nao_as_outras() -> None:
+    # Revisão do Codex (PR #209): o telefone pode ter prospecção pendente em outra organização.
+    sessao = FakeSession([FakeResult(scalar=7), FakeResult(itens=[])])
+    dados = {"from": f"{TELEFONE}@c.us", "body": "ok", "isGroup": False, "fromMe": False}
+    _evento(sessao, "message.received", dados)
+    (cancelamento,) = [c for c in sessao.executados if "UPDATE mensagens_saida" in str(c)]
+    assert "mensagens_saida.organizacao_id =" in str(cancelamento)
+    assert 7 in cancelamento.compile().params.values()

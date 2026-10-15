@@ -20,7 +20,7 @@ from sqlalchemy.orm import selectinload
 from app.auth import hash_token
 from app.emailing import enviar_passo_cadencia, erro_cota_diaria_email
 from app.marca import marca_organizacao
-from app.models import CadenciaPasso, EnvioCadenciaEmail, Lead, Organizacao
+from app.models import CadenciaPasso, EnvioCadenciaEmail, Lead, MensagemSaida, Organizacao
 from app.settings import get_settings
 
 logger = logging.getLogger("ze_registra.cadencia_email")
@@ -228,6 +228,19 @@ async def pausar_envios_pendentes_do_lead(session: AsyncSession, organizacao_id:
             EnvioCadenciaEmail.status == "pendente",
         )
         .values(status="pausado", pausado_em=agora, respondido_em=agora)
+    )
+    # Os passos de WhatsApp ainda na fila param junto: lead que respondeu ou pediu para sair não recebe mais.
+    await session.execute(
+        update(MensagemSaida)
+        .where(
+            MensagemSaida.organizacao_id == organizacao_id,
+            MensagemSaida.titular_tipo == "lead",
+            MensagemSaida.titular_id == lead_id,
+            MensagemSaida.finalidade == "prospeccao",
+            MensagemSaida.status == "pendente",
+        )
+        .values(status="cancelada", motivo_bloqueio="lead_respondeu_ou_saiu")
+        .execution_options(synchronize_session=False)
     )
     return resultado.rowcount
 

@@ -10,6 +10,8 @@ const SITUACOES = {
 const MOTIVOS = {
   sem_consentimento: "Sem consentimento registrado", consentimento_revogado: "Consentimento revogado",
   cancelada_manual: "Cancelada manualmente", finalidade_invalida: "Finalidade inválida",
+  lead_indisponivel: "Lead indisponível ou descadastrado", lead_respondeu_ou_saiu: "Lead respondeu ou saiu da cadência",
+  cliente_respondeu: "O cliente respondeu: a equipe assume",
 };
 
 function dataCurta(valor) {

@@ -15,7 +15,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.juridico import FUSO_BRASIL
@@ -1146,12 +1146,18 @@ async def criar_campanha(
 
 @router_campanhas.delete("/campanhas/{campanha_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def excluir_campanha(
-    campanha_id: int, request: Request, session: SessionDep, usuario: ProspeccaoManageDep
+    campanha_id: int,
+    request: Request,
+    session: SessionDep,
+    usuario: ProspeccaoManageDep,
+    excluir_prospects: Annotated[bool, Query()] = False,
 ) -> None:
-    """Exclui a campanha. Os prospects já gerados por ela não são apagados --
+    """Exclui a campanha. Por padrão os prospects já gerados por ela não são apagados --
     só perdem o vínculo (fk_prospects_campanha_id é ON DELETE SET NULL),
-    continuam no radar normalmente. Bloqueado enquanto a coleta está em
-    andamento (status "ativa") para não apagar a campanha embaixo de um job
+    continuam no radar normalmente. Com ``excluir_prospects=true`` as empresas coletadas
+    pela campanha também são excluídas, EXCETO as que já viraram lead ou empresa do CRM
+    (essas ficam: o trabalho comercial delas não se perde). Bloqueado enquanto a coleta
+    está em andamento (status "ativa") para não apagar a campanha embaixo de um job
     que ainda vai tentar atualizá-la."""
     campanha = (
         await session.execute(
@@ -1164,7 +1170,43 @@ async def excluir_campanha(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Campanha não encontrada")
     if campanha.status == "ativa":
         raise HTTPException(422, "Não é possível excluir uma campanha com coleta em andamento.")
-    _auditar(session, request, usuario, "excluir_campanha_prospeccao", f"campanha:{campanha.id}", {"nome": campanha.nome})
+    excluidos = mantidos = 0
+    if excluir_prospects:
+        # Antes de apagar a campanha: depois dela o vínculo (campanha_id) vira nulo e não dá mais para achá-los.
+        da_campanha = (Prospect.organizacao_id == usuario.organizacao_id, Prospect.campanha_id == campanha.id)
+        mantidos = (
+            await session.execute(
+                select(func.count())
+                .select_from(Prospect)
+                .where(
+                    *da_campanha,
+                    or_(
+                        Prospect.lead_id.is_not(None),
+                        Prospect.empresa_crm_id.is_not(None),
+                        Prospect.status == StatusProspect.CONVERTIDO_LEAD.value,
+                    ),
+                )
+            )
+        ).scalar_one()
+        resultado = await session.execute(
+            delete(Prospect)
+            .where(
+                *da_campanha,
+                Prospect.lead_id.is_(None),
+                Prospect.empresa_crm_id.is_(None),
+                Prospect.status != StatusProspect.CONVERTIDO_LEAD.value,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        excluidos = resultado.rowcount or 0
+    _auditar(
+        session,
+        request,
+        usuario,
+        "excluir_campanha_prospeccao",
+        f"campanha:{campanha.id}",
+        {"nome": campanha.nome, "prospects_excluidos": excluidos, "prospects_preservados": mantidos},
+    )
     await session.delete(campanha)
     await session.commit()
 

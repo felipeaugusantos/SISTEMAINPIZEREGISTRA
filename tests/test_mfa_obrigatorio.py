@@ -30,7 +30,7 @@ def _request() -> Request:
 
 
 def test_perfis_privilegiados_exigem_mfa() -> None:
-    assert PERFIS_MFA_OBRIGATORIO == {"administrador", "ceo", "tech", "supervisor", "financeiro"}
+    assert PERFIS_MFA_OBRIGATORIO == {"administrador", "ceo", "tech", "supervisor", "financeiro", "comercial"}
 
 
 def _requisicao_autenticada(path: str, token: str, method: str = "GET") -> Request:
@@ -190,3 +190,39 @@ def test_pagina_configurar_mfa_reaproveita_endpoints_existentes() -> None:
     assert "/v1/auth/mfa/confirmar" in script
     assert "new QRCode(" in script
     assert "inicio.uri" in script
+
+
+# --- Perfil comercial passa a exigir MFA (decisão do usuário em 15/10/2026): quem usa o CRM e o Radar vê contatos
+# e dados pessoais de leads e clientes. ---
+
+
+def test_comercial_sem_mfa_e_levado_a_configurar_antes_de_usar_o_painel() -> None:
+    sessao, token = _sessao_de_operador(alterar_senha=False, mfa_ativo=False, perfil="comercial")
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(obter_usuario_atual(_requisicao_autenticada("/admin/crm", token), FakeSession([FakeResult(scalar=sessao)])))
+    assert erro.value.status_code == 303 and erro.value.headers["Location"] == "/configurar-mfa"
+
+
+def test_comercial_sem_mfa_recebe_403_nas_apis() -> None:
+    sessao, token = _sessao_de_operador(alterar_senha=False, mfa_ativo=False, perfil="comercial")
+    with pytest.raises(HTTPException) as erro:
+        asyncio.run(obter_usuario_atual(_requisicao_autenticada("/v1/admin/leads", token), FakeSession([FakeResult(scalar=sessao)])))
+    assert erro.value.status_code == 403
+
+
+def test_comercial_com_mfa_ativo_segue_normalmente() -> None:
+    sessao, token = _sessao_de_operador(alterar_senha=False, mfa_ativo=True, perfil="comercial")
+    resultado = asyncio.run(
+        obter_usuario_atual(_requisicao_autenticada("/admin/crm", token), FakeSession([FakeResult(scalar=sessao)]))
+    )
+    assert resultado.perfil == "comercial" and resultado.mfa_ativo is True
+
+
+def test_comercial_novo_com_senha_provisoria_ainda_consegue_trocar_a_senha_e_configurar_o_mfa() -> None:
+    sessao, token = _sessao_de_operador(alterar_senha=True, mfa_ativo=False, perfil="comercial")
+    resultado = asyncio.run(
+        obter_usuario_atual(
+            _requisicao_autenticada("/v1/auth/trocar-senha", token, method="POST"), FakeSession([FakeResult(scalar=sessao)])
+        )
+    )
+    assert resultado.alterar_senha is True

@@ -1653,3 +1653,104 @@ def test_parar_importacao_exige_superadmin() -> None:
     )
 
     assert resposta.status_code == 403
+
+
+# --- Exportação em Excel (.xlsx) ---
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _baixar_xlsx(prospects: list, url: str = "/v1/admin/prospects/exportar.xlsx"):
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    session = FakeSession([FakeResult(itens=prospects)])
+    usuario = usuario_teste(perfil="comercial", permissoes={"prospeccao.export"})
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario)
+    resposta = TestClient(app).get(url)
+    assert resposta.status_code == 200
+    return resposta, session, load_workbook(BytesIO(resposta.content)).active
+
+
+def test_exportar_excel_gera_planilha_com_os_dados_das_empresas() -> None:
+    from datetime import date
+
+    prospect = _prospect(
+        razao_social="Empresa Exemplo Ltda",
+        nome_fantasia="Exemplo",
+        cnpj="11222333000181",
+        cnae_principal="6201501",
+        porte="ME",
+        situacao_cadastral="ATIVA",
+        data_abertura=date(2020, 3, 15),
+        uf="SP",
+        cidade="São Paulo",
+        site="https://exemplo.com.br",
+        score=72.5,
+        campanha_id=4,
+    )
+    resposta, session, planilha = _baixar_xlsx([prospect])
+
+    assert resposta.headers["content-type"].startswith(XLSX)
+    assert resposta.headers["content-disposition"].startswith('attachment; filename="empresas-prospeccao-')
+    assert resposta.headers["content-disposition"].endswith('.xlsx"')
+    assert resposta.headers["cache-control"] == "no-store"
+    cabecalho = [c.value for c in planilha[1]]
+    assert cabecalho[:3] == ["Razão social", "Nome fantasia", "CNPJ"] and "Cadastrado em" in cabecalho
+    linha = {titulo: celula.value for titulo, celula in zip(cabecalho, planilha[2], strict=True)}
+    assert linha["Razão social"] == "Empresa Exemplo Ltda" and linha["CNPJ"] == "11.222.333/0001-81"
+    assert linha["CNAE"] == "6201501" and linha["UF"] == "SP" and linha["Cidade"] == "São Paulo"
+    assert linha["Telefone"] == "11988887777" and linha["E-mail"] == "empresa@teste.local"
+    assert linha["Score"] == 72.5 and linha["Campanha"] == 4
+    assert linha["Abertura"].date() == date(2020, 3, 15)
+    assert planilha.freeze_panes == "A2" and planilha.auto_filter.ref is not None
+    assert session.commits == 1
+    auditoria = [i for i in session.adicionados if getattr(i, "acao", None) == "exportar_prospects"]
+    assert auditoria and auditoria[0].recurso == "prospects:xlsx"
+
+
+def test_exportar_excel_nao_deixa_o_excel_executar_formulas() -> None:
+    perigoso = _prospect(razao_social='=HYPERLINK("http://x")', nome_fantasia="+cmd|calc", email="@soma")
+    _, _, planilha = _baixar_xlsx([perigoso])
+    for celula in (planilha["A2"], planilha["B2"], planilha["L2"]):
+        assert celula.data_type == "s"  # texto, não fórmula
+    assert planilha["A2"].value == '=HYPERLINK("http://x")'
+
+
+def test_exportar_excel_sem_resultados_traz_so_o_cabecalho() -> None:
+    _, _, planilha = _baixar_xlsx([])
+    assert planilha.max_row == 1 and planilha["A1"].value == "Razão social"
+
+
+def test_exportar_excel_aplica_os_mesmos_filtros_e_isola_a_organizacao() -> None:
+    _, session, _ = _baixar_xlsx([_prospect()], "/v1/admin/prospects/exportar.xlsx?status=novo&campanha_id=4")
+    sql = str(session.executados[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "prospects.organizacao_id = 1" in sql
+    assert "prospects.campanha_id = 4" in sql and "prospects.status = 'novo'" in sql
+
+
+def test_exportar_excel_sem_permissao_retorna_403() -> None:
+    session = FakeSession()
+    app.dependency_overrides[get_session] = _override_session(session)
+    app.dependency_overrides[obter_usuario_atual] = auth_override(usuario_teste(perfil="operador"))
+    assert TestClient(app).get("/v1/admin/prospects/exportar.xlsx").status_code == 403
+    assert not session.executados
+
+
+def test_tela_de_prospeccao_tem_o_botao_exportar_excel_com_os_filtros_da_tela() -> None:
+    html = Path("app/web/admin-prospeccao.html").read_text(encoding="utf-8")
+    script = Path("app/web/static/admin-prospeccao.js").read_text(encoding="utf-8")
+    assert 'id="export-prospects-xlsx"' in html and "Exportar Excel" in html
+    assert "/v1/admin/prospects/exportar.xlsx?${prospectFilterParams()}" in script
+    assert 'document.querySelector("#export-prospects-xlsx").hidden = !state.canExport;' in script
+
+
+def test_exportar_excel_nao_quebra_com_caractere_de_controle_nos_dados() -> None:
+    # Revisão do Codex (PR #208): um cadastro com tabulação vertical (vindo de importação) derrubava a exportação inteira.
+    sujo = _prospect(razao_social="Empresa\x0bSuja\x00 Ltda", cidade="São\x1fPaulo")
+    limpo = _prospect(id=6, razao_social="Empresa Limpa Ltda")
+    _, _, planilha = _baixar_xlsx([sujo, limpo])
+    assert planilha["A2"].value == "EmpresaSuja Ltda" and planilha["J2"].value == "SãoPaulo"
+    assert planilha["A3"].value == "Empresa Limpa Ltda"  # as demais linhas seguem normalmente

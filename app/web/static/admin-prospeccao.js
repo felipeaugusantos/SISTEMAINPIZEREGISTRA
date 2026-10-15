@@ -205,6 +205,8 @@ function prospectFilterParams({ paginar = false } = {}) {
 function atualizarLinkExportacao() {
   const link = document.querySelector("#export-prospects");
   link.href = `/v1/admin/prospects/exportar.csv?${prospectFilterParams()}`;
+  // O Excel respeita os mesmos filtros da tela.
+  document.querySelector("#export-prospects-xlsx").href = `/v1/admin/prospects/exportar.xlsx?${prospectFilterParams()}`;
 }
 async function loadProspects() {
   let data = await api(`/v1/admin/prospects?${prospectFilterParams({ paginar: true })}`);
@@ -296,6 +298,7 @@ async function configurarBotaoImportarCnpjRfb() {
     usuario.superadmin || usuario.perfil === "administrador" || (usuario.permissoes || []).includes("prospeccao.export"),
   );
   document.querySelector("#export-prospects").hidden = !state.canExport;
+  document.querySelector("#export-prospects-xlsx").hidden = !state.canExport;
   document.querySelector("#open-supressao").hidden = !state.canManage;
 
   // Achado 16.2 da auditoria fina do Radar de Prospecção (24/09/2026):

@@ -123,4 +123,120 @@ test("o administrador entra pelo formulário e acessa a visão geral", async ({ 
   await expect(page.getByRole("button", { name: "Executar motor de prazos" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Novo prazo" })).toBeVisible();
   await expect(page.getByText("CENTRAL DE NOTIFICAÇÕES")).toBeVisible();
+
+  // Guarda a sessão para as jornadas de negócio abaixo (A15), sem repetir o login com MFA.
+  estadoAdmin = await page.context().storageState();
+});
+
+// --- Auditoria A15 (15/10/2026): jornadas críticas com persistência real ---------------------------
+// O smoke acima só prova acesso e navegação. Estes testes percorrem fluxos de negócio ponta a ponta
+// contra a API e o banco reais da CI e conferem o que ficou gravado. Reaproveitam a sessão do teste do
+// administrador (o MFA é configurado uma única vez, ali).
+
+let estadoAdmin = null;
+
+async function contextoAdmin(playwright, baseURL) {
+  const api = await playwright.request.newContext({ baseURL, storageState: estadoAdmin });
+  const csrf = estadoAdmin.cookies.find((c) => c.name === "zr_csrf")?.value || "";
+  return { api, cabecalhos: { "X-CSRF-Token": csrf } };
+}
+
+function emailUnico(prefixo) {
+  return `${prefixo}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@e2e.zeregistra.test`;
+}
+
+async function criarLeadPublico(request, email) {
+  const resposta = await request.post("/v1/leads", {
+    data: {
+      nome: "Cliente E2E",
+      email,
+      telefone: "(16) 99999-0000",
+      marca: "Marca E2E",
+      origem: "geral",
+      aceite_privacidade: true,
+    },
+  });
+  expect(resposta.status()).toBe(201);
+}
+
+async function buscarLeadAdmin(api, email) {
+  const resposta = await api.get(`/v1/admin/leads?busca=${encodeURIComponent(email)}`);
+  expect(resposta.ok()).toBeTruthy();
+  const itens = (await resposta.json()).itens;
+  expect(itens.length).toBe(1);
+  return itens[0];
+}
+
+test("jornada: lead público chega ao painel e a mudança de status persiste", async ({ playwright, request, baseURL }) => {
+  test.skip(!estadoAdmin, "Sessão de administrador E2E indisponível.");
+  const { api, cabecalhos } = await contextoAdmin(playwright, baseURL);
+  const email = emailUnico("jornada-lead");
+
+  await criarLeadPublico(request, email);
+  const lead = await buscarLeadAdmin(api, email);
+  expect(lead.status).toBe("novo");
+
+  const alteracao = await api.patch(`/v1/admin/leads/${lead.id}`, {
+    headers: cabecalhos,
+    data: { status: "em_contato", notas: "Contato feito no E2E" },
+  });
+  expect(alteracao.ok()).toBeTruthy();
+
+  // Persistência: nova leitura (outra requisição) devolve o estado gravado.
+  const detalhe = await (await api.get(`/v1/admin/leads/${lead.id}`)).json();
+  expect(detalhe.status).toBe("em_contato");
+  await api.dispose();
+});
+
+test("jornada: exclusão pelo titular respeita atendimento ativo e anonimiza depois de descartado", async ({
+  playwright,
+  request,
+  baseURL,
+}) => {
+  test.skip(!estadoAdmin, "Sessão de administrador E2E indisponível.");
+  const { api, cabecalhos } = await contextoAdmin(playwright, baseURL);
+  const email = emailUnico("jornada-lgpd");
+  await criarLeadPublico(request, email);
+  const lead = await buscarLeadAdmin(api, email);
+
+  // 1) Lead com atendimento ativo: o pedido é aceito, mas o cadastro é conservado.
+  let pedido = await request.post("/v1/privacidade/solicitar-exclusao", { data: { email } });
+  expect(pedido.ok()).toBeTruthy();
+  let token = (await pedido.json()).token_teste_local;
+  expect(token).toBeTruthy();
+  let confirmacao = await (await request.post("/v1/privacidade/confirmar-exclusao", { data: { token } })).json();
+  expect(confirmacao.status).toBe("conservado");
+  expect(confirmacao.registros_conservados).toBe(1);
+  const aindaIntacto = await (await api.get(`/v1/admin/leads/${lead.id}`)).json();
+  expect(aindaIntacto.email).toBe(email);
+
+  // 2) Depois de descartado (sem bloqueios), o novo pedido anonimiza de verdade.
+  const descarte = await api.patch(`/v1/admin/leads/${lead.id}`, {
+    headers: cabecalhos,
+    data: { status: "descartado", motivo_perda: "outro", motivo_perda_detalhe: "Teste E2E" },
+  });
+  expect(descarte.ok()).toBeTruthy();
+  pedido = await request.post("/v1/privacidade/solicitar-exclusao", { data: { email } });
+  token = (await pedido.json()).token_teste_local;
+  expect(token).toBeTruthy();
+  confirmacao = await (await request.post("/v1/privacidade/confirmar-exclusao", { data: { token } })).json();
+  expect(confirmacao.status).toBe("ok");
+  expect(confirmacao.registros_afetados).toBe(1);
+  const anonimizado = await (await api.get(`/v1/admin/leads/${lead.id}`)).json();
+  expect(anonimizado.nome).toMatch(/^Titular anonimizado/);
+  expect(anonimizado.email).not.toBe(email);
+
+  // 3) O link já usado não vale de novo.
+  const repetido = await (await request.post("/v1/privacidade/confirmar-exclusao", { data: { token } })).json();
+  expect(repetido.status).toBe("erro");
+  await api.dispose();
+});
+
+test("jornada negativa: rotas administrativas recusam quem não está autenticado", async ({ request }) => {
+  for (const caminho of ["/v1/admin/leads", "/v1/auth/me"]) {
+    const resposta = await request.get(caminho);
+    expect([401, 403]).toContain(resposta.status());
+  }
+  const mutacao = await request.patch("/v1/admin/leads/1", { data: { status: "descartado" } });
+  expect([401, 403]).toContain(mutacao.status());
 });

@@ -10,11 +10,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.marca import marca_organizacao
+from app.mensageria import enfileirar_mensagem, normalizar_telefone
 from app.models import (
     ClientePortal,
     ColidenciaVigilancia,
     HistoricoAlertaVigilancia,
     Lead,
+    Organizacao,
     PreferenciaVigilancia,
     Processo,
     VigilanciaExecucao,
@@ -83,6 +86,8 @@ async def enfileirar_alerta(
         )
     ).scalar_one_or_none()
     if existente:
+        if canal == "whatsapp" and existente.status in {"bloqueado", "sem_destino"}:
+            await preparar_envio_whatsapp(session, colidencia, existente)  # o consentimento pode ter chegado depois
         return existente
     alerta = HistoricoAlertaVigilancia(
         organizacao_id=colidencia.organizacao_id,
@@ -95,7 +100,59 @@ async def enfileirar_alerta(
         detalhes={"evidencias": colidencia.evidencias, "score_risco": colidencia.score_risco},
     )
     session.add(alerta)
+    if canal == "whatsapp":
+        await preparar_envio_whatsapp(session, colidencia, alerta)
     return alerta
+
+
+def montar_texto_whatsapp(*, nome: str | None, escritorio: str | None, evidencias: dict) -> str:
+    """Aviso curto e neutro: o cliente é orientado pela equipe, a mensagem não faz análise jurídica."""
+    primeiro_nome = (nome or "").strip().split(" ")[0]
+    saudacao = f"Olá, {primeiro_nome}!" if primeiro_nome else "Olá!"
+    quem = f"Aqui é o {escritorio}." if escritorio else "Aqui é a equipe de vigilância de marcas."
+    marca = evidencias.get("marca_monitorada") or "sua marca"
+    processo = evidencias.get("processo")
+    referencia = f" (processo {processo})" if processo else ""
+    return (
+        f"{saudacao} {quem} Na vigilância da marca {marca}, nossa equipe identificou um pedido de registro "
+        f"com semelhança que merece atenção{referencia}. Já analisamos o caso e vamos orientar os próximos "
+        "passos. Se tiver dúvidas, é só responder esta mensagem.\n\n"
+        "Para não receber mais avisos por WhatsApp, responda SAIR."
+    )
+
+
+async def preparar_envio_whatsapp(
+    session: AsyncSession, colidencia: ColidenciaVigilancia, alerta: HistoricoAlertaVigilancia
+) -> None:
+    """Coloca o aviso na fila de WhatsApp. Só sai com consentimento de vigilância registrado para o telefone;
+    sem ele a mensagem fica "bloqueada" e o alerta "bloqueado" (o canal portal segue valendo)."""
+    cliente = await session.get(ClientePortal, colidencia.cliente_id)
+    lead = await session.get(Lead, cliente.lead_id) if cliente is not None else None
+    if lead is None or lead.anonimizado_em is not None or lead.arquivado_em is not None:
+        alerta.status = "sem_destino"
+        alerta.detalhes = {**(alerta.detalhes or {}), "whatsapp": "cliente indisponivel"}
+        return
+    if normalizar_telefone(lead.telefone) is None:
+        alerta.status = "sem_destino"
+        alerta.detalhes = {**(alerta.detalhes or {}), "whatsapp": "telefone sem celular valido"}
+        return
+    organizacao = await session.get(Organizacao, colidencia.organizacao_id)
+    escritorio = marca_organizacao(organizacao)["nome"] if organizacao is not None else None
+    mensagem = await enfileirar_mensagem(
+        session,
+        organizacao_id=colidencia.organizacao_id,
+        finalidade="vigilancia",
+        telefone=lead.telefone,
+        corpo=montar_texto_whatsapp(nome=lead.nome, escritorio=escritorio, evidencias=colidencia.evidencias or {}),
+        chave_idempotencia=alerta.idempotency_key,
+        titular_tipo="cliente_portal",
+        titular_id=cliente.id,
+    )
+    if mensagem.status == "bloqueada":
+        alerta.status = "bloqueado"
+        alerta.detalhes = {**(alerta.detalhes or {}), "whatsapp": mensagem.motivo_bloqueio}
+    elif alerta.status in {"bloqueado", "sem_destino"}:
+        alerta.status = "pendente"
 
 
 async def executar_vigilancia_semanal(

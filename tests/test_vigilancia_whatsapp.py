@@ -186,3 +186,23 @@ def test_falha_definitiva_marca_o_alerta_como_falhou() -> None:
     base._processar(sessao, base._Provedor(erro=ErroEnvioPermanente("número sem WhatsApp")))
     atualizacoes = [c for c in sessao.executados if "UPDATE historico_alertas_vigilancia" in str(c)]
     assert len(atualizacoes) == 1 and "falhou" in atualizacoes[0].compile().params.values()
+
+
+def test_envio_incerto_ou_interrompido_tambem_aparece_como_incerto_no_historico_do_alerta() -> None:
+    # Revisão do Codex (PR #206): "incerta" é terminal; o alerta não pode ficar "pendente" para sempre.
+    sessao = base._fila(FakeResult(itens=[]))
+    base._processar(sessao, base._Provedor())
+    atualizacoes = [c for c in sessao.executados if "UPDATE historico_alertas_vigilancia" in str(c)]
+    assert len(atualizacoes) == 1
+    params = atualizacoes[0].compile().params.values()
+    assert "incerta" in params and "pendente" in params
+
+
+def test_aprovar_a_colidencia_comunica_todos_os_canais_configurados() -> None:
+    # Revisão do Codex (PR #206): com ['portal', 'whatsapp'], o WhatsApp não pode depender de /comunicar.
+    from pathlib import Path
+
+    fonte = Path("app/api/vigilancia.py").read_text(encoding="utf-8")
+    corpo = fonte.split("async def revisar_colidencia(", 1)[1].split("\n@router", 1)[0]
+    assert "for canal in (c for c in (preferencia.canais or [])" in corpo
+    assert "next((c for c in (preferencia.canais" not in corpo

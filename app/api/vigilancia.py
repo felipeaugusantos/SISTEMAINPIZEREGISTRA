@@ -264,8 +264,8 @@ async def revisar_colidencia(
     ).scalar_one_or_none()
     comunicacao_liberada = dados.status == "aprovado" and preferencia is not None and bool(preferencia.canais)
     if comunicacao_liberada and status_anterior != "aprovado":
-        canal = next((c for c in (preferencia.canais or []) if c in {"portal", "email", "whatsapp"}), None)
-        if canal:
+        # Todos os canais configurados (ex.: portal e WhatsApp), como faz o endpoint /comunicar.
+        for canal in (c for c in (preferencia.canais or []) if c in {"portal", "email", "whatsapp"}):
             await enfileirar_alerta(session, item, preferencia, canal)
         item.comunicada_em = agora
     await session.commit()

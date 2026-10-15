@@ -392,6 +392,20 @@ async def _refletir_no_alerta_da_vigilancia(
     )
 
 
+async def _refletir_incertas_no_historico_da_vigilancia(session: AsyncSession) -> None:
+    """Mensagem "incerta" (resposta perdida ou envio interrompido): o alerta de origem também vira "incerta",
+    para o relatório da vigilância não mostrar "pendente" para sempre."""
+    incertas = select(MensagemSaida.chave_idempotencia).where(
+        MensagemSaida.finalidade == "vigilancia", MensagemSaida.status == "incerta"
+    )
+    await session.execute(
+        update(HistoricoAlertaVigilancia)
+        .where(HistoricoAlertaVigilancia.status == "pendente", HistoricoAlertaVigilancia.idempotency_key.in_(incertas))
+        .values(status="incerta")
+        .execution_options(synchronize_session=False)
+    )
+
+
 PRAZO_ENVIO_INTERROMPIDO = timedelta(minutes=15)
 
 
@@ -538,6 +552,7 @@ async def processar_fila(
             prospeccao_ja_enviou_nesta_rodada.add(mensagem.organizacao_id)
         await _refletir_no_alerta_da_vigilancia(session, mensagem, "enviado", agora)
         await session.commit()  # grava o resultado já, sem esperar o fim do lote
+    await _refletir_incertas_no_historico_da_vigilancia(session)
     return {"enviadas": enviadas, "falhas": falhas, "bloqueadas": bloqueadas, "interrompidas": interrompidas}
 
 

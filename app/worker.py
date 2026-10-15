@@ -43,8 +43,8 @@ from app.models import (
 )
 from app.queueing import (
     FAILED_KEY,
-    MAX_ATTEMPTS,
     LEASE_RENOVACAO_SECONDS,
+    MAX_ATTEMPTS,
     METRICS_KEY,
     PROCESSING_KEY,
     QUEUE_KEY,

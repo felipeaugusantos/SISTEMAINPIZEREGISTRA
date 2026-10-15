@@ -16,23 +16,14 @@ async def test_enfileiramento_idempotente_nao_duplica_job(monkeypatch) -> None:
             self.valores = {}
             self.jobs = []
 
-        async def set(self, chave, valor, *, nx, ex):
-            if nx and chave in self.valores:
-                return False
-            self.valores[chave] = valor
-            return True
-
-        async def get(self, chave):
-            return self.valores.get(chave)
-
-        async def rpush(self, _chave, valor):
-            self.jobs.append(valor)
-
-        async def delete(self, chave):
-            self.valores.pop(chave, None)
-
-        async def hincrby(self, *_args):
-            return 1
+        async def eval(self, _script, _numkeys, chave, _fila, _metricas, com_chave, job_id, _ttl, job_json):
+            # Emula o script atômico: reserva de idempotência + RPUSH.
+            if com_chave == "1":
+                if chave in self.valores:
+                    return [0, self.valores[chave]]
+                self.valores[chave] = job_id
+            self.jobs.append(job_json)
+            return [1, job_id]
 
         async def aclose(self):
             return None

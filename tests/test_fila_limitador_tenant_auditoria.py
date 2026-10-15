@@ -14,6 +14,7 @@ from app.queueing import (
     mover_processando_para_falha,
     mover_processando_para_retry,
     recuperar_processando,
+    registrar_lease,
 )
 from app.ratelimit import RateLimiter
 from app.tenancy import resolver_organizacao_publica
@@ -47,6 +48,7 @@ def chaves() -> SimpleNamespace:
         falhas=prefixo + "falhas",
         metricas=prefixo + "metricas",
         fila=prefixo + "fila",
+        leases=prefixo + "leases",
     )
 
 
@@ -146,14 +148,59 @@ async def test_a03_tarefa_que_ja_saiu_de_processamento_nao_e_duplicada(redis_rea
     await _limpar(redis_real, chaves)
 
 
-async def test_a03_recuperacao_na_partida_devolve_todas_as_tarefas(redis_real, chaves) -> None:
+async def test_a03_recuperacao_devolve_as_tarefas_com_lease_vencido(redis_real, chaves) -> None:
     brutos = [_job()[0] for _ in range(3)]
     for bruto in brutos:
         await redis_real.lpush(chaves.processando, bruto)
-    movidas = await recuperar_processando(redis_real, processando=chaves.processando, fila=chaves.fila)
+    kw = {"processando": chaves.processando, "fila": chaves.fila, "leases": chaves.leases, "ttl": 60}
+    # Auditoria A05: sem lease, a primeira varredura só adota (não devolve); vencido o prazo, devolve.
+    assert await recuperar_processando(redis_real, agora=1000.0, **kw) == 0
+    assert await recuperar_processando(redis_real, agora=1059.0, **kw) == 0
+    movidas = await recuperar_processando(redis_real, agora=1061.0, **kw)
     assert movidas == 3
     assert await redis_real.llen(chaves.processando) == 0
     assert sorted(await redis_real.lrange(chaves.fila, 0, -1)) == sorted(brutos)
+    assert await redis_real.hlen(chaves.leases) == 0
+    await _limpar(redis_real, chaves)
+
+
+async def test_a05_worker_novo_nao_recupera_tarefa_de_worker_vivo(redis_real, chaves) -> None:
+    bruto = _job()[0]
+    await redis_real.lpush(chaves.processando, bruto)
+    kw = {"processando": chaves.processando, "fila": chaves.fila, "leases": chaves.leases, "ttl": 60}
+    await registrar_lease(redis_real, bruto, leases=chaves.leases, ttl=60, agora=1000.0)
+    # Worker A renova a cada 15s; worker B varre em 1050 e 1100 sem nunca ver o lease vencer.
+    await registrar_lease(redis_real, bruto, leases=chaves.leases, ttl=60, agora=1040.0)
+    assert await recuperar_processando(redis_real, agora=1050.0, **kw) == 0
+    await registrar_lease(redis_real, bruto, leases=chaves.leases, ttl=60, agora=1090.0)
+    assert await recuperar_processando(redis_real, agora=1100.0, **kw) == 0
+    assert await redis_real.llen(chaves.fila) == 0
+    # Worker A morre: o lease vence e a tarefa volta para a fila uma única vez.
+    assert await recuperar_processando(redis_real, agora=1151.0, **kw) == 1
+    assert await redis_real.llen(chaves.fila) == 1
+    await _limpar(redis_real, chaves)
+
+
+async def test_a03_enfileirar_e_idempotencia_sao_atomicos(redis_real, chaves, monkeypatch) -> None:
+    import app.queueing as queueing
+
+    monkeypatch.setattr(queueing, "cliente_redis", lambda: redis_async.Redis.from_url(REDIS_URL, decode_responses=True))
+    monkeypatch.setattr(queueing, "QUEUE_KEY", chaves.fila)
+    monkeypatch.setattr(queueing, "METRICS_KEY", chaves.metricas)
+    monkeypatch.setattr(queueing, "IDEMPOTENCY_PREFIX", chaves.fila + ":idem:")
+
+    primeiro = await queueing.enfileirar("t", {"a": 1}, idempotency_key="k1")
+    repetido = await queueing.enfileirar("t", {"a": 1}, idempotency_key="k1")
+    assert repetido["duplicado"] is True and repetido["id"] == primeiro["id"]
+    assert await redis_real.llen(chaves.fila) == 1
+
+    # Fila com tipo errado: o RPUSH falha e a reserva é desfeita, então a nova tentativa não fica bloqueada.
+    await redis_real.delete(chaves.fila)
+    await redis_real.set(chaves.fila, "nao-e-lista")
+    with pytest.raises(RuntimeError):
+        await queueing.enfileirar("t", {"a": 2}, idempotency_key="k2")
+    assert await redis_real.exists(chaves.fila + ":idem:t:k2") == 0
+    await redis_real.delete(chaves.fila, chaves.fila + ":idem:t:k1")
     await _limpar(redis_real, chaves)
 
 

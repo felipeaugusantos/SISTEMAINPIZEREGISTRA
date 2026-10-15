@@ -1241,14 +1241,10 @@ class _RedisRegistraOrdem:
         self.session = session
         self.commits_ao_enfileirar: int | None = None
 
-    async def set(self, *_args: object, **_kwargs: object) -> bool:
-        return True
-
-    async def rpush(self, *_args: object) -> None:
+    async def eval(self, _script: str, _numkeys: int, *args: str) -> list:
+        # Emula o script atômico de enfileirar (reserva de idempotência + RPUSH).
         self.commits_ao_enfileirar = self.session.commits
-
-    async def hincrby(self, *_args: object) -> int:
-        return 1
+        return [1, args[4]]
 
     async def aclose(self) -> None:
         return None

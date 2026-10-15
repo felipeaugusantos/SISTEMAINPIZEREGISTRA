@@ -44,15 +44,18 @@ from app.models import (
 from app.queueing import (
     FAILED_KEY,
     MAX_ATTEMPTS,
+    LEASE_RENOVACAO_SECONDS,
     METRICS_KEY,
     PROCESSING_KEY,
     QUEUE_KEY,
     cliente_redis,
     enfileirar,
+    liberar_lease,
     mover_processando_para_falha,
     mover_processando_para_retry,
     promover_retentativas,
     recuperar_processando,
+    registrar_lease,
 )
 from app.request_context import definir_request_id, request_id_atual, restaurar_request_id
 from app.retencao import simular_retencao_leads
@@ -867,6 +870,13 @@ async def _loop_fila_principal(redis) -> None:
         bruto = await redis.brpoplpush(QUEUE_KEY, PROCESSING_KEY, timeout=5)
         if not bruto:
             continue
+        # Auditoria A05: o lease prova a outros workers que esta tarefa está viva; é renovado enquanto roda.
+        renovador = None
+        try:
+            await registrar_lease(redis, bruto)
+            renovador = asyncio.create_task(_renovar_lease(redis, bruto))
+        except Exception:  # noqa: BLE001 - sem lease a tarefa ainda roda; só fica recuperável após o prazo
+            logger.exception("Falha ao registrar o lease da tarefa")
         try:
             job = json.loads(bruto)
             await processar_rastreado(job["tipo"], job.get("payload", {}), job.get("request_id"))
@@ -911,6 +921,33 @@ async def _loop_fila_principal(redis) -> None:
                         ensure_ascii=False,
                     )
                 )
+        finally:
+            if renovador is not None:
+                renovador.cancel()
+            try:
+                await liberar_lease(redis, bruto)
+            except Exception:  # noqa: BLE001 - lease órfão expira sozinho na próxima varredura
+                logger.warning("Falha ao liberar o lease da tarefa")
+
+
+async def _renovar_lease(redis, bruto: str) -> None:
+    """Mantém o lease da tarefa em andamento enquanto o processamento durar."""
+    while True:
+        await asyncio.sleep(LEASE_RENOVACAO_SECONDS)
+        try:
+            await registrar_lease(redis, bruto)
+        except Exception:  # noqa: BLE001 - uma renovação perdida não derruba a tarefa
+            logger.warning("Falha ao renovar o lease da tarefa")
+
+
+async def _loop_recuperacao(redis) -> None:
+    """Devolve à fila as tarefas de workers que morreram (lease vencido), sem tocar nas de workers vivos."""
+    while True:
+        await asyncio.sleep(LEASE_RENOVACAO_SECONDS)
+        try:
+            await recuperar_processando(redis)
+        except Exception:  # noqa: BLE001
+            logger.exception("Falha na varredura de tarefas órfãs")
 
 
 async def _atualizar_heartbeat_worker() -> None:
@@ -980,10 +1017,11 @@ async def _loop_mensageria(redis) -> None:
 
 async def main() -> None:
     redis = cliente_redis()
-    # Recupera trabalhos que ficaram em processamento apos encerramento abrupto (movimento atômico).
+    # Só recupera o que está com lease vencido (A05): outro worker vivo não perde a tarefa que está rodando.
     await recuperar_processando(redis)
     await asyncio.gather(
         _loop_fila_principal(redis),
+        _loop_recuperacao(redis),
         _loop_manutencao(redis),
         _loop_comunicacao_juridica(redis),
         _loop_mensageria(redis),

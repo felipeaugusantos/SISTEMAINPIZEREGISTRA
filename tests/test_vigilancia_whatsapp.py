@@ -63,6 +63,15 @@ def _preparar(sessao: FakeSession, alerta: HistoricoAlertaVigilancia) -> None:
     asyncio.run(preparar_envio_whatsapp(sessao, _colidencia(), alerta))
 
 
+def _atualizacoes_do_historico(sessao: FakeSession, novo_status: str) -> list:
+    """UPDATEs do histórico de alertas que gravam o status informado (há também a sincronização de "incerta")."""
+    return [
+        c
+        for c in sessao.executados
+        if "UPDATE historico_alertas_vigilancia" in str(c) and novo_status in c.compile().params.values()
+    ]
+
+
 def _mensagens(sessao: FakeSession) -> list[MensagemSaida]:
     return [o for o in sessao.adicionados if isinstance(o, MensagemSaida)]
 
@@ -162,9 +171,7 @@ def test_envio_da_mensagem_marca_o_alerta_como_enviado_no_historico() -> None:
         FakeResult(itens=[mensagem]), FakeResult(scalar=base._consentimento()), FakeResult(scalar=0), base._reserva()
     )
     assert base._processar(sessao, base._Provedor())["enviadas"] == 1
-    atualizacoes = [c for c in sessao.executados if "UPDATE historico_alertas_vigilancia" in str(c)]
-    assert len(atualizacoes) == 1
-    assert "enviado" in atualizacoes[0].compile().params.values()
+    assert len(_atualizacoes_do_historico(sessao, "enviado")) == 1
 
 
 def test_mensagem_que_nao_e_de_alerta_de_vigilancia_nao_mexe_no_historico() -> None:
@@ -173,7 +180,7 @@ def test_mensagem_que_nao_e_de_alerta_de_vigilancia_nao_mexe_no_historico() -> N
         FakeResult(itens=[mensagem]), FakeResult(scalar=base._consentimento()), FakeResult(scalar=0), base._reserva()
     )
     base._processar(sessao, base._Provedor())
-    assert not [c for c in sessao.executados if "historico_alertas_vigilancia" in str(c)]
+    assert not _atualizacoes_do_historico(sessao, "enviado") and not _atualizacoes_do_historico(sessao, "falhou")
 
 
 def test_falha_definitiva_marca_o_alerta_como_falhou() -> None:
@@ -184,8 +191,7 @@ def test_falha_definitiva_marca_o_alerta_como_falhou() -> None:
         FakeResult(itens=[mensagem]), FakeResult(scalar=base._consentimento()), FakeResult(scalar=0), base._reserva()
     )
     base._processar(sessao, base._Provedor(erro=ErroEnvioPermanente("número sem WhatsApp")))
-    atualizacoes = [c for c in sessao.executados if "UPDATE historico_alertas_vigilancia" in str(c)]
-    assert len(atualizacoes) == 1 and "falhou" in atualizacoes[0].compile().params.values()
+    assert len(_atualizacoes_do_historico(sessao, "falhou")) == 1
 
 
 def test_envio_incerto_ou_interrompido_tambem_aparece_como_incerto_no_historico_do_alerta() -> None:

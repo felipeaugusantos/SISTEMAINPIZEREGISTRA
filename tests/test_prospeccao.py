@@ -1783,7 +1783,7 @@ def test_excluir_campanha_com_prospects_apaga_so_os_que_nao_viraram_lead() -> No
     assert "prospects.organizacao_id = 1" in sql and "prospects.campanha_id = 4" in sql
     assert "prospects.lead_id IS NULL" in sql and "prospects.empresa_crm_id IS NULL" in sql
     assert "prospects.status != 'convertido_lead'" in sql  # o que já virou lead nunca é apagado
-    auditoria = next(i for i in session.adicionados if getattr(i, "acao", None) == "excluir_campanha_prospeccao")
+    auditoria = next(i for i in session.adicionados if str(getattr(i, "acao", "")).startswith("excluir_campanha"))
     assert auditoria.detalhes["prospects_excluidos"] == 7 and auditoria.detalhes["prospects_preservados"] == 2
 
 

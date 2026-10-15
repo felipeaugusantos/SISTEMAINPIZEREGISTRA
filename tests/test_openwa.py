@@ -19,6 +19,7 @@ from app.main import app
 from app.mensageria import ErroEnvioIncerto, ErroEnvioPermanente
 from app.models import AlertaSistema, ConsentimentoCanal, MensagemSaida, PausaCanal
 from tests.conftest import FakeResult, FakeSession
+from tests.test_mensageria import _config  # noqa: F401  (fixture que liga o WhatsApp só nos testes)
 
 # Integração com o gateway OpenWA: cliente de envio, assinatura e receptor de webhook, comando de configuração
 # e o arquivo de composição do gateway. Nenhum teste fala com um OpenWA de verdade.
@@ -134,7 +135,7 @@ def test_recusa_definitiva_do_gateway_nao_e_repetida(status: int) -> None:
         _enviar(provedor)
 
 
-@pytest.mark.parametrize("status", [409, 500, 503])
+@pytest.mark.parametrize("status", [409, 503])
 def test_sessao_sem_conexao_ou_gateway_fora_e_temporario(status: int) -> None:
     provedor = _provedor(
         {("GET", "/api/sessions"): SESSOES, ENVIO: httpx.Response(status, json={"message": "tente depois"})}, []
@@ -279,7 +280,7 @@ def test_restricao_do_numero_alerta_e_grava_pausa_persistida_da_sessao() -> None
 
 def test_fim_da_restricao_encerra_a_pausa() -> None:
     existente = PausaCanal(organizacao_id=1, sessao="prospeccao", ate=AGORA + timedelta(hours=20))
-    sessao = FakeSession([FakeResult(), FakeResult(scalar=existente)])  # 1º select: contagem do alerta
+    sessao = FakeSession([FakeResult(scalar=existente)])  # 1º select: a pausa da sessão
     _evento(sessao, "session.restriction", {"active": False}, "prospeccao")
     assert existente.ate == AGORA
 

@@ -703,7 +703,7 @@ def test_coletar_campanha_enfileira_job(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert resposta.status_code == 202
     assert campanha.status == "ativa"
-    assert session.commits == 1
+    assert session.commits == 2  # status gravado antes de enfileirar + auditoria (A06)
 
 
 def test_coletar_campanha_concluida_enfileira_nova_execucao(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -737,7 +737,7 @@ def test_coletar_campanha_concluida_enfileira_nova_execucao(monkeypatch: pytest.
     assert resposta.status_code == 202
     assert campanha.status == "ativa"
     assert campanha.encerrada_em is None
-    assert session.commits == 1
+    assert session.commits == 2
     assert len(redis.jobs) == 1
     assert encerrada_em.isoformat() in redis.jobs[0]
 
@@ -1805,3 +1805,25 @@ def test_tela_atualiza_o_painel_e_a_lista_depois_de_excluir_as_empresas_da_campa
     script = Path("app/web/static/admin-prospeccao.js").read_text(encoding="utf-8")
     assert "if (excluirProspects) await reloadAll();" in script
     assert "if (excluirProspects) await loadProspects();" not in script
+
+
+def test_coletar_campanha_restaura_status_quando_enfileirar_falha(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Auditoria A06: o status é gravado antes de enfileirar; se a fila recusar, volta ao estado anterior.
+    campanha = _campanha(status="pausada")
+    session = _sessao_admin(FakeResult(scalar=campanha))
+
+    class RedisQuebrado:
+        async def eval(self, *_args: object) -> list:
+            raise ConnectionError("redis fora")
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr("app.queueing.cliente_redis", lambda: RedisQuebrado())
+
+    resposta = TestClient(app, raise_server_exceptions=False).post(
+        "/v1/admin/prospeccao/campanhas/4/coletar", headers={"X-CSRF-Token": "csrf-teste"}
+    )
+
+    assert resposta.status_code == 500
+    assert campanha.status == "pausada"

@@ -10,6 +10,7 @@ from app.auth import (
     AcaoAdminDep,
     UsuarioAutenticado,
     exigir_permissao,
+    fora_do_loop,
     hash_ip,
     verificar_senha,
 )
@@ -107,7 +108,7 @@ async def _exigir_senha(
     recurso: str,
 ) -> None:
     registro = await session.get(UsuarioOperacoes, usuario.id)
-    if not senha or registro is None or not verificar_senha(registro.senha_hash, senha):
+    if not senha or registro is None or not await fora_do_loop(verificar_senha, registro.senha_hash, senha):
         _auditar(
             session,
             usuario,

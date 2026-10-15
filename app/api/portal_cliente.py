@@ -36,6 +36,7 @@ from app.api.leads_propostas import (
 from app.auth import (
     consumir_tempo_hash,
     exigir_permissao,
+    fora_do_loop,
     hash_ip,
     hash_senha,
     hash_token,
@@ -91,11 +92,11 @@ SESSION_COOKIE = "zr_client_session"
 # tinha nenhum limite de tentativas nem bloqueio automático -- diferente do
 # login administrativo (auth_routes.limitar_login), permitia força bruta de
 # senha sem restrição contra contas de ClientePortal. Mesmo limite usado lá.
-_limitar_login_portal = RateLimiter(limite=10, janela_segundos=60, escopo="portal-login")
+_limitar_login_portal = RateLimiter(limite=10, janela_segundos=60, escopo="portal-login", sensivel=True)
 # Achado médio da Fase 9 (21/09/2026): recuperação de senha do portal não
 # tinha nenhum rate limit (diferente de app.api.auth_routes.limitar_recuperacao),
 # permitindo mail-bombing de um cliente-alvo em escala. Mesmo limite do admin.
-_limitar_recuperacao_portal = RateLimiter(limite=5, janela_segundos=300, escopo="portal-recuperacao")
+_limitar_recuperacao_portal = RateLimiter(limite=5, janela_segundos=300, escopo="portal-recuperacao", sensivel=True)
 # Achado médio da auditoria fina do Portal do Cliente (Fase 13.2,
 # 23/09/2026): mensagens e uploads eram as únicas mutações autenticadas
 # do portal sem nenhum limite de tentativas/frequência (diferente de
@@ -905,11 +906,11 @@ async def login_cliente(dados: ClienteLogin, request: Request, response: Respons
     bloqueado_por_conta = cliente is not None and cliente.bloqueado_ate and cliente.bloqueado_ate > agora
     elegivel = cliente is not None and cliente.ativo and not cliente.bloqueado_em and not bloqueado_por_conta
     if elegivel:
-        valido = verificar_senha(cliente.senha_hash, dados.senha)
+        valido = await fora_do_loop(verificar_senha, cliente.senha_hash, dados.senha)
     else:
         # Auditoria S06: conta inexistente, inativa ou bloqueada gasta o mesmo tempo de Argon2 de uma
         # senha errada, para o tempo de resposta não revelar se o e-mail é de um cliente.
-        consumir_tempo_hash()
+        await fora_do_loop(consumir_tempo_hash)
         valido = False
     if not valido:
         # Achado alto da Fase 9 (21/09/2026): faltava bloqueio da própria
@@ -1533,7 +1534,7 @@ async def enviar_material_marca_admin(
     tipo_real = validar_tipo_arquivo(arquivo.filename, conteudo, MATERIAIS_MARCA)
     await escanear_upload_ou_rejeitar(conteudo)
     try:
-        caminho = save_bytes(f"materiais-marca/{usuario.organizacao_id}/{lead_id}/{nome}", conteudo)
+        caminho = await fora_do_loop(save_bytes, f"materiais-marca/{usuario.organizacao_id}/{lead_id}/{nome}", conteudo)
     except StorageError as exc:
         raise erro_armazenamento(exc) from exc
     item = MaterialMarcaCliente(
@@ -2473,7 +2474,7 @@ async def enviar_arquivo_portal(
     tipo_real = validar_tipo_arquivo(arquivo.filename, conteudo, ARQUIVOS_PORTAL)
     await escanear_upload_ou_rejeitar(conteudo)
     try:
-        caminho = save_bytes(f"portal/{cliente.organizacao_id}/{cliente.id}/{nome}", conteudo)
+        caminho = await fora_do_loop(save_bytes, f"portal/{cliente.organizacao_id}/{cliente.id}/{nome}", conteudo)
     except StorageError as exc:
         raise erro_armazenamento(exc) from exc
     arquivo_hash = hashlib.sha256(conteudo).hexdigest()

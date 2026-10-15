@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.email_leads_config import config_email_leads, substituir_placeholders_organizacao
 from app.api.juridico import FUSO_BRASIL
-from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, exigir_qualquer_permissao, hash_ip
+from app.auth import AcaoAdminDep, UsuarioAutenticado, exigir_permissao, exigir_qualquer_permissao, fora_do_loop, hash_ip
 from app.cadencia_email import processar_descadastro_cadencia, registrar_abertura
 from app.captcha import exigir_captcha
 from app.crm import (
@@ -3017,7 +3017,7 @@ async def enviar_arquivo_documento_lead(
     await escanear_upload_ou_rejeitar(conteudo)
     nome = f"{secrets.token_hex(12)}-{Path(arquivo.filename or 'arquivo').name}"
     try:
-        caminho = save_bytes(f"documentos-lead/{usuario.organizacao_id}/{lead_id}/{tipo}/{nome}", conteudo)
+        caminho = await fora_do_loop(save_bytes, f"documentos-lead/{usuario.organizacao_id}/{lead_id}/{tipo}/{nome}", conteudo)
     except StorageError as exc:
         raise erro_armazenamento(exc) from exc
     novo_hash = hashlib.sha256(conteudo).hexdigest()

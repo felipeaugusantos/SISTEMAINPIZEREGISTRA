@@ -77,3 +77,32 @@ def test_email_interno_do_admin_pode_ser_mantido() -> None:
     alteracao = UsuarioUpdate(email="admin@zeregistra.local")
     assert cadastro.email == "admin@zeregistra.local"
     assert alteracao.email == "admin@zeregistra.local"
+
+
+async def test_fora_do_loop_executa_em_outra_thread_e_nao_bloqueia_o_loop() -> None:
+    import asyncio
+    import threading
+    import time
+
+    from app.auth import fora_do_loop
+
+    principal = threading.get_ident()
+
+    def lenta() -> int:
+        time.sleep(0.2)
+        return threading.get_ident()
+
+    batimentos = 0
+
+    async def pulso() -> None:
+        nonlocal batimentos
+        while True:
+            await asyncio.sleep(0.01)
+            batimentos += 1
+
+    tarefa = asyncio.create_task(pulso())
+    thread_da_funcao = await fora_do_loop(lenta)
+    tarefa.cancel()
+
+    assert thread_da_funcao != principal
+    assert batimentos >= 5  # o loop continuou respondendo enquanto a função lenta rodava

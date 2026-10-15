@@ -51,3 +51,32 @@ touch "$MARCA"
 rclone delete "${BACKUP_OFFSITE_REMOTE%/}/" --min-age "${RETENCAO_OFFSITE_DIAS}d" --include "inpi-*.dump.enc"
 find backups -name '.offsite-inpi-*' -type f -mtime "+${RETENCAO_OFFSITE_DIAS}" -delete
 echo "Enviado: $DESTINO"
+
+# Auditoria A13: restaurar so o banco recupera as referencias aos documentos, nao os arquivos. Envia
+# tambem um arquivo cifrado de data/uploads (backend local de armazenamento). Com STORAGE_BACKEND=s3 a
+# pasta fica vazia/ausente e o bucket deve ter versionamento/replicacao propria -- a etapa e pulada.
+UPLOADS_DIR="${UPLOADS_DIR:-data/uploads}"
+if [ -d "$UPLOADS_DIR" ] && [ -n "$(ls -A "$UPLOADS_DIR" 2>/dev/null)" ]; then
+    NOME_UPLOADS="uploads-$(date +%Y%m%d).tar.gz.enc"
+    MARCA_UPLOADS="backups/.offsite-$NOME_UPLOADS"
+    if [ -f "$MARCA_UPLOADS" ] && [ "${FORCAR:-}" != "1" ]; then
+        echo "$NOME_UPLOADS ja foi enviado -- pulando."
+    else
+        CIFRADO_UPLOADS="backups/$NOME_UPLOADS.part"
+        trap 'rm -f "$CIFRADO" "$CIFRADO_UPLOADS"' EXIT
+        tar -czf - -C "$(dirname "$UPLOADS_DIR")" "$(basename "$UPLOADS_DIR")" \
+            | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -out "$CIFRADO_UPLOADS" -pass "file:$BACKUP_PASSPHRASE_FILE"
+        # Confere que decifra e descompacta antes de enviar (lista o conteudo, sem extrair).
+        openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in "$CIFRADO_UPLOADS" -pass "file:$BACKUP_PASSPHRASE_FILE" \
+            | tar -tzf - >/dev/null \
+            || { echo "Falha na verificacao do arquivo de uploads -- nao enviado." >&2; exit 1; }
+        DESTINO_UPLOADS="${BACKUP_OFFSITE_REMOTE%/}/$NOME_UPLOADS"
+        rclone copyto "$CIFRADO_UPLOADS" "$DESTINO_UPLOADS" --checksum
+        touch "$MARCA_UPLOADS"
+        rclone delete "${BACKUP_OFFSITE_REMOTE%/}/" --min-age "${RETENCAO_OFFSITE_DIAS}d" --include "uploads-*.tar.gz.enc"
+        find backups -name '.offsite-uploads-*' -type f -mtime "+${RETENCAO_OFFSITE_DIAS}" -delete
+        echo "Enviado: $DESTINO_UPLOADS"
+    fi
+else
+    echo "Sem arquivos em $UPLOADS_DIR -- etapa de uploads pulada."
+fi

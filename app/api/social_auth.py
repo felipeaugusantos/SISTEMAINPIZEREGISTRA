@@ -43,8 +43,8 @@ router = APIRouter(prefix="/v1/auth/social", tags=["autenticacao-social"])
 limitar_oauth = RateLimiter(limite=20, janela_segundos=300, escopo="oauth")
 # Auditoria externa A02: a conclusão do MFA social não tinha limite próprio. Limite por IP e,
 # principalmente, por desafio: estourou, o desafio é queimado e a pessoa precisa refazer o login.
-limitar_mfa_social_ip = RateLimiter(limite=10, janela_segundos=300, escopo="oauth-mfa-ip")
-limitar_mfa_social_desafio = RateLimiter(limite=5, janela_segundos=600, escopo="oauth-mfa-desafio")
+limitar_mfa_social_ip = RateLimiter(limite=10, janela_segundos=300, escopo="oauth-mfa-ip", sensivel=True)
+limitar_mfa_social_desafio = RateLimiter(limite=5, janela_segundos=600, escopo="oauth-mfa-desafio", sensivel=True)
 MFA_COOKIE = "zr_oauth_mfa"
 OAUTH_BROWSER_COOKIE = "zr_oauth_browser"
 

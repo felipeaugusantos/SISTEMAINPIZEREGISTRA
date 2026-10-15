@@ -57,6 +57,23 @@ def test_tool_contar_leads_por_status_recusa_sem_permissao_leads() -> None:
     assert session.executados == []
 
 
+def test_tool_leads_recusa_quando_modulo_leads_nao_esta_no_plano() -> None:
+    """Auditoria A08 (15/10/2026): a permissão leads.view sozinha não basta; o módulo precisa estar no
+    plano, como em exigir_permissao. Recusa sem tocar o banco."""
+    import dataclasses
+
+    session = FakeSession([])
+    base = usuario_teste(perfil="comercial", permissoes=frozenset({"leads.view"}))
+    sem_modulo = dataclasses.replace(base, modulos_plano=frozenset({"consulta"}))
+
+    resultado = asyncio.run(_tool_contar_leads_por_status(session, sem_modulo, {}))
+
+    assert "erro" in resultado
+    assert session.executados == []
+    assert base.pode_no_plano("leads.view") is True
+    assert sem_modulo.pode_no_plano("leads.view") is False
+
+
 def test_tool_buscar_leads_recusa_sem_permissao_leads() -> None:
     session = FakeSession([])
     usuario = usuario_teste(perfil="financeiro", permissoes=frozenset({"finance.view"}))

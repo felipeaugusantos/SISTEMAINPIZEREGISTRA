@@ -72,6 +72,19 @@ def test_compose_da_api_nao_recebe_credencial_de_migracao() -> None:
     assert "MIGRATION_DATABASE_URL" not in trecho_api
 
 
+def test_compose_propaga_variaveis_de_webhook_e_storage() -> None:
+    # Auditoria A12: variável só no .env do host não chega ao container se o compose não a mapear.
+    from pathlib import Path
+
+    texto = (Path(__file__).resolve().parent.parent / "compose.yaml").read_text(encoding="utf-8")
+    api = texto.split("\n  api:\n", 1)[1].split("\n  worker:", 1)[0]
+    worker = texto.split("\n  worker:\n", 1)[1].X
+    for variavel in ("GATEWAY_WEBHOOK_SECRET", "STORAGE_BACKEND", "STORAGE_S3_BUCKET", "STORAGE_S3_SECRET_KEY"):
+        assert f"{variavel}:" in api
+    for variavel in ("STORAGE_BACKEND", "STORAGE_S3_BUCKET", "STORAGE_S3_SECRET_KEY"):
+        assert f"{variavel}:" in worker
+
+
 def test_autenticacao_de_integracao_rejeita_token_curto() -> None:
     with pytest.raises(ValidationError, match="INPI_INTEGRATION_TOKEN"):
         Settings(

@@ -867,7 +867,9 @@ async def _loop_fila_principal(redis) -> None:
     usuário: enriquecer_prospect, calcular_score etc)."""
     while True:
         await promover_retentativas(redis)
-        bruto = await redis.brpoplpush(QUEUE_KEY, PROCESSING_KEY, timeout=5)
+        # Auditoria A04: produtores usam RPUSH, então o consumo pela esquerda (BLMOVE) é FIFO; o par
+        # RPUSH + BRPOPLPUSH antigo era uma pilha e podia adiar tarefas antigas indefinidamente.
+        bruto = await redis.blmove(QUEUE_KEY, PROCESSING_KEY, 5, "LEFT", "LEFT")
         if not bruto:
             continue
         # Auditoria A05: o lease prova a outros workers que esta tarefa está viva; é renovado enquanto roda.

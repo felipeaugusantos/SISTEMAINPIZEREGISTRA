@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -483,6 +483,147 @@ async def exportar_prospects(
         iter((conteudo,)),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="prospects.csv"'},
+    )
+
+
+COLUNAS_XLSX = (
+    ("Razão social", 38),
+    ("Nome fantasia", 30),
+    ("CNPJ", 20),
+    ("CNAE", 12),
+    ("Atividade (CNAE)", 42),
+    ("Porte", 12),
+    ("Situação cadastral", 18),
+    ("Abertura", 12),
+    ("UF", 6),
+    ("Cidade", 22),
+    ("Telefone", 18),
+    ("E-mail", 30),
+    ("Site", 28),
+    ("Situação no radar", 18),
+    ("Score", 8),
+    ("Campanha", 10),
+    ("Cadastrado em", 18),
+)
+
+
+def _cnpj_formatado(valor: str | None) -> str:
+    digitos = _digitos(valor)
+    if len(digitos) != 14:
+        return valor or ""
+    return f"{digitos[:2]}.{digitos[2:5]}.{digitos[5:8]}/{digitos[8:12]}-{digitos[12:]}"
+
+
+def _celula_texto(planilha, linha: int, coluna: int, valor: object):
+    """Grava como TEXTO: sem isso o Excel trataria um valor que começa com '=', '+', '-' ou '@' como fórmula."""
+    celula = planilha.cell(row=linha, column=coluna, value="" if valor is None else str(valor))
+    celula.data_type = "s"
+    return celula
+
+
+def montar_planilha_prospects(prospects: list[Prospect]) -> bytes:
+    """Planilha Excel (.xlsx) com os dados das empresas: cabeçalho fixo, filtros e larguras legíveis."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    livro = Workbook()
+    planilha = livro.active
+    planilha.title = "Empresas"
+    for coluna, (titulo, largura) in enumerate(COLUNAS_XLSX, start=1):
+        celula = planilha.cell(row=1, column=coluna, value=titulo)
+        celula.font = Font(bold=True, color="FFFFFF")
+        celula.fill = PatternFill("solid", fgColor="1F6F54")
+        celula.alignment = Alignment(vertical="center", wrap_text=True)
+        planilha.column_dimensions[get_column_letter(coluna)].width = largura
+    planilha.freeze_panes = "A2"
+    for linha, prospect in enumerate(prospects, start=2):
+        textos = (
+            prospect.razao_social,
+            prospect.nome_fantasia,
+            _cnpj_formatado(prospect.cnpj),
+            prospect.cnae_principal,
+            descricao_cnae(prospect.cnae_principal),
+            prospect.porte,
+            prospect.situacao_cadastral,
+        )
+        for coluna, valor in enumerate(textos, start=1):
+            _celula_texto(planilha, linha, coluna, valor)
+        if prospect.data_abertura:
+            planilha.cell(row=linha, column=8, value=prospect.data_abertura).number_format = "DD/MM/YYYY"
+        for coluna, valor in enumerate(
+            (prospect.uf, prospect.cidade, prospect.telefone, prospect.email, prospect.site, prospect.status), start=9
+        ):
+            _celula_texto(planilha, linha, coluna, valor)
+        if prospect.score is not None:
+            planilha.cell(row=linha, column=15, value=float(prospect.score)).number_format = "0.0"
+        if prospect.campanha_id is not None:
+            planilha.cell(row=linha, column=16, value=prospect.campanha_id)
+        if prospect.criado_em is not None:
+            local = prospect.criado_em.astimezone(FUSO_BRASIL).replace(tzinfo=None)  # o Excel não aceita fuso
+            planilha.cell(row=linha, column=17, value=local).number_format = "DD/MM/YYYY HH:MM"
+    planilha.auto_filter.ref = f"A1:{get_column_letter(len(COLUNAS_XLSX))}{max(len(prospects) + 1, 2)}"
+    saida = io.BytesIO()
+    livro.save(saida)
+    return saida.getvalue()
+
+
+@router.get("/exportar.xlsx")
+async def exportar_prospects_excel(
+    request: Request,
+    session: SessionDep,
+    usuario: ProspeccaoExportDep,
+    busca: Annotated[str | None, Query(max_length=200)] = None,
+    status_prospect: Annotated[str | None, Query(alias="status")] = None,
+    uf: Annotated[list[str] | None, Query(max_length=2)] = None,
+    cidade: Annotated[list[str] | None, Query(max_length=120)] = None,
+    cnae_principal: Annotated[str | None, Query(max_length=10)] = None,
+    responsavel_id: Annotated[int | None, Query(ge=1)] = None,
+    campanha_id: Annotated[int | None, Query(ge=1)] = None,
+) -> Response:
+    """Exporta para Excel até 5.000 empresas visíveis à organização do usuário, com os mesmos filtros da tela."""
+    filtros = _filtros_prospects(
+        usuario, busca, status_prospect, uf, cidade, cnae_principal, responsavel_id, campanha_id
+    )
+    prospects = (
+        (
+            await session.execute(
+                select(Prospect)
+                .where(*filtros)
+                .order_by(Prospect.criado_em.desc(), Prospect.id.desc())
+                .limit(5000)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    conteudo = montar_planilha_prospects(list(prospects))
+    _auditar(
+        session,
+        request,
+        usuario,
+        "exportar_prospects",
+        "prospects:xlsx",
+        {
+            "quantidade": len(prospects),
+            "limite": 5000,
+            "filtros": {
+                "busca": busca,
+                "status": status_prospect,
+                "uf": uf or [],
+                "cidade": cidade or [],
+                "cnae_principal": cnae_principal,
+                "responsavel_id": responsavel_id,
+                "campanha_id": campanha_id,
+            },
+        },
+    )
+    await session.commit()
+    nome = f"empresas-prospeccao-{datetime.now(UTC).astimezone(FUSO_BRASIL):%Y-%m-%d}.xlsx"
+    return Response(
+        content=conteudo,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"', "Cache-Control": "no-store"},
     )
 
 

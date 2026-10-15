@@ -219,7 +219,7 @@ PERFIS = {
 # sensiveis (financeiro, producao, usuarios) passam a exigir MFA ativo.
 # Contas com superadmin=True tambem exigem, independente do perfil (ver
 # app/auth.py::obter_usuario_atual).
-PERFIS_MFA_OBRIGATORIO = frozenset({"administrador", "ceo", "tech", "supervisor", "financeiro"})
+PERFIS_MFA_OBRIGATORIO = frozenset({"administrador", "ceo", "tech", "supervisor", "financeiro", "comercial"})
 
 
 def permissoes_do_perfil(perfil: str) -> frozenset[str]:

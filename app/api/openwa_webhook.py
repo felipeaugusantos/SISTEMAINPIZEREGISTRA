@@ -45,7 +45,8 @@ async def webhook_openwa(
         raise HTTPException(status_code=400, detail="Payload inválido")
     dados = carga.get("data")
     organizacao_id = settings.default_organization_id
-    await aplicar_contexto_tenant(session, organizacao_id)
+    # Contexto de plataforma: recibos e pedidos de saída podem pertencer a qualquer organização (o gateway é um só).
+    await aplicar_contexto_tenant(session, organizacao_id, superadmin=True)
     acao = await processar_evento_gateway(
         session,
         organizacao_id=organizacao_id,

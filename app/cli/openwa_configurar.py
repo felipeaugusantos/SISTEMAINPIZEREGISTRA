@@ -1,6 +1,6 @@
 """Prepara o gateway OpenWA: cria as duas sessões (vigilância e prospecção) e registra os webhooks.
 
-Idempotente: o que já existe é mantido. Não liga o envio (``WHATSAPP_ENABLED``) nem lê o QR code: o QR é
+Idempotente: o que já existe é mantido (os webhooks existentes são atualizados com o segredo e os eventos atuais). Não liga o envio (``WHATSAPP_ENABLED``) nem lê o QR code: o QR é
 escaneado no painel do gateway, por túnel SSH (ver docs/whatsapp-openwa-runbook.md).
 
 Uso, na VPS, a partir de /opt/zeregistra:
@@ -43,19 +43,22 @@ async def configurar(
             relato.append(f"Sessão '{nome}' iniciada: escaneie o QR code no painel do gateway.")
         listados = await cliente.get(f"/api/sessions/{sessao['id']}/webhooks")
         listados.raise_for_status()
-        if any(item.get("url") == url_webhook for item in listados.json()):
-            relato.append(f"Webhook da sessão '{nome}' já registrado.")
+        desejado = {
+            "url": url_webhook,
+            "events": EVENTOS,
+            "secret": segredo,
+            "headers": {"X-Zr-Sessao": logico},
+            "retryCount": 3,
+        }
+        existente = next((item for item in listados.json() if item.get("url") == url_webhook), None)
+        if existente is not None:
+            # O gateway nunca devolve o segredo, então não dá para comparar: atualiza sempre. Assim a troca do
+            # OPENWA_WEBHOOK_SECRET (ou dos eventos) chega ao gateway sem recriar o webhook à mão.
+            atualizado = await cliente.put(f"/api/sessions/{sessao['id']}/webhooks/{existente['id']}", json=desejado)
+            atualizado.raise_for_status()
+            relato.append(f"Webhook da sessão '{nome}' atualizado.")
             continue
-        criado = await cliente.post(
-            f"/api/sessions/{sessao['id']}/webhooks",
-            json={
-                "url": url_webhook,
-                "events": EVENTOS,
-                "secret": segredo,
-                "headers": {"X-Zr-Sessao": logico},
-                "retryCount": 3,
-            },
-        )
+        criado = await cliente.post(f"/api/sessions/{sessao['id']}/webhooks", json=desejado)
         criado.raise_for_status()
         relato.append(f"Webhook da sessão '{nome}' registrado.")
     return relato

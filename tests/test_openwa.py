@@ -16,8 +16,8 @@ import app.openwa as openwa
 from app.cli.openwa_configurar import EVENTOS, configurar
 from app.database import get_session
 from app.main import app
-from app.mensageria import ErroEnvioPermanente
-from app.models import AlertaSistema, ConsentimentoCanal, MensagemSaida
+from app.mensageria import ErroEnvioIncerto, ErroEnvioPermanente
+from app.models import AlertaSistema, ConsentimentoCanal, MensagemSaida, PausaCanal
 from tests.conftest import FakeResult, FakeSession
 
 # Integração com o gateway OpenWA: cliente de envio, assinatura e receptor de webhook, comando de configuração
@@ -266,14 +266,41 @@ def test_recibo_de_mensagem_desconhecida_ou_estado_intermediario_e_ignorado() ->
     assert _evento(FakeSession([]), "message.ack", {"messageId": "m-1", "status": "sent"}) == "ignorado"
 
 
-def test_restricao_do_numero_alerta_e_segura_as_pendentes_da_sessao() -> None:
+def test_restricao_do_numero_alerta_e_grava_pausa_persistida_da_sessao() -> None:
     sessao = FakeSession([])
     assert _evento(sessao, "session.restriction", {"active": True, "kind": "send", "code": "X"}, "prospeccao") == "alerta"
     alerta = next(o for o in sessao.adicionados if isinstance(o, AlertaSistema))
     assert alerta.severidade == "critico" and alerta.codigo == "WHATSAPP_RESTRICAO"
-    segurar = [c for c in sessao.executados if "UPDATE mensagens_saida" in str(c)]
-    assert len(segurar) == 1
-    assert AGORA + mensageria.PAUSA_POR_RESTRICAO in segurar[0].compile().params.values()
+    pausa = next(o for o in sessao.adicionados if isinstance(o, PausaCanal))
+    # Pausa guardada no banco: vale também para o que for enfileirado depois do aviso (revisão do Codex, PR #203).
+    assert (pausa.sessao, pausa.organizacao_id) == ("prospeccao", 1)
+    assert pausa.ate == AGORA + mensageria.PAUSA_POR_RESTRICAO
+
+
+def test_fim_da_restricao_encerra_a_pausa() -> None:
+    existente = PausaCanal(organizacao_id=1, sessao="prospeccao", ate=AGORA + timedelta(hours=20))
+    sessao = FakeSession([FakeResult(), FakeResult(scalar=existente)])  # 1º select: contagem do alerta
+    _evento(sessao, "session.restriction", {"active": False}, "prospeccao")
+    assert existente.ate == AGORA
+
+
+def test_sessao_pausada_nao_envia_e_a_mensagem_e_empurrada() -> None:
+    from tests import test_mensageria as base
+
+    mensagem = base._mensagem()
+    pausa = PausaCanal(organizacao_id=1, sessao="vigilancia", ate=base.QUARTA_MEIO_DIA + timedelta(hours=5))
+    sessao = FakeSession([FakeResult(), FakeResult(itens=[pausa]), FakeResult(itens=[mensagem]), FakeResult(scalar=base._consentimento())])
+    provedor = base._Provedor()
+    assert base._processar(sessao, provedor)["enviadas"] == 0
+    assert provedor.chamadas == [] and mensagem.agendada_para == base.QUARTA_MEIO_DIA + timedelta(minutes=10)
+
+
+def test_pedido_de_saida_vale_para_toda_organizacao_que_ja_falou_com_o_telefone() -> None:
+    sessao = FakeSession([FakeResult(itens=[2]), FakeResult(itens=[3])])  # orgs com consentimento e com mensagens
+    dados = {"from": f"{TELEFONE}@c.us", "body": "SAIR", "isGroup": False, "fromMe": False}
+    assert _evento(sessao, "message.received", dados) == "saida"
+    organizacoes = {o.organizacao_id for o in sessao.adicionados if isinstance(o, ConsentimentoCanal)}
+    assert organizacoes == {1, 2, 3}  # a padrão sempre entra
 
 
 def test_alerta_repetido_em_poucos_minutos_nao_e_duplicado() -> None:
@@ -388,15 +415,19 @@ def test_configurar_cria_sessoes_inicia_e_registra_webhooks_com_o_cabecalho_da_s
     assert [c[2]["headers"] for c in webhooks] == [{"X-Zr-Sessao": "vigilancia"}, {"X-Zr-Sessao": "prospeccao"}]
 
 
-def test_configurar_e_idempotente() -> None:
+def test_configurar_atualiza_os_webhooks_existentes_para_acompanhar_a_troca_do_segredo() -> None:
     existentes = [
         {"id": "a", "name": "vigilancia", "status": "ready"},
         {"id": "b", "name": "prospeccao", "status": "ready"},
     ]
-    cliente, registro = _gateway_de_configuracao(existentes, [{"url": "http://api:8000/v1/webhooks/openwa"}])
+    webhooks = [{"id": "w1", "url": "http://api:8000/v1/webhooks/openwa"}]
+    cliente, registro = _gateway_de_configuracao(existentes, webhooks)
     relato = asyncio.run(configurar(cliente, {"vigilancia": "vigilancia", "prospeccao": "prospeccao"}, SEGREDO))
     assert not [c for c in registro if c[0] == "POST"]
-    assert all("já" in linha for linha in relato)
+    atualizacoes = [c for c in registro if c[0] == "PUT"]
+    assert [c[1] for c in atualizacoes] == ["/api/sessions/a/webhooks/w1", "/api/sessions/b/webhooks/w1"]
+    assert all(c[2]["secret"] == SEGREDO for c in atualizacoes)
+    assert all("atualizado" in linha for linha in relato if "Webhook" in linha)
 
 
 def test_eventos_do_webhook_cobrem_o_que_o_painel_trata() -> None:
@@ -420,3 +451,45 @@ def test_composicao_do_gateway_e_restrita_e_separada_do_deploy() -> None:
     assert "\n  openwa:" not in (RAIZ / "compose.yaml").read_text(encoding="utf-8")
     assert "compose.openwa" not in (RAIZ / "docker" / "deploy.sh").read_text(encoding="utf-8")
     assert "compose.openwa" not in (RAIZ / "docker" / "rollback.sh").read_text(encoding="utf-8")
+
+
+# --- resultado incerto: sem idempotência garantida no gateway v0.24.0, não se reenvia ---
+
+
+def _provedor_com_falha_de_transporte(erro: Exception) -> openwa.ProvedorOpenWA:
+    def tratar(requisicao: httpx.Request) -> httpx.Response:
+        if requisicao.url.path == "/api/sessions":
+            return SESSOES
+        raise erro
+
+    return openwa.ProvedorOpenWA("http://openwa:2785", "k", {"vigilancia": "vigilancia"}, transport=httpx.MockTransport(tratar))
+
+
+@pytest.mark.parametrize("erro", [httpx.ReadTimeout("sem resposta"), httpx.RemoteProtocolError("conexão encerrada")])
+def test_resposta_perdida_depois_do_pedido_vira_envio_incerto(erro: Exception) -> None:
+    with pytest.raises(ErroEnvioIncerto):
+        _enviar(_provedor_com_falha_de_transporte(erro))
+
+
+def test_gateway_inacessivel_antes_de_enviar_pode_ser_repetido() -> None:
+    with pytest.raises(RuntimeError) as capturado:
+        _enviar(_provedor_com_falha_de_transporte(httpx.ConnectError("recusou a conexão")))
+    assert not isinstance(capturado.value, (ErroEnvioIncerto, ErroEnvioPermanente))
+
+
+@pytest.mark.parametrize("status", [500, 502, 504])
+def test_erro_generico_do_gateway_pode_ter_enviado_e_vai_para_conferencia(status: int) -> None:
+    provedor = _provedor({("GET", "/api/sessions"): SESSOES, ENVIO: httpx.Response(status, json={"message": "erro"})}, [])
+    with pytest.raises(ErroEnvioIncerto):
+        _enviar(provedor)
+
+
+def test_envio_incerto_fica_para_conferencia_humana_sem_nova_tentativa(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests import test_mensageria as base
+
+    mensagem = base._mensagem()
+    sessao = base._fila(
+        FakeResult(itens=[mensagem]), FakeResult(scalar=base._consentimento()), FakeResult(scalar=0), base._reserva()
+    )
+    base._processar(sessao, base._Provedor(erro=ErroEnvioIncerto("sem resposta")))
+    assert mensagem.status == "incerta" and mensagem.tentativas == 1

@@ -248,8 +248,8 @@ def test_enfileirar_recusa_dados_invalidos(extras) -> None:
 
 
 def _fila(*resultados: FakeResult) -> FakeSession:
-    """Sessão de teste: a 1ª consulta do job é a marcação de envios interrompidos (sem resultado útil)."""
-    return FakeSession([FakeResult(), *resultados])
+    """Sessão de teste: o job começa marcando envios interrompidos e lendo as pausas vigentes (vazias)."""
+    return FakeSession([FakeResult(), FakeResult(itens=[]), *resultados])
 
 
 def _reserva() -> FakeResult:

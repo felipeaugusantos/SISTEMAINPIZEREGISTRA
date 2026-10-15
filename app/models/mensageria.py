@@ -81,3 +81,17 @@ class MensagemSaida(Base):
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class PausaCanal(Base):
+    """Pausa de envio de uma sessão do WhatsApp (ex.: restrição do número). Vale até ``ate``."""
+
+    __tablename__ = "pausas_canal"
+    __table_args__ = (UniqueConstraint("organizacao_id", "sessao", name="uq_pausa_canal_sessao"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    sessao: Mapped[str] = mapped_column(String(20))  # vigilancia | prospeccao
+    ate: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    motivo: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

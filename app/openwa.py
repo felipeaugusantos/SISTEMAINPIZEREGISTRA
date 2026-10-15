@@ -1,8 +1,9 @@
 """Cliente do gateway OpenWA (https://github.com/rmyndharis/OpenWA) para o WhatsApp.
 
 Só fala com o gateway que roda na rede interna do projeto (``OPENWA_BASE_URL``); nunca com a internet. Envia
-texto por ``POST /api/sessions/{id}/messages/send-text`` com ``Idempotency-Key`` (o gateway devolve o mesmo
-resultado se a chave se repetir) e confere a assinatura HMAC dos webhooks.
+texto por ``POST /api/sessions/{id}/messages/send-text`` com ``Idempotency-Key`` (versões do gateway acima da 0.24.0 devolvem o mesmo
+resultado se a chave se repetir; na 0.24.0 ela é ignorada, por isso resposta perdida vira "incerta", sem reenvio) e
+confere a assinatura HMAC dos webhooks.
 """
 
 import hashlib
@@ -11,13 +12,15 @@ import logging
 
 import httpx
 
-from app.mensageria import ErroEnvioPermanente
+from app.mensageria import ErroEnvioIncerto, ErroEnvioPermanente
 from app.settings import get_settings
 
 logger = logging.getLogger("ze_registra.openwa")
 
 # 4xx que não adiantam repetir: número inexistente no WhatsApp, chave sem permissão, corpo inválido.
 STATUS_PERMANENTES = frozenset({400, 401, 403, 404, 422})
+# 5xx genéricos: o gateway pode ter enviado antes de falhar; sem idempotência garantida, vai para conferência.
+STATUS_INCERTOS = frozenset({500, 502, 504})
 
 
 class ProvedorOpenWA:
@@ -60,11 +63,18 @@ class ProvedorOpenWA:
         async with self._cliente() as cliente:
             for tentativa in (0, 1):
                 id_sessao = await self._id_da_sessao(cliente, nome, renovar=tentativa == 1)
-                resposta = await cliente.post(
-                    f"/api/sessions/{id_sessao}/messages/send-text",
-                    json={"chatId": f"{telefone}@c.us", "text": texto},
-                    headers={"Idempotency-Key": chave_idempotencia},
-                )
+                try:
+                    resposta = await cliente.post(
+                        f"/api/sessions/{id_sessao}/messages/send-text",
+                        json={"chatId": f"{telefone}@c.us", "text": texto},
+                        headers={"Idempotency-Key": chave_idempotencia},
+                    )
+                except (httpx.ConnectError, httpx.ConnectTimeout) as erro:
+                    raise RuntimeError(f"Gateway inacessível: {erro}") from erro  # nada foi enviado: pode repetir
+                except httpx.TransportError as erro:
+                    # O pedido pode ter chegado e a resposta se perdeu: o gateway v0.24.0 ainda não garante a
+                    # idempotência do envio, então repetir poderia duplicar a mensagem para o titular.
+                    raise ErroEnvioIncerto(f"Sem resposta do gateway ({type(erro).__name__})") from erro
                 if resposta.status_code == 404 and tentativa == 0:
                     self._ids.pop(nome, None)  # sessão recriada no gateway: o id mudou
                     continue
@@ -74,7 +84,9 @@ class ProvedorOpenWA:
         detalhe = _detalhe(resposta)
         if resposta.status_code in STATUS_PERMANENTES:
             raise ErroEnvioPermanente(f"Gateway recusou ({resposta.status_code}): {detalhe}")
-        # 409 (sessão sem conexão), 5xx e demais: temporário, a fila tenta de novo.
+        if resposta.status_code in STATUS_INCERTOS:
+            raise ErroEnvioIncerto(f"Gateway respondeu {resposta.status_code}: {detalhe}")
+        # 409 (sessão sem conexão) e 503 (a busca do destinatário falhou antes de enviar): nada saiu, a fila repete.
         raise RuntimeError(f"Gateway indisponível ({resposta.status_code}): {detalhe}")
 
 

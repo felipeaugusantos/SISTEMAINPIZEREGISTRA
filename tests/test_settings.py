@@ -78,7 +78,8 @@ def test_compose_propaga_variaveis_de_webhook_e_storage() -> None:
 
     texto = (Path(__file__).resolve().parent.parent / "compose.yaml").read_text(encoding="utf-8")
     api = texto.split("\n  api:\n", 1)[1].split("\n  worker:", 1)[0]
-    worker = texto.split("\n  worker:\n", 1)[1].X
+    worker = texto.split("\n  worker:\n", 1)[1].split("
+  db-test:", 1)[0]
     for variavel in ("GATEWAY_WEBHOOK_SECRET", "STORAGE_BACKEND", "STORAGE_S3_BUCKET", "STORAGE_S3_SECRET_KEY"):
         assert f"{variavel}:" in api
     for variavel in ("STORAGE_BACKEND", "STORAGE_S3_BUCKET", "STORAGE_S3_SECRET_KEY"):

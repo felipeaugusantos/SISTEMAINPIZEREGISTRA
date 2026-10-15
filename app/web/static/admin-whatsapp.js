@@ -4,7 +4,7 @@ const esc = value => String(value ?? "—").replace(/[&<>"']/g, c => ({ "&": "&a
 const FINALIDADES = { vigilancia: "Vigilância", andamento: "Andamento", prospeccao: "Prospecção" };
 const SITUACOES = {
   concedido: ["Concedido", "ok"], revogado: ["Revogado", "erro"],
-  pendente: ["Pendente", "alerta"], enviando: ["Enviando", "alerta"], enviada: ["Enviada", "ok"],
+  pendente: ["Pendente", "alerta"], enviando: ["Enviando", "alerta"], enviada: ["Enviada", "ok"], entregue: ["Entregue", "ok"], lida: ["Lida", "ok"],
   incerta: ["Incerta (conferir)", "alerta"], falhou: ["Falhou", "erro"], bloqueada: ["Bloqueada", "erro"], cancelada: ["Cancelada", ""],
 };
 const MOTIVOS = {
@@ -16,6 +16,12 @@ function dataCurta(valor) {
   if (!valor) return "—";
   const data = new Date(valor);
   return Number.isNaN(data.getTime()) ? "—" : data.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+}
+function situacaoDaMensagem(m) {
+  // "Entregue" e "Lida" vêm dos recibos do WhatsApp; sem recibo, a mensagem aparece só como "Enviada".
+  if (m.status === "enviada" && m.lida_em) return "lida";
+  if (m.status === "enviada" && m.entregue_em) return "entregue";
+  return m.status;
 }
 function selo(situacao) {
   const [rotulo, classe] = SITUACOES[situacao] || [situacao, ""];
@@ -76,7 +82,7 @@ async function carregarFila() {
     <tr>
       <td>${esc(FINALIDADES[m.finalidade] || m.finalidade)}</td>
       <td>${esc(m.telefone)}</td>
-      <td>${selo(m.status)}</td>
+      <td>${selo(situacaoDaMensagem(m))}</td>
       <td>${esc(MOTIVOS[m.motivo_bloqueio] || m.ultimo_erro || m.motivo_bloqueio)}</td>
       <td>${esc(m.tentativas)}</td>
       <td>${dataCurta(m.agendada_para)}</td>

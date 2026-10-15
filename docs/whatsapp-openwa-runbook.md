@@ -15,7 +15,8 @@ Nunca use o número principal do escritório nem misture os dois usos num númer
 
 1. Dois chips novos. Use o WhatsApp Business no celular (nome da empresa, foto e descrição).
 2. **Aquecimento de 2 a 3 semanas**: use cada número normalmente, só com conversas reais, antes de ligar qualquer
-   automação. Número novo que dispara mensagens no primeiro dia costuma ser banido.
+   automação. Número novo que dispara mensagens no primeiro dia costuma ser banido. O passo a passo, dia a dia,
+   com metas e critérios para avançar, está em [`whatsapp-calendario-aquecimento.md`](whatsapp-calendario-aquecimento.md).
 3. Vigilância e andamento só saem para telefones com consentimento registrado (tela
    *Configuração → WhatsApp e consentimentos*). Na prospecção, quem pediu para sair nunca volta por decisão interna.
 

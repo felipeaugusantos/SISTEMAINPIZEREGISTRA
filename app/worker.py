@@ -788,6 +788,15 @@ async def processar(tipo: str, payload: dict) -> None:
             from app.prospeccao_cache_rfb import disparar_importacao_de_arquivos_enviados
 
             await disparar_importacao_de_arquivos_enviados(session)
+        elif tipo == "prospeccao.reconciliar_campanhas":
+            # Auditoria A06: campanha "ativa" sem job (processo morreu entre gravar o status e enfileirar).
+            from app.prospeccao_reconciliacao import reconciliar_campanhas_ativas
+
+            redis_reconciliacao = cliente_redis()
+            try:
+                await reconciliar_campanhas_ativas(session, redis_reconciliacao)
+            finally:
+                await redis_reconciliacao.aclose()
         elif tipo == "plataforma.verificar_saude":
             # Achado FASE6-9 da auditoria (04/09/2026): fila de falhas, RPI
             # desatualizada e latência/erro de API viravam número num painel,
@@ -837,6 +846,7 @@ TAREFAS_MANUTENCAO_HORARIA: tuple[str, ...] = (
     "vigilancia.executar_semanal",
     "plataforma.verificar_saude",
     "prospeccao.importar_cache_enviado",
+    "prospeccao.reconciliar_campanhas",
     "atualizacoes.lembrar_pendentes",
     "feature_flags.avaliar_circuito",
 )

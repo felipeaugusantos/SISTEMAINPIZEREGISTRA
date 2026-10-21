@@ -22,6 +22,9 @@
 /* max-height evita que uma logo retrato/quadrada (ex.: avatar enviado por um
    escritório) fique gigante; o logotipo horizontal continua limitado pela largura. */
 .portal-brand-panel img { width:min(260px,82%); height:auto; max-height:120px; object-fit:contain; margin-bottom:48px; }
+/* A logo tem o texto "Zé Registra" em preto: sobre o painel verde-escuro o texto
+   sumia e só o mascote + ® ficavam visíveis. Cartão claro garante contraste. */
+.portal-brand-panel > img { align-self:flex-start; box-sizing:border-box; padding:12px 18px; border:1px solid rgba(255,255,255,.7); border-radius:15px; background:rgba(255,255,252,.96); }
 /* Achado do usuário (17/09/2026): a logo aqui reaproveita tenant-branding.js
    (mesma logo cadastrada no painel interno), que aplica a classe
    .brand-avatar compartilhada -- essa classe tem estilo de avatar circular

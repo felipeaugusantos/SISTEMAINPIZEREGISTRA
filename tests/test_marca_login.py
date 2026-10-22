@@ -18,7 +18,8 @@ def test_telas_de_autenticacao_carregam_o_script_que_aplica_a_marca() -> None:
     assert "/v1/tenant/branding.css" in script
     for tela in TELAS:
         html = (WEB / f"{tela}.html").read_text(encoding="utf-8")
-        assert "/static/auth-pages.js?v=6" in html, tela
+        versao = 7 if tela == "login" else 6
+        assert f"/static/auth-pages.js?v={versao}" in html, tela
 
 
 def test_css_da_marca_libera_a_logo_propria_nas_telas_de_autenticacao() -> None:

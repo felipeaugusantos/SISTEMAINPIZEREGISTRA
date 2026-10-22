@@ -1,0 +1,17 @@
+/* Logo oficial do login. O painel continua verde nos dois temas (.dark).
+   As marcas de escritórios mantêm o tratamento de portal-cliente.css. */
+.ops-login-shell .portal-brand-panel > img.ops-login-logo[src^="/static/assets/ze-registra-logo-tema-escuro."] {
+  display: block;
+  align-self: flex-start;
+  width: min(100%, 340px);
+  height: auto;
+  max-height: none;
+  margin: 0 0 clamp(28px, 4vw, 48px);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  object-fit: contain;
+  filter: none;
+  flex: none;
+}

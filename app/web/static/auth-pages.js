@@ -34,7 +34,12 @@ async function aplicarMarcaDoDominio() {
   } catch { return; }
   if (!marca?.propria) return;
   document.querySelectorAll(".auth-brand strong").forEach(el => { el.textContent = marca.nome; });
-  const imagens = [...document.querySelectorAll(".auth-brand img, .portal-brand-panel > img")];
+  // No domínio da plataforma, o login mantém a logo oficial horizontal.
+  // A marca cadastrada pode ser apenas um avatar. Outros domínios conservam
+  // a personalização existente, assim como as demais telas de autenticação.
+  const imagens = [...document.querySelectorAll(".auth-brand img, .portal-brand-panel > img")]
+    .filter(img => !(location.hostname === "app.zeregistra.com.br"
+      && img.classList.contains("ops-login-logo")));
   imagens.forEach(img => {
     const padrao = img.getAttribute("src");
     img.alt = marca.nome;

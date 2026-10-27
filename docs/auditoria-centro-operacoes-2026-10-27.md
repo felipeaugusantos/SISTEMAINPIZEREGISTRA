@@ -2,7 +2,7 @@
 
 Data: 27/10/2026. Repositório: [SISTEMAINPIZEREGISTRA](https://github.com/felipeaugusantos/SISTEMAINPIZEREGISTRA). Revisão base: `1a3845081265550d6a4530d5ed2af43810ecc097`.
 
-Foram implementadas correções em Leads: Pesquisas e Análises e no Radar de Prospecção. A validação local terminou com 340 testes de backend e 25 testes de frontend aprovados. O código está preparado para revisão. A operação com serviços externos e dados reais ainda precisa de homologação.
+Foram implementadas correções em Leads: Pesquisas e Análises e no Radar de Prospecção. A validação local terminou com 400 testes de backend e 25 testes de frontend aprovados. O código está preparado para revisão. A operação com serviços externos e dados reais ainda precisa de homologação.
 
 ## Correções implementadas
 
@@ -26,7 +26,7 @@ O filtro de risco seleciona contatos com uma pesquisa no nível escolhido. O his
 
 | Verificação | Resultado |
 | --- | --- |
-| Backend: Leads, Radar, triagem, cache RFB, reconciliação, score, rotas web e exclusão de pesquisas | 340 aprovados. Inclui três testes novos que executam SQL para verificar combinação de risco e atividade, arquivamento, isolamento entre organizações e escape de curingas. |
+| Backend: Leads, Radar, triagem, cache RFB, reconciliação, score, rotas web, exclusão de pesquisas, autenticação e verificação de sites | 400 aprovados. Inclui três testes novos que executam SQL para verificar combinação de risco e atividade, arquivamento, isolamento entre organizações e escape de curingas. |
 | Frontend completo | 25 aprovados. Inclui oito testes novos para paginação, retorno da análise, concorrência de buscas, permissões, cliques repetidos, filtros combinados e revisão visual. As suítes existentes de diálogo de Leads/CRM, logos, observabilidade e Carteira também passaram. |
 | Qualidade de código | `ruff check app tests migrations --ignore E501` aprovado. |
 | Compilação e sintaxe | `compileall -q app` e `node --check` dos três arquivos JavaScript alterados aprovados. |
@@ -51,3 +51,11 @@ Para homologar, recomenda-se usar uma organização de teste e seguir estes pass
 4. Conferir a marca própria da organização e o layout em computadores e celulares utilizados pela equipe.
 
 As capturas e os logs desta entrega registram a validação local. A homologação descrita acima permanece necessária antes de afirmar que todos os fluxos estão validados em produção.
+
+## Complemento após a primeira execução da CI
+
+A [primeira execução da CI](https://github.com/felipeaugusantos/SISTEMAINPIZEREGISTRA/actions/runs/40532590492) parou na auditoria de dependências antes de executar os testes. O bloqueio foi causado pelo Authlib 1.7.2 já presente no lockfile (CVE-2026-96760). A repetição local da auditoria também identificou o dnspython 2.8.0 (CVE-2026-114605).
+
+O Authlib foi atualizado para 1.9.1 e o dnspython para 2.9.0. O arquivo de requisitos passou a exigir, respectivamente, versões mínimas 1.9.0 e 2.9.0. O lockfile mudou apenas nessas duas bibliotecas e nos respectivos requisitos. As [notas oficiais do Authlib 1.9.0](https://github.com/authlib/authlib/releases/tag/v1.9.0) e do [dnspython 2.9.0](https://github.com/rthalley/dnspython/releases/tag/v2.9.0) descrevem as correções. Não houve mudança no código ou na configuração de autenticação.
+
+Após essas atualizações, a auditoria do conjunto fixado de dependências terminou sem vulnerabilidades conhecidas. A suíte local ampliada terminou com 400 testes aprovados e um ignorado por indisponibilidade de PostgreSQL real, além do aviso de depreciação já mencionado. Os 25 testes de frontend aprovados continuam válidos, pois nenhum arquivo de interface foi alterado neste complemento. O resultado da nova CI deve ser consultado no [PR #221](https://github.com/felipeaugusantos/SISTEMAINPIZEREGISTRA/pull/221).

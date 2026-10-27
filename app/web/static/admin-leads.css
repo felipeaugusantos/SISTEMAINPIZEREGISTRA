@@ -979,6 +979,17 @@
 }
 .deletion-bulk-bar[hidden] { display: none; }
 .deletion-bulk-bar label { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+.deletion-bulk-bar input[type="checkbox"],
+.deletion-pick input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  flex: 0 0 18px;
+  accent-color: #1f6b4a;
+  cursor: pointer;
+}
 .deletion-bulk-bar button { margin-left: 0; }
 .deletion-bulk-bar #deletion-selected-count { color: #68776f; margin-right: auto; }
 .deletion-pick { display: inline-flex; align-items: center; margin-right: 8px; }

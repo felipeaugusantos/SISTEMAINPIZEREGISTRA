@@ -1131,7 +1131,7 @@ def test_admin_leads_oculta_notas_e_tags_sem_permissao_pii() -> None:
     script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
                        for name in ("admin-leads.js", "lead-dialog.js"))
 
-    assert "admin-leads.js?v=78" in page
+    assert "admin-leads.js?v=79" in page
     assert '${state.canPii ? `<label><span>Tags' in script
     assert '${state.canPii ? `<label class="lead-notes">' in script
     assert "if (state.canPii) {" in script

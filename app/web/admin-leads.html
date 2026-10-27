@@ -11,8 +11,8 @@
     <link rel="stylesheet" href="/static/admin-leads.css?v=13" />
     <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=13 -->
     <script src="/static/admin-shell.js?v=56" defer></script>
-    <script src="/static/lead-dialog.js?v=10" defer></script>
-    <script src="/static/admin-leads.js?v=78" defer></script>
+    <script src="/static/lead-dialog.js?v=11" defer></script>
+    <script src="/static/admin-leads.js?v=79" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
     <header class="topbar">
@@ -118,7 +118,7 @@
           <span id="deletion-request-count">0 pendentes</span>
         </header>
         <div id="deletion-request-bulk" class="deletion-bulk-bar" hidden>
-          <label><input id="deletion-select-all" type="checkbox"> Selecionar todas</label>
+          <label><input id="deletion-select-all" type="checkbox"> <span id="deletion-select-all-label">Selecionar todas</span></label>
           <span id="deletion-selected-count">0 selecionadas</span>
           <button id="deletion-bulk-reject" class="secondary-button" type="button" disabled>Rejeitar selecionadas</button>
           <button id="deletion-bulk-approve" class="danger-button" type="button" disabled>Aprovar e excluir selecionadas</button>

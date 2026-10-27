@@ -180,6 +180,10 @@ def _cabecalhos_seguranca(response: Response, request: Request) -> None:
         # Auditoria S07: dados e documentos do cliente não podem ficar em cache compartilhado ou do
         # navegador. setdefault: um endpoint que escolhe o próprio cache privado (ex.: logo) mantém a escolha.
         response.headers.setdefault("Cache-Control", "private, no-store")
+    elif caminho.startswith("/static/") and caminho.endswith((".js", ".css")):
+        # O navegador revalida (ETag/Last-Modified do StaticFiles, resposta 304 barata) a cada uso, então
+        # uma tela nunca mistura scripts novos com versões antigas em cache se o "?v=" não for incrementado.
+        response.headers.setdefault("Cache-Control", "no-cache")
 
 
 async def observar_requisicao(request: Request, call_next: CallNext) -> Response:

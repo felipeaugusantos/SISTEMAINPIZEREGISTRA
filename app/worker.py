@@ -50,6 +50,7 @@ from app.queueing import (
     QUEUE_KEY,
     cliente_redis,
     enfileirar,
+    liberar_idempotencia,
     liberar_lease,
     mover_processando_para_falha,
     mover_processando_para_retry,
@@ -933,6 +934,25 @@ async def _loop_fila_principal(redis) -> None:
                         ensure_ascii=False,
                     )
                 )
+            elif resultado == 1 and job["tentativas"] >= MAX_ATTEMPTS and job.get("idempotency_key"):
+                # Falha definitiva (o job EFETIVAMENTE foi para a dead-letter --
+                # resultado 1; com 0 outro worker assumiu e a reserva segue
+                # válida). Sem isso a reserva de idempotência bloqueava novos
+                # disparos do usuário pelo TTL inteiro (24h) devolvendo
+                # "duplicado" sem executar nada (achado da auditoria 2026-10-27).
+                try:
+                    await liberar_idempotencia(redis, job["tipo"], job["idempotency_key"])
+                except Exception:  # noqa: BLE001 - falha aqui não pode derrubar o worker
+                    logger.warning(
+                        json.dumps(
+                            {
+                                "event": "WORKER_JOB_IDEMPOTENCY_RELEASE_FAILED",
+                                "job_id": job.get("id"),
+                                "job_type": job.get("tipo"),
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
         finally:
             if renovador is not None:
                 renovador.cancel()

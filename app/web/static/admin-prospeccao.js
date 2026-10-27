@@ -140,13 +140,62 @@ async function loadCampanhas() {
   iniciarPollingCampanhasSeNecessario();
 }
 
+// Ações assíncronas (verificar site / triar marca) só produzem resultado quando
+// o worker conclui o job. Sem isso o botão volta igual após o "agendada" e o
+// usuário clica de novo achando que nada aconteceu (achado da auditoria de
+// 2026-10-27: cada clique extra é uma requisição a mais, mesmo que a
+// idempotência do backend evite duplicar o job).
+const acoesPendentes = new Map();
+const ACAO_PENDENTE_TIMEOUT_MS = 90_000;
+const ACAO_PENDENTE_POLL_MS = 3_000;
+let acoesPendentesTimer = null;
+
+function acaoPendenteConcluida(item, tipo) {
+  if (tipo === "enriquecer") return Boolean(item.presenca_digital);
+  if (tipo === "triar") return Boolean(item.triagem_marca_status);
+  return true;
+}
+
+function agendarPollAcoesPendentes() {
+  if (acoesPendentesTimer) return;
+  acoesPendentesTimer = setInterval(async () => {
+    for (const [id, pendente] of acoesPendentes) {
+      if (Date.now() > pendente.expira) acoesPendentes.delete(id);
+    }
+    if (!acoesPendentes.size) {
+      clearInterval(acoesPendentesTimer);
+      acoesPendentesTimer = null;
+      return;
+    }
+    try { await loadProspects(); }
+    catch { /* O próximo ciclo tenta de novo; erros transientes não derrubam o polling. */ }
+  }, ACAO_PENDENTE_POLL_MS);
+}
+
+function registrarAcaoPendente(id, tipo) {
+  acoesPendentes.set(String(id), { tipo, expira: Date.now() + ACAO_PENDENTE_TIMEOUT_MS });
+  agendarPollAcoesPendentes();
+}
+
+function botaoPendente(tipo, rotulo) {
+  return `<button class="secondary-button" data-${tipo} type="button" disabled><span class="prospeccao-spinner" aria-hidden="true"></span>${rotulo}</button>`;
+}
+
 function prospectActions(item) {
   const botoes = [];
   botoes.push(`<button class="secondary-button" data-detalhe type="button">Detalhes</button>`);
   if (state.canConvert && item.status === "aprovado") botoes.push(`<button class="primary-button" data-converter type="button">Converter em lead</button>`);
   if (!state.canManage) return botoes.join("");
-  if (!item.presenca_digital) botoes.push(`<button class="secondary-button" data-enriquecer type="button">Verificar site</button>`);
-  if (!item.triagem_marca_status) botoes.push(`<button class="secondary-button" data-triar type="button">Triar marca</button>`);
+  const pendente = acoesPendentes.get(String(item.id));
+  if (pendente && !acaoPendenteConcluida(item, pendente.tipo)) {
+    if (pendente.tipo === "enriquecer") botoes.push(botaoPendente("enriquecer", "Verificando site…"));
+    if (pendente.tipo === "triar") botoes.push(botaoPendente("triar", "Triando marca…"));
+  } else if (pendente) {
+    acoesPendentes.delete(String(item.id));
+    showMessage(pendente.tipo === "enriquecer" ? "Verificação de site concluída." : "Triagem de marca concluída.");
+  }
+  if (!item.presenca_digital && pendente?.tipo !== "enriquecer") botoes.push(`<button class="secondary-button" data-enriquecer type="button">Verificar site</button>`);
+  if (!item.triagem_marca_status && pendente?.tipo !== "triar") botoes.push(`<button class="secondary-button" data-triar type="button">Triar marca</button>`);
   if (item.triagem_marca_status && item.score === null) botoes.push(`<button class="secondary-button" data-score type="button">Calcular score</button>`);
   if (item.status === "novo") {
     botoes.push(`<button class="secondary-button" data-aprovar type="button">Aprovar</button>`);
@@ -437,8 +486,21 @@ document.querySelector("#prospeccao-list").addEventListener("click", async event
   button.disabled = true;
   try {
     if (button.dataset.detalhe !== undefined) { await abrirDetalhe(id); return; }
-    if (button.dataset.enriquecer !== undefined) { await api(`/v1/admin/prospects/${id}/enriquecer`, { method: "POST" }); showMessage("Verificação de site agendada."); }
-    else if (button.dataset.triar !== undefined) { await api(`/v1/admin/prospects/${id}/triar-marca`, { method: "POST" }); showMessage("Triagem de marca agendada."); }
+    if (button.dataset.enriquecer !== undefined) {
+      registrarAcaoPendente(id, "enriquecer");
+      button.disabled = true;
+      button.innerHTML = `<span class="prospeccao-spinner" aria-hidden="true"></span>Verificando site…`;
+      const resposta = await api(`/v1/admin/prospects/${id}/enriquecer`, { method: "POST" });
+      if (resposta.cache) showMessage("Resultado da verificação de site recuperado do cache.");
+      else showMessage("Verificação de site agendada — o resultado aparece no card em instantes.");
+    }
+    else if (button.dataset.triar !== undefined) {
+      registrarAcaoPendente(id, "triar");
+      button.disabled = true;
+      button.innerHTML = `<span class="prospeccao-spinner" aria-hidden="true"></span>Triando marca…`;
+      const resposta = await api(`/v1/admin/prospects/${id}/triar-marca`, { method: "POST" });
+      showMessage(resposta.duplicado ? "Triagem de marca já estava agendada — aguardando o resultado." : "Triagem de marca agendada — o resultado aparece no card em instantes.");
+    }
     else if (button.dataset.score !== undefined) { await api(`/v1/admin/prospects/${id}/calcular-score`, { method: "POST" }); showMessage("Cálculo de score agendado."); }
     else if (button.dataset.aprovar !== undefined) { await api(`/v1/admin/prospects/${id}/aprovar`, { method: "POST" }); showMessage("Prospect aprovado."); }
     else if (button.dataset.descartarJaTitular !== undefined) {
@@ -460,7 +522,11 @@ document.querySelector("#prospeccao-list").addEventListener("click", async event
       showMessage("Prospect convertido em lead.");
     } else return;
     await reloadAll();
-  } catch (error) { showMessage(error.message, "error"); }
+  } catch (error) {
+    showMessage(error.message, "error");
+    // Em falha a ação pendente precisa sair da lista para o botão voltar clicável.
+    if (button.dataset.enriquecer !== undefined || button.dataset.triar !== undefined) acoesPendentes.delete(String(id));
+  }
   finally { button.disabled = false; }
 });
 

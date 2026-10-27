@@ -113,6 +113,20 @@ return {1, ARGV[2]}
 """
 
 
+async def liberar_idempotencia(redis: Redis, tipo: str, idempotency_key: str) -> None:
+    """Libera a reserva de idempotência de um job que foi para a dead-letter.
+
+    Achado da auditoria de 2026-10-27: a chave ficava retida pelo TTL inteiro
+    (24h) mesmo depois da falha definitiva, então o endpoint devolvia
+    "duplicado" para todo novo clique do usuário e a ação nunca mais rodava
+    naquele dia. Só depois da falha definitiva é seguro liberar: enquanto o
+    job está na fila, em execução ou em retry, a reserva continua válida.
+    """
+    if not idempotency_key:
+        return
+    await redis.delete(f"{IDEMPOTENCY_PREFIX}{tipo}:{idempotency_key}")
+
+
 async def enfileirar(
     tipo: str,
     payload: dict | None = None,

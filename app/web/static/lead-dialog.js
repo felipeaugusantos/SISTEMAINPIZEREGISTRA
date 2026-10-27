@@ -1262,7 +1262,7 @@ function openResearchDelete(mode, id) {
     preview.hidden = !emLote;
     if (emLote) {
       const marcas = (id || []).map(solicitacao => {
-        const card = document.querySelector(`#deletion-request-list [data-request-id="${Number(solicitacao)}"]`);
+        const card = root.querySelector(`#deletion-request-list [data-request-id="${Number(solicitacao)}"]`);
         return card ? card.dataset.marca : `Solicitação ${solicitacao}`;
       });
       root.querySelector("#research-delete-preview-title").textContent =

@@ -1256,6 +1256,25 @@ function openResearchDelete(mode, id) {
     "approve-lote": "A aprovação remove definitivamente todas as pesquisas selecionadas e exige sua senha atual.",
     "reject-lote": "Informe por que as pesquisas selecionadas devem ser preservadas.",
   };
+  const preview = root.querySelector("#research-delete-preview");
+  if (preview) {
+    const emLote = mode === "approve-lote" || mode === "reject-lote";
+    preview.hidden = !emLote;
+    if (emLote) {
+      const marcas = (id || []).map(solicitacao => {
+        const card = root.querySelector(`#deletion-request-list [data-request-id="${Number(solicitacao)}"]`);
+        return card ? card.dataset.marca : `Solicitação ${solicitacao}`;
+      });
+      root.querySelector("#research-delete-preview-title").textContent =
+        `${marcas.length} ${mode === "approve-lote" ? "pesquisa(s) serão excluídas" : "solicitação(ões) serão rejeitadas"}:`;
+      const lista = root.querySelector("#research-delete-preview-list");
+      lista.replaceChildren(...marcas.map(marca => {
+        const li = document.createElement("li");
+        li.textContent = marca;
+        return li;
+      }));
+    }
+  }
   root.querySelector("#research-delete-title").textContent = titles[mode];
   root.querySelector("#research-delete-description").textContent = descriptions[mode];
   root.querySelector("#research-delete-message").hidden = true;

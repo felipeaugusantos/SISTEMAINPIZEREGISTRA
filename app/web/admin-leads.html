@@ -8,11 +8,11 @@
     <title>Painel de leads — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=67" />
     <link rel="stylesheet" href="/static/ze-brand.css?v=1" />
-    <link rel="stylesheet" href="/static/admin-leads.css?v=13" />
-    <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=13 -->
+    <link rel="stylesheet" href="/static/admin-leads.css?v=14" />
+    <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=14 -->
     <script src="/static/admin-shell.js?v=56" defer></script>
-    <script src="/static/lead-dialog.js?v=11" defer></script>
-    <script src="/static/admin-leads.js?v=79" defer></script>
+    <script src="/static/lead-dialog.js?v=13" defer></script>
+    <script src="/static/admin-leads.js?v=80" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
     <header class="topbar">
@@ -117,6 +117,10 @@
           <div><p class="eyebrow">Aprovação administrativa</p><h2>Solicitações de exclusão</h2></div>
           <span id="deletion-request-count">0 pendentes</span>
         </header>
+        <div class="deletion-filter-bar">
+          <label><span>Situação</span><select id="deletion-filter-status"><option value="pendente">Pendentes</option><option value="executada">Excluídas</option><option value="rejeitada">Rejeitadas</option><option value="">Todas</option></select></label>
+          <label><span>Buscar</span><input id="deletion-filter-busca" type="search" maxlength="100" placeholder="Marca, solicitante ou motivo" autocomplete="off"></label>
+        </div>
         <div id="deletion-request-bulk" class="deletion-bulk-bar" hidden>
           <label><input id="deletion-select-all" type="checkbox"> <span id="deletion-select-all-label">Selecionar todas</span></label>
           <span id="deletion-selected-count">0 selecionadas</span>
@@ -124,6 +128,7 @@
           <button id="deletion-bulk-approve" class="danger-button" type="button" disabled>Aprovar e excluir selecionadas</button>
         </div>
         <div id="deletion-request-list" class="learning-review-list"></div>
+        <button id="deletion-load-more" class="secondary-button" type="button" hidden>Carregar mais</button>
       </section>
       <section class="lead-view-toolbar" aria-label="Visualização dos resultados">
         <div class="lead-view-switch" role="group" aria-label="Agrupar resultados">
@@ -189,6 +194,10 @@
       <form id="research-delete-form">
         <h2 id="research-delete-title">Excluir pesquisa?</h2>
         <p id="research-delete-description"></p>
+        <div id="research-delete-preview" class="research-delete-preview" hidden>
+          <strong id="research-delete-preview-title"></strong>
+          <ul id="research-delete-preview-list"></ul>
+        </div>
         <label>Motivo ou observação
           <textarea name="motivo" minlength="3" maxlength="1000" required></textarea>
         </label>

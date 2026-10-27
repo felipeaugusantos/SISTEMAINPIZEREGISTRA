@@ -64,7 +64,7 @@ def test_admin_leads_requires_authentication() -> None:
     assert response.status_code == 200
     assert "Leads e pesquisas" in response.text
     assert 'data-admin-section="leads"' in response.text
-    assert "/static/admin-leads.css?v=13" in response.text
+    assert "/static/admin-leads.css?v=14" in response.text
     assert client.get("/static/admin-leads.css").status_code == 200
     script = client.get("/static/lead-dialog.js")
     assert "renderPropostas" in script.text
@@ -1131,7 +1131,7 @@ def test_admin_leads_oculta_notas_e_tags_sem_permissao_pii() -> None:
     script = "\n".join((web_dir / "static" / name).read_text(encoding="utf-8")
                        for name in ("admin-leads.js", "lead-dialog.js"))
 
-    assert "admin-leads.js?v=79" in page
+    assert "admin-leads.js?v=80" in page
     assert '${state.canPii ? `<label><span>Tags' in script
     assert '${state.canPii ? `<label class="lead-notes">' in script
     assert "if (state.canPii) {" in script

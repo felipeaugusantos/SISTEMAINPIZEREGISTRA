@@ -3,7 +3,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import (
@@ -256,10 +256,21 @@ async def listar_solicitacoes(
     status_solicitacao: str = "pendente",
     limite: Annotated[int, Query(ge=1, le=200)] = 100,
     deslocamento: Annotated[int, Query(ge=0)] = 0,
+    busca: Annotated[str, Query(max_length=100)] = "",
 ) -> dict:
     filtros = [SolicitacaoExclusaoPesquisa.organizacao_id == usuario.organizacao_id]
     if status_solicitacao:
         filtros.append(SolicitacaoExclusaoPesquisa.status == status_solicitacao)
+    termo = busca.strip()
+    if termo:
+        padrao = "%" + termo.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        filtros.append(
+            or_(
+                SolicitacaoExclusaoPesquisa.marca.ilike(padrao, escape="\\"),
+                SolicitacaoExclusaoPesquisa.solicitado_por.ilike(padrao, escape="\\"),
+                SolicitacaoExclusaoPesquisa.motivo.ilike(padrao, escape="\\"),
+            )
+        )
     total = (
         await session.execute(select(func.count()).select_from(SolicitacaoExclusaoPesquisa).where(*filtros))
     ).scalar_one()

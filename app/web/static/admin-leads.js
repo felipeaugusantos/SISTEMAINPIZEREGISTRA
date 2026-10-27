@@ -294,34 +294,62 @@ async function loadCrmSummary() {
   }
 }
 
-async function loadDeletionRequests() {
+const exclusoesFiltro = { status: "pendente", busca: "", itens: [], total: 0 };
+
+async function loadDeletionRequests(anexar = false) {
   const section = document.querySelector("#deletion-requests");
   section.hidden = !state.canDeleteResearch;
   if (!state.canDeleteResearch) return;
+  const filtro = exclusoesFiltro;
+  const selecionadas = new Set(anexar ? exclusoesSelecionadas() : []);
   try {
-    const data = await responsePayload(await fetch("/v1/admin/exclusoes-pesquisas"));
-    const parcial = data.total > data.exibidas;
-    document.querySelector("#deletion-request-count").textContent = parcial
-      ? `${data.total} pendentes (mostrando ${data.exibidas})`
-      : `${data.total} pendente${data.total === 1 ? "" : "s"}`;
-    document.querySelector("#deletion-select-all-label").textContent = parcial
-      ? `Selecionar as ${data.exibidas} exibidas`
-      : "Selecionar todas";
-    const list = document.querySelector("#deletion-request-list");
-    list.innerHTML = data.itens.length ? data.itens.map(item => `
-      <article class="learning-review-card deletion-request-card" data-request-id="${item.id}">
-        <header><label class="deletion-pick"><input class="deletion-check" type="checkbox" aria-label="Selecionar solicitação de ${escapeHtml(item.marca)}"></label><div><p class="eyebrow">${escapeHtml(item.solicitado_por)}</p><h3>${escapeHtml(item.marca)}</h3></div><small>${formatDate(item.criado_em)}</small></header>
-        <p>${escapeHtml(item.motivo)}</p>
-        <div class="lead-research-actions">
-          <button class="secondary-button decide-deletion" data-decision="reject" type="button">Rejeitar</button>
-          <button class="danger-button decide-deletion" data-decision="approve" type="button">Aprovar e excluir</button>
-        </div>
-      </article>`).join("") : '<p class="deletion-requests-empty">Nenhuma solicitação pendente.</p>';
-    document.querySelector("#deletion-request-bulk").hidden = !data.itens.length;
-    atualizarSelecaoExclusoes();
+    const params = new URLSearchParams({
+      status_solicitacao: filtro.status,
+      busca: filtro.busca,
+      limite: "100",
+      deslocamento: String(anexar ? filtro.itens.length : 0),
+    });
+    const data = await responsePayload(await fetch(`/v1/admin/exclusoes-pesquisas?${params}`));
+    filtro.itens = anexar ? filtro.itens.concat(data.itens) : data.itens;
+    filtro.total = data.total;
+    renderExclusoes(selecionadas);
   } catch (error) {
     showMessage(error.message, "error");
   }
+}
+
+const ROTULO_STATUS_EXCLUSAO = { pendente: "Pendente", executada: "Excluída", rejeitada: "Rejeitada" };
+
+function renderExclusoes(selecionadas = new Set()) {
+  const { status, itens, total } = exclusoesFiltro;
+  const pendentes = status === "pendente";
+  const parcial = total > itens.length;
+  document.querySelector("#deletion-request-count").textContent = pendentes
+    ? (parcial ? `${total} pendentes (mostrando ${itens.length})` : `${total} pendente${total === 1 ? "" : "s"}`)
+    : `${total} resultado${total === 1 ? "" : "s"}${parcial ? ` (mostrando ${itens.length})` : ""}`;
+  document.querySelector("#deletion-select-all-label").textContent = parcial
+    ? `Selecionar as ${itens.length} exibidas`
+    : "Selecionar todas";
+  const vazio = pendentes ? "Nenhuma solicitação pendente." : "Nenhuma solicitação encontrada.";
+  document.querySelector("#deletion-request-list").innerHTML = itens.length ? itens.map(item => {
+    const acoes = item.status === "pendente" ? `
+        <div class="lead-research-actions">
+          <button class="secondary-button decide-deletion" data-decision="reject" type="button">Rejeitar</button>
+          <button class="danger-button decide-deletion" data-decision="approve" type="button">Aprovar e excluir</button>
+        </div>` : `
+        <p class="deletion-decision"><strong>${escapeHtml(ROTULO_STATUS_EXCLUSAO[item.status] || item.status)}</strong>${item.decidido_por ? ` por ${escapeHtml(item.decidido_por)}` : ""}${item.decidido_em ? ` em ${formatDate(item.decidido_em)}` : ""}${item.decisao_observacao ? ` — ${escapeHtml(item.decisao_observacao)}` : ""}</p>`;
+    const escolha = item.status === "pendente"
+      ? `<label class="deletion-pick"><input class="deletion-check" type="checkbox" aria-label="Selecionar solicitação de ${escapeHtml(item.marca)}"${selecionadas.has(item.id) ? " checked" : ""}></label>`
+      : "";
+    return `
+      <article class="learning-review-card deletion-request-card" data-request-id="${item.id}" data-marca="${escapeHtml(item.marca)}">
+        <header>${escolha}<div><p class="eyebrow">${escapeHtml(item.solicitado_por)}</p><h3>${escapeHtml(item.marca)}</h3></div><small>${formatDate(item.criado_em)}</small></header>
+        <p>${escapeHtml(item.motivo)}</p>${acoes}
+      </article>`;
+  }).join("") : `<p class="deletion-requests-empty">${vazio}</p>`;
+  document.querySelector("#deletion-request-bulk").hidden = !pendentes || !itens.length;
+  document.querySelector("#deletion-load-more").hidden = !parcial;
+  atualizarSelecaoExclusoes();
 }
 
 async function loadLeads() {
@@ -399,6 +427,19 @@ document.querySelector("#deletion-select-all").addEventListener("change", event 
   document.querySelectorAll("#deletion-request-list .deletion-check").forEach(box => { box.checked = event.target.checked; });
   atualizarSelecaoExclusoes();
 });
+document.querySelector("#deletion-filter-status").addEventListener("change", event => {
+  exclusoesFiltro.status = event.target.value;
+  loadDeletionRequests();
+});
+let exclusoesBuscaTimer = null;
+document.querySelector("#deletion-filter-busca").addEventListener("input", event => {
+  clearTimeout(exclusoesBuscaTimer);
+  exclusoesBuscaTimer = setTimeout(() => {
+    exclusoesFiltro.busca = event.target.value.trim();
+    loadDeletionRequests();
+  }, 300);
+});
+document.querySelector("#deletion-load-more").addEventListener("click", () => loadDeletionRequests(true));
 document.querySelector("#deletion-bulk-approve").addEventListener("click", () => openResearchDelete("approve-lote", exclusoesSelecionadas()));
 document.querySelector("#deletion-bulk-reject").addEventListener("click", () => openResearchDelete("reject-lote", exclusoesSelecionadas()));
 

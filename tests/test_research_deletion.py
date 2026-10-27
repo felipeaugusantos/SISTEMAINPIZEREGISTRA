@@ -336,3 +336,29 @@ async def test_listagem_informa_total_real_alem_das_itens_exibidos() -> None:
 
     assert resposta["total"] == 250
     assert resposta["exibidas"] == 1
+
+
+@pytest.mark.asyncio
+async def test_listagem_aceita_busca_e_historico_sem_filtro_de_status() -> None:
+    item = pesquisa()
+    decidida = solicitacao_pendente(3, item)
+    decidida.status = "executada"
+    session = SessaoExclusao([FakeResult(scalar=1), FakeResult(itens=[decidida])])
+
+    resposta = await listar_solicitacoes(session, usuario_teste(), "", 100, 0, "marca_teste%")
+
+    assert resposta["total"] == 1
+    assert resposta["itens"][0]["status"] == "executada"
+
+
+def test_tela_expoe_filtros_historico_e_previa_do_lote() -> None:
+    leads = Path("app/web/admin-leads.html").read_text(encoding="utf-8")
+    script = Path("app/web/static/admin-leads.js").read_text(encoding="utf-8")
+    dialog = Path("app/web/static/lead-dialog.js").read_text(encoding="utf-8")
+
+    assert 'id="deletion-filter-status"' in leads
+    assert 'id="deletion-filter-busca"' in leads
+    assert 'id="deletion-load-more"' in leads
+    assert 'id="research-delete-preview-list"' in leads
+    assert "decidido_por" in script
+    assert "research-delete-preview-list" in dialog

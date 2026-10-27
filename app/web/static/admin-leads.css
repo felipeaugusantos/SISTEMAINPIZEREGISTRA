@@ -1344,3 +1344,27 @@ table.lead-docs select {
   gap: 5px;
   font-weight: 700;
 }
+
+.deletion-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin: 0 0 9px;
+  font-size: 0.78rem;
+}
+.deletion-filter-bar label { display: grid; gap: 4px; font-weight: 700; }
+.deletion-filter-bar select, .deletion-filter-bar input { min-height: 36px; padding: 6px 10px; }
+.deletion-filter-bar input[type="search"] { width: min(320px, 70vw); }
+.deletion-decision { margin: 6px 0 0; font-size: 0.76rem; color: #455a50; }
+#deletion-load-more { margin-top: 10px; }
+.research-delete-preview { margin: 10px 0; font-size: 0.8rem; }
+.research-delete-preview ul {
+  margin: 6px 0 0;
+  padding: 8px 8px 8px 24px;
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid #e4e8e4;
+  border-radius: 8px;
+  background: #fafbf9;
+}

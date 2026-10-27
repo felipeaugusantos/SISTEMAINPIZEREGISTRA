@@ -1,0 +1,21 @@
+/* Preserve official artwork without cropping or changing its proportions. */
+.admin-body .brand-avatar,
+.admin-body .admin-sidebar-brand .brand-avatar {
+  object-fit: contain;
+  object-position: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.admin-body .assistente-widget-launcher img { object-fit: contain; object-position: center; }
+.lead-pagination { flex-wrap: wrap; }
+.lead-pagination input { width: 5.5rem; min-height: 40px; }
+.lead-returned { outline: 2px solid var(--forest, #008037); outline-offset: -2px; }
+.admin-body .prospeccao-pagination { flex-wrap: wrap; }
+.admin-body .prospeccao-table-wrap { position: relative; }
+.admin-body .assistente-widget-launcher {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  padding: 3px;
+}
+.admin-body .assistente-widget-launcher img { min-width: 0; min-height: 0; }

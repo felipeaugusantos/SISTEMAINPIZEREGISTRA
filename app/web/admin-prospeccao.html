@@ -3,24 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="/static/operations-list.css?v=1" />
   <meta name="robots" content="noindex,nofollow">
   <title>Radar de Prospecção — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=67">
   <link rel="stylesheet" href="/static/admin-prospeccao.css?v=12">
   <script src="/static/admin-shell.js?v=56" defer></script>
-  <script src="/static/admin-prospeccao.js?v=19" defer></script>
+  <script src="/static/admin-prospeccao.js?v=20" defer></script>
 </head>
 <body class="admin-body" data-admin-section="prospeccao">
   <main class="admin-main prospeccao-main">
     <section class="prospeccao-hero">
       <div><p class="eyebrow">CAPTAÇÃO ATIVA</p><div class="prospeccao-title-row"><h1>Radar de Prospecção</h1><button id="prospeccao-help-open" class="help-trigger" type="button" aria-label="Como funciona o Radar de Prospecção">?</button></div><p>Encontre, qualifique e converta empresas em leads antes que a concorrência chegue primeiro. A triagem de marca é sempre indicativa — nunca uma garantia de disponibilidade para registro.</p></div>
       <div class="prospeccao-hero-actions">
-        <button id="open-politica" class="secondary-button" type="button">Aprovação automática</button>
-        <a id="export-prospects-xlsx" class="secondary-button" href="/v1/admin/prospects/exportar.xlsx" hidden>Exportar Excel</a>
-        <a id="export-prospects" class="secondary-button" href="/v1/admin/prospects/exportar.csv" hidden>Exportar CSV</a>
-        <button id="open-import" class="secondary-button" type="button">Importar CSV</button>
-        <button id="open-campanha" class="secondary-button" type="button">Nova campanha</button>
-        <button id="open-manual" class="primary-button" type="button">Cadastrar prospect</button>
+        <button id="open-politica" hidden class="secondary-button" type="button">Aprovação automática</button>
+        <a id="export-prospects-xlsx" hidden class="secondary-button" href="/v1/admin/prospects/exportar.xlsx">Exportar Excel</a>
+        <a id="export-prospects" hidden class="secondary-button" href="/v1/admin/prospects/exportar.csv">Exportar CSV</a>
+        <button id="open-import" hidden class="secondary-button" type="button">Importar CSV</button>
+        <button id="open-campanha" hidden class="secondary-button" type="button">Nova campanha</button>
+        <button id="open-manual" hidden class="primary-button" type="button">Cadastrar prospect</button>
       </div>
     </section>
 
@@ -38,7 +39,7 @@
 
     <section class="prospeccao-card" id="supressoes-section">
       <header><div><p class="eyebrow">LGPD</p><h2>Lista de supressão (opt-out)</h2><p>Empresas/contatos que pediram para não ser mais prospectados. Quem entra aqui nunca mais vira Prospect nessa organização, mesmo reaparecendo em uma campanha ou importação futura.</p></div>
-        <button id="open-supressao" class="secondary-button" type="button">+ Adicionar supressão</button>
+        <button id="open-supressao" hidden class="secondary-button" type="button">+ Adicionar supressão</button>
       </header>
       <div id="supressoes-lista"></div>
       <nav id="supressoes-pagination" class="prospeccao-pagination" aria-label="Páginas de supressões" hidden><button id="supressoes-prev" class="secondary-button" type="button">Anterior</button><span id="supressoes-page-summary"></span><button id="supressoes-next" class="secondary-button" type="button">Próxima</button></nav>
@@ -72,6 +73,7 @@
         <label><span>Cidade <small>separe várias por vírgula</small></span><input name="cidade" placeholder="Opcional"></label>
         <label><span>Campanha</span><select name="campanha_id" id="prospeccao-filtro-campanha"><option value="">Todas</option></select></label>
         <button class="primary-button" type="submit">Filtrar</button>
+        <button id="prospeccao-clear" class="secondary-button" type="button">Limpar filtros</button>
       </form>
       <div id="prospeccao-list" class="prospeccao-list"></div>
       <nav id="prospeccao-pagination" class="prospeccao-pagination" aria-label="Páginas de prospects" hidden><button id="prospeccao-prev" class="secondary-button" type="button">Anterior</button><span id="prospeccao-page-summary"></span><button id="prospeccao-next" class="secondary-button" type="button">Próxima</button></nav>

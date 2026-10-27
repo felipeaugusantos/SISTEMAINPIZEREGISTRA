@@ -1300,8 +1300,9 @@ researchDeleteForm.addEventListener("submit", async event => {
           observacao: data.motivo || null,
         }),
       }));
+      const removidas = resultado.ja_removidas ? ` ${resultado.ja_removidas} já estavam removidas e foram encerradas.` : "";
       const ignoradas = resultado.ignoradas ? ` ${resultado.ignoradas} ignorada(s) (já decididas ou inexistentes).` : "";
-      showMessage(`${resultado.processadas} solicitação(ões) ${aprovar ? "aprovada(s) e executada(s)" : "rejeitada(s)"}.${ignoradas}`, "success");
+      showMessage(`${resultado.processadas} solicitação(ões) ${aprovar ? "aprovada(s) e executada(s)" : "rejeitada(s)"}.${removidas}${ignoradas}`, "success");
     } else {
       await responsePayload(await fetch(`/v1/admin/exclusoes-pesquisas/${state.deleteRequestId}/decidir`, {
         method: "POST",

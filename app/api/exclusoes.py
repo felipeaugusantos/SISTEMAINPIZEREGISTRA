@@ -1,9 +1,9 @@
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import (
@@ -254,23 +254,33 @@ async def listar_solicitacoes(
     session: SessionDep,
     usuario: PesquisaDeleteDep,
     status_solicitacao: str = "pendente",
+    limite: Annotated[int, Query(ge=1, le=200)] = 100,
+    deslocamento: Annotated[int, Query(ge=0)] = 0,
 ) -> dict:
     filtros = [SolicitacaoExclusaoPesquisa.organizacao_id == usuario.organizacao_id]
     if status_solicitacao:
         filtros.append(SolicitacaoExclusaoPesquisa.status == status_solicitacao)
+    total = (
+        await session.execute(select(func.count()).select_from(SolicitacaoExclusaoPesquisa).where(*filtros))
+    ).scalar_one()
     itens = (
         (
             await session.execute(
                 select(SolicitacaoExclusaoPesquisa)
                 .where(*filtros)
-                .order_by(SolicitacaoExclusaoPesquisa.criado_em.desc())
-                .limit(100)
+                .order_by(SolicitacaoExclusaoPesquisa.criado_em.desc(), SolicitacaoExclusaoPesquisa.id.desc())
+                .limit(limite)
+                .offset(deslocamento)
             )
         )
         .scalars()
         .all()
     )
-    return {"total": len(itens), "itens": [_solicitacao_response(item) for item in itens]}
+    return {
+        "total": total,
+        "exibidas": len(itens),
+        "itens": [_solicitacao_response(item) for item in itens],
+    }
 
 
 @router.post("/v1/admin/exclusoes-pesquisas/decidir-lote")
@@ -301,14 +311,13 @@ async def decidir_solicitacoes_em_lote(
     if dados.decisao == "aprovar":
         await _exigir_senha(session, usuario, dados.senha, request, "pesquisas:lote")
     agora = datetime.now(UTC)
+    aprovar = dados.decisao == "aprovar"
     processadas = 0
+    ja_removidas = 0
     ignoradas = len(ids) - len(itens)
     for item in itens:
         pesquisa = None
-        if dados.decisao == "aprovar":
-            if item.pesquisa_id is None:
-                ignoradas += 1
-                continue
+        if aprovar and item.pesquisa_id is not None:
             pesquisa = (
                 await session.execute(
                     select(PesquisaMarca)
@@ -319,29 +328,35 @@ async def decidir_solicitacoes_em_lote(
                     .with_for_update()
                 )
             ).scalar_one_or_none()
-            if pesquisa is None:
-                ignoradas += 1
-                continue
-        item.status = "executada" if pesquisa is not None else "rejeitada"
+        # Aprovar uma solicitação cuja pesquisa já foi removida por outro caminho a encerra como
+        # executada: do contrário ela ficaria pendente na fila para sempre.
+        orfa = aprovar and pesquisa is None
+        item.status = "executada" if aprovar else "rejeitada"
         item.decidido_por_id = usuario.id
         item.decidido_por = usuario.ator
-        item.decisao_observacao = dados.observacao
+        item.decisao_observacao = "Pesquisa já havia sido removida" if orfa else dados.observacao
         item.decidido_em = agora
         _auditar(
             session,
             usuario,
             request,
-            "aprovar_exclusao" if pesquisa is not None else "rejeitar_exclusao",
+            "aprovar_exclusao" if aprovar else "rejeitar_exclusao",
             f"pesquisa:{item.pesquisa_referencia}",
             True,
             200,
-            {"solicitacao_id": item.id, "marca": item.marca, "modo": "lote"},
+            {"solicitacao_id": item.id, "marca": item.marca, "modo": "lote", "pesquisa_ja_removida": orfa},
         )
         if pesquisa is not None:
             await session.delete(pesquisa)
+        ja_removidas += int(orfa)
         processadas += 1
     await session.commit()
-    return {"decisao": dados.decisao, "processadas": processadas, "ignoradas": ignoradas}
+    return {
+        "decisao": dados.decisao,
+        "processadas": processadas,
+        "ja_removidas": ja_removidas,
+        "ignoradas": ignoradas,
+    }
 
 
 @router.post("/v1/admin/exclusoes-pesquisas/{solicitacao_id}/decidir")

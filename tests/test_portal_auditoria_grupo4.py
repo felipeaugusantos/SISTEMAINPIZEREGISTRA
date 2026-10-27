@@ -195,3 +195,9 @@ def test_s08_a_solicitacao_trava_o_cliente_antes_de_invalidar_e_criar_o_link() -
     corpo = fonte.split("async def solicitar_recuperacao_portal(", 1)[1].split("\n@router", 1)[0]
     assert corpo.index("with_for_update=True") < corpo.index("update(RecuperacaoClientePortal)")
     assert corpo.index("update(RecuperacaoClientePortal)") < corpo.index("session.add(")
+
+
+def test_arquivos_js_e_css_estaticos_sao_revalidados_pelo_navegador() -> None:
+    resposta = _cliente_http().get("/static/styles.css")
+    assert resposta.status_code == 200
+    assert resposta.headers.get("cache-control") == "no-cache"

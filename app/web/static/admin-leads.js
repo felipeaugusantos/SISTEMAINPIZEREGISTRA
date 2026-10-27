@@ -300,7 +300,13 @@ async function loadDeletionRequests() {
   if (!state.canDeleteResearch) return;
   try {
     const data = await responsePayload(await fetch("/v1/admin/exclusoes-pesquisas"));
-    document.querySelector("#deletion-request-count").textContent = `${data.total} pendente${data.total === 1 ? "" : "s"}`;
+    const parcial = data.total > data.exibidas;
+    document.querySelector("#deletion-request-count").textContent = parcial
+      ? `${data.total} pendentes (mostrando ${data.exibidas})`
+      : `${data.total} pendente${data.total === 1 ? "" : "s"}`;
+    document.querySelector("#deletion-select-all-label").textContent = parcial
+      ? `Selecionar as ${data.exibidas} exibidas`
+      : "Selecionar todas";
     const list = document.querySelector("#deletion-request-list");
     list.innerHTML = data.itens.length ? data.itens.map(item => `
       <article class="learning-review-card deletion-request-card" data-request-id="${item.id}">

@@ -14,6 +14,7 @@ from app.api.exclusoes import (
     decidir_solicitacao,
     decidir_solicitacoes_em_lote,
     excluir_pesquisa,
+    listar_solicitacoes,
     solicitar_exclusao,
 )
 from app.auth import hash_senha
@@ -239,7 +240,7 @@ async def test_aprovacao_em_lote_exclui_todas_as_pesquisas_selecionadas() -> Non
         None,
     )
 
-    assert resposta == {"decisao": "aprovar", "processadas": 2, "ignoradas": 0}
+    assert resposta == {"decisao": "aprovar", "processadas": 2, "ja_removidas": 0, "ignoradas": 0}
     assert session.excluidos == [item_a, item_b]
     assert sol_a.status == sol_b.status == "executada"
 
@@ -278,7 +279,7 @@ async def test_rejeicao_em_lote_nao_exige_senha_e_preserva_pesquisas() -> None:
         None,
     )
 
-    assert resposta == {"decisao": "rejeitar", "processadas": 1, "ignoradas": 1}
+    assert resposta == {"decisao": "rejeitar", "processadas": 1, "ja_removidas": 0, "ignoradas": 1}
     assert session.excluidos == []
     assert sol.status == "rejeitada"
 
@@ -304,3 +305,34 @@ def test_telas_expoem_exclusao_protegida_e_fila_administrativa() -> None:
     assert "solicitar-exclusao" in dialog
     assert 'id="deletion-select-all"' in leads
     assert "decidir-lote" in dialog
+
+
+@pytest.mark.asyncio
+async def test_aprovacao_em_lote_encerra_solicitacao_cuja_pesquisa_ja_foi_removida() -> None:
+    item = pesquisa()
+    orfa = solicitacao_pendente(1, item)
+    orfa.pesquisa_id = None
+    session = SessaoExclusao([FakeResult(itens=[orfa])], usuario_banco())
+
+    resposta = await decidir_solicitacoes_em_lote(
+        DecidirLoteInput(ids=[1], decisao="aprovar", senha="Senha-segura-123"),
+        requisicao(),
+        session,
+        usuario_teste(),
+        None,
+    )
+
+    assert resposta == {"decisao": "aprovar", "processadas": 1, "ja_removidas": 1, "ignoradas": 0}
+    assert orfa.status == "executada"
+    assert session.excluidos == []
+
+
+@pytest.mark.asyncio
+async def test_listagem_informa_total_real_alem_das_itens_exibidos() -> None:
+    item = pesquisa()
+    session = SessaoExclusao([FakeResult(scalar=250), FakeResult(itens=[solicitacao_pendente(1, item)])])
+
+    resposta = await listar_solicitacoes(session, usuario_teste(), "pendente", 100, 0)
+
+    assert resposta["total"] == 250
+    assert resposta["exibidas"] == 1

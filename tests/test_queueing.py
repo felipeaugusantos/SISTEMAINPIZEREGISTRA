@@ -1,7 +1,14 @@
 import json
 from types import SimpleNamespace
 
-from app.queueing import calcular_atraso_retry, descartar_falha, enfileirar, listar_falhas, reprocessar_falha
+from app.queueing import (
+    calcular_atraso_retry,
+    descartar_falha,
+    enfileirar,
+    liberar_idempotencia,
+    listar_falhas,
+    reprocessar_falha,
+)
 
 
 def test_backoff_da_fila_e_exponencial_e_limitado() -> None:
@@ -197,3 +204,24 @@ async def test_promover_retentativas_move_vencidos_para_a_fila() -> None:
     assert redis.fila == ["job-vencido"]
     assert "job-vencido" not in redis.zset
     assert "job-futuro" in redis.zset
+
+
+# Auditoria 2026-10-27: após a falha definitiva do job (dead-letter) a reserva
+# de idempotência precisa ser liberada, senão todo novo clique do usuário
+# recebe "duplicado" e a ação não roda mais naquele dia.
+async def test_liberar_idempotencia_remove_a_reserva_do_job_falho(monkeypatch) -> None:
+    class RedisFalso:
+        def __init__(self):
+            self.removidos = []
+
+        async def delete(self, *chaves):
+            self.removidos.extend(chaves)
+
+    redis = RedisFalso()
+    await liberar_idempotencia(redis, "prospeccao.triar_marca_prospect", "47:triagem_marca:2026-10-27")
+    assert redis.removidos == ["ze-registra:jobs:idempotency:prospeccao.triar_marca_prospect:47:triagem_marca:2026-10-27"]
+
+    # Sem chave de idempotência (job enfileirado sem dedupe) não há o que liberar.
+    redis2 = RedisFalso()
+    await liberar_idempotencia(redis2, "teste", "")
+    assert redis2.removidos == []

@@ -276,3 +276,46 @@ test('Telas completas: identidade oficial sem recorte e navegação em computado
     }
   } finally { await browser.close(); }
 });
+
+// Auditoria 2026-10-27: o primeiro clique em "Triar marca"/"Verificar site"
+// precisa dar feedback imediato, não disparar requisições duplicadas em cliques
+// repetidos e resolver o estado pendente quando o resultado chega na listagem.
+test('Radar: triagem e verificação de site com feedback imediato e sem duplicar requisições', async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    let cliquesDisparados = 0;
+    let triado = false;
+    const { errors } = await fixture(page, {
+      response: async (route, url) => {
+        const p = url.pathname;
+        if (p === '/v1/admin/prospects') {
+          const item = { id: 1, razao_social: 'Empresa Radar', nome_fantasia: 'Empresa Radar', status: 'novo', score: null,
+            presenca_digital: null, triagem_marca_status: triado ? 'nao_localizado' : null };
+          return route.fulfill({ json: { total: 1, itens: [item] } }).then(() => true);
+        }
+        if (p.endsWith('/triar-marca')) {
+          cliquesDisparados += 1;
+          triado = false; // o resultado só aparece na listagem depois do "worker"
+          return route.fulfill({ json: { job_id: 'j1', duplicado: false } }).then(() => true);
+        }
+        return false;
+      },
+    });
+    await page.goto('http://operations.test/admin/prospeccao');
+    await page.waitForSelector('.prospeccao-item');
+    const botao = page.locator('[data-triar]');
+    await botao.click({ force: true });
+    await botao.click({ force: true }).catch(() => {}); // segundo clique rápido não deve duplicar
+    await page.waitForTimeout(300);
+    assert.equal(cliquesDisparados, 1, 'cliques repetidos não devem gerar nova requisição');
+    assert.ok(await page.locator('[data-triar][disabled]').count() >= 1, 'botão deve ficar desabilitado com rótulo de aguardando');
+    assert.match(await page.locator('[data-triar]').first().innerText(), /Triando marca/);
+    // o worker conclui: a próxima leitura da listagem traz o resultado e encerra o pendente
+    triado = true;
+    await page.waitForTimeout(4500);
+    assert.equal(await page.locator('[data-triar]').count(), 0, 'após concluir, o botão de triar desaparece');
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally { await browser.close(); }
+});

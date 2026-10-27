@@ -9,8 +9,10 @@ from starlette.requests import Request
 from app.api.exclusoes import (
     ConfirmarExclusaoInput,
     DecidirExclusaoInput,
+    DecidirLoteInput,
     SolicitarExclusaoInput,
     decidir_solicitacao,
+    decidir_solicitacoes_em_lote,
     excluir_pesquisa,
     solicitar_exclusao,
 )
@@ -202,6 +204,85 @@ async def test_administrador_aprova_solicitacao_com_senha() -> None:
     assert solicitacao.decidido_por == "admin@teste.local"
 
 
+def solicitacao_pendente(numero: int, item: PesquisaMarca) -> SolicitacaoExclusaoPesquisa:
+    solicitacao = SolicitacaoExclusaoPesquisa(
+        id=numero,
+        organizacao_id=1,
+        pesquisa_id=item.id,
+        pesquisa_referencia=item.id,
+        marca=item.marca,
+        lead_id=item.lead_id,
+        solicitado_por_id=2,
+        solicitado_por="operador@teste.local",
+        motivo="Cadastro incorreto",
+        status="pendente",
+    )
+    solicitacao.criado_em = datetime.now(UTC)
+    return solicitacao
+
+
+@pytest.mark.asyncio
+async def test_aprovacao_em_lote_exclui_todas_as_pesquisas_selecionadas() -> None:
+    item_a, item_b = pesquisa(), pesquisa()
+    item_b.id = "99999999-1234-1234-1234-123456789abc"
+    sol_a, sol_b = solicitacao_pendente(1, item_a), solicitacao_pendente(2, item_b)
+    session = SessaoExclusao(
+        [FakeResult(itens=[sol_a, sol_b]), FakeResult(scalar=item_a), FakeResult(scalar=item_b)],
+        usuario_banco(),
+    )
+
+    resposta = await decidir_solicitacoes_em_lote(
+        DecidirLoteInput(ids=[1, 2], decisao="aprovar", senha="Senha-segura-123"),
+        requisicao(),
+        session,
+        usuario_teste(),
+        None,
+    )
+
+    assert resposta == {"decisao": "aprovar", "processadas": 2, "ignoradas": 0}
+    assert session.excluidos == [item_a, item_b]
+    assert sol_a.status == sol_b.status == "executada"
+
+
+@pytest.mark.asyncio
+async def test_aprovacao_em_lote_com_senha_errada_nao_exclui_nada() -> None:
+    item = pesquisa()
+    sol = solicitacao_pendente(1, item)
+    session = SessaoExclusao([FakeResult(itens=[sol])], usuario_banco())
+
+    with pytest.raises(HTTPException) as erro:
+        await decidir_solicitacoes_em_lote(
+            DecidirLoteInput(ids=[1], decisao="aprovar", senha="errada"),
+            requisicao(),
+            session,
+            usuario_teste(),
+            None,
+        )
+
+    assert erro.value.status_code == 403
+    assert session.excluidos == []
+    assert sol.status == "pendente"
+
+
+@pytest.mark.asyncio
+async def test_rejeicao_em_lote_nao_exige_senha_e_preserva_pesquisas() -> None:
+    item = pesquisa()
+    sol = solicitacao_pendente(1, item)
+    session = SessaoExclusao([FakeResult(itens=[sol])], usuario_banco())
+
+    resposta = await decidir_solicitacoes_em_lote(
+        DecidirLoteInput(ids=[1, 5], decisao="rejeitar", observacao="Manter"),
+        requisicao(),
+        session,
+        usuario_teste(),
+        None,
+    )
+
+    assert resposta == {"decisao": "rejeitar", "processadas": 1, "ignoradas": 1}
+    assert session.excluidos == []
+    assert sol.status == "rejeitada"
+
+
 def test_exclusao_da_pesquisa_nao_exclui_o_lead() -> None:
     fk = next(iter(PesquisaMarca.__table__.c.lead_id.foreign_keys))
 
@@ -221,3 +302,5 @@ def test_telas_expoem_exclusao_protegida_e_fila_administrativa() -> None:
     assert "deletion-requests-empty" in script
     assert "Aprovar e excluir" in script
     assert "solicitar-exclusao" in dialog
+    assert 'id="deletion-select-all"' in leads
+    assert "decidir-lote" in dialog

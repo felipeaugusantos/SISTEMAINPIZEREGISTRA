@@ -227,13 +227,15 @@ async function loadDeletionRequests() {
     const list = document.querySelector("#deletion-request-list");
     list.innerHTML = data.itens.length ? data.itens.map(item => `
       <article class="learning-review-card deletion-request-card" data-request-id="${item.id}">
-        <header><div><p class="eyebrow">${escapeHtml(item.solicitado_por)}</p><h3>${escapeHtml(item.marca)}</h3></div><small>${formatDate(item.criado_em)}</small></header>
+        <header><label class="deletion-pick"><input class="deletion-check" type="checkbox" aria-label="Selecionar solicitação de ${escapeHtml(item.marca)}"></label><div><p class="eyebrow">${escapeHtml(item.solicitado_por)}</p><h3>${escapeHtml(item.marca)}</h3></div><small>${formatDate(item.criado_em)}</small></header>
         <p>${escapeHtml(item.motivo)}</p>
         <div class="lead-research-actions">
           <button class="secondary-button decide-deletion" data-decision="reject" type="button">Rejeitar</button>
           <button class="danger-button decide-deletion" data-decision="approve" type="button">Aprovar e excluir</button>
         </div>
       </article>`).join("") : '<p class="deletion-requests-empty">Nenhuma solicitação pendente.</p>';
+    document.querySelector("#deletion-request-bulk").hidden = !data.itens.length;
+    atualizarSelecaoExclusoes();
   } catch (error) {
     showMessage(error.message, "error");
   }
@@ -280,6 +282,32 @@ async function loadLeads() {
     showMessage(error.message, "error");
   } finally { state.loading = false; }
 }
+
+function exclusoesSelecionadas() {
+  return [...document.querySelectorAll("#deletion-request-list .deletion-check:checked")]
+    .map(box => Number(box.closest("[data-request-id]").dataset.requestId));
+}
+
+function atualizarSelecaoExclusoes() {
+  const todas = document.querySelectorAll("#deletion-request-list .deletion-check");
+  const marcadas = exclusoesSelecionadas().length;
+  const selectAll = document.querySelector("#deletion-select-all");
+  selectAll.checked = todas.length > 0 && marcadas === todas.length;
+  selectAll.indeterminate = marcadas > 0 && marcadas < todas.length;
+  document.querySelector("#deletion-selected-count").textContent = `${marcadas} selecionada${marcadas === 1 ? "" : "s"}`;
+  document.querySelector("#deletion-bulk-reject").disabled = !marcadas;
+  document.querySelector("#deletion-bulk-approve").disabled = !marcadas;
+}
+
+document.querySelector("#deletion-request-list").addEventListener("change", event => {
+  if (event.target.closest(".deletion-check")) atualizarSelecaoExclusoes();
+});
+document.querySelector("#deletion-select-all").addEventListener("change", event => {
+  document.querySelectorAll("#deletion-request-list .deletion-check").forEach(box => { box.checked = event.target.checked; });
+  atualizarSelecaoExclusoes();
+});
+document.querySelector("#deletion-bulk-approve").addEventListener("click", () => openResearchDelete("approve-lote", exclusoesSelecionadas()));
+document.querySelector("#deletion-bulk-reject").addEventListener("click", () => openResearchDelete("reject-lote", exclusoesSelecionadas()));
 
 document.querySelector("#deletion-request-list").addEventListener("click", event => {
   const button = event.target.closest(".decide-deletion");

@@ -114,6 +114,12 @@
           <div><p class="eyebrow">Aprovação administrativa</p><h2>Solicitações de exclusão</h2></div>
           <span id="deletion-request-count">0 pendentes</span>
         </header>
+        <div id="deletion-request-bulk" class="deletion-bulk-bar" hidden>
+          <label><input id="deletion-select-all" type="checkbox"> Selecionar todas</label>
+          <span id="deletion-selected-count">0 selecionadas</span>
+          <button id="deletion-bulk-reject" class="secondary-button" type="button" disabled>Rejeitar selecionadas</button>
+          <button id="deletion-bulk-approve" class="danger-button" type="button" disabled>Aprovar e excluir selecionadas</button>
+        </div>
         <div id="deletion-request-list" class="learning-review-list"></div>
       </section>
       <section class="lead-view-toolbar" aria-label="Visualização dos resultados">

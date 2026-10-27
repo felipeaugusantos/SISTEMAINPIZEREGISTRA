@@ -3,15 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/static/operations-list.css?v=1" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Painel de leads — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=67" />
     <link rel="stylesheet" href="/static/ze-brand.css?v=1" />
-    <link rel="stylesheet" href="/static/admin-leads.css?v=33" />
+    <link rel="stylesheet" href="/static/admin-leads.css?v=12" />
     <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=12 -->
     <script src="/static/admin-shell.js?v=56" defer></script>
     <script src="/static/lead-dialog.js?v=9" defer></script>
-    <script src="/static/admin-leads.js?v=76" defer></script>
+    <script src="/static/admin-leads.js?v=77" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
     <header class="topbar">
@@ -104,6 +105,8 @@
         <label><span>Desde</span><input id="lead-date-start" type="date" /></label>
         <label><span>Até</span><input id="lead-date-end" type="date" /></label>
         <label><span>Marketing</span><select id="lead-marketing-filter"><option value="">Todos</option><option value="true">Autorizado</option><option value="false">Não autorizado</option></select></label>
+        <label><span>Risco nas pesquisas</span><select id="lead-risk-filter"><option value="">Todos</option><option value="baixo">Baixo</option><option value="moderado">Moderado</option><option value="alto">Alto</option><option value="critico">Crítico</option></select></label>
+        <label><span>Ordenar por</span><select id="lead-sort"><option value="recentes">Mais recentes</option><option value="antigos">Mais antigos</option><option value="nome">Nome do contato</option></select></label>
         <button class="primary-button" type="submit">Filtrar</button>
         <button id="clear-lead-filters" class="secondary-button" type="button">Limpar filtros</button>
       </form>
@@ -149,10 +152,15 @@
         </table>
       </div>
       <nav class="lead-pagination" aria-label="Paginação dos leads">
-        <label>Por página <select id="lead-page-size"><option>20</option><option selected>50</option><option>100</option></select></label>
+        <label>Contatos por página <select id="lead-page-size"><option>20</option><option selected>50</option><option>100</option><option>200</option></select></label>
         <span id="lead-page-summary">0 resultados</span>
+        <button id="lead-first" class="secondary-button" type="button">Primeira</button>
+        <label>Página <input id="lead-page-number" type="number" min="1" value="1" inputmode="numeric" /></label>
+        <span id="lead-page-count">de 1</span>
+        <button id="lead-go" class="secondary-button" type="button">Ir</button>
         <button id="lead-prev" class="secondary-button" type="button">Anterior</button>
         <button id="lead-next" class="secondary-button" type="button">Próxima</button>
+        <button id="lead-last" class="secondary-button" type="button">Última</button>
       </nav>
     </main>
 

@@ -1,6 +1,6 @@
-const state = { offset: 0, pageSize: 20, statusLabels: {
+const state = { requestId: 0, offset: 0, pageSize: 20, statusLabels: {
   novo: "Novo", aprovado: "Aprovado", rejeitado: "Rejeitado", duplicado: "Duplicado", convertido_lead: "Convertido em lead",
-}, pollingCampanhas: false, canManage: false, canExport: false, supressoesOffset: 0, supressoesPageSize: 50 };
+}, pollingCampanhas: false, canManage: false, canConvert: false, canExport: false, supressoesOffset: 0, supressoesPageSize: 50 };
 const TRIAGEM_LABELS = {
   nao_localizado: "Não localizado", resultado_semelhante: "Resultado semelhante",
   resultado_relevante_localizado: "Resultado relevante localizado", inconclusivo: "Inconclusivo",
@@ -131,9 +131,10 @@ async function loadCampanhas() {
       <td><span class="prospeccao-campanha-status is-${escapeHtml(item.status)}">${item.status === "ativa" ? `<span class="prospeccao-spinner" aria-hidden="true"></span>` : ""}${escapeHtml(campanhaStatusLabel(item.status))}</span></td>
       <td>${item.prospects_gerados}</td>
       <td>
+        ${state.canManage ? `
         <button class="secondary-button" data-coletar type="button" ${item.status === "ativa" ? "disabled" : ""}>${item.status === "ativa" ? "Coletando…" : item.status === "concluida" ? "Coletar novamente" : "Coletar"}</button>
         ${item.status === "ativa" ? `<button class="secondary-button" data-cancelar-campanha type="button" title="Interrompe uma coleta travada, liberando a campanha para exclusão">Cancelar</button>` : ""}
-        <button class="secondary-button" data-excluir-campanha type="button" ${item.status === "ativa" ? "disabled" : ""} title="${item.status === "ativa" ? "Não é possível excluir com coleta em andamento" : "Excluir campanha"}">Excluir</button>
+        <button class="secondary-button" data-excluir-campanha type="button" ${item.status === "ativa" ? "disabled" : ""} title="${item.status === "ativa" ? "Não é possível excluir com coleta em andamento" : "Excluir campanha"}">Excluir</button>` : ""}
       </td>
     </tr>`).join("");
   iniciarPollingCampanhasSeNecessario();
@@ -142,6 +143,8 @@ async function loadCampanhas() {
 function prospectActions(item) {
   const botoes = [];
   botoes.push(`<button class="secondary-button" data-detalhe type="button">Detalhes</button>`);
+  if (state.canConvert && item.status === "aprovado") botoes.push(`<button class="primary-button" data-converter type="button">Converter em lead</button>`);
+  if (!state.canManage) return botoes.join("");
   if (!item.presenca_digital) botoes.push(`<button class="secondary-button" data-enriquecer type="button">Verificar site</button>`);
   if (!item.triagem_marca_status) botoes.push(`<button class="secondary-button" data-triar type="button">Triar marca</button>`);
   if (item.triagem_marca_status && item.score === null) botoes.push(`<button class="secondary-button" data-score type="button">Calcular score</button>`);
@@ -156,7 +159,6 @@ function prospectActions(item) {
   // mas o backend só converte quem já está "aprovado" (POST /converter-lead,
   // achado FASE5-9) -- clicar em "novo" sempre falhava com 422, dando a
   // impressão de que "não funciona". Só mostra quando pode de fato converter.
-  if (item.status === "aprovado") botoes.push(`<button class="primary-button" data-converter type="button">Converter em lead</button>`);
   return botoes.join("");
 }
 function renderProspects(data) {
@@ -209,14 +211,20 @@ function atualizarLinkExportacao() {
   document.querySelector("#export-prospects-xlsx").href = `/v1/admin/prospects/exportar.xlsx?${prospectFilterParams()}`;
 }
 async function loadProspects() {
-  let data = await api(`/v1/admin/prospects?${prospectFilterParams({ paginar: true })}`);
+  const requestId = ++state.requestId;
+  const read = () => api(`/v1/admin/prospects?${prospectFilterParams({ paginar: true })}`).catch(error => {
+    if (requestId === state.requestId) throw error;
+  });
+  let data = await read();
+  if (requestId !== state.requestId) return;
   // Se a última página esvaziou (ex.: o último item saiu do filtro depois de
   // aprovar/rejeitar/converter), recua para a última página válida e recarrega
   // -- evita "Página 2 de 1" com a lista vazia.
-  if (data.itens.length === 0 && state.offset > 0 && data.total > 0) {
+  if (data.itens.length === 0 && state.offset > 0) {
     state.offset = Math.max(0, (Math.ceil(data.total / state.pageSize) - 1) * state.pageSize);
-    data = await api(`/v1/admin/prospects?${prospectFilterParams({ paginar: true })}`);
+    data = await read();
   }
+  if (requestId !== state.requestId) return;
   renderProspects(data);
   atualizarLinkExportacao();
 }
@@ -294,12 +302,18 @@ async function configurarBotaoImportarCnpjRfb() {
   state.canManage = Boolean(
     usuario.superadmin || usuario.perfil === "administrador" || (usuario.permissoes || []).includes("prospeccao.manage"),
   );
+  state.canConvert = Boolean(
+    usuario.superadmin || usuario.perfil === "administrador" || (usuario.permissoes || []).includes("prospeccao.convert"),
+  );
   state.canExport = Boolean(
     usuario.superadmin || usuario.perfil === "administrador" || (usuario.permissoes || []).includes("prospeccao.export"),
   );
   document.querySelector("#export-prospects").hidden = !state.canExport;
   document.querySelector("#export-prospects-xlsx").hidden = !state.canExport;
   document.querySelector("#open-supressao").hidden = !state.canManage;
+  for (const id of ["open-manual", "open-import", "open-campanha", "open-politica"]) {
+    document.getElementById(id).hidden = !state.canManage;
+  }
 
   // Achado 16.2 da auditoria fina do Radar de Prospecção (24/09/2026):
   // GET /importar-cnpj-rfb agora é restrito a superadmin igual ao POST --
@@ -419,6 +433,8 @@ document.querySelector("#prospeccao-list").addEventListener("click", async event
   const card = event.target.closest("[data-id]"); if (!card) return;
   const id = card.dataset.id;
   const button = event.target.closest("button"); if (!button) return;
+  if (button.disabled) return;
+  button.disabled = true;
   try {
     if (button.dataset.detalhe !== undefined) { await abrirDetalhe(id); return; }
     if (button.dataset.enriquecer !== undefined) { await api(`/v1/admin/prospects/${id}/enriquecer`, { method: "POST" }); showMessage("Verificação de site agendada."); }
@@ -445,6 +461,7 @@ document.querySelector("#prospeccao-list").addEventListener("click", async event
     } else return;
     await reloadAll();
   } catch (error) { showMessage(error.message, "error"); }
+  finally { button.disabled = false; }
 });
 
 document.querySelector("#prospeccao-metrics").addEventListener("click", event => {
@@ -572,7 +589,7 @@ document.querySelector("#campanhas-rows").addEventListener("click", async event 
       await api(`/v1/admin/prospeccao/campanhas/${id}${excluirProspects ? "?excluir_prospects=true" : ""}`, { method: "DELETE" });
       showMessage(excluirProspects ? "Campanha e empresas coletadas excluídas." : "Campanha excluída; as empresas continuam no radar.");
       await loadCampanhas();
-      if (excluirProspects) await reloadAll();  // atualiza também o painel (funil) e a lista
+      await reloadAll();  // atualiza também o painel (funil) e a lista
     } catch (error) { showMessage(error.message, "error"); excluirButton.disabled = false; }
   }
 });
@@ -625,7 +642,7 @@ function renderDuplicatas(data) {
               <strong>${escapeHtml(item.nome_fantasia || item.razao_social)}</strong>
               <small>${escapeHtml(item.razao_social)}${item.cnpj ? ` · ${escapeHtml(item.cnpj)}` : ""} · ${escapeHtml(item.email || "sem e-mail")} · ${escapeHtml(item.telefone || "sem telefone")}</small>
             </div>
-            <button class="secondary-button" type="button" data-manter-grupo="${indiceGrupo}" data-manter-id="${item.id}">Manter este e mesclar os outros</button>
+            ${state.canManage ? `<button class="secondary-button" type="button" data-manter-grupo="${indiceGrupo}" data-manter-id="${item.id}">Manter este e mesclar os outros</button>` : ""}
           </li>`).join("")}
       </ul>
     </article>`).join("");
@@ -734,10 +751,14 @@ document.querySelector("#supressoes-lista").addEventListener("click", async even
   } catch (error) { showMessage(error.message, "error"); botao.disabled = false; }
 });
 
+document.querySelector("#prospeccao-clear").addEventListener("click", () => {
+  document.querySelector("#prospeccao-filter").reset();
+  state.offset = 0;
+  reloadAll().catch(error => showMessage(error.message, "error"));
+});
 popularSelecionaresUf();
 // configurarBotaoImportarCnpjRfb() precisa terminar antes de loadSupressoes()
 // pra state.canManage já estar certo quando os botões de remover renderizarem.
 configurarBotaoImportarCnpjRfb()
-  .then(loadSupressoes)
+  .then(() => Promise.all([loadSupressoes(), loadDashboard(), loadCampanhas(), loadProspects()]))
   .catch(error => showMessage(error.message, "error"));
-Promise.all([loadDashboard(), loadCampanhas(), loadProspects()]).catch(error => showMessage(error.message, "error"));

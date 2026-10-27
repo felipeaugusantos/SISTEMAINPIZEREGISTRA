@@ -24,7 +24,7 @@ const crmPriorities = document.querySelector("#crm-priorities");
 const state = {
   offset: 0, total: 0, owners: [], archiveId: null, loading: false,
   canManage: false, canArchive: false, canExport: false, canDeleteResearch: false, canPii: false,
-  viewMode: "researches", items: [], priority: "", semResponsavel: 0,
+  viewMode: "researches", items: [], priority: "", semResponsavel: 0, requestId: 0,
 };
 
 // Achado do usuário (16/09/2026, item 3): o endpoint de distribuição em
@@ -50,11 +50,81 @@ function currentParams(includePagination = true) {
   if (marketingFilter.value) params.set("marketing", marketingFilter.value);
   if (state.viewMode === "archived") params.set("arquivados", "true");
   if (state.priority) params.set("prioridade", state.priority);
+  const risk = document.querySelector("#lead-risk-filter").value;
+  if (risk) params.set("risco", risk);
+  params.set("ordenacao", document.querySelector("#lead-sort").value);
   if (includePagination) {
     params.set("limite", pageSize.value);
     params.set("deslocamento", state.offset);
   }
   return params;
+}
+
+// History belongs to this list entry. An opaque token also supports the
+// explicit breadcrumb and analysis links opened in another tab.
+function saveListPosition(event) {
+  const link = event.target.closest('a[href*="/admin/analises/"]');
+  if (!link) return;
+  const row = link.closest("[data-lead-id]");
+  const researchId = new URL(link.href).pathname.split("/").pop();
+  const contact = state.items.find(item => (item.pesquisas || []).some(research => String(research.id) === researchId));
+  const snapshot = {
+    path: location.pathname, offset: state.offset, size: pageSize.value,
+    view: state.viewMode, priority: state.priority, scroll: window.scrollY,
+    lead: row?.dataset.leadId || (contact ? String(contact.id) : null),
+    research: state.viewMode === "researches" ? researchId : null,
+    expanded: [...leadsList.querySelectorAll('.lead-researches-row:not([hidden])')].map(row => row.dataset.leadId),
+    fields: [...filters.querySelectorAll("input, select")].map(el => [el.id, el.value]),
+  };
+  history.replaceState({ ...history.state, zeLeads: snapshot }, "");
+  try {
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, "0")).join("");
+    sessionStorage.setItem(`ze-list:${token}`, JSON.stringify(snapshot));
+    const url = new URL(link.href);
+    url.searchParams.set("retorno", token);
+    link.href = url.href;
+  } catch (_) { /* Browser Back still restores history when storage is unavailable. */ }
+}
+document.addEventListener("click", saveListPosition, true);
+document.addEventListener("auxclick", saveListPosition, true);
+let restoredPosition = null;
+function restoreListPosition() {
+  let snapshot = history.state?.zeLeads;
+  try {
+    const token = new URLSearchParams(location.search).get("retomar");
+    if (token) snapshot = JSON.parse(sessionStorage.getItem(`ze-list:${token}`)) || snapshot;
+  } catch (_) { /* Ignore unavailable or invalid storage. */ }
+  if (!snapshot || snapshot.path !== location.pathname) return;
+  restoredPosition = snapshot;
+  for (const [id, value] of snapshot.fields || []) {
+    const field = document.getElementById(id);
+    if (field && filters.contains(field)) field.value = value;
+  }
+  if (["20", "50", "100", "200"].includes(snapshot.size)) pageSize.value = snapshot.size;
+  state.offset = Math.max(0, Number(snapshot.offset) || 0);
+  state.priority = snapshot.priority || "";
+  document.querySelector(`[data-view="${snapshot.view === "archived" ? "archived" : "researches"}"]`)?.click();
+  state.offset = Math.max(0, Number(snapshot.offset) || 0);
+}
+function applyListPosition() {
+  if (!restoredPosition) return;
+  const saved = restoredPosition;
+  restoredPosition = null;
+  for (const id of saved.expanded || []) {
+    const row = [...leadsList.querySelectorAll(".lead-researches-row")].find(row => row.dataset.leadId === id);
+    if (row) {
+      row.hidden = false;
+      row.previousElementSibling.querySelector(".toggle-researches")?.setAttribute("aria-expanded", "true");
+    }
+  }
+  const selected = [...leadsList.querySelectorAll("tr[data-lead-id]")].find(row =>
+    row.dataset.leadId === saved.lead && (!saved.research || row.dataset.researchId === saved.research));
+  if (selected) {
+    selected.classList.add("lead-returned");
+    selected.tabIndex = -1;
+    selected.focus({ preventScroll: true });
+  }
+  requestAnimationFrame(() => window.scrollTo(0, saved.scroll || 0));
 }
 
 function quickResearchHistory(lead) {
@@ -161,9 +231,16 @@ async function loadOwners() {
 function updatePagination(data) {
   const first = data.total ? data.deslocamento + 1 : 0;
   const last = Math.min(data.deslocamento + data.itens.length, data.total);
-  document.querySelector("#lead-page-summary").textContent = `${first}–${last} de ${data.total}`;
+  document.querySelector("#lead-page-summary").textContent = `${first}–${last} de ${data.total} contatos`;
   document.querySelector("#lead-prev").disabled = data.deslocamento === 0;
   document.querySelector("#lead-next").disabled = !data.tem_mais;
+  const pages = Math.max(1, Math.ceil(data.total / Number(pageSize.value)));
+  document.querySelector("#lead-first").disabled = data.deslocamento === 0;
+  document.querySelector("#lead-last").disabled = !data.tem_mais;
+  const input = document.querySelector("#lead-page-number");
+  input.max = String(pages);
+  input.value = String(Math.floor(data.deslocamento / Number(pageSize.value)) + 1);
+  document.querySelector("#lead-page-count").textContent = `de ${pages}`;
 }
 
 function renderPipeline(counts = {}) {
@@ -240,13 +317,22 @@ async function loadDeletionRequests() {
 }
 
 async function loadLeads() {
-  if (state.loading) return;
+  const requestId = ++state.requestId;
   state.loading = true;
+  const params = currentParams();
+  const requestedOffset = Number(params.get("deslocamento"));
+  const requestedSize = Number(params.get("limite"));
   showMessage("Carregando contatos…");
   try {
-    const response = await fetch(`/v1/admin/leads?${currentParams()}`);
+    const response = await fetch(`/v1/admin/leads?${params}`);
     if (!response.ok) throw new Error("Não foi possível carregar os contatos.");
     const data = await response.json();
+    if (requestId !== state.requestId) return;
+    const lastOffset = Math.max(0, (Math.ceil(data.total / requestedSize) - 1) * requestedSize);
+    if (requestedOffset > lastOffset) {
+      state.offset = lastOffset;
+      return loadLeads();
+    }
     state.total = data.total;
     state.items = data.itens;
     state.canManage = Boolean(data.acoes?.gerenciar);
@@ -275,10 +361,11 @@ async function loadLeads() {
     renderRows();
     loadDeletionRequests();
     updatePagination(data);
+    applyListPosition();
     showMessage(data.total ? "" : state.viewMode === "archived" ? "Nenhum cliente arquivado." : "Nenhum contato encontrado.");
   } catch (error) {
-    showMessage(error.message, "error");
-  } finally { state.loading = false; }
+    if (requestId === state.requestId) showMessage(error.message, "error");
+  } finally { if (requestId === state.requestId) state.loading = false; }
 }
 
 document.querySelector("#deletion-request-list").addEventListener("click", event => {
@@ -291,6 +378,18 @@ document.querySelector("#deletion-request-list").addEventListener("click", event
 filters.addEventListener("submit", event => { event.preventDefault(); state.offset = 0; loadLeads(); });
 document.querySelector("#clear-lead-filters").addEventListener("click", () => { filters.reset(); state.priority = ""; state.offset = 0; loadLeads(); });
 pageSize.addEventListener("change", () => { state.offset = 0; loadLeads(); });
+function goToPage(value) {
+  const pages = Math.max(1, Math.ceil(state.total / Number(pageSize.value)));
+  const page = Math.min(pages, Math.max(1, Math.trunc(Number(value)) || 1));
+  state.offset = (page - 1) * Number(pageSize.value);
+  loadLeads();
+}
+document.querySelector("#lead-first").addEventListener("click", () => goToPage(1));
+document.querySelector("#lead-last").addEventListener("click", () => goToPage(Infinity));
+document.querySelector("#lead-go").addEventListener("click", () => goToPage(document.querySelector("#lead-page-number").value));
+document.querySelector("#lead-page-number").addEventListener("keydown", event => {
+  if (event.key === "Enter") { event.preventDefault(); goToPage(event.currentTarget.value); }
+});
 document.querySelector("#lead-prev").addEventListener("click", () => { state.offset = Math.max(0, state.offset - Number(pageSize.value)); loadLeads(); });
 document.querySelector("#lead-next").addEventListener("click", () => { state.offset += Number(pageSize.value); loadLeads(); });
 document.querySelector("#export-leads").addEventListener("click", () => { location.href = `/v1/admin/leads.csv?${currentParams(false)}`; });
@@ -373,7 +472,7 @@ viewButtons.forEach(button => button.addEventListener("click", () => {
       ? "Clientes arquivados ficam preservados com suas pesquisas e contatos e podem ser restaurados."
       : "Cada linha representa um contato ativo e resume todo o seu histórico.";
   state.offset = 0;
-  loadLeads();
+  if (!restoredPosition) loadLeads();
 }));
 
 leadsList.addEventListener("change", async event => {
@@ -382,6 +481,7 @@ leadsList.addEventListener("change", async event => {
   const row = select.closest("tr");
   const previous = select.dataset.previous;
   select.disabled = true;
+  try {
   const response = await fetch(`/v1/admin/leads/${row.dataset.leadId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: select.value }) });
   select.disabled = false;
   if (!response.ok) { const erro = await response.json().catch(() => ({})); select.value = previous; showMessage(erro.detail || "Não foi possível atualizar o status.", "error"); return; }
@@ -389,6 +489,10 @@ leadsList.addEventListener("change", async event => {
   select.className = `lead-status status-${select.value}`;
   showMessage("Status atualizado.", "success");
   await Promise.all([loadLeads(), loadCrmSummary()]);
+  } catch (_) {
+    select.value = previous;
+    showMessage("Não foi possível atualizar o status. Tente novamente.", "error");
+  } finally { select.disabled = false; }
 });
 
 leadsList.addEventListener("click", event => {
@@ -450,7 +554,8 @@ if (location.pathname.startsWith("/admin/pesquisas")) {
   viewDescription.textContent = "Cada linha representa uma pesquisa dos contatos ativos exibidos nesta página.";
 }
 
-loadOwners().then(async () => {
+loadOwners().catch(() => showMessage("Não foi possível carregar os responsáveis.", "error")).then(async () => {
+  restoreListPosition();
   await Promise.all([loadLeads(), loadCrmSummary()]);
   const leadId = new URLSearchParams(location.search).get("lead_id");
   if (/^\d+$/.test(leadId || "")) await openLead(Number(leadId));

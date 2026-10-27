@@ -261,6 +261,7 @@ def _filtros_lead(
     marketing: bool | None,
     arquivados: bool,
     prioridade: str | None = None,
+    risco: str | None = None,
 ) -> list:
     filtros = [Lead.organizacao_id == usuario.organizacao_id]
     filtros.append(Lead.arquivado_em.is_not(None) if arquivados else Lead.arquivado_em.is_(None))
@@ -279,11 +280,22 @@ def _filtros_lead(
                 exists(
                     select(PesquisaMarca.id).where(
                         PesquisaMarca.lead_id == Lead.id,
-                        PesquisaMarca.marca.ilike(termo, escape="\\"),
+                        or_(
+                            PesquisaMarca.marca.ilike(termo, escape="\\"),
+                            PesquisaMarca.atividade.ilike(termo, escape="\\"),
+                        ),
                     )
                 ),
             )
         )
+    if risco:
+        filtros.append(exists(select(PesquisaMarca.id).join(
+            AvaliacaoRiscoMarca, AvaliacaoRiscoMarca.pesquisa_id == PesquisaMarca.id,
+        ).where(
+            PesquisaMarca.lead_id == Lead.id,
+            PesquisaMarca.organizacao_id == usuario.organizacao_id,
+            AvaliacaoRiscoMarca.nivel == risco,
+        )))
     if status_lead:
         filtros.append(Lead.status == status_lead)
     if origem:
@@ -906,7 +918,9 @@ async def listar_leads(
     data_fim: DataLead = None,
     marketing: bool | None = None,
     arquivados: bool = False,
+    ordenacao: Literal["recentes", "antigos", "nome"] = "recentes",
     prioridade: PrioridadeLead = None,
+    risco: Literal["baixo", "moderado", "alto", "critico"] | None = None,
 ) -> LeadListResponse:
     filtros = _filtros_lead(
         usuario,
@@ -919,6 +933,7 @@ async def listar_leads(
         marketing,
         arquivados,
         prioridade,
+        risco,
     )
 
     total = (await session.execute(select(func.count()).select_from(Lead).where(*filtros))).scalar_one()
@@ -931,7 +946,11 @@ async def listar_leads(
         select(Lead)
         .options(selectinload(Lead.responsavel))
         .where(*filtros)
-        .order_by(Lead.criado_em.desc(), Lead.id.desc())
+        .order_by(*{
+            "recentes": (Lead.criado_em.desc(), Lead.id.desc()),
+            "antigos": (Lead.criado_em.asc(), Lead.id.asc()),
+            "nome": (func.lower(Lead.nome).asc(), Lead.id.asc()),
+        }[ordenacao])
         .limit(limite)
         .offset(deslocamento)
     )
@@ -3865,6 +3884,8 @@ async def exportar_leads(
     data_fim: DataLead = None,
     marketing: bool | None = None,
     prioridade: PrioridadeLead = None,
+    risco: Literal["baixo", "moderado", "alto", "critico"] | None = None,
+    arquivados: bool = False,
 ) -> StreamingResponse:
     if not usuario.pode("leads.pii.view"):
         raise HTTPException(status_code=403, detail="Sem permissao para exportar dados de contato")
@@ -3877,8 +3898,9 @@ async def exportar_leads(
         data_inicio,
         data_fim,
         marketing,
-        False,
+        arquivados,
         prioridade,
+        risco,
     )
     leads = (
         (await session.execute(select(Lead).where(*filtros).order_by(Lead.criado_em.desc()).limit(5000)))
@@ -3960,6 +3982,8 @@ async def listar_emails_leads(
     data_fim: DataLead = None,
     marketing: bool | None = None,
     prioridade: PrioridadeLead = None,
+    risco: Literal["baixo", "moderado", "alto", "critico"] | None = None,
+    arquivados: bool = False,
 ) -> dict:
     """E-mails dos leads que batem com o filtro atual da tela, para copiar em lote
     (ex.: colar no campo "Para"/"Cco" do cliente de e-mail ao enviar uma proposta em
@@ -3975,8 +3999,9 @@ async def listar_emails_leads(
         data_inicio,
         data_fim,
         marketing,
-        False,
+        arquivados,
         prioridade,
+        risco,
     )
     emails = (
         (

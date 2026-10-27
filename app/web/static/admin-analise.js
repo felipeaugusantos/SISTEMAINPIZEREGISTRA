@@ -6,6 +6,14 @@ const helpDrawer = document.querySelector("#analysis-help");
 const registrabilityDialog = document.querySelector("#registrability-dialog");
 const registrabilityForm = document.querySelector("#registrability-form");
 let analysis = null;
+try {
+  const token = new URLSearchParams(location.search).get("retorno");
+  const saved = token && JSON.parse(sessionStorage.getItem(`ze-list:${token}`));
+  if (saved && ["/admin/leads", "/admin/pesquisas"].includes(saved.path)) {
+    const back = document.querySelector(".analysis-breadcrumb a");
+    back.href = `${saved.path}?retomar=${encodeURIComponent(token)}`;
+  }
+} catch (_) { /* The default breadcrumb remains available. */ }
 
 function escapeHtml(value) {
   const element = document.createElement("span");

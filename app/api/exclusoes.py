@@ -59,6 +59,10 @@ class DecidirExclusaoInput(BaseModel):
         return valor.strip() or None if valor else None
 
 
+class DecidirLoteInput(DecidirExclusaoInput):
+    ids: list[int] = Field(min_length=1, max_length=100)
+
+
 def _auditar(
     session: AsyncSession,
     usuario: UsuarioAutenticado,
@@ -267,6 +271,77 @@ async def listar_solicitacoes(
         .all()
     )
     return {"total": len(itens), "itens": [_solicitacao_response(item) for item in itens]}
+
+
+@router.post("/v1/admin/exclusoes-pesquisas/decidir-lote")
+async def decidir_solicitacoes_em_lote(
+    dados: DecidirLoteInput,
+    request: Request,
+    session: SessionDep,
+    usuario: PesquisaDeleteDep,
+    _limite: AcaoAdminDep,
+) -> dict:
+    ids = list(dict.fromkeys(dados.ids))
+    itens = (
+        (
+            await session.execute(
+                select(SolicitacaoExclusaoPesquisa)
+                .where(
+                    SolicitacaoExclusaoPesquisa.id.in_(ids),
+                    SolicitacaoExclusaoPesquisa.organizacao_id == usuario.organizacao_id,
+                    SolicitacaoExclusaoPesquisa.status == "pendente",
+                )
+                .order_by(SolicitacaoExclusaoPesquisa.id)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if dados.decisao == "aprovar":
+        await _exigir_senha(session, usuario, dados.senha, request, "pesquisas:lote")
+    agora = datetime.now(UTC)
+    processadas = 0
+    ignoradas = len(ids) - len(itens)
+    for item in itens:
+        pesquisa = None
+        if dados.decisao == "aprovar":
+            if item.pesquisa_id is None:
+                ignoradas += 1
+                continue
+            pesquisa = (
+                await session.execute(
+                    select(PesquisaMarca)
+                    .where(
+                        PesquisaMarca.id == item.pesquisa_id,
+                        PesquisaMarca.organizacao_id == usuario.organizacao_id,
+                    )
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if pesquisa is None:
+                ignoradas += 1
+                continue
+        item.status = "executada" if pesquisa is not None else "rejeitada"
+        item.decidido_por_id = usuario.id
+        item.decidido_por = usuario.ator
+        item.decisao_observacao = dados.observacao
+        item.decidido_em = agora
+        _auditar(
+            session,
+            usuario,
+            request,
+            "aprovar_exclusao" if pesquisa is not None else "rejeitar_exclusao",
+            f"pesquisa:{item.pesquisa_referencia}",
+            True,
+            200,
+            {"solicitacao_id": item.id, "marca": item.marca, "modo": "lote"},
+        )
+        if pesquisa is not None:
+            await session.delete(pesquisa)
+        processadas += 1
+    await session.commit()
+    return {"decisao": dados.decisao, "processadas": processadas, "ignoradas": ignoradas}
 
 
 @router.post("/v1/admin/exclusoes-pesquisas/{solicitacao_id}/decidir")

@@ -969,6 +969,20 @@
   display: grid;
   gap: 9px;
 }
+.deletion-bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 9px;
+  font-size: 0.78rem;
+}
+.deletion-bulk-bar[hidden] { display: none; }
+.deletion-bulk-bar label { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+.deletion-bulk-bar button { margin-left: 0; }
+.deletion-bulk-bar #deletion-selected-count { color: #68776f; margin-right: auto; }
+.deletion-pick { display: inline-flex; align-items: center; margin-right: 8px; }
+.deletion-request-card > header { align-items: center; }
 .deletion-requests-empty {
   margin: 0;
   padding-top: 9px;

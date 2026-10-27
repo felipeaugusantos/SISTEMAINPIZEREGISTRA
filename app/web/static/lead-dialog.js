@@ -1230,9 +1230,10 @@ function openResearchDelete(mode, id) {
   state.deleteMode = mode;
   state.deleteResearchId = mode === "direct" || mode === "request" ? id : null;
   state.deleteRequestId = mode === "approve" || mode === "reject" ? id : null;
+  state.deleteRequestIds = mode === "approve-lote" || mode === "reject-lote" ? id : null;
   researchDeleteForm.reset();
-  const passwordRequired = mode === "direct" || mode === "approve";
-  const reasonRequired = mode === "direct" || mode === "request" || mode === "reject";
+  const passwordRequired = mode === "direct" || mode === "approve" || mode === "approve-lote";
+  const reasonRequired = mode === "direct" || mode === "request" || mode === "reject" || mode === "reject-lote";
   root.querySelector("#research-delete-password-field").hidden = !passwordRequired;
   researchDeleteForm.elements.senha.required = passwordRequired;
   researchDeleteForm.elements.motivo.required = reasonRequired;
@@ -1241,12 +1242,16 @@ function openResearchDelete(mode, id) {
     request: "Solicitar exclusão da pesquisa?",
     approve: "Aprovar e excluir a pesquisa?",
     reject: "Rejeitar solicitação de exclusão?",
+    "approve-lote": `Aprovar e excluir ${(id || []).length} pesquisa(s)?`,
+    "reject-lote": `Rejeitar ${(id || []).length} solicitação(ões) de exclusão?`,
   };
   const descriptions = {
     direct: "Relatórios, análises e previsões vinculadas serão removidos. Confirme com sua senha atual.",
     request: "A pesquisa permanecerá disponível até um administrador analisar a solicitação.",
     approve: "A aprovação remove definitivamente a pesquisa e exige sua senha atual.",
     reject: "Informe ao solicitante por que a pesquisa deve ser preservada.",
+    "approve-lote": "A aprovação remove definitivamente todas as pesquisas selecionadas e exige sua senha atual.",
+    "reject-lote": "Informe por que as pesquisas selecionadas devem ser preservadas.",
   };
   root.querySelector("#research-delete-title").textContent = titles[mode];
   root.querySelector("#research-delete-description").textContent = descriptions[mode];
@@ -1280,6 +1285,20 @@ researchDeleteForm.addEventListener("submit", async event => {
         body: JSON.stringify({ motivo: data.motivo }),
       }));
       showMessage("Solicitação de exclusão enviada ao administrador.", "success");
+    } else if (state.deleteMode === "approve-lote" || state.deleteMode === "reject-lote") {
+      const aprovar = state.deleteMode === "approve-lote";
+      const resultado = await responsePayload(await fetch("/v1/admin/exclusoes-pesquisas/decidir-lote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ids: state.deleteRequestIds,
+          decisao: aprovar ? "aprovar" : "rejeitar",
+          senha: data.senha || null,
+          observacao: data.motivo || null,
+        }),
+      }));
+      const ignoradas = resultado.ignoradas ? ` ${resultado.ignoradas} ignorada(s) (já decididas ou inexistentes).` : "";
+      showMessage(`${resultado.processadas} solicitação(ões) ${aprovar ? "aprovada(s) e executada(s)" : "rejeitada(s)"}.${ignoradas}`, "success");
     } else {
       await responsePayload(await fetch(`/v1/admin/exclusoes-pesquisas/${state.deleteRequestId}/decidir`, {
         method: "POST",

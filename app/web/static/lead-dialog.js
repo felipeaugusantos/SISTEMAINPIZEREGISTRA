@@ -74,7 +74,10 @@ function showMessage(text, kind = "") {
 async function responsePayload(response) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload.detail || `Falha na operação (${response.status})`);
+    const detalhe = Array.isArray(payload.detail)
+      ? payload.detail.map(item => item.msg || JSON.stringify(item)).join("; ")
+      : payload.detail;
+    const error = new Error(typeof detalhe === "string" && detalhe ? detalhe : `Falha na operação (${response.status})`);
     error.status = response.status;
     throw error;
   }

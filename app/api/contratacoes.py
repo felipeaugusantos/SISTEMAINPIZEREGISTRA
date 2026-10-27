@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
+from app.datas import hoje_brasil
 from app.models import (
     ContratacaoServico,
     EmpresaCRM,
@@ -172,7 +173,7 @@ async def contratar_servico(dados: ContratacaoInput, session: SessionDep, usuari
         conta_contabil_id=conta_contabil_id,
         tipo="receber",
         descricao=servico.nome,
-        competencia=date.today(),
+        competencia=hoje_brasil(),
         valor_total=total,
         status="aberto",
         criado_por_id=usuario.id,
@@ -180,7 +181,7 @@ async def contratar_servico(dados: ContratacaoInput, session: SessionDep, usuari
     )
     session.add(lancamento)
     await session.flush()
-    inicio = dados.primeiro_vencimento or date.today()
+    inicio = dados.primeiro_vencimento or hoje_brasil()
     valor_parcela = (total / dados.parcelas).quantize(Decimal("0.01"))
     for numero in range(1, dados.parcelas + 1):
         valor = total - valor_parcela * (dados.parcelas - 1) if numero == dados.parcelas else valor_parcela
@@ -257,7 +258,7 @@ async def listar_inadimplencia(session: SessionDep, usuario: ViewDep) -> dict:
     que a própria organização deve, não inadimplência de cliente) também
     entravam na lista. Adiciona agregação por faixa de atraso e por
     cliente -- antes só existia uma lista plana de parcelas."""
-    hoje = date.today()
+    hoje = hoje_brasil()
     itens = (
         (
             await session.execute(
@@ -330,7 +331,7 @@ async def obter_previsao_caixa(
     (pagar) e saldo acumulado. Não inclui parcelas já vencidas (essas são
     inadimplência/contas a pagar atrasadas, não previsão -- ver
     /inadimplencia)."""
-    hoje = date.today()
+    hoje = hoje_brasil()
     limite = hoje + timedelta(days=dias)
     linhas = (
         await session.execute(

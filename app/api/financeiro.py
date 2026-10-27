@@ -16,6 +16,7 @@ from app.api.leads_propostas import sincronizar_pagamento_proposta_por_id
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.crm import normalizar_empresa, obter_ou_criar_empresa, registrar_evento_operacional
 from app.database import get_session
+from app.datas import hoje_brasil
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
 from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import (
@@ -353,7 +354,7 @@ async def _atualizar_status(lancamento: LancamentoFinanceiro) -> None:
 
 
 def _serializar(lancamento: LancamentoFinanceiro) -> dict:
-    hoje = date.today()
+    hoje = hoje_brasil()
     parcelas = [
         {
             "id": p.id,
@@ -448,7 +449,7 @@ async def listar(
         .limit(limite)
     )
     itens = (await session.execute(consulta)).scalars().all()
-    hoje = date.today()
+    hoje = hoje_brasil()
     resumo_filtros = [
         ParcelaFinanceira.organizacao_id == usuario.organizacao_id,
         LancamentoFinanceiro.status != "cancelado",
@@ -1966,6 +1967,21 @@ async def _gerar_comissao_se_aplicavel(session: AsyncSession, parcela: ParcelaFi
     if operador is None or not operador.percentual_comissao:
         return
     valor_comissao = (parcela.valor_pago * operador.percentual_comissao / Decimal(100)).quantize(Decimal("0.01"))
+    # Há UNIQUE(parcela_id) e o estorno só marca a comissão como "cancelada" (não apaga).
+    # Baixar de novo uma parcela estornada deve reativar essa linha, não inserir outra.
+    existente = (
+        await session.execute(select(ComissaoFinanceira).where(ComissaoFinanceira.parcela_id == parcela.id))
+    ).scalar_one_or_none()
+    if existente is not None:
+        if existente.status == "cancelada":
+            existente.usuario_id = operador.id
+            existente.valor_base = parcela.valor_pago
+            existente.percentual = operador.percentual_comissao
+            existente.valor_comissao = valor_comissao
+            existente.status = "pendente"
+            existente.pago_em = None
+            existente.pago_por = None
+        return
     session.add(
         ComissaoFinanceira(
             organizacao_id=lancamento.organizacao_id,
@@ -2598,7 +2614,7 @@ async def pagar_comissao(comissao_id: int, request: Request, session: SessionDep
     if comissao.status != "pendente":
         raise HTTPException(409, f"Comissão já está \"{comissao.status}\", não pode ser paga novamente")
     comissao.status = "paga"
-    comissao.pago_em = date.today()
+    comissao.pago_em = hoje_brasil()
     comissao.pago_por = usuario.ator
     _auditar(
         session,

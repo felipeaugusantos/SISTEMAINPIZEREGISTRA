@@ -18,6 +18,7 @@ from app.api.financeiro import (
 )
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
+from app.datas import hoje_brasil
 from app.main import app
 from app.models import (
     CategoriaFinanceira,
@@ -735,6 +736,45 @@ async def test_gerar_comissao_se_aplicavel_nao_cria_sem_percentual_configurado()
     assert session.adicionados == []
 
 
+async def test_gerar_comissao_reativa_comissao_cancelada_ao_rebaixar_parcela_estornada() -> None:
+    """Regressão: UNIQUE(parcela_id) + estorno que só cancela => nova baixa não pode inserir outra linha."""
+    lancamento = LancamentoFinanceiro(id=1, organizacao_id=1, tipo="receber", lead_id=5)
+    parcela = ParcelaFinanceira(id=10, organizacao_id=1, lancamento_id=1, numero=1, valor_pago=Decimal("1000"))
+    parcela.lancamento = lancamento
+    lead = Lead(id=5, organizacao_id=1, responsavel_id=7)
+    operador = UsuarioOperacoes(id=7, organizacao_id=1, percentual_comissao=Decimal("10.00"))
+    cancelada = ComissaoFinanceira(
+        id=3, organizacao_id=1, usuario_id=7, lancamento_id=1, parcela_id=10,
+        valor_base=Decimal("900"), percentual=Decimal("10"), valor_comissao=Decimal("90"), status="cancelada",
+    )
+    session = FakeSession([FakeResult(scalar=cancelada)], objetos_get=[lead, operador])
+
+    await _gerar_comissao_se_aplicavel(session, parcela)
+
+    assert session.adicionados == []
+    assert cancelada.status == "pendente"
+    assert cancelada.valor_base == Decimal("1000")
+    assert cancelada.valor_comissao == Decimal("100.00")
+
+
+async def test_gerar_comissao_nao_duplica_quando_ja_existe_comissao_ativa() -> None:
+    lancamento = LancamentoFinanceiro(id=1, organizacao_id=1, tipo="receber", lead_id=5)
+    parcela = ParcelaFinanceira(id=10, organizacao_id=1, lancamento_id=1, numero=1, valor_pago=Decimal("1000"))
+    parcela.lancamento = lancamento
+    lead = Lead(id=5, organizacao_id=1, responsavel_id=7)
+    operador = UsuarioOperacoes(id=7, organizacao_id=1, percentual_comissao=Decimal("10.00"))
+    ativa = ComissaoFinanceira(
+        id=3, organizacao_id=1, usuario_id=7, lancamento_id=1, parcela_id=10,
+        valor_base=Decimal("1000"), percentual=Decimal("10"), valor_comissao=Decimal("100"), status="paga",
+    )
+    session = FakeSession([FakeResult(scalar=ativa)], objetos_get=[lead, operador])
+
+    await _gerar_comissao_se_aplicavel(session, parcela)
+
+    assert session.adicionados == []
+    assert ativa.status == "paga"
+
+
 async def test_cancelar_comissao_da_parcela_marca_como_cancelada() -> None:
     comissao = ComissaoFinanceira(
         id=1, organizacao_id=1, usuario_id=7, lancamento_id=1, parcela_id=10,
@@ -821,7 +861,7 @@ def test_pagar_comissao_pendente_com_sucesso() -> None:
         app.dependency_overrides.clear()
     assert resposta.status_code == 200
     assert comissao.status == "paga"
-    assert comissao.pago_em == date.today()
+    assert comissao.pago_em == hoje_brasil()
 
 
 # --- Pedido do usuário (22/09/2026): categorias e subcategorias

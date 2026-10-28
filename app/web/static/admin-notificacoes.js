@@ -69,18 +69,37 @@ async function carregar() {
   }
 }
 
+let acaoPendente = false;
+async function alterarNotificacoes(url) {
+  if (acaoPendente) return;
+  acaoPendente = true;
+  const controles = [...document.querySelectorAll('.notif-toggle, #notif-marcar-todas-lidas, #notif-marcar-todas-nao-lidas, #notif-filter-todas')]
+    .map(elemento => ({ elemento, disabled: elemento.disabled }));
+  controles.forEach(({ elemento }) => { elemento.disabled = true; });
+  message.textContent = "Atualizando notificações…";
+  message.className = "status-message loading";
+  try {
+    const resposta = await fetch(url, { method: "POST" });
+    if (!resposta.ok) {
+      const dados = await resposta.json().catch(() => ({}));
+      throw new Error(typeof dados.detail === "string" ? dados.detail : "Não foi possível atualizar as notificações.");
+    }
+    await carregar();
+  } catch (erro) {
+    message.textContent = erro.message || "Não foi possível atualizar as notificações.";
+    message.className = "status-message error";
+  } finally {
+    acaoPendente = false;
+    controles.forEach(({ elemento, disabled }) => { elemento.disabled = disabled; });
+  }
+}
+
 list.addEventListener("click", async (event) => {
   const botao = event.target.closest(".notif-toggle");
   if (botao) {
     event.preventDefault();
     const { fonte, id, alvo } = botao.dataset;
-    botao.disabled = true;
-    try {
-      await fetch(`/v1/admin/notificacoes/${encodeURIComponent(fonte)}/${encodeURIComponent(id)}/${alvo}`, { method: "POST" });
-      await carregar();
-    } catch (_) {
-      botao.disabled = false;
-    }
+    await alterarNotificacoes(`/v1/admin/notificacoes/${encodeURIComponent(fonte)}/${encodeURIComponent(id)}/${alvo}`);
     return;
   }
   const link = event.target.closest('a[data-nav="1"]');
@@ -95,13 +114,11 @@ filtroTodas.addEventListener("change", () => {
 });
 
 document.querySelector("#notif-marcar-todas-lidas").addEventListener("click", async () => {
-  await fetch("/v1/admin/notificacoes/marcar-todas?lida=true", { method: "POST" });
-  await carregar();
+  await alterarNotificacoes("/v1/admin/notificacoes/marcar-todas?lida=true");
 });
 
 document.querySelector("#notif-marcar-todas-nao-lidas").addEventListener("click", async () => {
-  await fetch("/v1/admin/notificacoes/marcar-todas?lida=false", { method: "POST" });
-  await carregar();
+  await alterarNotificacoes("/v1/admin/notificacoes/marcar-todas?lida=false");
 });
 
 carregar();

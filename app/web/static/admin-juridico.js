@@ -546,6 +546,7 @@ document.querySelector("#legal-reprocess-preview").elements.regra_id.addEventLis
 
 document.querySelector("#legal-reprocess-confirm").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const confirmForm = event.currentTarget;
   const preview = legalState.reprocessPreview;
   if (!preview?.quantidade) return;
   const data = Object.fromEntries(new FormData(event.currentTarget));
@@ -558,7 +559,7 @@ document.querySelector("#legal-reprocess-confirm").addEventListener("submit", as
   try {
     const result = await api("/v1/admin/juridico/motor/reprocessamento", { method: "POST", body: JSON.stringify(payload) });
     showMessage(`Reprocessamento concluído: ${result.avaliacoes_liberadas} avaliação(ões) liberada(s) e ${result.resultado_motor.prazos_sugeridos || 0} novo(s) prazo(s) sugerido(s).`, "success");
-    event.currentTarget.hidden = true;
+    confirmForm.hidden = true;
     document.querySelector("#legal-reprocess-result").hidden = true;
     legalState.reprocessPreview = null;
     await Promise.all([loadDashboard(), loadLegalPolicy(), loadGovernance()]);

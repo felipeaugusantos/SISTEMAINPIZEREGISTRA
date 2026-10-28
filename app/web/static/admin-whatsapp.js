@@ -131,7 +131,8 @@ formConsentimento.addEventListener("submit", async evento => {
 document.querySelector("#wa-form-revogar").addEventListener("submit", async evento => {
   evento.preventDefault();
   const saida = document.querySelector("#wa-revogar-msg");
-  const f = evento.currentTarget.elements;
+  const form = evento.currentTarget;
+  const f = form.elements;
   if (!confirm("Revogar este telefone? As mensagens pendentes dele serão canceladas.")) return;
   saida.textContent = "Salvando…";
   try {
@@ -139,7 +140,7 @@ document.querySelector("#wa-form-revogar").addEventListener("submit", async even
       method: "POST", body: JSON.stringify({ finalidade: f.finalidade.value, telefone: f.telefone.value, origem: "atendimento" }),
     });
     saida.textContent = "Telefone revogado.";
-    evento.currentTarget.reset();
+    form.reset();
     await recarregar();
   } catch (erro) { saida.textContent = erro.message; }
 });

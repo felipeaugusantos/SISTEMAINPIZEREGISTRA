@@ -89,7 +89,8 @@ document.querySelector("#new-nota").addEventListener("click", () => {
 
 document.querySelector("#nfse-client-search").addEventListener("input", event => {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => pesquisarClientes(event.currentTarget.value), 250);
+  const termo = event.currentTarget.value;
+  searchTimer = setTimeout(() => pesquisarClientes(termo), 250);
 });
 
 document.querySelector("#nfse-client-results").addEventListener("click", event => {

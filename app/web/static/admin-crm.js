@@ -220,7 +220,8 @@ document.querySelector("#crm-next").addEventListener("click", () => { if (crmSta
 document.querySelector("#new-reminder").addEventListener("click", () => openReminder());
 document.querySelector("#crm-client-search").addEventListener("input", event => {
   clearTimeout(crmClientSearchTimer);
-  crmClientSearchTimer = setTimeout(() => pesquisarClientesLembrete(event.currentTarget.value), 250);
+  const termo = event.currentTarget.value;
+  crmClientSearchTimer = setTimeout(() => pesquisarClientesLembrete(termo), 250);
 });
 document.querySelector("#crm-client-results").addEventListener("click", event => {
   const option = event.target.closest("[data-lead-id]"); if (!option) return;

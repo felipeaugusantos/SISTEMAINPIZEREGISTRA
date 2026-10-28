@@ -53,9 +53,14 @@ test('Seletores carregam nos demais módulos e respeitam limites sem erros JavaS
     ['/admin/producao', ['audit']], ['/admin/observabilidade', ['events']],
     ['/admin/financeiro/conciliacao', ['transacoes']],
     ['/admin/atualizacoes', ['updates-funcionalidade', 'updates-correcao', 'updates-melhoria']],
-    ['/admin/configuracao/consulta-rpi', ['rpi-revista']],
+    ['/admin/configuracao/consulta-rpi', ['rpi-revista', 'rpi-query']],
   ]) {
     await page.goto(url);
+    if (url === '/admin/observabilidade') await page.locator('#aba-eventos').click();
+    if (url === '/admin/configuracao/consulta-rpi') {
+      await page.locator('.rpi-revista').first().click();
+      await page.locator('#rpi-open-records').click();
+    }
     for (const id of ids) {
       await expect(page.locator(`#${id}-page-size`)).toBeVisible();
       const options = await page.locator(`#${id}-page-size option`).evaluateAll(options => options.map(option => option.value));

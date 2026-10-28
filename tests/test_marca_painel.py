@@ -84,5 +84,5 @@ def test_endpoint_de_css_do_painel_usa_a_organizacao_do_usuario() -> None:
 def test_shell_do_painel_aplica_a_marca_do_escritorio() -> None:
     script = SHELL.read_text(encoding="utf-8")
     assert "function aplicarMarcaDoEscritorio" in script
-    assert "aplicarMarcaDoEscritorio(user.organizacao?.marca)" in script
+    assert "aplicarMarcaDoEscritorio(user.organizacao?.marca, user.organizacao?.slug)" in script
     assert "/v1/auth/me/marca.css" in script

@@ -1,0 +1,194 @@
+[
+  {
+    "route": "/admin/leads",
+    "template": "admin-leads.html"
+  },
+  {
+    "route": "/admin",
+    "template": "admin.html"
+  },
+  {
+    "route": "/admin/relatorios",
+    "template": "admin-relatorios.html"
+  },
+  {
+    "route": "/admin/atualizacoes",
+    "template": "admin-atualizacoes.html"
+  },
+  {
+    "route": "/admin/feature-flags",
+    "template": "admin-feature-flags.html"
+  },
+  {
+    "route": "/admin/atualizacoes/cadastrar",
+    "template": "admin-atualizacoes-cadastro.html"
+  },
+  {
+    "route": "/admin/configuracao/clicksign",
+    "template": "admin-clicksign.html"
+  },
+  {
+    "route": "/admin/configuracao/onboarding",
+    "template": "admin-onboarding.html"
+  },
+  {
+    "route": "/admin/consulta",
+    "template": "admin-consulta.html"
+  },
+  {
+    "route": "/admin/consulta/{pesquisa_id}",
+    "template": "admin-consulta.html"
+  },
+  {
+    "route": "/admin/figurativa",
+    "template": "admin-figurativa.html"
+  },
+  {
+    "route": "/admin/pesquisas",
+    "template": "admin-leads.html"
+  },
+  {
+    "route": "/admin/processos-monitorados",
+    "template": "admin-carteira.html"
+  },
+  {
+    "route": "/admin/prospeccao",
+    "template": "admin-prospeccao.html"
+  },
+  {
+    "route": "/admin/operacao-juridica",
+    "template": "admin-juridico.html"
+  },
+  {
+    "route": "/admin/crm",
+    "template": "admin-crm.html"
+  },
+  {
+    "route": "/admin/financeiro",
+    "template": "admin-financeiro.html"
+  },
+  {
+    "route": "/admin/financeiro/contas-a-pagar",
+    "template": "admin-financeiro.html"
+  },
+  {
+    "route": "/admin/financeiro/contas-a-receber",
+    "template": "admin-financeiro.html"
+  },
+  {
+    "route": "/admin/financeiro/formas-pagamento",
+    "template": "admin-financeiro-formas.html"
+  },
+  {
+    "route": "/admin/financeiro/categorias",
+    "template": "admin-financeiro-categorias.html"
+  },
+  {
+    "route": "/admin/financeiro/retribuicoes",
+    "template": "admin-retribuicoes.html"
+  },
+  {
+    "route": "/admin/financeiro/plano-contas",
+    "template": "admin-financeiro-contabil.html"
+  },
+  {
+    "route": "/admin/financeiro/configuracao-propostas",
+    "template": "admin-financeiro-proposta-planos.html"
+  },
+  {
+    "route": "/admin/financeiro/lucratividade",
+    "template": "admin-financeiro-lucratividade.html"
+  },
+  {
+    "route": "/admin/financeiro/comissoes",
+    "template": "admin-financeiro-comissoes.html"
+  },
+  {
+    "route": "/admin/financeiro/conciliacao",
+    "template": "admin-financeiro-conciliacao.html"
+  },
+  {
+    "route": "/admin/financeiro/nfse",
+    "template": "admin-financeiro-nfse.html"
+  },
+  {
+    "route": "/admin/configuracao/regras-automaticas",
+    "template": "admin-regras-automaticas.html"
+  },
+  {
+    "route": "/admin/configuracao/modelo-propostas",
+    "template": "admin-modelo-propostas.html"
+  },
+  {
+    "route": "/admin/configuracao/modelo-email-leads",
+    "template": "admin-modelo-email-leads.html"
+  },
+  {
+    "route": "/admin/configuracao/script-atendimento",
+    "template": "admin-script-atendimento.html"
+  },
+  {
+    "route": "/admin/assistente",
+    "template": "admin-assistente.html"
+  },
+  {
+    "route": "/admin/configuracao/consulta-rpi",
+    "template": "admin-consulta-rpi.html"
+  },
+  {
+    "route": "/admin/producao/log-financeiro",
+    "template": "admin-financeiro-log.html"
+  },
+  {
+    "route": "/admin/analises/{pesquisa_id}",
+    "template": "admin-analise.html"
+  },
+  {
+    "route": "/admin/fase2",
+    "template": "admin-fase2.html"
+  },
+  {
+    "route": "/admin/validacao",
+    "template": "admin-fase2.html"
+  },
+  {
+    "route": "/admin/fase3",
+    "template": "admin-fase3.html"
+  },
+  {
+    "route": "/admin/risco",
+    "template": "admin-fase3.html"
+  },
+  {
+    "route": "/admin/producao",
+    "template": "admin-producao.html"
+  },
+  {
+    "route": "/admin/aprendizado",
+    "template": "admin-aprendizado.html"
+  },
+  {
+    "route": "/admin/usuarios",
+    "template": "admin-usuarios.html"
+  },
+  {
+    "route": "/admin/notificacoes",
+    "template": "admin-notificacoes.html"
+  },
+  {
+    "route": "/admin/saas",
+    "template": "admin-saas.html"
+  },
+  {
+    "route": "/admin/confiabilidade",
+    "template": "admin-confiabilidade.html"
+  },
+  {
+    "route": "/admin/configuracao/whatsapp",
+    "template": "admin-whatsapp.html"
+  },
+  {
+    "route": "/admin/observabilidade",
+    "template": "admin-observabilidade.html"
+  }
+]

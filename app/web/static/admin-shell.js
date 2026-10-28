@@ -92,6 +92,8 @@ window.fetch = async (input, init = {}) => {
 // (/v1/auth/me -> organizacao.marca); a organização padrão sem nada
 // configurado ("propria" falso) mantém a identidade de sempre.
 const NOME_PLATAFORMA = "Zé Registra";
+// Arte original única na barra lateral, cabeçalho móvel e assistente flutuante.
+const ADMIN_CHARACTER_URL = "/static/assets/personagem.png?v=1";
 function aplicarMarcaDoEscritorio(marca) {
   if (!marca?.propria) return;
   document.querySelectorAll(".admin-sidebar-brand .brand-wordmark, .admin-mobile-header .brand-wordmark").forEach(el => {
@@ -128,7 +130,7 @@ function createAdminShell() {
   sidebar.id = "admin-sidebar";
   sidebar.innerHTML = `
     <a class="admin-sidebar-brand" href="/admin">
-      <img class="brand-avatar" src="/static/assets/personagem.png" alt="" />
+      <img class="brand-avatar" src="${ADMIN_CHARACTER_URL}" alt="" />
       <span><strong class="brand-wordmark">Zé Registra<sup>®</sup></strong><small>Centro de operações</small></span>
     </a>
     <button id="admin-sidebar-toggle" class="admin-sidebar-toggle" type="button" aria-controls="admin-sidebar" aria-expanded="true" title="Recolher menu">
@@ -158,7 +160,7 @@ function createAdminShell() {
   const mobileHeader = document.createElement("header");
   mobileHeader.className = "admin-mobile-header";
   mobileHeader.innerHTML = `
-    <a class="brand" href="/admin"><img class="brand-avatar" src="/static/assets/personagem.png" alt="" /><span class="brand-wordmark">Zé Registra<sup>®</sup></span></a>
+    <a class="brand" href="/admin"><img class="brand-avatar" src="${ADMIN_CHARACTER_URL}" alt="" /><span class="brand-wordmark">Zé Registra<sup>®</sup></span></a>
     <button class="admin-menu-toggle" type="button" aria-controls="admin-sidebar" aria-expanded="false">
       <span></span><span></span><span></span><b class="visually-hidden">Abrir menu</b>
     </button>
@@ -259,7 +261,7 @@ function createAssistenteWidget() {
   lancador.type = "button";
   lancador.className = "assistente-widget-launcher";
   lancador.setAttribute("aria-label", "Abrir Zezinho das Marcas");
-  lancador.innerHTML = '<img src="/static/assets/personagem.png" alt="" />';
+  lancador.innerHTML = `<img src="${ADMIN_CHARACTER_URL}" alt="" />`;
 
   const painel = document.createElement("section");
   painel.className = "assistente-widget-panel";

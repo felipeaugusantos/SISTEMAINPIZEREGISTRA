@@ -430,6 +430,7 @@ async def listar(
     fim: date | None = None,
     busca: Annotated[str | None, Query(max_length=120)] = None,
     limite: Annotated[int, Query(ge=1, le=200)] = 100,
+    deslocamento: Annotated[int, Query(ge=0)] = 0,
 ) -> dict:
     filtros = _filtros(usuario, tipo, status, inicio, fim, busca)
     consulta = (
@@ -444,7 +445,8 @@ async def listar(
         .outerjoin(ParcelaFinanceira, ParcelaFinanceira.lancamento_id == LancamentoFinanceiro.id)
         .where(*filtros)
         .distinct()
-        .order_by(LancamentoFinanceiro.criado_em.desc())
+        .order_by(LancamentoFinanceiro.criado_em.desc(), LancamentoFinanceiro.id.desc())
+        .offset(deslocamento)
         .limit(limite)
     )
     itens = (await session.execute(consulta)).scalars().all()
@@ -493,7 +495,17 @@ async def listar(
     return {
         "resumo": {k: int(v) if k.startswith("parcelas_") else float(v) for k, v in resumo.items()},
         "itens": [_serializar(x) for x in itens],
-        "total": len(itens),
+        "total": (
+            await session.execute(
+                select(func.count(func.distinct(LancamentoFinanceiro.id)))
+                .select_from(LancamentoFinanceiro)
+                .outerjoin(EmpresaCRM, EmpresaCRM.id == LancamentoFinanceiro.empresa_id)
+                .outerjoin(ParcelaFinanceira, ParcelaFinanceira.lancamento_id == LancamentoFinanceiro.id)
+                .where(*filtros)
+            )
+        ).scalar_one(),
+        "limite": limite,
+        "deslocamento": deslocamento,
     }
 
 

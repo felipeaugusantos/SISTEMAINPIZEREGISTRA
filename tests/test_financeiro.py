@@ -90,7 +90,7 @@ def test_pagina_financeira_e_protegida_por_permissao() -> None:
         assert "Controle contas a pagar e receber" in response.text
         assert "Novo lançamento" in response.text
         assert "admin-financeiro.css?v=15" in response.text
-        assert "admin-financeiro.js?v=16" in response.text
+        assert "admin-financeiro.js?v=17" in response.text
         assert 'id="company-search-query"' in response.text
         assert 'placeholder="Digite o nome ou / para carregar a lista"' in response.text
     finally:

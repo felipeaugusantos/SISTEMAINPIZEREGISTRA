@@ -116,6 +116,13 @@ function agruparHistoricoPorCliente(itens) {
   }
   return grupos;
 }
+const crmPager = window.ZRPagination?.create({
+  id: "crm", previous: "#crm-prev", next: "#crm-next", sizes: [10,20,50,100,200],
+  get: () => ({offset: crmState.offset, limit: crmState.limit}),
+  set: value => { crmState.offset = value.offset; crmState.limit = value.limit; },
+  load: () => loadHistory(),
+
+});
 function renderHistory(data) {
   crmState.total = data.total; crmState.ultimoHistorico = data; renderMetrics(data);
   document.querySelector("#crm-total").textContent = `${data.total} registro${data.total === 1 ? "" : "s"}`;
@@ -127,6 +134,7 @@ function renderHistory(data) {
   document.querySelector("#crm-page").textContent = `Página ${page}`;
   document.querySelector("#crm-prev").disabled = crmState.offset === 0;
   document.querySelector("#crm-next").disabled = !data.tem_mais;
+  crmPager?.update(data.total);
 }
 async function loadHistory() { show(""); renderHistory(await api(`/v1/admin/crm/historico?${params()}`)); }
 async function loadAtendimentoStats() {
@@ -148,6 +156,13 @@ function renderCustomerAlerts(items) {
   const target = document.querySelector("#crm-customer-alerts");
   target.innerHTML = items.length ? `<details class="crm-customer-alert"><summary>${items.length} cadastro${items.length === 1 ? "" : "s"} sem atualização há mais de 90 dias</summary><div>${items.map(item => `<article><span><strong>${esc(item.cliente)}</strong><small>${esc(item.empresa || "Empresa não informada")} · última atualização ${dateTime.format(new Date(item.atualizado_em))}</small></span><button class="secondary-button create-update-reminder" type="button" data-lead-id="${item.lead_id}">Criar alerta</button></article>`).join("")}</div></details>` : "";
 }
+const crm_remindersPager = window.ZRPagination?.create({
+  id: "crm-reminders", previous: "#crm-reminders-prev", next: "#crm-reminders-next", sizes: [4,10,20,50,100,200],
+  get: () => ({offset: crmState.remindersOffset, limit: crmState.remindersLimit}),
+  set: value => { crmState.remindersOffset = value.offset; crmState.remindersLimit = value.limit; },
+  load: () => loadReminders(),
+
+});
 function renderReminders(data) {
   crmState.canManage = data.acoes.gerenciar; crmState.remindersTotal = data.total; renderReminderMetrics(data.metricas); renderCustomerAlerts(data.cadastros_para_atualizar);
   document.querySelector("#new-reminder").hidden = !crmState.canManage;
@@ -156,6 +171,7 @@ function renderReminders(data) {
   document.querySelector("#crm-reminders-page").textContent = `Página ${page}`;
   document.querySelector("#crm-reminders-prev").disabled = crmState.remindersOffset === 0;
   document.querySelector("#crm-reminders-next").disabled = !data.tem_mais;
+  crm_remindersPager?.update(data.total);
 }
 async function loadReminders() {
   let data = await api(`/v1/admin/crm/lembretes?${reminderParams()}`);

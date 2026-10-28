@@ -6,7 +6,8 @@ const revistaList = document.querySelector("#rpi-revista-list");
 const revistaPage = document.querySelector("#rpi-revista-page");
 let revistaOffset = 0;
 let revistaTotal = 0;
-const rpiPageSize = 20;
+let rpiPageSize = 20;
+let revistaPageSize = 10;
 let rpiOffset = 0;
 const situacaoField = document.createElement("label");
 situacaoField.className = "rpi-situacao-field";
@@ -19,16 +20,31 @@ situacaoField.querySelector("select").addEventListener("change", () => {
 });
 const rpiEsc = value => String(value ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
 const rpiDate = value => value ? new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR") : "-";
+const rpi_revistaPager = window.ZRPagination?.create({
+  id: "rpi-revista", previous: "#rpi-revista-prev", next: "#rpi-revista-next", sizes: [5,10],
+  get: () => ({offset: revistaOffset, limit: revistaPageSize}),
+  set: value => { revistaOffset = value.offset; revistaPageSize = value.limit; },
+  load: () => loadRevistas(),
+  container: '.rpi-revista-pagination',
+});
 async function loadRevistas() {
-  const response = await fetch(`/v1/admin/rpi/consulta/revistas?limite=10&deslocamento=${revistaOffset}`);
+  const response = await fetch(`/v1/admin/rpi/consulta/revistas?limite=${revistaPageSize}&deslocamento=${revistaOffset}`);
   const data = await response.json();
   if (!response.ok) throw new Error(data.detail || "Não foi possível carregar as revistas RPI.");
   revistaTotal = data.total;
   revistaList.innerHTML = data.itens.length ? data.itens.map(item => `<button type="button" class="rpi-revista" data-rpi="${item.numero_rpi}"><strong>RPI ${item.numero_rpi}</strong><span>${item.registros_processados || 0} registros de marcas</span></button>`).join("") : "<p class=\"rpi-empty\">Nenhuma revista importada.</p>";
-  revistaPage.textContent = `Página ${Math.floor(revistaOffset / 10) + 1} de ${Math.max(1, Math.ceil(data.total / 10))}`;
+  revistaPage.textContent = `Página ${Math.floor(revistaOffset / revistaPageSize) + 1} de ${Math.max(1, Math.ceil(data.total / revistaPageSize))}`;
   document.querySelector("#rpi-revista-prev").disabled = revistaOffset === 0;
-  document.querySelector("#rpi-revista-next").disabled = revistaOffset + 10 >= data.total;
+  document.querySelector("#rpi-revista-next").disabled = revistaOffset + revistaPageSize >= data.total;
+  rpi_revistaPager?.update(data.total);
 }
+const rpi_queryPager = window.ZRPagination?.create({
+  id: "rpi-query", previous: "#rpi-query-prev", next: "#rpi-query-next", sizes: [20,50,100],
+  get: () => ({offset: rpiOffset, limit: rpiPageSize}),
+  set: value => { rpiOffset = value.offset; rpiPageSize = value.limit; },
+  load: () => rpiLoad(),
+
+});
 async function rpiLoad() {
   const params = new URLSearchParams(new FormData(rpiForm));
   params.set("limite", rpiPageSize); params.set("deslocamento", rpiOffset);
@@ -44,14 +60,15 @@ async function rpiLoad() {
     document.querySelector("#rpi-query-page").textContent = totalPages ? `Página ${Math.floor(rpiOffset / rpiPageSize) + 1} de ${totalPages}` : `Página ${Math.floor(rpiOffset / rpiPageSize) + 1}`;
     document.querySelector("#rpi-query-prev").disabled = rpiOffset === 0;
     document.querySelector("#rpi-query-next").disabled = data.total == null ? !data.tem_mais : rpiOffset + rpiPageSize >= data.total;
-    rpiPagination.hidden = data.total == null ? !data.itens.length : data.total <= rpiPageSize;
+  rpi_queryPager?.update(data.total);
+    rpiPagination.hidden = false;
   } catch (error) { const message = error instanceof TypeError ? "Não foi possível conectar à API da Consulta RPI." : rpiEsc(error.message); rpiResults.innerHTML = `<p class="rpi-empty rpi-load-error">${message} <button type="button" id="rpi-retry" class="secondary-button">Tentar novamente</button></p>`; document.querySelector("#rpi-retry")?.addEventListener("click", () => rpiLoad()); rpiPagination.hidden = true; rpiMessage.textContent = ""; rpiMessage.className = "status-message"; }
 }
 rpiForm.addEventListener("submit", event => { event.preventDefault(); if (!rpiForm.elements.numero_rpi.value) return; rpiOffset = 0; rpiLoad(); });
 document.querySelector("#rpi-query-clear").addEventListener("click", () => { rpiForm.reset(); rpiForm.elements.numero_rpi.value = ""; document.querySelector("#rpi-open-records").disabled = true; document.querySelectorAll(".rpi-revista.selected").forEach(item => item.classList.remove("selected")); rpiOffset = 0; rpiResults.replaceChildren(); rpiPagination.hidden = true; });
 revistaList.addEventListener("click", event => { const button = event.target.closest(".rpi-revista"); if (!button) return; document.querySelectorAll(".rpi-revista.selected").forEach(item => item.classList.remove("selected")); button.classList.add("selected"); rpiForm.elements.numero_rpi.value = button.dataset.rpi; document.querySelector("#rpi-open-records").disabled = false; });
-document.querySelector("#rpi-revista-prev").addEventListener("click", () => { revistaOffset = Math.max(0, revistaOffset - 10); loadRevistas().catch(error => { rpiMessage.textContent = error.message; rpiMessage.className = "status-message error"; }); });
-document.querySelector("#rpi-revista-next").addEventListener("click", () => { revistaOffset += 10; loadRevistas().catch(error => { rpiMessage.textContent = error.message; rpiMessage.className = "status-message error"; }); });
+document.querySelector("#rpi-revista-prev").addEventListener("click", () => { revistaOffset = Math.max(0, revistaOffset - revistaPageSize); loadRevistas().catch(error => { rpiMessage.textContent = error.message; rpiMessage.className = "status-message error"; }); });
+document.querySelector("#rpi-revista-next").addEventListener("click", () => { revistaOffset += revistaPageSize; loadRevistas().catch(error => { rpiMessage.textContent = error.message; rpiMessage.className = "status-message error"; }); });
 document.querySelector("#rpi-query-prev").addEventListener("click", () => { rpiOffset = Math.max(0, rpiOffset - rpiPageSize); rpiLoad(); });
 document.querySelector("#rpi-query-next").addEventListener("click", () => { rpiOffset += rpiPageSize; rpiLoad(); });
 loadRevistas().catch(error => { rpiMessage.textContent = error.message; rpiMessage.className = "status-message error"; });

@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>Financeiro — Zé Registra</title>
   <link rel="stylesheet" href="/static/styles.css?v=71"><link rel="stylesheet" href="/static/admin-financeiro.css?v=15"><link rel="stylesheet" href="/static/admin-company-search.css?v=1">
-  <script src="/static/admin-shell.js?v=59" defer></script><script src="/static/admin-financeiro.js?v=16" defer></script>
+  <script src="/static/admin-shell.js?v=59" defer></script><link rel="stylesheet" href="/static/admin-pagination.css?v=1"><script src="/static/admin-pagination.js?v=1" defer></script><script src="/static/admin-financeiro.js?v=17" defer></script>
 </head>
 <body class="admin-body" data-admin-section="finance">
   <main class="admin-main finance-main">
@@ -27,6 +27,7 @@
       </form>
       <div class="finance-list-heading-actions"><button id="new-company-inline" class="secondary-button" type="button">Cadastrar empresa</button><strong id="finance-list-count">0 registros</strong></div>
       <div id="finance-list" class="finance-list"></div>
+      <nav class="finance-pagination" aria-label="Paginação dos lançamentos"><button id="finance-prev" class="secondary-button" type="button">Anterior</button><span id="finance-page-summary" aria-live="polite"></span><button id="finance-next" class="secondary-button" type="button">Próxima</button></nav>
     </section>
   </main>
 

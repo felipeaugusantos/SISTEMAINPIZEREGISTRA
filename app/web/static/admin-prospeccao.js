@@ -230,6 +230,13 @@ function renderProspects(data) {
     </article>`).join("");
   renderPagination(data);
 }
+const prospeccaoPager = window.ZRPagination?.create({
+  id: "prospeccao", previous: "#prospeccao-prev", next: "#prospeccao-next", sizes: [20,50,100,200],
+  get: () => ({offset: state.offset, limit: state.pageSize}),
+  set: value => { state.offset = value.offset; state.pageSize = value.limit; },
+  load: () => loadProspects(),
+
+});
 function renderPagination(data) {
   const nav = document.querySelector("#prospeccao-pagination");
   const totalPages = Math.max(1, Math.ceil(data.total / state.pageSize));
@@ -238,6 +245,7 @@ function renderPagination(data) {
   document.querySelector("#prospeccao-page-summary").textContent = `Página ${currentPage} de ${totalPages} · ${data.total} prospect(s)`;
   document.querySelector("#prospeccao-prev").disabled = state.offset === 0;
   document.querySelector("#prospeccao-next").disabled = currentPage >= totalPages;
+  prospeccaoPager?.update(data.total);
 }
 function prospectFilterParams({ paginar = false } = {}) {
   // Achado do usuário: UF já vinha certo aqui (URLSearchParams a partir de
@@ -763,15 +771,22 @@ function renderSupressoes(data) {
   }
   renderSupressoesPagination(data);
 }
+const supressoesPager = window.ZRPagination?.create({
+  id: "supressoes", previous: "#supressoes-prev", next: "#supressoes-next", sizes: [20,50,100,200],
+  get: () => ({offset: state.supressoesOffset, limit: state.supressoesPageSize}),
+  set: value => { state.supressoesOffset = value.offset; state.supressoesPageSize = value.limit; },
+  load: () => loadSupressoes(),
+
+});
 function renderSupressoesPagination(data) {
   const nav = document.querySelector("#supressoes-pagination");
-  if (data.total <= data.itens.length && state.supressoesOffset === 0) { nav.hidden = true; return; }
   const totalPages = Math.max(1, Math.ceil(data.total / state.supressoesPageSize));
   const currentPage = Math.floor(state.supressoesOffset / state.supressoesPageSize) + 1;
   nav.hidden = false;
   document.querySelector("#supressoes-page-summary").textContent = `Página ${currentPage} de ${totalPages} · ${data.total} supressão(ões)`;
   document.querySelector("#supressoes-prev").disabled = state.supressoesOffset === 0;
   document.querySelector("#supressoes-next").disabled = currentPage >= totalPages;
+  supressoesPager?.update(data.total);
 }
 async function loadSupressoes() {
   const data = await api(`/v1/admin/prospeccao/supressoes?limite=${state.supressoesPageSize}&deslocamento=${state.supressoesOffset}`);

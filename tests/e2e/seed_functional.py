@@ -1,6 +1,7 @@
 """Dados sintéticos para homologação E2E. Recusa qualquer ambiente fora de test."""
 import asyncio
 from datetime import date
+from decimal import Decimal
 
 from sqlalchemy import select
 
@@ -8,12 +9,16 @@ from app.database import session_factory
 from app.models import (
     AlertaSistema,
     EmpresaCRM,
+    LancamentoFinanceiro,
     Movimentacao,
     MovimentacaoAvaliadaJuridico,
     Organizacao,
+    ParcelaFinanceira,
     Processo,
     ProcessoMonitorado,
+    Prospect,
     RegraPrazoJuridico,
+    RpiImportacao,
     TipoProcesso,
 )
 from app.settings import get_settings
@@ -41,6 +46,14 @@ async def main() -> None:
         session.add(MovimentacaoAvaliadaJuridico(organizacao_id=org.id, movimentacao_id=mov.id, motivo="sem_prazo_mapeado"))
         session.add(RegraPrazoJuridico(codigo_despacho="010", descricao_oficial="Exigencia formal homologacao E2E", tipo_prazo="exigencia", acao="Responder exigencia E2E", dias_prazo=60, contagem="corridos", vigencia_inicio=date(2026, 10, 20), fonte_legal="Fixture sintetica de homologacao funcional E2E", confianca="homologada", ativo=True, aprovado_por="fixture-e2e"))
         session.add(AlertaSistema(organizacao_id=org.id, severidade="info", codigo="auditoria_funcional_e2e", mensagem="Notificacao sintetica de homologacao E2E"))
+        for index in range(55):
+            session.add(Prospect(organizacao_id=org.id, razao_social=f"Prospect paginacao E2E {index:03}", uf="SP", status="novo"))
+            session.add(RpiImportacao(numero_rpi=4000+index, tipo="marca", registros_processados=0))
+            lancamento = LancamentoFinanceiro(organizacao_id=org.id, tipo="pagar", descricao=f"Paginacao financeira E2E {index:03}", competencia=date(2026, 10, 1), valor_total=Decimal('100.00'), criado_por="fixture-e2e")
+            session.add(lancamento)
+            await session.flush()
+            for numero in (1, 2):
+                session.add(ParcelaFinanceira(organizacao_id=org.id, lancamento_id=lancamento.id, numero=numero, vencimento=date(2026, 11, 1), valor=Decimal('50.00')))
         await session.commit()
 
 

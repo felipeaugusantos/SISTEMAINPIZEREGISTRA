@@ -204,6 +204,13 @@ function renderPortfolio(data) {
   renderPagination(data);
   updateBulkBar();
 }
+const portfolioPager = window.ZRPagination?.create({
+  id: "portfolio", previous: "#portfolio-prev", next: "#portfolio-next", sizes: [5,10,20],
+  get: () => ({offset: state.offset, limit: state.pageSize}),
+  set: value => { state.offset = value.offset; state.pageSize = value.limit; },
+  load: () => loadPortfolio(),
+
+});
 function renderPagination(data) {
   const nav = document.querySelector("#portfolio-pagination");
   const totalPages = Math.max(1, Math.ceil(data.total / state.pageSize));
@@ -212,6 +219,7 @@ function renderPagination(data) {
   document.querySelector("#portfolio-page-summary").textContent = `Página ${currentPage} de ${totalPages} · ${data.total} processo(s)`;
   document.querySelector("#portfolio-prev").disabled = state.offset === 0;
   document.querySelector("#portfolio-next").disabled = !data.tem_mais;
+  portfolioPager?.update(data.total);
 }
 function stageOptions(current) {
   return KANBAN_STAGES.map(([value, label]) => `<option value="${value}" ${current === value ? "selected" : ""}>${label}</option>`).join("");

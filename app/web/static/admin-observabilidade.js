@@ -205,6 +205,13 @@ function escapeHtml(value) {
 }
 function formatDateTime(value) { return value ? new Date(value).toLocaleString("pt-BR") : "—"; }
 
+const eventsPager = window.ZRPagination?.create({
+  id: "events", previous: "#events-prev", next: "#events-next", sizes: [20,50,100,200],
+  get: () => ({offset: eventsState.offset, limit: eventsState.pageSize}),
+  set: value => { eventsState.offset = value.offset; eventsState.pageSize = value.limit; },
+  load: () => carregarEventos(),
+
+});
 async function carregarEventos() {
   const rows = document.querySelector("#events-rows");
   const form = document.querySelector("#events-filter");
@@ -240,6 +247,7 @@ async function carregarEventos() {
     document.querySelector("#events-summary").textContent = `${first}–${last} de ${data.total}`;
     document.querySelector("#events-prev").disabled = data.deslocamento === 0;
     document.querySelector("#events-next").disabled = data.deslocamento + data.itens.length >= data.total;
+  eventsPager?.update(data.total);
   } catch (error) {
     rows.innerHTML = `<tr><td colspan="8">${escapeHtml(error.message)}</td></tr>`;
   }

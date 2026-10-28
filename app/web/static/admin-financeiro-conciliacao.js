@@ -3,13 +3,21 @@ const money=new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"});
 const dateFmt=new Intl.DateTimeFormat("pt-BR");
 let canManage=false;
 let offset=0;
-const limite=100;
+let limite=100;
 function esc(value){const x=document.createElement("span");x.textContent=value??"";return x.innerHTML}
 function show(text,kind="success"){msg.hidden=false;msg.textContent=text;msg.className=`status-message ${kind}`}
 async function api(url,options={}){const r=await fetch(url,options);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.detail||`Operação não concluída (${r.status})`);return d}
 async function apiJson(url,options={}){options.headers={"Content-Type":"application/json",...(options.headers||{})};return api(url,options)}
 document.querySelector("#upload-form").addEventListener("submit",async e=>{e.preventDefault();const uploadForm=e.currentTarget;const form=new FormData(uploadForm);try{const r=await api("/v1/admin/financeiro/conciliacao/importar",{method:"POST",body:form});show(`${r.importadas} transação(ões) importada(s), ${r.conciliadas_automaticamente} conciliada(s) automaticamente, ${r.duplicadas} duplicada(s) ignorada(s).`);uploadForm.reset();await load()}catch(x){show(x.message,"error")}});
-async function load(){const params=new URLSearchParams(new FormData(document.querySelector("#conc-filter")));[...params].forEach(([k,v])=>{if(!v)params.delete(k)});params.set("limite",String(limite));params.set("offset",String(offset));const data=await apiJson(`/v1/admin/financeiro/conciliacao?${params}`);document.querySelector("#transacoes-count").textContent=`${data.total} registro${data.total===1?"":"s"}`;document.querySelector("#transacoes-page").textContent=data.total?`Exibindo ${offset+1}–${Math.min(offset+data.itens.length,data.total)} de ${data.total}`:"0 registros";document.querySelector("#transacoes-prev").disabled=offset===0;document.querySelector("#transacoes-next").disabled=data.proximo_offset===null;const tbody=document.querySelector("#transacoes-tbody");tbody.innerHTML=data.itens.length?data.itens.map(t=>`<tr><td>${dateFmt.format(new Date(`${t.data}T12:00:00Z`))}</td><td>${esc(t.descricao)}</td><td>${t.tipo==="credito"?"Crédito":"Débito"}</td><td class="num">${money.format(t.valor)}</td><td><span class="finance-badge ${t.status}">${t.status}</span></td><td>${t.status==="pendente"&&canManage?`<button class="mini-button" data-conciliar="${t.id}">Conciliar</button> <button class="mini-button" data-ignorar="${t.id}">Ignorar</button>`:""}</td></tr>`).join(""):'<tr><td colspan="6">Nenhuma transação importada ainda.</td></tr>'}
+const transacoesPager = window.ZRPagination?.create({
+  id: "transacoes", previous: "#transacoes-prev", next: "#transacoes-next", sizes: [20,50,100,200],
+  get: () => ({offset: offset, limit: limite}),
+  set: value => { offset = value.offset; limite = value.limit; },
+  load: () => load(),
+
+});
+async function load(){const params=new URLSearchParams(new FormData(document.querySelector("#conc-filter")));[...params].forEach(([k,v])=>{if(!v)params.delete(k)});params.set("limite",String(limite));params.set("offset",String(offset));const data=await apiJson(`/v1/admin/financeiro/conciliacao?${params}`);document.querySelector("#transacoes-count").textContent=`${data.total} registro${data.total===1?"":"s"}`;document.querySelector("#transacoes-page").textContent=data.total?`Exibindo ${offset+1}–${Math.min(offset+data.itens.length,data.total)} de ${data.total}`:"0 registros";document.querySelector("#transacoes-prev").disabled=offset===0;document.querySelector("#transacoes-next").disabled=data.proximo_offset===null;
+  transacoesPager?.update(data.total);const tbody=document.querySelector("#transacoes-tbody");tbody.innerHTML=data.itens.length?data.itens.map(t=>`<tr><td>${dateFmt.format(new Date(`${t.data}T12:00:00Z`))}</td><td>${esc(t.descricao)}</td><td>${t.tipo==="credito"?"Crédito":"Débito"}</td><td class="num">${money.format(t.valor)}</td><td><span class="finance-badge ${t.status}">${t.status}</span></td><td>${t.status==="pendente"&&canManage?`<button class="mini-button" data-conciliar="${t.id}">Conciliar</button> <button class="mini-button" data-ignorar="${t.id}">Ignorar</button>`:""}</td></tr>`).join(""):'<tr><td colspan="6">Nenhuma transação importada ainda.</td></tr>'}
 document.querySelector("#conc-filter").addEventListener("submit",e=>{e.preventDefault();offset=0;load().catch(x=>show(x.message,"error"))});
 document.querySelector("#transacoes-prev").addEventListener("click",()=>{offset=Math.max(0,offset-limite);load().catch(x=>show(x.message,"error"))});
 document.querySelector("#transacoes-next").addEventListener("click",()=>{offset+=limite;load().catch(x=>show(x.message,"error"))});

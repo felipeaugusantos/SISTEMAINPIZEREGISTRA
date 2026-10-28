@@ -32,12 +32,20 @@ function renderAudit(items) {
     : `<tr><td colspan="5">Nenhum evento administrativo registrado.</td></tr>`;
 }
 
+const auditPager = window.ZRPagination?.create({
+  id: "audit", previous: "#audit-prev", next: "#audit-next", sizes: [10,20,50,100],
+  get: () => ({offset: auditState.offset, limit: auditState.pageSize}),
+  set: value => { auditState.offset = value.offset; auditState.pageSize = value.limit; },
+  load: () => loadProduction(),
+
+});
 function renderAuditPagination(data) {
   const totalPages = Math.max(1, Math.ceil(data.auditoria_total / auditState.pageSize));
   const currentPage = Math.floor(data.auditoria_deslocamento / auditState.pageSize) + 1;
   document.querySelector("#audit-page-summary").textContent = `Página ${currentPage} de ${totalPages} · ${data.auditoria_total} evento${data.auditoria_total === 1 ? "" : "s"}`;
   document.querySelector("#audit-prev").disabled = data.auditoria_deslocamento === 0;
   document.querySelector("#audit-next").disabled = data.auditoria_deslocamento + data.auditoria.length >= data.auditoria_total;
+  auditPager?.update(data.auditoria_total);
 }
 
 function render(data) {

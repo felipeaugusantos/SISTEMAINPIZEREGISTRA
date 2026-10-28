@@ -8,11 +8,14 @@ const templates = fs.readdirSync(web).filter(f => f.endsWith('.html') && fs.read
 const main = fs.readFileSync(path.join(web, '../main.py'), 'utf8');
 const routes = [...main.matchAll(/@app.get\(\s*"([^"]+)"[\s\S]*?return FileResponse\(web_dir \/ "([^"]+)"\)/g)]
   .filter(m => templates.includes(m[2])).map(m => [m[1].replace(/\{[^}]+\}/g, 'teste'), m[2]]);
-async function fixture(page, marca) {
+async function fixture(page, marca, options = {}) {
   await page.route('**/*', async route => {
     const p = new URL(route.request().url()).pathname;
     if (p.startsWith('/static/')) return route.fulfill({ path: path.join(web, p) });
-    if (p === '/v1/auth/me') return route.fulfill({ json: { nome: 'Equipe teste', perfil: 'administrador', permissoes: [], organizacao: { marca } } });
+    if (p === '/v1/auth/me') {
+      await options.beforeMe?.();
+      return route.fulfill({ json: { nome: 'Equipe teste', perfil: 'administrador', permissoes: [], organizacao: { marca, slug: options.slug || 'outro-escritorio' } } });
+    }
     if (p.endsWith('/marca.css')) return route.fulfill({ contentType: 'text/css', body: '' });
     if (p.startsWith('/v1/')) return route.fulfill({ json: { novidades: [] } });
     const file = routes.find(([url]) => url === p)?.[1];
@@ -85,4 +88,28 @@ test('marca própria e fallback conservam comportamento e proporções', async (
     assert.equal(await page.locator('.assistente-widget-launcher img').getAttribute('src'), '/static/assets/personagem.png?v=1');
     await page.close();
   }} finally { await browser.close(); }
+});
+
+test('marca tardia preserva personagem da plataforma e mantém personalização de outros escritórios', async () => {
+  const browser = await chromium.launch();
+  try { for (const width of [1440,390]) for (const [origin,slug,official] of [
+    ['https://app.zeregistra.com.br','ze-registra',true],
+    ['https://app.zeregistra.com.br','outro-escritorio',false],
+    ['https://escritorio.test','ze-registra',false],
+  ]) {
+    const page=await browser.newPage({viewport:{width,height:900}});let release;
+    const pending=new Promise(resolve=>{release=resolve;});
+    const custom='/static/assets/logo-zeregistra.png';
+    await fixture(page,{propria:true,nome:'Marca cadastrada',logo_url:custom},{slug,beforeMe:()=>pending});
+    await page.goto(origin+'/admin');
+    const selector=width===390?'.admin-mobile-header img':'.admin-sidebar-brand img';
+    assert.equal(await page.locator(selector).getAttribute('src'),'/static/assets/personagem.png?v=1');
+    await page.evaluate(()=>{window.brandChanges=[];new MutationObserver(ms=>ms.forEach(m=>window.brandChanges.push(m.target.getAttribute('src')))).observe(document.querySelector('.admin-sidebar-brand img'),{attributes:true,attributeFilter:['src']});});
+    const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/v1/auth/me');release();await response;
+    await page.waitForFunction(()=>document.querySelector('#admin-current-user').textContent.includes('Equipe teste'));
+    assert.equal(await page.locator(selector).getAttribute('src'),official?'/static/assets/personagem.png?v=1':custom);
+    assert.equal(await page.locator('.assistente-widget-launcher img').getAttribute('src'),'/static/assets/personagem.png?v=1');
+    if(official)assert.deepEqual(await page.evaluate(()=>window.brandChanges),[]);
+    await page.close();
+  }}finally{await browser.close();}
 });

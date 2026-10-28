@@ -139,7 +139,7 @@ function renderPaginacaoCategoria(chave, total) {
   const nav = document.querySelector(`#updates-pagination-${chave}`);
   nav.hidden = false;
   const pagina = updatesState.paginas[chave];
-  const inicio = (pagina - 1) * updatesPageSizes[chave] + 1;
+  const inicio = total ? (pagina - 1) * updatesPageSizes[chave] + 1 : 0;
   const fim = Math.min(pagina * updatesPageSizes[chave], total);
   nav.querySelector("[data-resumo]").textContent = `${inicio}–${fim} de ${total}`;
   nav.querySelector("[data-anterior]").disabled = pagina <= 1;

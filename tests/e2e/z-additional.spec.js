@@ -64,6 +64,25 @@ test('Produção e auditoria carrega sem erro de elementos removidos', async () 
   expect(errors).toEqual([]);
 });
 
+for (const [name, route, open, formId, dialog] of [
+  ['Categoria', '/admin/financeiro/categorias', '#new-category', '#category-form', '#category-dialog'],
+  ['Forma de pagamento', '/admin/financeiro/formas-pagamento', '#new-payment-method', '#payment-method-form', '#payment-method-dialog'],
+]) test(`${name}: erro visível no modal preserva dados e permite nova tentativa`, async () => {
+  await page.goto(route);
+  await page.locator(open).click();
+  const form = page.locator(formId), nome = `${name} recuperavel ${Date.now()}`;
+  await form.locator('[name=nome]').fill(nome);
+  await context.setOffline(true);
+  await form.locator('button[type=submit]').click();
+  await expect(page.locator(`${dialog} .status-message.error`)).toBeVisible();
+  await expect(form.locator('[name=nome]')).toHaveValue(nome);
+  await context.setOffline(false);
+  await form.locator('button[type=submit]').click();
+  await expect(page.locator(dialog)).not.toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: nome, exact: true })).toBeVisible();
+});
+
 test('Financeiro: filtros funcionam e permanecem dentro da tela nas três visões', async () => {
   for (const width of [390, 768, 1440]) {
     await page.setViewportSize({ width, height: 900 });

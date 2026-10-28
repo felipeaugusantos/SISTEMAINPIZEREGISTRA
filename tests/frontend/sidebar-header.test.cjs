@@ -37,7 +37,8 @@ test('cabeçalho mantém arte oficial, alinhamento e composição em seis págin
       if (await page.locator('.admin-menu-toggle').isVisible()) await page.locator('.admin-menu-toggle').click();
       const m=await metrics(page);
       assert.equal(await page.locator('.admin-sidebar-brand img').getAttribute('src'), '/static/assets/personagem.png?v=1');
-      assert.equal(m.image.width,42);assert.equal(m.image.height,56);assert.equal(m.image.fit,'contain');assert.equal(m.image.filter,'none');
+      // O Chromium pode devolver 41.999996px para uma caixa CSS de 42px.
+      assert.ok(Math.abs(m.image.width-42)<0.01);assert.ok(Math.abs(m.image.height-56)<0.01);assert.equal(m.image.fit,'contain');assert.equal(m.image.filter,'none');
       assert.ok(Math.abs((m.image.y+m.image.height/2)-(m.text.y+m.text.height/2))<1);
       assert.equal(m.name.x,m.subtitle.x);assert.ok(Math.abs(m.subtitle.y-m.name.y-m.name.height-4)<1);
       assert.equal(m.header.height,69);assert.equal(m.sidebar.width,252);

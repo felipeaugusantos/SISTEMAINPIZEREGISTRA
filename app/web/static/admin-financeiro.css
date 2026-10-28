@@ -150,6 +150,7 @@
 .finance-filter{grid-template-columns:repeat(3,1fr)}
 }
 @media(max-width:700px){
+.finance-filter{grid-template-columns:minmax(0,1fr)}
 .finance-list-heading{align-items:flex-start;flex-direction:column}
 .agenda-grid,.finance-quick-links{grid-template-columns:1fr}
 .finance-upcoming li{grid-template-columns:85px 1fr}

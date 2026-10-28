@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
   <title>Formas de pagamento — Zé Registra</title>
-  <link rel="stylesheet" href="/static/styles.css?v=71"><link rel="stylesheet" href="/static/admin-financeiro.css?v=13">
-  <script src="/static/admin-shell.js?v=59" defer></script><script src="/static/admin-financeiro-formas.js?v=1" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=71"><link rel="stylesheet" href="/static/admin-financeiro.css?v=15">
+  <script src="/static/admin-shell.js?v=59" defer></script><script src="/static/admin-financeiro-formas.js?v=2" defer></script>
 </head>
 <body class="admin-body" data-admin-section="finance">
   <main class="admin-main finance-main">
@@ -22,6 +22,7 @@
   </main>
   <dialog id="payment-method-dialog" class="finance-dialog compact"><form id="payment-method-form">
     <header><div><p class="eyebrow">FORMA DE PAGAMENTO</p><h2 id="payment-method-title">Nova forma</h2></div><button type="button" data-close="payment-method-dialog" aria-label="Fechar">×</button></header>
+    <div id="payment-method-form-message" class="status-message" role="alert" hidden></div>
     <input name="id" type="hidden">
     <label><span>Nome</span><input name="nome" minlength="2" maxlength="120" placeholder="Ex.: Cartão de crédito" required></label>
     <label><span>Tipo</span><select name="tipo"><option value="pix">PIX</option><option value="boleto">Boleto</option><option value="transferencia">Transferência</option><option value="cartao_credito">Cartão de crédito</option><option value="cartao_debito">Cartão de débito</option><option value="dinheiro">Dinheiro</option><option value="outro">Outro</option></select></label>

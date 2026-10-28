@@ -94,12 +94,16 @@ window.fetch = async (input, init = {}) => {
 const NOME_PLATAFORMA = "Zé Registra";
 // Arte original única na barra lateral, cabeçalho móvel e assistente flutuante.
 const ADMIN_CHARACTER_URL = "/static/assets/personagem.png?v=1";
-function aplicarMarcaDoEscritorio(marca) {
+function aplicarMarcaDoEscritorio(marca, organizacaoSlug) {
   if (!marca?.propria) return;
   document.querySelectorAll(".admin-sidebar-brand .brand-wordmark, .admin-mobile-header .brand-wordmark").forEach(el => {
     el.textContent = marca.nome;
   });
-  if (marca.logo_url) {
+  // O cadastro da plataforma pode conter um avatar anterior. Preserve a arte
+  // oficial após /me carregar, sem afetar a marca dos demais escritórios.
+  const preservarPersonagem = location.hostname === "app.zeregistra.com.br"
+    && organizacaoSlug === "ze-registra";
+  if (marca.logo_url && !preservarPersonagem) {
     document.querySelectorAll(".admin-sidebar-brand .brand-avatar, .admin-mobile-header .brand-avatar").forEach(img => {
       const padrao = img.src;
       img.referrerPolicy = "no-referrer";
@@ -487,7 +491,7 @@ originalFetch("/v1/auth/me").then(async response => {
   if (!response.ok) { location.href = "/login"; return; }
   const user = await response.json();
   document.querySelector("#admin-current-user").textContent = `${user.nome} · ${user.organizacao?.nome || user.perfil}`;
-  aplicarMarcaDoEscritorio(user.organizacao?.marca);
+  aplicarMarcaDoEscritorio(user.organizacao?.marca, user.organizacao?.slug);
   document.querySelectorAll(".admin-sidebar-brand, .admin-mobile-header .brand").forEach(link => {
     link.href = user.destino || "/admin";
   });

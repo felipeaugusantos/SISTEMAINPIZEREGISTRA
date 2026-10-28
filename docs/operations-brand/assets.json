@@ -1,0 +1,38 @@
+[
+  {
+    "file": "favicon-personagem.png",
+    "width": 256,
+    "height": 256,
+    "sha256": "233651caebbdac79ec6a94aeb68f4336c31dc0af3283160babdf8302dd8e14c9"
+  },
+  {
+    "file": "logo-zeregistra.png",
+    "width": 1570,
+    "height": 460,
+    "sha256": "af1d0b267872d58f2c5b629eb589d60ad78cfc4548fa0a5e00426a3249d95cdd"
+  },
+  {
+    "file": "mascote-foguete.png",
+    "width": 1254,
+    "height": 1254,
+    "sha256": "9dc3cd755bf776c02769507c907a9b34203013c26e13b4904ef5af54978d0cce"
+  },
+  {
+    "file": "personagem.png",
+    "width": 592,
+    "height": 1050,
+    "sha256": "9cd2a7e627edc066093e272c407b799d12532883dd26034f198670d5b1470442"
+  },
+  {
+    "file": "ze-registra-logo-tema-claro.png",
+    "width": 1688,
+    "height": 504,
+    "sha256": "7a7affc040ebc4de1be6f59e3988d4a909fd77c36d734f1a63ad0883b7c95fa3"
+  },
+  {
+    "file": "ze-registra-logo-tema-escuro.png",
+    "width": 1688,
+    "height": 504,
+    "sha256": "f544f7a4f316b7243a92976c2558d2ec5a0e855ca0984fa9077f0dae5e6da6ea"
+  }
+]

@@ -230,12 +230,20 @@ function renderHistory(items) {
     ? items.map((item) => `<article><time datetime="${escapeHtml(item.criado_em)}">${dateTime.format(new Date(item.criado_em))}</time><strong>${escapeHtml(item.numero)}</strong><span>${escapeHtml(item.descricao)}</span><span>${escapeHtml(item.ator)}</span></article>`).join("")
     : '<div class="legal-empty">O histórico será formado por criações, alterações, entregas, escalonamentos e leituras.</div>';
 }
+const legalPager = window.ZRPagination?.create({
+  id: "legal", previous: "#legal-prev", next: "#legal-next", sizes: [20,50,100],
+  get: () => ({offset: legalState.offset, limit: legalState.pageSize}),
+  set: value => { legalState.offset = value.offset; legalState.pageSize = value.limit; },
+  load: () => loadDashboard(),
+
+});
 function renderPagination(pagination) {
   const nav = document.querySelector("#legal-pagination");
   nav.hidden = false;
   document.querySelector("#legal-page-summary").textContent = `Página ${pagination.pagina} de ${pagination.total_paginas} · ${pagination.total_clientes} cliente(s)`;
   document.querySelector("#legal-prev").disabled = !pagination.tem_anterior;
   document.querySelector("#legal-next").disabled = !pagination.tem_proxima;
+  legalPager?.update(pagination.total_clientes);
 }
 async function loadDashboard() {
   const [data, checklists, intakes] = await Promise.all([

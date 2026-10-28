@@ -373,8 +373,14 @@ function renderCurrent(item) {
 
 let historyItems = [];
 let historyPage = 0;
-const HISTORY_PAGE_SIZE = 5;
+let HISTORY_PAGE_SIZE = 5;
 
+const rpiHistoryPager = window.ZRPagination?.create({
+  id: "rpi-history", previous: "#rpi-history-prev", next: "#rpi-history-next", container: "#rpi-history-pager", sizes: [5,10,20,50],
+  get: () => ({offset: historyPage * HISTORY_PAGE_SIZE, limit: HISTORY_PAGE_SIZE}),
+  set: value => { HISTORY_PAGE_SIZE = value.limit; historyPage = Math.floor(value.offset / value.limit); },
+  load: () => renderHistory(historyItems),
+});
 function renderHistory(items) {
   historyItems = items || [];
   const body = document.querySelector("#rpi-history");
@@ -390,13 +396,14 @@ function renderHistory(items) {
   const inicio = historyPage * HISTORY_PAGE_SIZE;
   const pagina = historyItems.slice(inicio, inicio + HISTORY_PAGE_SIZE);
   if (pager) {
-    pager.hidden = historyItems.length <= HISTORY_PAGE_SIZE;
+    pager.hidden = false;
     const info = pager.querySelector("#rpi-history-info");
     if (info) info.textContent = `Página ${historyPage + 1} de ${totalPaginas}`;
     const prev = pager.querySelector("#rpi-history-prev");
     const next = pager.querySelector("#rpi-history-next");
     if (prev) prev.disabled = historyPage === 0;
     if (next) next.disabled = historyPage >= totalPaginas - 1;
+    rpiHistoryPager?.update(historyItems.length);
   }
   body.innerHTML = pagina.map((item) => {
     const interval = item.rpi_inicio

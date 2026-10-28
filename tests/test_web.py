@@ -964,7 +964,7 @@ def test_producao_expoe_paginacao_da_auditoria() -> None:
     assert "PrÃ³xima" not in html
     assert 'class="lead-pagination"' in html
     assert "styles.css?v=" in html
-    assert "admin-producao.js?v=14" in html
+    assert "admin-producao.js?v=15" in html
     assert "pageSize: 10" in javascript
     assert "limite_auditoria" in javascript
     assert "deslocamento_auditoria" in javascript

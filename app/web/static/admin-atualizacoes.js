@@ -1,4 +1,4 @@
-const ITENS_POR_PAGINA = 8;
+
 // Central de atualizações separada por categoria (achado do usuário): cada
 // categoria tem sua própria lista e paginação, em vez de uma lista única
 // misturando tipos. "critica" entra dentro de "Correção" (mesma família,
@@ -127,19 +127,24 @@ function itensNoPeriodo(todos) {
   });
 }
 
+const updatesPageSizes = { funcionalidade: 8, correcao: 8, melhoria: 8 };
+const updatesPagers = Object.fromEntries(CATEGORIAS.map(({chave}) => [chave, window.ZRPagination?.create({
+  id: `updates-${chave}`, container: `#updates-pagination-${chave}`,
+  previous: `#updates-pagination-${chave} [data-anterior]`, next: `#updates-pagination-${chave} [data-proxima]`, sizes: [8,20,50,100],
+  get: () => ({offset: (updatesState.paginas[chave]-1)*updatesPageSizes[chave], limit: updatesPageSizes[chave]}),
+  set: value => {updatesPageSizes[chave]=value.limit;updatesState.paginas[chave]=Math.floor(value.offset/value.limit)+1;},
+  load: () => render(),
+})]));
 function renderPaginacaoCategoria(chave, total) {
   const nav = document.querySelector(`#updates-pagination-${chave}`);
-  if (total <= ITENS_POR_PAGINA) {
-    nav.hidden = true;
-    return;
-  }
   nav.hidden = false;
   const pagina = updatesState.paginas[chave];
-  const inicio = (pagina - 1) * ITENS_POR_PAGINA + 1;
-  const fim = Math.min(pagina * ITENS_POR_PAGINA, total);
+  const inicio = (pagina - 1) * updatesPageSizes[chave] + 1;
+  const fim = Math.min(pagina * updatesPageSizes[chave], total);
   nav.querySelector("[data-resumo]").textContent = `${inicio}–${fim} de ${total}`;
   nav.querySelector("[data-anterior]").disabled = pagina <= 1;
   nav.querySelector("[data-proxima]").disabled = fim >= total;
+  updatesPagers[chave]?.update(total);
 }
 
 function render() {
@@ -151,11 +156,11 @@ function render() {
 
   CATEGORIAS.forEach(({ chave, tipos }) => {
     const daCategoria = novidades.filter((item) => tipos.includes(item.classificacao));
-    const totalPaginas = Math.max(1, Math.ceil(daCategoria.length / ITENS_POR_PAGINA));
+    const totalPaginas = Math.max(1, Math.ceil(daCategoria.length / updatesPageSizes[chave]));
     if (updatesState.paginas[chave] > totalPaginas) updatesState.paginas[chave] = totalPaginas;
     if (updatesState.paginas[chave] < 1) updatesState.paginas[chave] = 1;
-    const inicio = (updatesState.paginas[chave] - 1) * ITENS_POR_PAGINA;
-    const pagina = daCategoria.slice(inicio, inicio + ITENS_POR_PAGINA);
+    const inicio = (updatesState.paginas[chave] - 1) * updatesPageSizes[chave];
+    const pagina = daCategoria.slice(inicio, inicio + updatesPageSizes[chave]);
     const container = document.querySelector(`#updates-list-${chave}`);
     container.replaceChildren();
     pagina.forEach((item) => container.append(renderItem(item, updatesState.atualizacaoImplantadaId)));

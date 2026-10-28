@@ -2,6 +2,8 @@ let scripts = [];
 const message = document.querySelector("#script-config-message");
 const dialog = document.querySelector("#script-dialog");
 const form = document.querySelector("#script-form");
+const formMessage = document.querySelector("#script-dialog-message");
+let saving = false;
 const escSA = value => { const node = document.createElement("span"); node.textContent = value ?? ""; return node.innerHTML; };
 
 async function api(url, options = {}) {
@@ -37,7 +39,9 @@ async function carregar() {
 }
 
 function abrirDialog(item = null) {
+  if (saving) return;
   form.reset();
+  formMessage.hidden = true;
   form.elements.id.value = item?.id || "";
   form.elements.titulo.value = item?.titulo || "";
   form.elements.corpo.value = item?.corpo || "";
@@ -57,7 +61,13 @@ document.querySelector("#script-list").addEventListener("click", event => {
       .catch(error => showMessage(error.message, "error"));
   }
 });
-form.addEventListener("submit", async () => {
+form.addEventListener("submit", async event => {
+  event.preventDefault();
+  if (saving) return;
+  saving = true;
+  const submit = form.querySelector('button[type="submit"]');
+  submit.disabled = true;
+  formMessage.hidden = true;
   const id = form.elements.id.value;
   const payload = { titulo: form.elements.titulo.value.trim(), corpo: form.elements.corpo.value.trim() };
   try {
@@ -70,7 +80,12 @@ form.addEventListener("submit", async () => {
     dialog.close();
     showMessage("Script salvo.", "success");
   } catch (error) {
-    showMessage(error.message, "error");
+    formMessage.textContent = error.message;
+    formMessage.className = "status-message error";
+    formMessage.hidden = false;
+  } finally {
+    saving = false;
+    submit.disabled = false;
   }
 });
 

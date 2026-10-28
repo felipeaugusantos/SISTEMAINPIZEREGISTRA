@@ -106,6 +106,7 @@ function renderAvisos(avisos) {
 }
 
 async function loadAvisos() {
+  if (!avisosList || !avisosResumo) return;
   const response = await fetch("/v1/admin/producao/avisos");
   if (!response.ok) return;
   renderAvisos(await response.json());
@@ -162,7 +163,7 @@ avisoForm?.addEventListener("submit", async (event) => {
 fetch("/v1/auth/me").then(async (response) => {
   if (!response.ok) return;
   const user = await response.json();
-  if (user.superadmin) avisoForm.hidden = false;
+  if (user.superadmin && avisoForm) avisoForm.hidden = false;
 });
 
 loadAvisos().catch(() => {});

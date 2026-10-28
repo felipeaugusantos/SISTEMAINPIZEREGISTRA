@@ -205,7 +205,9 @@ function createAdminShell() {
     children.forEach(link => { link.hidden = !expanded; });
   }
 
-  function setCollapsed(collapsed) {
+  const desktopSidebar = window.matchMedia("(min-width: 981px)");
+  function setCollapsed(preference) {
+    const collapsed = desktopSidebar.matches && preference;
     document.body.classList.toggle("admin-sidebar-collapsed", collapsed);
     const toggle = sidebar.querySelector("#admin-sidebar-toggle");
     toggle.setAttribute("aria-expanded", String(!collapsed));
@@ -218,6 +220,10 @@ function createAdminShell() {
     localStorage.setItem("zr_admin_sidebar_collapsed", collapsed ? "1" : "0");
   });
   setCollapsed(localStorage.getItem("zr_admin_sidebar_collapsed") === "1");
+  desktopSidebar.addEventListener("change", () => {
+    setCollapsed(localStorage.getItem("zr_admin_sidebar_collapsed") === "1");
+    setMenu(false);
+  });
 
   const comercialHasActiveChild = ["consulta", "figurativa", "leads", "crm", "prospeccao"].includes(activeSection);
   const comercialPreference = localStorage.getItem("zr_admin_submenu_comercial");

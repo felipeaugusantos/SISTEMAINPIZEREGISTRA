@@ -310,7 +310,8 @@ function arquivoParaBase64(arquivo) {
 
 document.querySelector("#updates-report-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const submit = event.submitter;
+  const form = event.currentTarget;
+  const submit = event.submitter || form.querySelector("button[type=submit]");
   const reportMessage = document.querySelector("#updates-report-message");
   submit.disabled = true;
   try {
@@ -335,7 +336,7 @@ document.querySelector("#updates-report-form").addEventListener("submit", async 
       }),
     });
     dialog.close();
-    event.currentTarget.reset();
+    form.reset();
     showStatus("Problema reportado. A equipe poderá acompanhar o relato até a resolução.");
   } catch (error) {
     reportMessage.textContent = error.message;

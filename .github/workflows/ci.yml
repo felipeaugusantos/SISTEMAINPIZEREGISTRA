@@ -84,6 +84,8 @@ jobs:
           if-no-files-found: ignore
       - name: Prepare E2E administrator
         run: uv run python -m app.bootstrap_admin
+      - name: Prepare functional E2E fixtures (isolated test database)
+        run: uv run python -m tests.e2e.seed_functional
       - name: Install E2E browser
         run: |
           npm ci

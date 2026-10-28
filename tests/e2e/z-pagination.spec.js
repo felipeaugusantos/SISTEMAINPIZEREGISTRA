@@ -7,7 +7,7 @@ test.beforeEach(async ({ browser, baseURL }) => {
 });
 test.afterEach(async () => { await context.close(); });
 async function idle(id) {
-  await expect(page.locator(`#${id}-page-number`).locator('xpath=ancestor::*[contains(@class,"admin-pagination")][1]')).toHaveAttribute('aria-busy', 'false');
+  await expect.poll(() => page.locator(`#${id}-page-number`).evaluate(input => input.closest('.admin-pagination').getAttribute('aria-busy'))).toBe('false');
 }
 test('Radar: navegação direta e tamanho consultam o banco preservando filtros', async () => {
   await page.goto('/admin/prospeccao');

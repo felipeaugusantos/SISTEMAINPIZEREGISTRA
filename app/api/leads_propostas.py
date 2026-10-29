@@ -32,6 +32,7 @@ from app.clicksign import configuracao as configuracao_clicksign
 from app.clicksign import criar_envelope
 from app.crm import aplicar_regras_automacao, avancar_fase_lead, registrar_evento_operacional
 from app.database import get_session
+from app.datas import hoje_brasil
 from app.emailing import enviar_codigo_confirmacao_proposta, enviar_proposta_email
 from app.marca import nome_escritorio_para_email
 from app.models import (
@@ -261,7 +262,7 @@ def motivo_bloqueio_aceite(proposta: PropostaComercial) -> str | None:
     None se puder. Quem chama trata antes o caso idempotente (já aceita)."""
     if proposta.status not in STATUS_ACEITAVEIS_PROPOSTA:
         return "Esta proposta não está mais disponível para aceite. Solicite uma nova versão ao atendimento."
-    if proposta.validade_em and proposta.validade_em < datetime.now(UTC).date():
+    if proposta.validade_em and proposta.validade_em < hoje_brasil():
         return "Esta proposta expirou. Solicite uma nova versão ao atendimento."
     return None
 
@@ -986,7 +987,7 @@ async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta:
                 conta_contabil_id=conta_id,
                 tipo="receber",
                 descricao=f"{descricao} — Proposta {proposta.numero}",
-                competencia=date.today(),
+                competencia=hoje_brasil(),
                 valor_total=valor,
                 status="aberto",
                 criado_por=f"aceite:{origem}",
@@ -1016,7 +1017,7 @@ async def criar_contratacao_automatica_proposta(session: AsyncSession, proposta:
                 # é sempre à vista. Sem condição gravada (propostas antigas),
                 # parcela única no aceite, como sempre foi.
                 forma, quantidade = condicao_da_proposta(dados_proposta)
-                hoje = date.today()
+                hoje = hoje_brasil()
                 for (componente, _descricao, _valor, _conta), lancamento in zip(componentes, lancamentos, strict=True):
                     cronograma = (
                         cronograma_honorarios(lancamento.valor_total, forma, quantidade, hoje)

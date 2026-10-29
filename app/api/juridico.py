@@ -5,7 +5,6 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated, Literal
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -18,6 +17,7 @@ from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.badepi.despachos_codigos import DESCRICOES_DESPACHO, codigo_numerico
 from app.crm import avancar_fase_lead, obter_ou_criar_empresa, registrar_evento_operacional
 from app.database import get_session
+from app.datas import FUSO_BRASIL
 from app.erros import erro_armazenamento
 from app.juridico_comunicacao import enfileirar_alerta_juridico
 from app.malware_scan import escanear_upload_ou_rejeitar
@@ -691,9 +691,6 @@ def _movimentacao_posterior(terminal: Movimentacao, origem: Movimentacao) -> boo
     if terminal.data_rpi is None or origem.data_rpi is None:
         return False
     return (terminal.data_rpi, terminal.id or 0) > (origem.data_rpi, origem.id or 0)
-
-
-FUSO_BRASIL = ZoneInfo("America/Sao_Paulo")
 
 
 def calcular_vencimento(

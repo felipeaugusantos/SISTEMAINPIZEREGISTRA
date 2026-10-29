@@ -16,6 +16,7 @@ from app.api.leads_propostas import sincronizar_pagamento_proposta_por_id
 from app.auth import UsuarioAutenticado, exigir_permissao, hash_ip
 from app.crm import normalizar_empresa, obter_ou_criar_empresa, registrar_evento_operacional
 from app.database import get_session
+from app.datas import hoje_brasil
 from app.importacao_planilha import TAMANHO_MAXIMO_IMPORTACAO, ler_planilha, valor_coluna
 from app.malware_scan import escanear_upload_ou_rejeitar
 from app.models import (
@@ -353,7 +354,7 @@ async def _atualizar_status(lancamento: LancamentoFinanceiro) -> None:
 
 
 def _serializar(lancamento: LancamentoFinanceiro) -> dict:
-    hoje = date.today()
+    hoje = hoje_brasil()
     parcelas = [
         {
             "id": p.id,
@@ -450,7 +451,7 @@ async def listar(
         .limit(limite)
     )
     itens = (await session.execute(consulta)).scalars().all()
-    hoje = date.today()
+    hoje = hoje_brasil()
     resumo_filtros = [
         ParcelaFinanceira.organizacao_id == usuario.organizacao_id,
         LancamentoFinanceiro.status != "cancelado",
@@ -1962,22 +1963,56 @@ async def _parcela(session: AsyncSession, usuario: UsuarioAutenticado, parcela_i
     return parcela
 
 
-async def _gerar_comissao_se_aplicavel(session: AsyncSession, parcela: ParcelaFinanceira) -> None:
+async def _gerar_comissao_se_aplicavel(session: AsyncSession, parcela: ParcelaFinanceira) -> dict | None:
     """Achado FASE7-7 da auditoria (04/09/2026): gera a comissão do
     responsável pelo lead quando uma parcela de receita é baixada -- silencioso
     (não gera nada) se o lançamento não for "receber", não tiver lead
     vinculado, o lead não tiver responsável, ou o responsável não tiver
-    percentual_comissao configurado (retrocompatível: sem opt-in, nada muda)."""
+    percentual_comissao configurado (retrocompatível: sem opt-in, nada muda).
+
+    Há UNIQUE(parcela_id) e o estorno só marca a comissão como "cancelada" (não
+    apaga). Baixar de novo uma parcela estornada reativa essa mesma linha em vez
+    de inserir outra; nesse caso devolve o estado anterior da comissão para o
+    chamador registrar na auditoria (pago_em/pago_por são zerados na linha, então
+    sem esse registro a informação de um pagamento anterior se perderia)."""
     lancamento = parcela.lancamento
     if lancamento.tipo != "receber" or not lancamento.lead_id:
-        return
+        return None
     lead = await session.get(Lead, lancamento.lead_id)
     if lead is None or not lead.responsavel_id:
-        return
+        return None
     operador = await session.get(UsuarioOperacoes, lead.responsavel_id)
     if operador is None or not operador.percentual_comissao:
-        return
+        return None
     valor_comissao = (parcela.valor_pago * operador.percentual_comissao / Decimal(100)).quantize(Decimal("0.01"))
+    existente = (
+        await session.execute(
+            select(ComissaoFinanceira).where(
+                ComissaoFinanceira.parcela_id == parcela.id,
+                ComissaoFinanceira.organizacao_id == lancamento.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existente is not None:
+        if existente.status != "cancelada":
+            return None
+        anterior = {
+            "comissao_id": existente.id,
+            "usuario_id": existente.usuario_id,
+            "valor_base": str(existente.valor_base),
+            "percentual": str(existente.percentual),
+            "valor_comissao": str(existente.valor_comissao),
+            "pago_em": str(existente.pago_em) if existente.pago_em else None,
+            "pago_por": existente.pago_por,
+        }
+        existente.usuario_id = operador.id
+        existente.valor_base = parcela.valor_pago
+        existente.percentual = operador.percentual_comissao
+        existente.valor_comissao = valor_comissao
+        existente.status = "pendente"
+        existente.pago_em = None
+        existente.pago_por = None
+        return anterior
     session.add(
         ComissaoFinanceira(
             organizacao_id=lancamento.organizacao_id,
@@ -1989,6 +2024,7 @@ async def _gerar_comissao_se_aplicavel(session: AsyncSession, parcela: ParcelaFi
             valor_comissao=valor_comissao,
         )
     )
+    return None
 
 
 async def _cancelar_comissao_da_parcela(session: AsyncSession, parcela_id: int) -> None:
@@ -2026,7 +2062,16 @@ async def baixar(
     parcela.forma_pagamento_id = forma.id
     parcela.observacoes_baixa, parcela.status = (dados.observacoes or "").strip() or None, "paga"
     await _atualizar_status(parcela.lancamento)
-    await _gerar_comissao_se_aplicavel(session, parcela)
+    comissao_anterior = await _gerar_comissao_se_aplicavel(session, parcela)
+    if comissao_anterior is not None:
+        _auditar(
+            session,
+            request,
+            usuario,
+            "reativar_comissao",
+            f"comissao-financeira:{comissao_anterior['comissao_id']}",
+            {"parcela_id": parcela.id, "estado_anterior": comissao_anterior},
+        )
     if parcela.lancamento.proposta_id:
         await sincronizar_pagamento_proposta_por_id(session, usuario.organizacao_id, parcela.lancamento.proposta_id)
     _auditar(
@@ -2610,7 +2655,7 @@ async def pagar_comissao(comissao_id: int, request: Request, session: SessionDep
     if comissao.status != "pendente":
         raise HTTPException(409, f"Comissão já está \"{comissao.status}\", não pode ser paga novamente")
     comissao.status = "paga"
-    comissao.pago_em = date.today()
+    comissao.pago_em = hoje_brasil()
     comissao.pago_por = usuario.ator
     _auditar(
         session,

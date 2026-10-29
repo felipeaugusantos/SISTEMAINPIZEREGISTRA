@@ -6,7 +6,7 @@ notificações pendentes do sistema. Cada bloco respeita a permissão do módulo
 o CEO — que tem todas — vê tudo; um operador vê apenas o que lhe cabe.
 """
 
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.juridico import FUSO_BRASIL, STATUS_ATIVOS
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
+from app.datas import hoje_brasil
 from app.models import (
     AlertaSistema,
     AvaliacaoRiscoMarca,
@@ -68,7 +69,7 @@ _SEVERIDADES_ACIONAVEIS = frozenset({"aviso", "alerta", "critico", "critica"})
 
 
 async def _bloco_financeiro(session: AsyncSession, organizacao_id: int) -> dict:
-    hoje = date.today()
+    hoje = hoje_brasil()
     restante = ParcelaFinanceira.valor - func.coalesce(ParcelaFinanceira.valor_pago, 0)
     em_aberto = ParcelaFinanceira.status != "paga"
     linha = (

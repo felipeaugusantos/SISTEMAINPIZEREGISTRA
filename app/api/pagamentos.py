@@ -28,7 +28,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.financeiro import _atualizar_status, _cancelar_comissao_da_parcela, _gerar_comissao_se_aplicavel
+from app.api.financeiro import (
+    _atualizar_status,
+    _cancelar_comissao_da_parcela,
+    _gerar_comissao_se_aplicavel,
+    _registrar_reativacao_comissao,
+)
 from app.api.leads_propostas import sincronizar_pagamento_proposta_por_id
 from app.auth import UsuarioAutenticado, exigir_permissao
 from app.database import get_session
@@ -124,7 +129,8 @@ async def receber_webhook_pagamento(
             parcela.pago_em = datetime.now(UTC).date()
             parcela.status = "paga"
             await _atualizar_status(parcela.lancamento)
-            await _gerar_comissao_se_aplicavel(session, parcela)
+            comissao_anterior = await _gerar_comissao_se_aplicavel(session, parcela)
+            _registrar_reativacao_comissao(session, parcela, comissao_anterior, ator="webhook:pagamento")
             if parcela.lancamento.proposta_id:
                 await sincronizar_pagamento_proposta_por_id(
                     session, evento.organizacao_id, parcela.lancamento.proposta_id

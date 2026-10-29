@@ -2027,6 +2027,36 @@ async def _gerar_comissao_se_aplicavel(session: AsyncSession, parcela: ParcelaFi
     return None
 
 
+def _registrar_reativacao_comissao(
+    session: AsyncSession,
+    parcela: ParcelaFinanceira,
+    anterior: dict | None,
+    *,
+    ator: str,
+    actor_id: int | None = None,
+    ip_hash: str | None = None,
+) -> None:
+    """Grava o estado anterior de uma comissão reativada por
+    _gerar_comissao_se_aplicavel. Compartilhado entre a baixa manual e o
+    webhook do gateway: sem isso, o pagamento anterior (pago_em/pago_por,
+    zerados na reativação) se perderia no caminho que esquecesse de chamar."""
+    if anterior is None:
+        return
+    session.add(
+        EventoAuditoria(
+            organizacao_id=parcela.organizacao_id,
+            actor_id=actor_id,
+            ator=ator,
+            acao="reativar_comissao",
+            recurso=f"comissao-financeira:{anterior['comissao_id']}"[:180],
+            sucesso=True,
+            status_http=200,
+            ip_hash=ip_hash,
+            detalhes={"parcela_id": parcela.id, "estado_anterior": anterior},
+        )
+    )
+
+
 async def _cancelar_comissao_da_parcela(session: AsyncSession, parcela_id: int) -> None:
     """Achado FASE7-7/4 da auditoria: estornar a baixa que gerou uma comissão
     cancela a comissão (nunca deleta -- mantém rastro de que existiu e foi
@@ -2063,15 +2093,14 @@ async def baixar(
     parcela.observacoes_baixa, parcela.status = (dados.observacoes or "").strip() or None, "paga"
     await _atualizar_status(parcela.lancamento)
     comissao_anterior = await _gerar_comissao_se_aplicavel(session, parcela)
-    if comissao_anterior is not None:
-        _auditar(
-            session,
-            request,
-            usuario,
-            "reativar_comissao",
-            f"comissao-financeira:{comissao_anterior['comissao_id']}",
-            {"parcela_id": parcela.id, "estado_anterior": comissao_anterior},
-        )
+    _registrar_reativacao_comissao(
+        session,
+        parcela,
+        comissao_anterior,
+        ator=usuario.ator,
+        actor_id=usuario.id,
+        ip_hash=hash_ip(cliente_ip(request)),
+    )
     if parcela.lancamento.proposta_id:
         await sincronizar_pagamento_proposta_por_id(session, usuario.organizacao_id, parcela.lancamento.proposta_id)
     _auditar(

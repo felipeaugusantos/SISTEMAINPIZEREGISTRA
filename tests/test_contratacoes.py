@@ -1,10 +1,11 @@
 import asyncio
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from sqlalchemy.exc import IntegrityError
 
 from app.api.contratacoes import ContratacaoInput, contratar_servico, listar_inadimplencia, obter_previsao_caixa
+from app.datas import hoje_brasil
 from app.models import ContratacaoServico, ParcelaFinanceira, PropostaComercial, ServicoFinanceiro
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
@@ -64,7 +65,7 @@ def _parcela(**kwargs: object) -> ParcelaFinanceira:
 
 
 def test_listar_inadimplencia_agrega_por_faixa_e_cliente() -> None:
-    hoje = date.today()
+    hoje = hoje_brasil()
     parcela_recente = _parcela(id=1, vencimento=hoje - timedelta(days=10), valor=Decimal("500"))
     parcela_antiga = _parcela(id=2, vencimento=hoje - timedelta(days=100), valor=Decimal("2000"))
     session = FakeSession(
@@ -89,7 +90,7 @@ def test_listar_inadimplencia_agrega_por_faixa_e_cliente() -> None:
 
 
 def test_listar_inadimplencia_desconta_valor_ja_pago_parcialmente() -> None:
-    hoje = date.today()
+    hoje = hoje_brasil()
     parcela_parcial = _parcela(
         id=1, status="parcial", vencimento=hoje - timedelta(days=5), valor=Decimal("1000"), valor_pago=Decimal("300")
     )
@@ -102,8 +103,8 @@ def test_listar_inadimplencia_desconta_valor_ja_pago_parcialmente() -> None:
 
 
 def test_previsao_caixa_calcula_saldo_acumulado_por_semana() -> None:
-    semana1 = date.today() + timedelta(days=1)
-    semana2 = date.today() + timedelta(days=8)
+    semana1 = hoje_brasil() + timedelta(days=1)
+    semana2 = hoje_brasil() + timedelta(days=8)
     session = FakeSession(
         [
             FakeResult(

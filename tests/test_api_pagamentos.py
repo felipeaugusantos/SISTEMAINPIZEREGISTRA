@@ -10,7 +10,15 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.api.pagamentos import CobrancaInput, criar_cobranca_pagamento, receber_webhook_pagamento
-from app.models import LancamentoFinanceiro, ParcelaFinanceira, WebhookFinanceiro
+from app.models import (
+    ComissaoFinanceira,
+    EventoAuditoria,
+    LancamentoFinanceiro,
+    Lead,
+    ParcelaFinanceira,
+    UsuarioOperacoes,
+    WebhookFinanceiro,
+)
 from tests.conftest import FakeResult, FakeSession, usuario_teste
 
 SEGREDO = "segredo-teste"
@@ -130,6 +138,40 @@ def test_webhook_pago_baixa_parcela_e_e_idempotente() -> None:
     assert webhooks_criados[0].payload == {"parcela_id": 5, "valor": "500.00", "evento_id": None}
     assert "customer_email" not in webhooks_criados[0].payload
     assert session.commits == 1
+
+
+def test_webhook_pago_reativa_comissao_cancelada_e_preserva_pagamento_anterior_na_auditoria() -> None:
+    """Mesmo caminho da baixa manual: a linha única da parcela é reaproveitada e o pagamento
+    anterior (pago_em/pago_por, zerados na reativação) fica no evento de auditoria."""
+    parcela = _parcela()
+    parcela.lancamento.lead_id = 9
+    lead = Lead(id=9, organizacao_id=1, responsavel_id=7)
+    operador = UsuarioOperacoes(id=7, organizacao_id=1, percentual_comissao=Decimal("10.00"))
+    cancelada = ComissaoFinanceira(
+        id=3, organizacao_id=1, usuario_id=7, lancamento_id=1, parcela_id=5,
+        valor_base=Decimal("500.00"), percentual=Decimal("10"), valor_comissao=Decimal("50.00"),
+        status="cancelada", pago_em=date(2026, 1, 10), pago_por="financeiro@teste.local",
+    )  # fmt: skip
+    payload = {"referencia": "ref-pagamento-2", "organizacao_id": 1, "parcela_id": 5, "status": "paid", "valor": "500.00"}
+    corpo = json.dumps(payload).encode()
+    session = FakeSession(
+        [FakeResult(scalar=None), FakeResult(scalar=parcela), FakeResult(scalar=cancelada)],
+        objetos_get=[lead, operador],
+    )
+
+    asyncio.run(receber_webhook_pagamento("sandbox", _request_com_corpo(corpo), session, _assinar(corpo)))
+
+    assert cancelada.status == "pendente"
+    assert cancelada.pago_em is None and cancelada.pago_por is None
+    assert not [obj for obj in session.adicionados if isinstance(obj, ComissaoFinanceira)]
+    [auditoria] = [obj for obj in session.adicionados if isinstance(obj, EventoAuditoria)]
+    assert auditoria.acao == "reativar_comissao"
+    assert auditoria.recurso == "comissao-financeira:3"
+    assert auditoria.ator == "webhook:pagamento"
+    assert auditoria.organizacao_id == 1
+    assert auditoria.detalhes["parcela_id"] == 5
+    assert auditoria.detalhes["estado_anterior"]["pago_em"] == "2026-01-10"
+    assert auditoria.detalhes["estado_anterior"]["pago_por"] == "financeiro@teste.local"
 
 
 def test_webhook_repetido_e_idempotente() -> None:

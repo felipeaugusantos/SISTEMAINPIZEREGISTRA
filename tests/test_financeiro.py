@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.financeiro import (
@@ -18,6 +19,7 @@ from app.api.financeiro import (
 )
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
+from app.datas import hoje_brasil
 from app.main import app
 from app.models import (
     CategoriaFinanceira,
@@ -735,6 +737,74 @@ async def test_gerar_comissao_se_aplicavel_nao_cria_sem_percentual_configurado()
     assert session.adicionados == []
 
 
+def _cenario_comissao(**comissao: object) -> tuple[ParcelaFinanceira, Lead, UsuarioOperacoes, ComissaoFinanceira]:
+    lancamento = LancamentoFinanceiro(id=1, organizacao_id=1, tipo="receber", lead_id=5)
+    parcela = ParcelaFinanceira(id=10, organizacao_id=1, lancamento_id=1, numero=1, valor_pago=Decimal("1000"))
+    parcela.lancamento = lancamento
+    lead = Lead(id=5, organizacao_id=1, responsavel_id=7)
+    operador = UsuarioOperacoes(id=7, organizacao_id=1, percentual_comissao=Decimal("10.00"))
+    base: dict = {
+        "id": 3, "organizacao_id": 1, "usuario_id": 7, "lancamento_id": 1, "parcela_id": 10,
+        "valor_base": Decimal("900"), "percentual": Decimal("10"), "valor_comissao": Decimal("90"),
+        "status": "cancelada",
+    }  # fmt: skip
+    base.update(comissao)
+    return parcela, lead, operador, ComissaoFinanceira(**base)
+
+
+async def test_gerar_comissao_reativa_comissao_cancelada_ao_rebaixar_parcela_estornada() -> None:
+    """Regressão: UNIQUE(parcela_id) + estorno que só cancela => nova baixa não pode inserir outra linha."""
+    parcela, lead, operador, cancelada = _cenario_comissao()
+    session = FakeSession([FakeResult(scalar=cancelada)], objetos_get=[lead, operador])
+
+    anterior = await _gerar_comissao_se_aplicavel(session, parcela)
+
+    assert session.adicionados == []
+    assert cancelada.status == "pendente"
+    assert cancelada.valor_base == Decimal("1000")
+    assert cancelada.valor_comissao == Decimal("100.00")
+    assert anterior is not None
+    assert anterior["comissao_id"] == 3
+    assert anterior["valor_comissao"] == "90"
+
+
+async def test_gerar_comissao_reativada_devolve_pagamento_anterior_para_auditoria() -> None:
+    parcela, lead, operador, cancelada = _cenario_comissao(pago_em=date(2026, 10, 1), pago_por="financeiro@teste.local")
+    session = FakeSession([FakeResult(scalar=cancelada)], objetos_get=[lead, operador])
+
+    anterior = await _gerar_comissao_se_aplicavel(session, parcela)
+
+    assert anterior is not None
+    assert anterior["pago_em"] == "2026-10-01"
+    assert anterior["pago_por"] == "financeiro@teste.local"
+    assert cancelada.pago_em is None
+    assert cancelada.pago_por is None
+
+
+async def test_gerar_comissao_reativa_com_o_responsavel_atual_do_lead() -> None:
+    parcela, lead, operador, cancelada = _cenario_comissao(usuario_id=99)
+    session = FakeSession([FakeResult(scalar=cancelada)], objetos_get=[lead, operador])
+
+    await _gerar_comissao_se_aplicavel(session, parcela)
+
+    assert cancelada.usuario_id == 7
+
+
+@pytest.mark.parametrize("status", ["pendente", "paga"])
+async def test_gerar_comissao_nao_duplica_nem_altera_comissao_ativa(status: str) -> None:
+    parcela, lead, operador, ativa = _cenario_comissao(
+        status=status, valor_base=Decimal("1000"), valor_comissao=Decimal("100")
+    )
+    session = FakeSession([FakeResult(scalar=ativa)], objetos_get=[lead, operador])
+
+    anterior = await _gerar_comissao_se_aplicavel(session, parcela)
+
+    assert anterior is None
+    assert session.adicionados == []
+    assert ativa.status == status
+    assert ativa.valor_comissao == Decimal("100")
+
+
 async def test_cancelar_comissao_da_parcela_marca_como_cancelada() -> None:
     comissao = ComissaoFinanceira(
         id=1, organizacao_id=1, usuario_id=7, lancamento_id=1, parcela_id=10,
@@ -821,7 +891,7 @@ def test_pagar_comissao_pendente_com_sucesso() -> None:
         app.dependency_overrides.clear()
     assert resposta.status_code == 200
     assert comissao.status == "paga"
-    assert comissao.pago_em == date.today()
+    assert comissao.pago_em == hoje_brasil()
 
 
 # --- Pedido do usuário (22/09/2026): categorias e subcategorias

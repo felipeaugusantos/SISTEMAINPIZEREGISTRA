@@ -3,7 +3,7 @@ import hmac
 import json
 import logging
 import secrets
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
@@ -46,6 +46,7 @@ from app.auth import (
 from app.clicksign import configuracao as configuracao_clicksign
 from app.crm import registrar_evento_operacional
 from app.database import get_session, session_factory
+from app.datas import hoje_brasil
 from app.emailing import enviar_codigo_confirmacao_portal, enviar_recuperacao_portal
 from app.erros import erro_armazenamento
 from app.malware_scan import escanear_upload_ou_rejeitar
@@ -255,7 +256,7 @@ def _validar_documento_portal_pronto(documento: DocumentoLead) -> None:
         raise HTTPException(status_code=409, detail="Documento ainda não está pronto para assinatura")
     if not documento.numero or not documento.data:
         raise HTTPException(status_code=409, detail="Documento incompleto; aguarde a equipe preencher os dados")
-    if documento.validade_em and documento.validade_em < datetime.now(UTC).date():
+    if documento.validade_em and documento.validade_em < hoje_brasil():
         raise HTTPException(status_code=409, detail="Documento expirado; solicite uma nova versão")
 
 
@@ -282,7 +283,7 @@ def _serializar_parcela_portal(parcela: ParcelaFinanceira, descricoes_lancamento
         "vencimento": parcela.vencimento,
         "valor": parcela.valor,
         "valor_pago": parcela.valor_pago,
-        "status": "atrasada" if parcela.status == "aberta" and parcela.vencimento < date.today() else parcela.status,
+        "status": "atrasada" if parcela.status == "aberta" and parcela.vencimento < hoje_brasil() else parcela.status,
         "pago_em": parcela.pago_em,
     }
 

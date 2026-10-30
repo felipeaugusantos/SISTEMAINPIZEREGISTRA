@@ -236,6 +236,7 @@ async def criar_consulta(
     # todas no mesmo lead -- a "oportunidade" continua sendo o lead, não
     # precisa de nenhuma entidade de agrupamento nova.
     pesquisas: list[PesquisaMarca] = []
+    ids_reutilizados: dict[tuple[str, str | None], str] = {}
     for item_marca in marcas:
         classes_para_pesquisar: list[str | None] = list(item_marca.classes_nice) or [None]
         for classe_nice in classes_para_pesquisar:
@@ -246,6 +247,9 @@ async def criar_consulta(
                 item_marca.marca,
                 classe_nice=classe_nice,
             )
+            if original is not None:
+                ids_reutilizados[(item_marca.marca.strip().casefold(), classe_nice)] = original
+                continue
             pesquisa = PesquisaMarca(
                 organizacao_id=operador.organizacao_id,
                 lead_id=lead.id if lead else None,
@@ -274,6 +278,22 @@ async def criar_consulta(
                 classe_nice=pesquisa.classe_nice,
             )
         )
+    # O retorno inclui as pesquisas existentes, mas sem criar cópias no banco.
+    for item_marca in marcas:
+        for classe_nice in (list(item_marca.classes_nice) or [None]):
+            original = ids_reutilizados.get((item_marca.marca.strip().casefold(), classe_nice))
+            if original is not None:
+                itens.append(
+                    PesquisaMarcaCriada(
+                        id=original,
+                        relatorio_url=f"/admin/consulta/{original}",
+                        lead_id=lead.id if lead else None,
+                        duplicada=True,
+                        pesquisa_original_id=original,
+                        marca=item_marca.marca,
+                        classe_nice=classe_nice,
+                    )
+                )
     return ConsultaMultiplaCriada(lead_id=lead.id if lead else None, itens=itens)
 
 

@@ -3,6 +3,7 @@
 import asyncio
 import os
 from dataclasses import replace
+from hashlib import sha256
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -41,6 +42,12 @@ async def banco_pesquisas():
         org_id = await admin.fetchval(
             "INSERT INTO organizacoes (nome, slug, plano_id) VALUES ($1, $2, $3) RETURNING id",
             f"Concorrencia {sufixo}", f"concorrencia-{sufixo}", plano_id,
+        )
+        await admin.execute(
+            "INSERT INTO politicas_privacidade "
+            "(organizacao_id, versao, status, conteudo, sha256, criado_por, motivo_alteracao) "
+            "VALUES ($1, '1', 'rascunho', 'Fixture sintetica', $2, 'teste', 'Teste de concorrencia')",
+            org_id, sha256(b"Fixture sintetica").hexdigest(),
         )
         usuario_id = await admin.fetchval(
             "INSERT INTO usuarios_operacoes (organizacao_id, nome, usuario, email, senha_hash, alterar_senha) "

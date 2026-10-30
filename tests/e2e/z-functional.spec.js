@@ -37,6 +37,15 @@ test('Pesquisas: requisições simultâneas e reenvio mantêm uma pesquisa por c
   expect(lead.total_pesquisas).toBe(2);
   expect(lead.pesquisas.map(item => item.id).sort()).toEqual([inicial.itens[0].id, primeira.itens[0].id].sort());
   expect(lead.pesquisas.every(item => !item.duplicada)).toBe(true);
+  const detalhe = await (await context.request.get(`/v1/admin/leads/${inicial.lead_id}`)).json();
+  expect(detalhe.total_pesquisas).toBe(2);
+  await page.goto('/admin/pesquisas');
+  await page.locator('#lead-search').fill(email);
+  await page.locator('#lead-filters').evaluate(form => form.requestSubmit());
+  const linhas = page.locator(`#leads-list tr[data-lead-id="${inicial.lead_id}"][data-research-id]`);
+  await expect(linhas).toHaveCount(2);
+  await expect(page.locator(`#leads-list tr[data-research-id="${inicial.itens[0].id}"]`)).toBeVisible();
+  await expect(page.locator(`#leads-list tr[data-research-id="${primeira.itens[0].id}"]`)).toBeVisible();
 });
 
 test('CRM: pesquisar, selecionar e salvar lembrete persiste no backend', async () => {

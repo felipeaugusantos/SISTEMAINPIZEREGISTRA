@@ -964,7 +964,10 @@ async def listar_leads(
         await session.execute(
             select(func.count())
             .select_from(PesquisaMarca)
-            .where(PesquisaMarca.organizacao_id == usuario.organizacao_id)
+            .where(
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+                PesquisaMarca.duplicada.is_(False),
+            )
         )
     ).scalar_one()
     pesquisas_por_lead: dict[int, list[PesquisaLeadResumo]] = {}

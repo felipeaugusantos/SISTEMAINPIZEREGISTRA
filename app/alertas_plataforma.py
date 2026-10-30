@@ -199,6 +199,9 @@ async def verificar_saude_plataforma(session: AsyncSession) -> None:
         ultima_sincronizacao=ultima_sincronizacao,
         status_integridade=ultima_rpi.status_integridade if ultima_rpi else None,
         limite_atraso_horas=settings.rpi_stale_hours,
+        proxima_verificacao_em=estado_rpi.proxima_verificacao_em if estado_rpi else None,
+        heartbeat_em=estado_rpi.heartbeat_em if estado_rpi else None,
+        limite_heartbeat_segundos=max(60, getattr(settings, "rpi_sync_poll_seconds", 10) * 3),
     )
     # "processando" é uma sincronização em andamento -- estado transitório
     # normal, não é alertado nem tratado como resolução do que já estava

@@ -219,6 +219,9 @@ async def obter_observabilidade(session: SessionDep, usuario: TechDep) -> dict:
         ultima_sincronizacao=ultima_sincronizacao,
         status_integridade=ultima.status_integridade if ultima else None,
         limite_atraso_horas=settings.rpi_stale_hours,
+        proxima_verificacao_em=estado.proxima_verificacao_em if estado else None,
+        heartbeat_em=estado.heartbeat_em if estado else None,
+        limite_heartbeat_segundos=max(60, settings.rpi_sync_poll_seconds * 3),
     )
     metricas = (
         await session.execute(

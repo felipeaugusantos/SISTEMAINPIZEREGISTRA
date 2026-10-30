@@ -549,6 +549,8 @@ def _lead_response(
         dados.notas = None
         dados.tags = []
     dados.responsavel_nome = getattr(getattr(lead, "responsavel", None), "nome", None)
+    # Ignora registros antigos marcados como duplicados no histórico exibido.
+    pesquisas = [item for item in pesquisas if not item.duplicada]
     dados.total_pesquisas = len(pesquisas)
     dados.ultima_pesquisa = pesquisas[0] if pesquisas else None
     dados.ultima_pesquisa_em = pesquisas[0].criado_em if pesquisas else lead.criado_em
@@ -962,7 +964,10 @@ async def listar_leads(
         await session.execute(
             select(func.count())
             .select_from(PesquisaMarca)
-            .where(PesquisaMarca.organizacao_id == usuario.organizacao_id)
+            .where(
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+                PesquisaMarca.duplicada.is_(False),
+            )
         )
     ).scalar_one()
     pesquisas_por_lead: dict[int, list[PesquisaLeadResumo]] = {}

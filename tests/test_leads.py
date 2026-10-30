@@ -1436,6 +1436,39 @@ def test_resumo_do_contato_agrega_historico_risco_e_relatorios() -> None:
     assert [item.id for item in resposta.pesquisas] == ["pesquisa-recente", "pesquisa-antiga"]
 
 
+def test_historico_lead_omite_pesquisas_legadas_duplicadas() -> None:
+    lead = Lead(
+        id=42, organizacao_id=1, nome="Cliente", email="cliente@example.com",
+        telefone="11999999999", marca="NORTE STUDIO", origem="operador",
+        status=StatusLead.NOVO, aceite_privacidade=True,
+    )
+    original = PesquisaMarca(
+        id="pesquisa-original", organizacao_id=1, lead_id=42,
+        marca="NORTE STUDIO", tipo_pesquisa="completa", duplicada=False,
+    )
+    duplicada = PesquisaMarca(
+        id="pesquisa-repetida", organizacao_id=1, lead_id=42,
+        marca="NORTE STUDIO", tipo_pesquisa="completa", duplicada=True,
+        pesquisa_original_id="pesquisa-original",
+    )
+    lead.criado_em = datetime(2026, 10, 28, tzinfo=UTC)
+    lead.atualizado_em = datetime(2026, 10, 28, tzinfo=UTC)
+    original.criado_em = datetime(2026, 10, 29, tzinfo=UTC)
+    duplicada.criado_em = datetime(2026, 10, 30, tzinfo=UTC)
+
+    resposta = _lead_response(
+        lead, usuario_teste(),
+        [
+            _resumo_pesquisa(duplicada, None, None, False),
+            _resumo_pesquisa(original, None, None, False),
+        ],
+    )
+
+    assert resposta.total_pesquisas == 1
+    assert [p.id for p in resposta.pesquisas] == ["pesquisa-original"]
+    assert resposta.ultima_pesquisa.id == "pesquisa-original"
+
+
 def test_geracao_de_relatorio_completo_exige_autenticacao() -> None:
     resposta = TestClient(app).post("/v1/admin/pesquisas/pesquisa-1/relatorio-completo.pdf")
     assert resposta.status_code == 401

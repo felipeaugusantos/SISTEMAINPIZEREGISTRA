@@ -545,6 +545,7 @@ def test_converter_prospect_com_pesquisa_ja_duplicada_nao_cria_de_novo() -> None
         FakeResult(scalar=None),
         FakeResult(scalar=None),
         FakeResult(scalar=triagem),
+        FakeResult(),  # bloqueio transacional do lead
         FakeResult(scalar="pesquisa-existente-id"),  # já existe pesquisa igual pra esse lead
     )
 

@@ -115,16 +115,25 @@ async def detectar_pesquisa_duplicada(
     diferentes são pedidos comerciais distintos, não repetição."""
     if lead_id is None:
         return None
+    # Serializa consultas do mesmo lead dentro da transacao. A segunda
+    # requisicao aguarda o commit da primeira antes de verificar duplicatas.
+    # O lock e por lead (e organizacao), sem bloquear outros clientes.
+    await session.execute(
+        select(Lead.id)
+        .where(Lead.id == lead_id, Lead.organizacao_id == organizacao_id)
+        .with_for_update()
+    )
     return (
         await session.execute(
             select(PesquisaMarca.id)
             .where(
                 PesquisaMarca.organizacao_id == organizacao_id,
                 PesquisaMarca.lead_id == lead_id,
-                func.lower(PesquisaMarca.marca) == marca.strip().lower(),
+                func.lower(func.trim(PesquisaMarca.marca)) == marca.strip().lower(),
                 PesquisaMarca.classe_nice == classe_nice,
+                PesquisaMarca.duplicada.is_(False),
             )
-            .order_by(PesquisaMarca.criado_em)
+            .order_by(PesquisaMarca.criado_em, PesquisaMarca.id)
             .limit(1)
         )
     ).scalar_one_or_none()
@@ -195,6 +204,18 @@ async def criar_pesquisa(
         registrar_consentimento_titular(lead, organizacao.politica_privacidade_versao)
 
     original = await detectar_pesquisa_duplicada(session, organizacao.id, lead.id, dados.marca)
+    if original is not None:
+        # Reenvios da mesma marca para o mesmo lead reutilizam a pesquisa.
+        # Não geram novo registro, alerta ou e-mail ao comercial.
+        await session.commit()
+        return PesquisaMarcaCriada(
+            id=original,
+            relatorio_url=f"/relatorios/{original}",
+            relatorio_token=emitir_token_relatorio(original, organizacao.id),
+            lead_id=lead.id,
+            duplicada=True,
+            pesquisa_original_id=original,
+        )
     pesquisa = PesquisaMarca(
         organizacao_id=organizacao.id,
         lead_id=lead.id,

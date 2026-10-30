@@ -129,10 +129,11 @@ async def detectar_pesquisa_duplicada(
             .where(
                 PesquisaMarca.organizacao_id == organizacao_id,
                 PesquisaMarca.lead_id == lead_id,
-                func.lower(PesquisaMarca.marca) == marca.strip().lower(),
+                func.lower(func.trim(PesquisaMarca.marca)) == marca.strip().lower(),
                 PesquisaMarca.classe_nice == classe_nice,
+                PesquisaMarca.duplicada.is_(False),
             )
-            .order_by(PesquisaMarca.criado_em)
+            .order_by(PesquisaMarca.criado_em, PesquisaMarca.id)
             .limit(1)
         )
     ).scalar_one_or_none()

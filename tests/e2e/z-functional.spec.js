@@ -17,6 +17,28 @@ async function post(url, data) {
   return response.json();
 }
 
+test('Pesquisas: requisições simultâneas e reenvio mantêm uma pesquisa por classe', async () => {
+  const email = `pesquisa-concorrente-${Date.now()}@e2e.zeregistra.test`;
+  const data = { nome: 'Cliente Concorrencia E2E', email, marca: 'NORTE STUDIO E2E', classes_nice: ['25'] };
+  const inicial = await post('/v1/admin/consulta', data);
+  const classe35 = { ...data, classes_nice: ['35'] };
+  const [primeira, segunda] = await Promise.all([
+    post('/v1/admin/consulta', classe35), post('/v1/admin/consulta', classe35),
+  ]);
+  expect(primeira.lead_id).toBe(inicial.lead_id);
+  expect(segunda.itens[0].id).toBe(primeira.itens[0].id);
+  expect([primeira.itens[0].duplicada, segunda.itens[0].duplicada].sort()).toEqual([false, true]);
+  expect(primeira.itens[0].id).not.toBe(inicial.itens[0].id);
+  const reenvio = await post('/v1/admin/consulta', data);
+  expect(reenvio.itens[0].id).toBe(inicial.itens[0].id);
+  expect(reenvio.itens[0].duplicada).toBe(true);
+  const lista = await (await context.request.get(`/v1/admin/leads?busca=${email}`)).json();
+  const lead = lista.itens.find(item => item.id === inicial.lead_id);
+  expect(lead.total_pesquisas).toBe(2);
+  expect(lead.pesquisas.map(item => item.id).sort()).toEqual([inicial.itens[0].id, primeira.itens[0].id].sort());
+  expect(lead.pesquisas.every(item => !item.duplicada)).toBe(true);
+});
+
 test('CRM: pesquisar, selecionar e salvar lembrete persiste no backend', async () => {
   const email = `funcional-${Date.now()}@e2e.zeregistra.test`;
   await post('/v1/leads', { nome: 'Cliente Funcional E2E', email, telefone: '(16) 99999-0000', marca: 'Marca Funcional E2E', origem: 'geral', aceite_privacidade: true });

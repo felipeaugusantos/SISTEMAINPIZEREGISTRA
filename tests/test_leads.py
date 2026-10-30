@@ -1451,6 +1451,8 @@ def test_historico_lead_omite_pesquisas_legadas_duplicadas() -> None:
         marca="NORTE STUDIO", tipo_pesquisa="completa", duplicada=True,
         pesquisa_original_id="pesquisa-original",
     )
+    lead.criado_em = datetime(2026, 10, 28, tzinfo=UTC)
+    lead.atualizado_em = datetime(2026, 10, 28, tzinfo=UTC)
     original.criado_em = datetime(2026, 10, 29, tzinfo=UTC)
     duplicada.criado_em = datetime(2026, 10, 30, tzinfo=UTC)
 

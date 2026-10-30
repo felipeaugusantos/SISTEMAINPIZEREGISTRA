@@ -195,6 +195,18 @@ async def criar_pesquisa(
         registrar_consentimento_titular(lead, organizacao.politica_privacidade_versao)
 
     original = await detectar_pesquisa_duplicada(session, organizacao.id, lead.id, dados.marca)
+    if original is not None:
+        # Reenvios da mesma marca para o mesmo lead reutilizam a pesquisa.
+        # Não geram novo registro, alerta ou e-mail ao comercial.
+        await session.commit()
+        return PesquisaMarcaCriada(
+            id=original,
+            relatorio_url=f"/relatorios/{original}",
+            relatorio_token=emitir_token_relatorio(original, organizacao.id),
+            lead_id=lead.id,
+            duplicada=True,
+            pesquisa_original_id=original,
+        )
     pesquisa = PesquisaMarca(
         organizacao_id=organizacao.id,
         lead_id=lead.id,

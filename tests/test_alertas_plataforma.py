@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -79,8 +79,16 @@ def _ultima_rpi_ok():
     return SimpleNamespace(numero_rpi=2900, importado_em=datetime.now(UTC), status_integridade="ok")
 
 
-async def test_verificar_saude_plataforma_tudo_ok_nao_cria_alerta(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("agenda_semanal", [False, True])
+async def test_verificar_saude_plataforma_tudo_ok_nao_cria_alerta(monkeypatch: pytest.MonkeyPatch, agenda_semanal) -> None:
     monkeypatch.setattr("app.alertas_plataforma.status_fila", _fila_ok(falhas=0))
+    estado = _estado_rpi_ok()
+    if agenda_semanal:
+        agora = datetime.now(UTC)
+        estado.status = "atualizado"
+        estado.ultima_verificacao_em = agora - timedelta(days=3)
+        estado.proxima_verificacao_em = agora + timedelta(days=4)
+        estado.heartbeat_em = agora
     session = FakeSession(
         [
             FakeResult(itens=[]),  # resolver FILA_INDISPONIVEL
@@ -90,7 +98,7 @@ async def test_verificar_saude_plataforma_tudo_ok_nao_cria_alerta(monkeypatch: p
             FakeResult(itens=[(0, 0, 0.0)]),  # métricas API (0 requisições)
             FakeResult(itens=[]),  # resolver API_LATENCIA_ERRO_ALTA
         ],
-        objetos_get=[_estado_rpi_ok()],
+        objetos_get=[estado],
     )
     await verificar_saude_plataforma(session)
     assert [obj for obj in session.adicionados if isinstance(obj, AlertaSistema)] == []

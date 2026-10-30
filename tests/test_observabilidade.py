@@ -12,13 +12,14 @@ from app.api.observabilidade import (
     _latencia_por_endpoint,
     _recursos_host,
     desligar_flag_imediatamente,
+    obter_observabilidade,
     painel_tecnico,
     religar_flag,
 )
 from app.auth import hash_token, obter_usuario_atual
 from app.database import get_session
 from app.main import app
-from app.models import EventoAuditoria, EventoOperacional, FeatureFlag, VersaoSistema
+from app.models import EventoAuditoria, EventoOperacional, FeatureFlag, RpiImportacao, RpiSyncEstado, VersaoSistema
 from tests.conftest import FakeResult, FakeSession, auth_override, usuario_teste
 
 # --- Achado FASE6-4 da auditoria (04/09/2026): dead-letter queue visível e
@@ -36,6 +37,33 @@ def _override_session(session: FakeSession):
         yield session
 
     return _gen
+
+
+async def test_observabilidade_respeita_agenda_rpi_com_heartbeat_ativo(monkeypatch):
+    agora = datetime.now(UTC)
+    estado = RpiSyncEstado(
+        id=1, status="atualizado", ultima_rpi_oficial=2912,
+        ultima_verificacao_em=agora - timedelta(days=3),
+        proxima_verificacao_em=agora + timedelta(days=4), heartbeat_em=agora,
+    )
+    ultima = RpiImportacao(
+        numero_rpi=2912, tipo="marca", status_integridade="ok", anomalias=[],
+        importado_em=agora - timedelta(days=3),
+    )
+    session = FakeSession([
+        FakeResult(), FakeResult(scalar=1), FakeResult(scalar=1024),
+        FakeResult(scalar=ultima), FakeResult(), FakeResult(scalar=0),
+        FakeResult(itens=[(0, 0, 0.0)]), FakeResult(scalar=agora),
+    ], objetos_get=[estado])
+
+    async def fila_ok():
+        return {"status": "ok"}
+
+    monkeypatch.setattr("app.api.observabilidade.status_fila", fila_ok)
+    resposta = await obter_observabilidade(session, replace(usuario_teste(), superadmin=True))
+    assert resposta["rpi"]["status"] == "ok"
+    assert resposta["rpi"]["idade_horas"] > 70
+    assert resposta["rpi"]["motivos"] == []
 
 
 def _sessao_tech(*resultados: FakeResult) -> FakeSession:

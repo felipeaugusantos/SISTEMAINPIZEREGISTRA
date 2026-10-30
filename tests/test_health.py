@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.database import get_session
@@ -68,7 +69,8 @@ def test_health_banco_indisponivel() -> None:
     assert response.json()["database"] == "error"
 
 
-def test_health_rpi_expoe_estado_operacional() -> None:
+@pytest.mark.parametrize("agenda_semanal", [False, True])
+def test_health_rpi_expoe_estado_operacional(agenda_semanal) -> None:
     agora = datetime.now(UTC)
     estado = RpiSyncEstado(
         id=1,
@@ -77,6 +79,10 @@ def test_health_rpi_expoe_estado_operacional() -> None:
         ultima_rpi_local=2901,
         falhas_consecutivas=0,
     )
+    if agenda_semanal:
+        estado.ultima_verificacao_em = agora - timedelta(days=3)
+        estado.proxima_verificacao_em = agora + timedelta(days=4)
+        estado.heartbeat_em = agora
     importacao = RpiImportacao(
         numero_rpi=2901,
         tipo="marca",

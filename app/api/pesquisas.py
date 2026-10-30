@@ -115,6 +115,14 @@ async def detectar_pesquisa_duplicada(
     diferentes são pedidos comerciais distintos, não repetição."""
     if lead_id is None:
         return None
+    # Serializa consultas do mesmo lead dentro da transacao. A segunda
+    # requisicao aguarda o commit da primeira antes de verificar duplicatas.
+    # O lock e por lead (e organizacao), sem bloquear outros clientes.
+    await session.execute(
+        select(Lead.id)
+        .where(Lead.id == lead_id, Lead.organizacao_id == organizacao_id)
+        .with_for_update()
+    )
     return (
         await session.execute(
             select(PesquisaMarca.id)

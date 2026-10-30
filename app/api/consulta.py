@@ -278,12 +278,15 @@ async def criar_consulta(
                 classe_nice=pesquisa.classe_nice,
             )
         )
-    # O retorno inclui as pesquisas existentes, mas sem criar cópias no banco.
+    # Preserve a ordem solicitada ao devolver pesquisas novas e reutilizadas.
+    itens_por_chave = {(i.marca.strip().casefold(), i.classe_nice): i for i in itens}
+    ordenados: list[PesquisaMarcaCriada] = []
     for item_marca in marcas:
         for classe_nice in (list(item_marca.classes_nice) or [None]):
-            original = ids_reutilizados.get((item_marca.marca.strip().casefold(), classe_nice))
+            chave = (item_marca.marca.strip().casefold(), classe_nice)
+            original = ids_reutilizados.get(chave)
             if original is not None:
-                itens.append(
+                ordenados.append(
                     PesquisaMarcaCriada(
                         id=original,
                         relatorio_url=f"/admin/consulta/{original}",
@@ -294,7 +297,9 @@ async def criar_consulta(
                         classe_nice=classe_nice,
                     )
                 )
-    return ConsultaMultiplaCriada(lead_id=lead.id if lead else None, itens=itens)
+            else:
+                ordenados.append(itens_por_chave[chave])
+    return ConsultaMultiplaCriada(lead_id=lead.id if lead else None, itens=ordenados)
 
 
 @router.get("/{pesquisa_id}/contexto")

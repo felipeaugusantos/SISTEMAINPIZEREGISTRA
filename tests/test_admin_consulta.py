@@ -384,3 +384,49 @@ async def test_endpoint_revisar_explicacao_ia_404_quando_nao_encontrada() -> Non
             "pesquisa-1", 999, RevisaoExplicacaoIAInput(status="descartada"), session, usuario_teste()
         )
     assert excinfo.value.status_code == 404
+
+@pytest.mark.asyncio
+async def test_consulta_repetida_reutiliza_pesquisa_sem_criar_outra(monkeypatch) -> None:
+    lead = Lead(
+        id=42, organizacao_id=1, nome="Cliente", email="cliente@example.com",
+        telefone="11999999999", marca="NORTE STUDIO", origem="operador",
+        status=StatusLead.NOVO, aceite_privacidade=True,
+    )
+    session = SessaoConsultaComId([FakeResult(scalar=lead)])
+    async def pesquisa_existente(*_args, **_kwargs):
+        return "pesquisa-original"
+    monkeypatch.setattr("app.api.consulta.detectar_pesquisa_duplicada", pesquisa_existente)
+    dados = ConsultaOperadorInput(marca="NORTE STUDIO", nome="Cliente", email="cliente@example.com")
+
+    resposta = await criar_consulta(dados, session, usuario_teste())
+
+    assert not [obj for obj in session.adicionados if isinstance(obj, PesquisaMarca)]
+    assert [item.id for item in resposta.itens] == ["pesquisa-original"]
+    assert resposta.itens[0].duplicada is True
+    assert resposta.itens[0].pesquisa_original_id == "pesquisa-original"
+
+
+@pytest.mark.asyncio
+async def test_consulta_classes_diferentes_preserva_nova_pesquisa(monkeypatch) -> None:
+    lead = Lead(
+        id=42, organizacao_id=1, nome="Cliente", email="cliente@example.com",
+        telefone="11999999999", marca="NORTE STUDIO", origem="operador",
+        status=StatusLead.NOVO, aceite_privacidade=True,
+    )
+    session = SessaoConsultaComId([FakeResult(scalar=lead)])
+    async def pesquisa_existente(*_args, **kwargs):
+        return "pesquisa-classe-25" if kwargs.get("classe_nice") == "25" else None
+    monkeypatch.setattr("app.api.consulta.detectar_pesquisa_duplicada", pesquisa_existente)
+    dados = ConsultaOperadorInput(
+        marca="NORTE STUDIO", classes_nice=["25", "35"],
+        nome="Cliente", email="cliente@example.com",
+    )
+
+    resposta = await criar_consulta(dados, session, usuario_teste())
+
+    novas = [obj for obj in session.adicionados if isinstance(obj, PesquisaMarca)]
+    assert len(novas) == 1
+    assert novas[0].classe_nice == "35"
+    assert {item.classe_nice for item in resposta.itens} == {"25", "35"}
+    assert any(item.id == "pesquisa-classe-25" for item in resposta.itens)
+

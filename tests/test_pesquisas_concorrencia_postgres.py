@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import asyncpg
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import consulta, pesquisas
@@ -140,6 +140,42 @@ async def test_classes_distintas_e_reenvios_preservam_ids(banco_pesquisas):
     assert await banco.admin.fetchval(
         "SELECT count(*) FROM pesquisas_marca WHERE lead_id=$1", banco.lead_id,
     ) == 2
+
+
+@pytest.mark.parametrize("confirmar", [True, False])
+async def test_lock_aguarda_commit_ou_rollback_da_primeira_transacao(banco_pesquisas, confirmar):
+    banco = banco_pesquisas
+    async with banco.fabrica() as primeira, banco.fabrica() as segunda:
+        assert await pesquisas.detectar_pesquisa_duplicada(
+            primeira, banco.org_id, banco.lead_id, "NORTE STUDIO",
+        ) is None
+        original = PesquisaMarca(
+            organizacao_id=banco.org_id, lead_id=banco.lead_id, marca="NORTE STUDIO",
+            tipo_pesquisa="completa", duplicada=False,
+        )
+        primeira.add(original)
+        await primeira.flush()
+        original_id = original.id
+        pid = await segunda.scalar(text("SELECT pg_backend_pid()"))
+        tarefa = asyncio.create_task(pesquisas.detectar_pesquisa_duplicada(
+            segunda, banco.org_id, banco.lead_id, "NORTE STUDIO",
+        ))
+        try:
+            # Confirma a espera no servidor, sem depender de tempo arbitrario
+            # nem do autoflush de UPDATE do lead usado pelos endpoints.
+            async with asyncio.timeout(5):
+                while not await banco.admin.fetchval("SELECT cardinality(pg_blocking_pids($1)) > 0", pid):
+                    assert not tarefa.done(), "A segunda transacao ignorou o lock do lead"
+                    await asyncio.sleep(0.01)
+            if confirmar:
+                await primeira.commit()
+            else:
+                await primeira.rollback()
+            assert await asyncio.wait_for(tarefa, timeout=5) == (original_id if confirmar else None)
+        finally:
+            if not tarefa.done():
+                tarefa.cancel()
+            await asyncio.gather(tarefa, return_exceptions=True)
 
 
 async def test_original_ignora_duplicada_legada_e_normaliza_espacos(banco_pesquisas):

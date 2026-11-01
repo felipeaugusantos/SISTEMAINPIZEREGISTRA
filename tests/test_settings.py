@@ -40,6 +40,7 @@ def test_producao_rejeita_salt_de_auditoria_curto() -> None:
             app_env="production",
             admin_password="Uma-Senha-Bem-Forte-2026",
             audit_ip_salt="curto",
+            security_master_key="segredo-mestre-com-mais-de-trinta-e-dois-caracteres",
         )
 
 

@@ -1,6 +1,7 @@
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, field_validator
@@ -37,6 +38,7 @@ from app.models import (
     TokenRecuperacaoSenha,
     UsuarioOperacoes,
 )
+from app.password_recovery import invalidar_links_recuperacao
 from app.permissions import destino_inicial, permissoes_do_perfil
 from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
@@ -206,6 +208,13 @@ async def login(
         await fora_do_loop(consumir_tempo_hash)
         senha_valida = False
     valido = senha_valida
+    if valido and usuario.senha_temporaria_expira_em and usuario.senha_temporaria_expira_em <= agora:
+        await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
+        await _auditar(session, request, ident, "LOGIN_NEGADO", False, {"motivo": "senha_temporaria_expirada"})
+        await session.commit()
+        raise HTTPException(
+            401, "Senha temporária expirada. Solicite uma nova a um administrador ou recupere por e-mail."
+        )
     segredo_mfa = None
     codigo_mfa_informado = bool((dados.codigo_mfa or "").strip())
     aguardando_mfa = False
@@ -255,7 +264,9 @@ async def login(
             {"motivo": "excesso_tentativas" if bloqueou else "credenciais_invalidas"},
         )
         await session.commit()
-        detalhe = "Código MFA inválido" if usuario and usuario.mfa_ativo and senha_valida else "Usuário ou senha inválidos"
+        detalhe = (
+            "Código MFA inválido" if usuario and usuario.mfa_ativo and senha_valida else "Usuário ou senha inválidos"
+        )
         raise HTTPException(status_code=401, detail=detalhe)
     usuario.tentativas_falhas = 0
     usuario.bloqueado_ate = None
@@ -407,7 +418,7 @@ async def trocar_senha(
         )
         await session.commit()
         raise HTTPException(status_code=422, detail=erro_forca)
-    registro = await session.get(UsuarioOperacoes, usuario.id)
+    registro = await session.get(UsuarioOperacoes, usuario.id, with_for_update=True, populate_existing=True)
     if not registro or not await fora_do_loop(verificar_senha, registro.senha_hash, dados.senha_atual):
         await _auditar(
             session,
@@ -434,6 +445,8 @@ async def trocar_senha(
         raise HTTPException(status_code=400, detail="A nova senha deve ser diferente")
     registro.senha_hash = hash_senha(dados.nova_senha)
     registro.alterar_senha = False
+    registro.senha_temporaria_expira_em = None
+    await invalidar_links_recuperacao(session, registro.id)
     # Incremento feito pelo BANCO (SET senha_versao = senha_versao + 1), não lido e somado em Python:
     # duas trocas simultâneas lendo a mesma geração gravariam o mesmo número (revisão do Codex, PR #192).
     registro.senha_versao = UsuarioOperacoes.senha_versao + 1
@@ -472,6 +485,28 @@ async def solicitar_recuperacao(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     limitar_recuperacao.aplicar(cliente_ip(request))
+    settings = get_settings()
+    if settings.app_env.lower() == "production":
+        # Verificação global, antes de buscar a conta: não revela quais e-mails existem.
+        try:
+            url = urlsplit(settings.app_public_url)
+            url_valida = (
+                url.scheme == "https"
+                and bool(url.hostname)
+                and url.hostname not in {"localhost", "127.0.0.1", "::1"}
+                and not url.username
+                and not url.password
+                and not url.query
+                and not url.fragment
+            )
+        except ValueError:
+            url_valida = False
+        if not settings.email_enabled or not url_valida:
+            logger.error("Recuperação por e-mail indisponível: revise EMAIL_ENABLED e APP_PUBLIC_URL")
+            raise HTTPException(
+                503,
+                "Recuperação por e-mail indisponível. Peça a um administrador para redefinir sua senha no painel de usuários.",
+            )
     email = dados.email.strip().lower()
     await aplicar_contexto_autenticacao(session, "recuperacao_email", email)
     usuario = (
@@ -482,13 +517,19 @@ async def solicitar_recuperacao(
             )
         )
     ).scalar_one_or_none()
-    resposta = {"status": "ok", "mensagem": "Se a conta existir, a recuperação foi criada."}
+    resposta = {
+        "status": "ok",
+        "mensagem": "Se a conta estiver ativa e o envio estiver disponível, você receberá um link de recuperação. Use somente o e-mail mais recente. Se ele não chegar, peça a um administrador para redefinir sua senha no painel de usuários.",
+    }
     if usuario:
         await aplicar_contexto_tenant(
             session,
             usuario.organizacao_id,
             superadmin=usuario.superadmin,
         )
+        await session.refresh(usuario, with_for_update=True)
+        if not usuario.ativo:
+            return resposta
         token = secrets.token_urlsafe(48)
         agora = datetime.now(UTC)
         await session.execute(
@@ -520,9 +561,7 @@ async def solicitar_recuperacao(
         settings = get_settings()
         if settings.email_enabled:
             try:
-                await enviar_recuperacao_senha(
-                    usuario.email, usuario.nome, token, organizacao_nome=nome_escritorio
-                )
+                await enviar_recuperacao_senha(usuario.email, usuario.nome, token, organizacao_nome=nome_escritorio)
             except Exception:
                 # A resposta continua genérica para não revelar se a conta existe.
                 # O token nunca é incluído no log.
@@ -561,12 +600,19 @@ async def redefinir_senha(
     if not usuario:
         raise HTTPException(400, "Token invalido ou expirado")
     await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
+    await session.refresh(usuario, with_for_update=True)
+    if not usuario.ativo:
+        raise HTTPException(400, "Token inválido ou expirado")
     # Achado 8 da auditoria: consumo atômico do token (UPDATE condicional +
     # rowcount) -- já sob o tenant resolvido, satisfazendo o RLS. Duas
     # requisições simultâneas com o mesmo token não passam mais as duas.
     consumo = await session.execute(
         update(TokenRecuperacaoSenha)
-        .where(TokenRecuperacaoSenha.id == item.id, TokenRecuperacaoSenha.usado_em.is_(None))
+        .where(
+            TokenRecuperacaoSenha.id == item.id,
+            TokenRecuperacaoSenha.usado_em.is_(None),
+            TokenRecuperacaoSenha.expira_em > datetime.now(UTC),
+        )
         .values(usado_em=agora)
         .returning(TokenRecuperacaoSenha.id)
     )
@@ -575,6 +621,10 @@ async def redefinir_senha(
     usuario.senha_hash = hash_senha(dados.nova_senha)
     usuario.senha_versao = UsuarioOperacoes.senha_versao + 1  # incremento atômico no banco
     usuario.alterar_senha = False
+    usuario.senha_temporaria_expira_em = None
+    usuario.tentativas_falhas = 0
+    usuario.bloqueado_ate = None
+    await invalidar_links_recuperacao(session, usuario.id)
     await session.execute(
         update(SessaoOperacoes)
         .where(SessaoOperacoes.usuario_id == usuario.id, SessaoOperacoes.revogada_em.is_(None))

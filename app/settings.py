@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SENHAS_PLACEHOLDER = frozenset({"", "altere-esta-senha", "defina-uma-senha-forte"})
@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     ratelimit_redis_enabled: bool = False
     trusted_proxy_networks: str = "127.0.0.1/32,::1/128"
     password_reset_minutes: int = 30
+    temporary_password_minutes: int = Field(default=60, ge=5, le=1440)
     anonimizacao_token_minutos: int = 1440
     app_public_url: str = "http://localhost:8000"
     email_enabled: bool = False

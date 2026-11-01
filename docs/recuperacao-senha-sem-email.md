@@ -44,4 +44,6 @@ Foram aprovados 128 testes de recuperação, troca de senha, autoridade sobre co
 
 A falha preexistente em `test_producao_rejeita_salt_de_auditoria_curto` foi reproduzida com a classe Settings original. O teste agora fornece uma chave mestra válida para que alcance a validação do salt que pretende exercitar, sem alterar a validação de produção.
 
+A primeira execução da CI parou na auditoria de dependências: o `pypdf` 6.21.2, já presente na base, tinha sete avisos de segurança com correção disponível. Esta entrega atualiza somente esse pacote para 6.21.4 e ajusta o mínimo declarado. A auditoria permanece obrigatória. Os testes de relatórios e leitura de PDF também são conferidos após essa atualização.
+
 Não foi feita alteração no servidor nem envio real de e-mail. Aplicação e reversão em PostgreSQL real, comportamento concorrente sob RLS e o fluxo no ambiente publicado ainda precisam de validação em homologação antes da liberação.

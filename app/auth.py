@@ -256,6 +256,11 @@ async def obter_usuario_atual(
     # inatividade e atualizacao de ultimo_acesso). Sem isso a policy tenant_write
     # de sessoes_operacoes bloqueia o UPDATE -> 0 linhas -> StaleDataError -> 500.
     await aplicar_contexto_tenant(session, usuario.organizacao_id, superadmin=usuario.superadmin)
+    if usuario.senha_temporaria_expira_em and usuario.senha_temporaria_expira_em <= agora:
+        sessao.revogada_em = agora
+        sessao.motivo_revogacao = "senha_temporaria_expirada"
+        await session.commit()
+        raise _erro_nao_autenticado(request)
     limite_ocioso = agora - timedelta(minutes=get_settings().session_idle_minutes)
     if sessao.ultimo_acesso_em < limite_ocioso:
         sessao.revogada_em = agora

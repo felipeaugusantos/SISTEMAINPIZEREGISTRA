@@ -346,6 +346,7 @@ class UsuarioOperacoes(Base):
     mfa_pendente_expira_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     codigos_recuperacao: Mapped[list[str]] = mapped_column(JSON, default=list)
     alterar_senha: Mapped[bool] = mapped_column(Boolean, default=True)
+    senha_temporaria_expira_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Geração da senha (auditoria externa A04): sobe a cada troca/redefinição; a sessão guarda a geração
     # com que foi autenticada e deixa de valer se divergir (fecha a corrida login x redefinição).
     senha_versao: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))

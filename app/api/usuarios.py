@@ -1,6 +1,6 @@
 import secrets
 import string
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -17,6 +17,7 @@ from app.models import (
     SessaoOperacoes,
     UsuarioOperacoes,
 )
+from app.password_recovery import invalidar_links_recuperacao
 from app.permissions import (
     CHAVES_PERMISSAO,
     PERFIS,
@@ -26,6 +27,7 @@ from app.permissions import (
     permissoes_do_perfil,
     permissoes_efetivas,
 )
+from app.settings import get_settings
 from app.tenancy import validar_limite_usuarios
 
 router = APIRouter(prefix="/v1/admin/usuarios", tags=["usuarios"])
@@ -68,7 +70,13 @@ class UsuarioUpdate(BaseModel):
 
 def _temporaria() -> str:
     alfabeto = string.ascii_letters + string.digits + "!@#$%"
-    return "".join(secrets.choice(alfabeto) for _ in range(18))
+    # Garante os mesmos requisitos exigidos na troca da senha definitiva.
+    caracteres = [
+        secrets.choice(grupo) for grupo in (string.ascii_lowercase, string.ascii_uppercase, string.digits, "!@#$%")
+    ]
+    caracteres.extend(secrets.choice(alfabeto) for _ in range(14))
+    secrets.SystemRandom().shuffle(caracteres)
+    return "".join(caracteres)
 
 
 def _validar(perfil: str, permissoes: list[str]) -> set[str]:
@@ -241,6 +249,7 @@ async def criar(dados: UsuarioInput, session: SessionDep, ator: ManageDep) -> di
         perfil=dados.perfil,
         senha_hash=hash_senha(senha),
         alterar_senha=True,
+        senha_temporaria_expira_em=datetime.now(UTC) + timedelta(minutes=get_settings().temporary_password_minutes),
         criado_por=ator.email,
         permissoes=await _objetos(session, chaves),
     )
@@ -248,7 +257,7 @@ async def criar(dados: UsuarioInput, session: SessionDep, ator: ManageDep) -> di
     await session.flush()
     await _auditar(session, ator, "CRIAR", usuario.id, {"perfil": usuario.perfil, "permissoes": sorted(chaves)})
     await session.commit()
-    return {"usuario": _serializar(usuario), "senha_temporaria": senha}
+    return {"usuario": _serializar(usuario), "senha_temporaria": senha, "expira_em": usuario.senha_temporaria_expira_em}
 
 
 @router.patch("/{usuario_id}")
@@ -337,9 +346,14 @@ async def redefinir_senha(usuario_id: int, session: SessionDep, ator: ResetDep) 
     if not alvo:
         raise HTTPException(404, "Usuario nao encontrado")
     await _exigir_autoridade(session, ator, alvo, "NEGADO_REDEF_SENHA")
+    if not alvo.ativo:
+        raise HTTPException(409, "Reative a conta antes de redefinir a senha")
     senha = _temporaria()
     alvo.senha_hash = hash_senha(senha)
     alvo.alterar_senha = True
+    alvo.senha_temporaria_expira_em = datetime.now(UTC) + timedelta(minutes=get_settings().temporary_password_minutes)
+    alvo.tentativas_falhas = 0
+    alvo.bloqueado_ate = None
     alvo.senha_versao = UsuarioOperacoes.senha_versao + 1  # incremento atômico no banco
     await session.execute(
         update(SessaoOperacoes)
@@ -347,8 +361,9 @@ async def redefinir_senha(usuario_id: int, session: SessionDep, ator: ResetDep) 
         .values(revogada_em=datetime.now(UTC), motivo_revogacao="senha_redefinida")
     )
     await _auditar(session, ator, "REDEFINIR_SENHA", alvo.id, {})
+    await invalidar_links_recuperacao(session, alvo.id)
     await session.commit()
-    return {"senha_temporaria": senha}
+    return {"senha_temporaria": senha, "expira_em": alvo.senha_temporaria_expira_em}
 
 
 @router.post("/{usuario_id}/revogar-sessoes")

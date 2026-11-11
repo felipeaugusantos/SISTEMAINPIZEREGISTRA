@@ -37,7 +37,7 @@ jobs:
       SECURITY_MASTER_KEY: ci-only-security-key
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           # O cache de uv travava por cinco minutos no post-job e invalidava a
           # execução mesmo após testes, E2E e build terem sido aprovados.

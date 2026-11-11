@@ -42,7 +42,7 @@ jobs:
           # O cache de uv travava por cinco minutos no post-job e invalidava a
           # execução mesmo após testes, E2E e build terem sido aprovados.
           enable-cache: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - uses: actions/setup-node@v4

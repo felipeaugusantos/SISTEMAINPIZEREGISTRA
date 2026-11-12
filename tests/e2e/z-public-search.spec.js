@@ -88,13 +88,16 @@ test("reenvio da mesma marca reutiliza a pesquisa sem duplicar", async ({ page }
   expect(segundaResposta.status).toBe(201);
   const segunda = segundaResposta.corpo;
 
-  // Revisão de segurança (PR #242): a resposta pública é uniforme e não
-  // marca duplicidade — o reenvio reutiliza a pesquisa (mesmo id) sem
-  // revelar que ela já existia.
+  // Revisões de segurança (12/11/2026): a resposta pública é uniforme (não
+  // marca duplicidade, PR #242) e o reenvio não devolve token utilizável —
+  // o acesso anterior exige o código enviado ao e-mail (prova de posse).
   expect(segunda.duplicada).toBe(false);
   expect(segunda.id).toBe(primeira.id);
-  await page.waitForURL(new RegExp(`/relatorios/${primeira.id}`));
-  await expect(page.locator("#report-content")).toBeVisible({ timeout: 20000 });
+  expect(segunda.relatorio_token).toBeNull();
+  await expect(page.locator("#form-status")).toContainText("código de acesso");
+  await expect(page.locator("#recovery-panel")).toBeVisible();
+  await expect(page.locator("#recovery-email")).toHaveValue(DADOS.email);
+  await expect(page.locator("#recovery-brand")).toHaveValue(DADOS.marca);
 });
 
 test("relatório exige token: acesso direto mostra estado de erro", async ({ page, request }) => {

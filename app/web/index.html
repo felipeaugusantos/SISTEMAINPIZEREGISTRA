@@ -65,7 +65,31 @@
           <label class="privacy-consent"><input id="marketing-consent" type="checkbox" /><span>Quero receber novidades e comunicações comerciais (opcional).</span></label>
           <button class="primary-button report-button" type="submit">Gerar relatório indicativo</button>
           <div id="form-status" class="status-message" role="status" aria-live="polite"></div>
+          <p class="recovery-hint">Já fez esta pesquisa? <a href="#recovery-panel" id="recovery-open">Recupere o acesso pelo seu e-mail</a>.</p>
         </form>
+
+        <section id="recovery-panel" class="search-panel recovery-panel" hidden aria-labelledby="recovery-title">
+          <div class="lead-form-intro">
+            <p class="eyebrow">Acesso anterior</p>
+            <h2 id="recovery-title">Recuperar sua pesquisa</h2>
+            <p>Por segurança, o acesso a pesquisas anteriores exige a confirmação do e-mail usado no cadastro. Informe os dados e, se houver uma pesquisa associada, você recebe um código de acesso.</p>
+          </div>
+          <form id="recovery-request-form" data-captcha>
+            <div class="form-grid">
+              <label class="form-field"><span>E-mail usado na pesquisa</span><input id="recovery-email" type="email" autocomplete="email" maxlength="254" required /></label>
+              <label class="form-field"><span>Marca pesquisada</span><input id="recovery-brand" minlength="2" maxlength="200" required /></label>
+            </div>
+            <button class="primary-button" type="submit">Enviar código de acesso</button>
+            <div id="recovery-status" class="status-message" role="status" aria-live="polite"></div>
+          </form>
+          <form id="recovery-confirm-form" hidden data-captcha>
+            <div class="form-grid">
+              <label class="form-field"><span>Código recebido no e-mail</span><input id="recovery-code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code" required /></label>
+            </div>
+            <button class="primary-button" type="submit">Abrir meu relatório</button>
+            <div id="recovery-confirm-status" class="status-message" role="status" aria-live="polite"></div>
+          </form>
+        </section>
       </section>
 
       <section id="como-funciona" class="commercial-section" aria-labelledby="how-title">

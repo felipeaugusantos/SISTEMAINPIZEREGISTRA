@@ -384,6 +384,28 @@ class PesquisaMarcaCriada(BaseModel):
     classe_nice: str | None = None
 
 
+class RecuperacaoAcessoPesquisaCreate(BaseModel):
+    email_corporativo: str = Field(
+        min_length=5,
+        max_length=254,
+        pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$",
+    )
+    marca: str = Field(min_length=2, max_length=200)
+
+    @field_validator("email_corporativo", "marca")
+    @classmethod
+    def remover_espacos_recuperacao(cls, valor: str) -> str:
+        return valor.strip()
+
+
+class RecuperacaoAcessoPesquisaConfirmar(RecuperacaoAcessoPesquisaCreate):
+    codigo: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class RecuperacaoAcessoPesquisaResposta(BaseModel):
+    detalhe: str
+
+
 class ClasseNiceCandidataResponse(BaseModel):
     codigo: str
     titulo: str

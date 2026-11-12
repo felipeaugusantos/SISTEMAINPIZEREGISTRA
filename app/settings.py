@@ -109,6 +109,13 @@ class Settings(BaseSettings):
     # Separado do SMTP global: publicação não ativa envio novo por acidente.
     confirmacao_pesquisa_email_enabled: bool = False
     relatorio_link_ttl_horas: int = 168
+    # Recuperação de acesso a pesquisas anteriores com prova de posse do
+    # e-mail: código de 6 dígitos enviado à caixa, nunca o link do resultado.
+    # Opt-in separado da confirmação; desligado, o fluxo falha fechado
+    # (reenvio não devolve token e a recuperação responde sem enviar nada).
+    recuperacao_pesquisa_email_enabled: bool = False
+    recuperacao_codigo_minutos: int = Field(default=15, ge=5, le=60)
+    recuperacao_codigo_max_tentativas: int = Field(default=5, ge=3, le=10)
     temporary_password_minutes: int = Field(default=60, ge=5, le=1440)
     anonimizacao_token_minutos: int = 1440
     app_public_url: str = "http://localhost:8000"

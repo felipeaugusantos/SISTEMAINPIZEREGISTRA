@@ -33,6 +33,7 @@ logger = logging.getLogger("ze_registra.emailing")
 _ERROS_REJEICAO_SMTP = (smtplib.SMTPResponseException, smtplib.SMTPRecipientsRefused)
 _PROVEDORES_ESGOTADOS_ATE: dict[str, float] = {}
 _LIMITE_CONFIRMACAO = RateLimiter(3, 3600, escopo="confirmacao-pesquisa-destinatario", sensivel=True)
+_LIMITE_RECUPERACAO = RateLimiter(3, 3600, escopo="recuperacao-pesquisa-destinatario", sensivel=True)
 
 
 @dataclass(frozen=True)
@@ -863,6 +864,120 @@ async def enviar_confirmacao_pesquisa(
         # Não inclui a exceção: resposta SMTP pode conter PII; link nunca vai
         # ao evento. Timeout é ambíguo, portanto não há retry automático.
         logger.warning("Falha na confirmação de pesquisa (%s)", type(exc).__name__)
+        return False
+
+
+def _mensagem_codigo_recuperacao(
+    destinatario: str,
+    marca: str,
+    codigo: str,
+    validade_minutos: int,
+    settings: Settings,
+    organizacao_nome: str | None = None,
+) -> EmailMessage:
+    """E-mail de recuperação: só o código de 6 dígitos, nunca o link do
+    relatório -- o acesso ao resultado anterior exige a comprovação da
+    posse da caixa no próprio site (revisão de segurança 12/11/2026)."""
+    marca_segura = html.escape(marca)
+    marca_cabecalho = " ".join(marca.split())
+    mensagem = EmailMessage()
+    remetente = _definir_remetente(mensagem, settings, organizacao_nome) or NOME_PLATAFORMA
+    mensagem["Subject"] = f"Seu código de acesso à pesquisa da marca {marca_cabecalho} — {remetente}"
+    mensagem["To"] = destinatario
+    mensagem.set_content(
+        f"Recebemos um pedido de acesso à pesquisa da marca {marca}.\n\n"
+        f"Seu código de acesso é: {codigo}\n\n"
+        f"Ele vale por {validade_minutos} minutos e só pode ser usado uma vez. "
+        "Digite-o na página da pesquisa para abrir o relatório.\n\n"
+        "Se você não fez este pedido, ignore este e-mail: sem o código, "
+        "ninguém acessa a sua pesquisa.\n\n"
+        f"Atenciosamente,\n{remetente}"
+    )
+    mensagem.add_alternative(
+        f"""
+        <!doctype html>
+        <html lang="pt-BR"><body style="margin:0;background:#f5f3eb;padding:28px;">
+          <main style="max-width:600px;margin:auto;background:#fff;border:1px solid #d8ddd6;
+                       border-radius:20px;padding:36px;font-family:Arial,sans-serif;color:#10251d;">
+            <p style="margin:0;color:#08704d;font-weight:700;letter-spacing:.08em;">
+              {_cabecalho_marca(organizacao_nome, sufixo="PESQUISA DE MARCA")}
+            </p>
+            <h1 style="font-size:26px;margin:22px 0 12px;">Seu código de acesso</h1>
+            <p>Recebemos um pedido de acesso à pesquisa da marca <b>{marca_segura}</b>.</p>
+            <p style="margin:28px 0;text-align:center;">
+              <span style="display:inline-block;background:#f0ede2;border:1px solid #d8ddd6;
+                           border-radius:10px;padding:16px 28px;font-size:28px;font-weight:700;
+                           letter-spacing:.35em;">{html.escape(codigo)}</span>
+            </p>
+            <p style="color:#607068;font-size:13px;">
+              O código vale por {validade_minutos} minutos e só pode ser usado uma vez.
+            </p>
+            <hr style="border:none;border-top:1px solid #d8ddd6;margin:24px 0;"/>
+            <p style="color:#607068;font-size:13px;">
+              Se você não fez este pedido, ignore este e-mail: sem o código,
+              ninguém acessa a sua pesquisa.
+            </p>
+          </main>
+        </body></html>
+        """,
+        subtype="html",
+    )
+    return mensagem
+
+
+async def _registrar_falha_recuperacao(codigo: str) -> None:
+    """Falhas transitórias/supressões sem endereço, marca ou código nos eventos."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    try:
+        async with session_factory() as session:
+            session.add(EventoOperacional(
+                componente="email", operacao="recuperacao_pesquisa", sucesso=False,
+                duracao_ms=0, status_http=0, codigo_erro=codigo,
+                detalhes={"motivo": codigo},
+            ))
+            await session.commit()
+    except Exception:
+        logger.warning("Falha ao registrar estado da recuperação de pesquisa")
+
+
+async def enviar_codigo_recuperacao_pesquisa(
+    *,
+    destinatario: str,
+    marca: str,
+    codigo: str,
+    organizacao_nome: str | None = None,
+) -> bool:
+    """Envia o código de verificação de posse para recuperar uma pesquisa.
+
+    Devolve True quando o e-mail saiu. Silenciosa (False) se o envio estiver
+    desabilitado; falhas de SMTP são registradas e logadas sem derrubar a
+    requisição. O código nunca aparece em log ou evento.
+    """
+    settings = get_settings()
+    if not settings.email_enabled or not settings.recuperacao_pesquisa_email_enabled:
+        return False
+    try:
+        destinatario = validate_email(
+            destinatario, check_deliverability=False, allow_smtputf8=False,
+            test_environment=settings.app_env == "test",
+        ).normalized
+        try:
+            _LIMITE_RECUPERACAO.aplicar(hashlib.sha256(destinatario.lower().encode()).hexdigest())
+        except HTTPException:
+            await _registrar_falha_recuperacao("limite_destinatario")
+            return False
+        mensagem = _mensagem_codigo_recuperacao(
+            destinatario, marca, codigo,
+            settings.recuperacao_codigo_minutos, settings, organizacao_nome,
+        )
+        await _enviar_smtp_contabilizado(mensagem, settings, "recuperacao_pesquisa")
+        return True
+    except Exception as exc:
+        await _registrar_email_rejeitado("recuperacao_pesquisa", exc)
+        if not isinstance(exc, _ERROS_REJEICAO_SMTP):
+            await _registrar_falha_recuperacao(type(exc).__name__)
+        logger.warning("Falha na recuperação de pesquisa (%s)", type(exc).__name__)
         return False
 
 

@@ -17,10 +17,10 @@ mesmo formato), preserva o acesso imediato ao relatório (produto gratuito)
 e passa a só preencher campos vazios do lead, sem tocar lead convertido
 (mesma regra do achado H7 do POST /v1/leads).
 
-Limite documentado: quem conhece o par marca+e-mail ainda recebe um token
-curto do relatório original (o relatório é o produto gratuito, gerável por
-qualquer visitante). O fechamento completo exige comprovação de posse da
-caixa, prevista no fluxo de confirmação por e-mail (link estável revogável).
+Fechamento da posse (12/11/2026, PR separado): o reenvio não devolve mais
+um token utilizável da pesquisa original. O acesso a pesquisas anteriores
+exige comprovação de posse da caixa de e-mail (código de uso único), coberto
+em tests/test_recuperacao_pesquisa.py.
 """
 
 from types import SimpleNamespace
@@ -115,10 +115,11 @@ def _post(cliente: TestClient, **overrides: object) -> dict:
     return resposta.json()
 
 
-def test_reenvio_nao_revela_duplicidade_e_mantem_acesso_ao_relatorio(monkeypatch) -> None:
-    """Oráculo fechado: o reenvio devolve o mesmo formato de uma pesquisa
-    nova (sem duplicada=True nem pesquisa_original_id), ainda ancorado na
-    pesquisa original e com token válido para ela."""
+def test_reenvio_nao_revela_duplicidade_e_nao_devolve_token_utilizavel(monkeypatch) -> None:
+    """Oráculo fechado e posse exigida: o reenvio devolve o mesmo formato de
+    uma pesquisa nova (sem duplicada=True nem pesquisa_original_id), ainda
+    ancorado na pesquisa original, mas SEM token -- o acesso anterior exige
+    o código de verificação enviado ao e-mail (prova de posse da caixa)."""
     _preparar(monkeypatch, lead=_lead_existente(), original="pesquisa-original")
     app.dependency_overrides[get_session] = _session_override(_PesquisaSession())
     try:
@@ -130,9 +131,7 @@ def test_reenvio_nao_revela_duplicidade_e_mantem_acesso_ao_relatorio(monkeypatch
     assert corpo["relatorio_url"] == "/relatorios/pesquisa-original"
     assert corpo["duplicada"] is False
     assert corpo["pesquisa_original_id"] is None
-    assert corpo["relatorio_token"]
-    # O token emitido é válido para a pesquisa original, no tenant da resposta.
-    validar_token_relatorio(corpo["relatorio_token"], "pesquisa-original", _oid_do_token(corpo["relatorio_token"]))
+    assert corpo["relatorio_token"] is None
 
 
 def _oid_do_token(token: str) -> int:

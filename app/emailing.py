@@ -13,8 +13,12 @@ from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from urllib.parse import quote
 
+from email_validator import validate_email
+from fastapi import HTTPException
+
 from app.database import session_factory
 from app.models import EventoOperacional
+from app.ratelimit import RateLimiter
 from app.settings import Settings, get_settings
 
 logger = logging.getLogger("ze_registra.emailing")
@@ -28,6 +32,7 @@ logger = logging.getLogger("ze_registra.emailing")
 # falha transitória, não rejeição, e não é contado aqui.
 _ERROS_REJEICAO_SMTP = (smtplib.SMTPResponseException, smtplib.SMTPRecipientsRefused)
 _PROVEDORES_ESGOTADOS_ATE: dict[str, float] = {}
+_LIMITE_CONFIRMACAO = RateLimiter(3, 3600, escopo="confirmacao-pesquisa-destinatario", sensivel=True)
 
 
 @dataclass(frozen=True)
@@ -753,7 +758,7 @@ def _mensagem_confirmacao_pesquisa(
     mensagem.set_content(
         f"Olá, {nome or 'cliente'}.\n\n"
         f"Confirmamos que a pesquisa de anterioridade da marca {marca} foi recebida "
-        "e processada com sucesso.\n\n"
+        "e está disponível para consulta.\n\n"
         f"Consulte o resultado completo no link abaixo (válido por {rotulo_validade}):\n\n{link}\n\n"
         "Importante: esta pesquisa é indicativa. Ela não substitui a busca oficial, "
         "o exame de mérito do INPI nem uma análise jurídica especializada, e não "
@@ -772,7 +777,7 @@ def _mensagem_confirmacao_pesquisa(
             <h1 style="font-size:28px;margin:22px 0 12px;">Recebemos sua pesquisa</h1>
             <p>Olá, {nome_seguro}.</p>
             <p>Confirmamos que a pesquisa de anterioridade da marca
-               <b>{marca_segura}</b> foi recebida e processada com sucesso.</p>
+               <b>{marca_segura}</b> foi recebida e está disponível para consulta.</p>
             <p style="margin:28px 0;">
               <a href="{html.escape(link, quote=True)}"
                  style="display:inline-block;background:#086044;color:#fff;text-decoration:none;
@@ -797,6 +802,22 @@ def _mensagem_confirmacao_pesquisa(
     return mensagem
 
 
+async def _registrar_falha_confirmacao(codigo: str) -> None:
+    """Falhas transitórias/supressões sem endereço, marca ou token nos eventos."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    try:
+        async with session_factory() as session:
+            session.add(EventoOperacional(
+                componente="email", operacao="confirmacao_pesquisa", sucesso=False,
+                duracao_ms=0, status_http=0, codigo_erro=codigo,
+                detalhes={"motivo": codigo},
+            ))
+            await session.commit()
+    except Exception:
+        logger.warning("Falha ao registrar estado da confirmação de pesquisa")
+
+
 async def enviar_confirmacao_pesquisa(
     *,
     destinatario: str,
@@ -813,23 +834,35 @@ async def enviar_confirmacao_pesquisa(
     tela, o e-mail é reforço, não pré-requisito.
     """
     settings = get_settings()
-    if not settings.email_enabled:
+    if not settings.email_enabled or not settings.confirmacao_pesquisa_email_enabled:
         return False
     try:
+        # Sintaxe e domínio normalizados, sem consulta DNS e sem afirmar posse
+        # da caixa. SMTPUTF8 não é exigido dos provedores configurados.
+        destinatario = validate_email(
+            destinatario, check_deliverability=False, allow_smtputf8=False,
+            test_environment=settings.app_env == "test",
+        ).normalized
+        # Limite por destinatário compartilhado entre IPs/organizações. A chave
+        # não guarda endereço em claro; Redis usa a proteção atômica existente.
+        try:
+            _LIMITE_CONFIRMACAO.aplicar(hashlib.sha256(destinatario.lower().encode()).hexdigest())
+        except HTTPException:
+            await _registrar_falha_confirmacao("limite_destinatario")
+            return False
         mensagem = _mensagem_confirmacao_pesquisa(
-            destinatario,
-            nome,
-            marca,
-            link_relatorio,
-            settings.relatorio_link_ttl_horas,
-            settings,
-            organizacao_nome,
+            destinatario, nome, marca, link_relatorio,
+            settings.relatorio_link_ttl_horas, settings, organizacao_nome,
         )
         await _enviar_smtp_contabilizado(mensagem, settings, "confirmacao_pesquisa")
         return True
     except Exception as exc:
         await _registrar_email_rejeitado("confirmacao_pesquisa", exc)
-        logger.exception("Falha ao enviar e-mail de confirmação de pesquisa")
+        if not isinstance(exc, _ERROS_REJEICAO_SMTP):
+            await _registrar_falha_confirmacao(type(exc).__name__)
+        # Não inclui a exceção: resposta SMTP pode conter PII; link nunca vai
+        # ao evento. Timeout é ambíguo, portanto não há retry automático.
+        logger.warning("Falha na confirmação de pesquisa (%s)", type(exc).__name__)
         return False
 
 

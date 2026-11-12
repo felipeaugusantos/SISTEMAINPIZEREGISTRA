@@ -34,6 +34,7 @@ async def avaliar_qualidade_base(
             .limit(1)
         )
     ).scalar_one_or_none()
+    hoje = datetime.now(UTC).date()
     global _COBERTURA_CACHE
     agora = monotonic()
     if _COBERTURA_CACHE and agora - _COBERTURA_CACHE[0] < _COBERTURA_TTL_SEGUNDOS:
@@ -45,6 +46,13 @@ async def avaliar_qualidade_base(
                     func.count(Processo.id),
                     func.min(Processo.data_deposito),
                     func.max(Processo.data_deposito),
+                    # Depósitos com data futura (erro de dado de origem) não
+                    # podem compor a cobertura exibida: um único registro
+                    # assim inflava o max para anos à frente (caso real:
+                    # relatório mostrando cobertura até 2030). Contamos e
+                    # separamos esses registros para avisar sem escondê-los.
+                    func.count(Processo.id).filter(Processo.data_deposito > hoje),
+                    func.max(Processo.data_deposito).filter(Processo.data_deposito <= hoje),
                 ).where(Processo.tipo == TipoProcesso.MARCA)
             )
         ).one()
@@ -61,7 +69,6 @@ async def avaliar_qualidade_base(
     )
     avisos: list[str] = []
 
-    hoje = datetime.now(UTC).date()
     idade_dias = (hoje - ultima_data_rpi).days if ultima_data_rpi else None
     if ultima_importacao is None or ultima_data_rpi is None:
         status = "bloqueada"
@@ -80,6 +87,16 @@ async def avaliar_qualidade_base(
         avisos.append(f"{sem_classes} ocorrência(s) exibida(s) estão sem classificação.")
     if avisos and status == "adequada":
         status = "atencao"
+
+    depositos_futuros = int(cobertura[3] or 0)
+    if depositos_futuros:
+        avisos.append(
+            f"{depositos_futuros} registro(s) da base têm data de depósito futura "
+            f"(até {cobertura[2].strftime('%d/%m/%Y')}), provável erro de dado de origem; "
+            "a cobertura de depósitos considera apenas datas até hoje."
+        )
+        if status == "adequada":
+            status = "atencao"
 
     atualidade = 0.0 if idade_dias is None else max(0.0, 1 - idade_dias / 30)
     cobertura_minima = min(1.0, int(cobertura[0] or 0) / 300_000)
@@ -100,7 +117,11 @@ async def avaliar_qualidade_base(
         "idade_dias": idade_dias,
         "total_processos_marca": int(cobertura[0] or 0),
         "deposito_mais_antigo": cobertura[1],
-        "deposito_mais_recente": cobertura[2],
+        # Cobertura efetiva: com registros de data futura na base, o max
+        # bruto engana; exibe-se o maior depósito até hoje e o aviso acima
+        # registra a existência (e o teto) dos registros futuros.
+        "deposito_mais_recente": cobertura[4] if depositos_futuros else cobertura[2],
+        "depositos_futuros": depositos_futuros,
         "ocorrencias_sem_titulo": sem_titulo,
         "ocorrencias_sem_situacao": sem_situacao,
         "ocorrencias_sem_classe": sem_classes,

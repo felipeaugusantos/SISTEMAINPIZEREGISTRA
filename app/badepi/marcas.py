@@ -1,9 +1,12 @@
 import csv
+import logging
 from collections.abc import Callable, Iterator
 from datetime import date
 from pathlib import Path
 
 import asyncpg
+
+logger = logging.getLogger(__name__)
 
 FONTE_BADEPI = "BADEPI v11 (2000-2024)"
 
@@ -47,6 +50,17 @@ def ler_depositos_marcas(
             if data_texto:
                 dia, mes, ano = data_texto.split("/")
                 data_deposito = date(int(ano), int(mes), int(dia))
+                if data_deposito > date.today():
+                    # Erro de dado de origem: depósito no futuro. Sem este
+                    # descarte o valor contaminava func.max(data_deposito)
+                    # na cobertura exibida nos relatórios (caso real: base
+                    # mostrando depósito em 2030). O registro é mantido.
+                    logger.warning(
+                        "Data de depósito futura descartada no pedido %s: %s",
+                        numero,
+                        data_deposito.isoformat(),
+                    )
+                    data_deposito = None
 
             apresentacao = APRESENTACAO_BADEPI.get((linha.get("CD_APRESEN_MARCA") or "").strip().upper())
             natureza = (linha.get("DS_NATUREZ_MARCA") or "").strip() or None

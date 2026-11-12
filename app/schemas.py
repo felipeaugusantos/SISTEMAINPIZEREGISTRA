@@ -435,6 +435,7 @@ class QualidadeBaseResponse(BaseModel):
     total_processos_marca: int
     deposito_mais_antigo: date | None
     deposito_mais_recente: date | None
+    depositos_futuros: int = 0
     ocorrencias_sem_titulo: int
     ocorrencias_sem_situacao: int
     ocorrencias_sem_classe: int

@@ -174,6 +174,29 @@ def test_confirmacao_falha_smtp_nao_levanta_e_registra_rejeicao(monkeypatch: pyt
     assert rejeicoes == ["confirmacao_pesquisa"]
 
 
+def test_confirmacao_erro_ao_montar_mensagem_nao_levanta_e_registra_rejeicao(monkeypatch: pytest.MonkeyPatch) -> None:
+    rejeicoes: list[str] = []
+
+    def _montagem_falha(*_args, **_kwargs):
+        raise ValueError("falha ao montar a mensagem")
+
+    async def _registrar(operacao: str, _exc: Exception) -> None:
+        rejeicoes.append(operacao)
+
+    monkeypatch.setattr("app.emailing.get_settings", configuracao_email)
+    monkeypatch.setattr("app.emailing._mensagem_confirmacao_pesquisa", _montagem_falha)
+    monkeypatch.setattr("app.emailing._registrar_email_rejeitado", _registrar)
+
+    enviado = asyncio.run(
+        enviar_confirmacao_pesquisa(
+            destinatario="cliente@example.test", nome="Ana", marca="MARCA", link_relatorio="https://x#token=rlk_a"
+        )
+    )
+
+    assert enviado is False
+    assert rejeicoes == ["confirmacao_pesquisa"]
+
+
 # --- Link estável: autorização, expiração e revogação --------------------
 
 

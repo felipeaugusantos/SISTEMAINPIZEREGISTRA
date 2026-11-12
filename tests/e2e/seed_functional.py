@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.database import session_factory
 from app.models import (
     AlertaSistema,
+    ClassificacaoMarca,
     EmpresaCRM,
     LancamentoFinanceiro,
     Movimentacao,
@@ -16,12 +17,11 @@ from app.models import (
     ParcelaFinanceira,
     Processo,
     ProcessoMonitorado,
-    Titular,
-    ClassificacaoMarca,
     Prospect,
     RegraPrazoJuridico,
     RpiImportacao,
     TipoProcesso,
+    Titular,
 )
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant

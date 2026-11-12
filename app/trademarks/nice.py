@@ -112,7 +112,7 @@ CLASSES_NICE: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     "30": (
         "Café, farinhas, pães, doces e condimentos",
-        ("cafe", "farinha", "pao", "doce", "chocolate", "tempero"),
+        ("cafe", "farinha", "pao", "doce", "chocolate", "tempero", "panificacao", "confeitaria"),
     ),
     "31": (
         "Produtos agrícolas, animais vivos e rações",
@@ -202,7 +202,9 @@ def _normalizar(valor: str) -> str:
     sem_acentos = "".join(
         caractere for caractere in unicodedata.normalize("NFKD", valor) if not unicodedata.combining(caractere)
     )
-    texto = re.sub(r"\s+", " ", sem_acentos.lower()).strip()
+    # Tokenize before singularizing: punctuation must not hide the plural.
+    texto = " ".join(re.findall(r"\w+", sem_acentos.lower()))
+    texto = re.sub(r"\bpaes\b", "pao", texto)
     palavras = [palavra[:-1] if len(palavra) > 4 and palavra.endswith("s") else palavra for palavra in texto.split()]
     return " ".join(palavras)
 
@@ -215,6 +217,13 @@ def mapear_atividade(atividade: str, limite: int = 4) -> list[ClasseNiceCandidat
         lista_encontrados: list[str] = []
         pontuacao = 0
         for termo in palavras_chave:
+            # NCL 13-2026, class 40: manufacturing is a service only when
+            # performed to another person's order/specification. Making and
+            # selling one's own goods does not by itself imply this class.
+            if codigo == "40" and termo == "fabricacao" and not re.search(
+                r"\b(?:sob encomenda|por encomenda|para terceiro)\b", texto
+            ):
+                continue
             termo_normalizado = _normalizar(termo)
             if re.search(rf"(?<!\w){re.escape(termo_normalizado)}(?!\w)", texto):
                 lista_encontrados.append(termo)

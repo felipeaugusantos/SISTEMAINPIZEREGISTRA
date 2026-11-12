@@ -58,3 +58,22 @@ def test_rejeita_csv_sem_colunas_obrigatorias(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Colunas BADEPI ausentes"):
         list(ler_depositos_marcas(arquivo))
+
+
+def test_deposito_futuro_e_descartado(tmp_path: Path) -> None:
+    # Erro de dado de origem: depósito com data futura não pode entrar na
+    # base, senão contamina a cobertura exibida nos relatórios.
+    arquivo = tmp_path / "depositos.csv"
+    arquivo.write_text(
+        '"NO_PEDIDO";"NM_TITULO_MARCA";"DT_DEPOSITO"\n'
+        '"1";"MARCA FUTURA";"18/07/2030 00:00:00"\n'
+        '"2";"MARCA NORMAL";"02/02/2024 15:27:54"\n',
+        encoding="cp1252",
+    )
+
+    registros = list(ler_depositos_marcas(arquivo))
+
+    assert registros[0][0] == "1"
+    assert registros[0][1] == "MARCA FUTURA"
+    assert registros[0][2] is None
+    assert registros[1][2].isoformat() == "2024-02-02"

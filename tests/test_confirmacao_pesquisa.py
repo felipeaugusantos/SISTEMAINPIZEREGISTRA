@@ -35,8 +35,10 @@ from tests.conftest import FakeResult, FakeSession
 
 def configuracao_email() -> Settings:
     return Settings(
+        app_env="test",
         app_public_url="https://app.zeregistra.test/",
         email_enabled=True,
+        confirmacao_pesquisa_email_enabled=True,
         email_from_address="nao-responda@zeregistra.test",
         email_from_name="Zé Registra",
         smtp_host="mailpit",
@@ -67,7 +69,7 @@ def test_mensagem_confirmacao_tem_marca_link_validade_e_ressalva() -> None:
     for conteudo in (texto, pagina):
         normalizado = " ".join(conteudo.split())
         assert "PAOCOMLATE" in normalizado
-        assert "recebida" in normalizado and "processada" in normalizado
+        assert "recebida" in normalizado and "consulta" in normalizado
         assert "https://app.zeregistra.test/relatorios/abc#token=rlk_secreto" in normalizado
         assert "7 dias" in normalizado
         assert "indicativa" in normalizado
@@ -328,6 +330,7 @@ def _monkeypatch_fluxo(monkeypatch: pytest.MonkeyPatch, capturados: list[dict]) 
         capturados.append(kwargs)
         return True
 
+    monkeypatch.setattr("app.api.pesquisas.get_settings", configuracao_email)
     monkeypatch.setattr("app.api.pesquisas.validar_limite_pesquisas", nenhum)
     monkeypatch.setattr("app.api.pesquisas.obter_ou_criar_empresa", nenhum)
     monkeypatch.setattr("app.api.pesquisas.buscar_lead_ativo_por_email", nenhum)
@@ -416,3 +419,100 @@ class PesquisaSession(FakeSession):
         if isinstance(obj, PesquisaMarca):
             obj.id = "pesquisa-fluxo"
             obj.criado_em = datetime.now(UTC)
+
+
+def test_confirmacao_feature_flag_desligada_nao_envia(monkeypatch):
+    settings = configuracao_email().model_copy(update={"confirmacao_pesquisa_email_enabled": False})
+    monkeypatch.setattr("app.emailing.get_settings", lambda: settings)
+    def proibido(*_args):
+        pytest.fail("SMTP não deve ser chamado")
+    monkeypatch.setattr("app.emailing._enviar_smtp", proibido)
+    assert asyncio.run(enviar_confirmacao_pesquisa(
+        destinatario="cliente@example.test", nome="Ana", marca="Marca", link_relatorio="https://x"
+    )) is False
+
+
+@pytest.mark.parametrize("endereco", ["a,b@example.com", "a;z@example.com", "x@-dominio.com", "a\nBcc:x@example.com"])
+def test_confirmacao_endereco_invalido_nao_envia(monkeypatch, endereco):
+    monkeypatch.setattr("app.emailing.get_settings", configuracao_email)
+    def proibido(*_args):
+        pytest.fail("SMTP não deve ser chamado")
+    monkeypatch.setattr("app.emailing._enviar_smtp", proibido)
+    assert asyncio.run(enviar_confirmacao_pesquisa(
+        destinatario=endereco, nome="Ana", marca="Marca", link_relatorio="https://x"
+    )) is False
+
+
+def test_confirmacao_limite_por_endereco_independe_da_marca(monkeypatch):
+    enviados = []
+    monkeypatch.setattr("app.emailing.get_settings", configuracao_email)
+    async def smtp(msg, *_args):
+        enviados.append(msg["To"])
+        return "principal"
+    monkeypatch.setattr("app.emailing._enviar_smtp_contabilizado", smtp)
+    resultados = [asyncio.run(enviar_confirmacao_pesquisa(
+        destinatario="cliente@example.test", nome="Ana", marca=f"Marca {i}", link_relatorio="https://x"
+    )) for i in range(4)]
+    assert resultados == [True, True, True, False]
+    assert len(enviados) == 3
+
+
+def test_confirmacao_timeout_nao_tenta_novamente(monkeypatch):
+    chamadas = []
+    monkeypatch.setattr("app.emailing.get_settings", configuracao_email)
+    async def smtp(*_args):
+        chamadas.append(1)
+        raise TimeoutError("resultado SMTP ambíguo")
+    monkeypatch.setattr("app.emailing._enviar_smtp_contabilizado", smtp)
+    assert asyncio.run(enviar_confirmacao_pesquisa(
+        destinatario="cliente@example.test", nome="Ana", marca="Marca", link_relatorio="https://x"
+    )) is False
+    assert chamadas == [1]
+
+
+def test_fluxo_falha_commit_token_preserva_resposta(monkeypatch):
+    capturados = []
+    _monkeypatch_fluxo(monkeypatch, capturados)
+    async def nenhum(*_args, **_kwargs):
+        return None
+    monkeypatch.setattr("app.api.pesquisas.detectar_pesquisa_duplicada", nenhum)
+    class FalhaTokenSession(PesquisaSession):
+        chamadas = 0
+        rollback_feito = False
+        async def commit(self):
+            self.chamadas += 1
+            if self.chamadas == 2:
+                raise RuntimeError("banco indisponível ao gravar token")
+            await super().commit()
+        async def rollback(self):
+            self.rollback_feito = True
+    session = FalhaTokenSession()
+    app.dependency_overrides[get_session] = _override(session)
+    try:
+        resposta = TestClient(app).post("/v1/pesquisas-marca", json=_PAYLOAD)
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 201
+    assert resposta.json()["id"] == "pesquisa-fluxo"
+    assert session.rollback_feito
+    assert capturados == []
+
+
+def test_fluxo_confirmacao_excecao_preserva_pesquisa(monkeypatch):
+    _monkeypatch_fluxo(monkeypatch, [])
+    async def nenhum(*_args, **_kwargs):
+        return None
+    async def falha(**_kwargs):
+        raise TimeoutError("SMTP offline")
+    monkeypatch.setattr("app.api.pesquisas.detectar_pesquisa_duplicada", nenhum)
+    monkeypatch.setattr("app.api.pesquisas.enviar_confirmacao_pesquisa", falha)
+    class RollbackSession(PesquisaSession):
+        async def rollback(self):
+            pass
+    app.dependency_overrides[get_session] = _override(RollbackSession())
+    try:
+        resposta = TestClient(app).post("/v1/pesquisas-marca", json=_PAYLOAD)
+    finally:
+        app.dependency_overrides.clear()
+    assert resposta.status_code == 201
+    assert resposta.json()["relatorio_token"]

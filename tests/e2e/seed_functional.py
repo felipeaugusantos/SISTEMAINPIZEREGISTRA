@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.database import session_factory
 from app.models import (
     AlertaSistema,
+    ClassificacaoMarca,
     EmpresaCRM,
     LancamentoFinanceiro,
     Movimentacao,
@@ -20,6 +21,7 @@ from app.models import (
     RegraPrazoJuridico,
     RpiImportacao,
     TipoProcesso,
+    Titular,
 )
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
@@ -54,6 +56,40 @@ async def main() -> None:
             await session.flush()
             for numero in (1, 2):
                 session.add(ParcelaFinanceira(organizacao_id=org.id, lancamento_id=lancamento.id, numero=numero, vencimento=date(2026, 11, 1), valor=Decimal('50.00')))
+        # Fixture da pesquisa pública E2E: duas marcas sintéticas com titular,
+        # movimentação e classe Nice para o fluxo / -> /v1/pesquisas-marca ->
+        # /relatorios/{id} renderizar ocorrências reais no relatório.
+        titular_publico = Titular(nome="Titular E2E Pesquisa Publica", nome_normalizado="titular e2e pesquisa publica", pais="BR")
+        session.add(titular_publico)
+        await session.flush()
+        for numero, titulo, classe, data_rpi, rpi in (
+            ("999777001", "MARCAE2EPUBLICA", "35", date(2026, 11, 3), 3901),
+            ("999777002", "MARCAE2EPUBLICA CAFE", "30", date(2026, 10, 27), 3900),
+        ):
+            processo_publico = Processo(
+                numero=numero,
+                numero_normalizado=numero,
+                tipo=TipoProcesso.MARCA,
+                titulo=titulo,
+                data_deposito=date(2026, 10, 1),
+                situacao="Pedido de registro sob exame formal",
+                fonte="fixture-e2e-pesquisa-publica",
+            )
+            processo_publico.titulares.append(titular_publico)
+            session.add(processo_publico)
+            await session.flush()
+            session.add(ClassificacaoMarca(processo_id=processo_publico.id, sistema="nice", codigo=classe, especificacao="Fixture sintetica E2E pesquisa publica"))
+            session.add(
+                Movimentacao(
+                    processo_id=processo_publico.id,
+                    codigo_despacho="IPAS157",
+                    descricao="Deposito de pedido de registro de marca",
+                    data_rpi=data_rpi,
+                    numero_rpi=rpi,
+                    fonte_arquivo="fixture-e2e-pesquisa-publica",
+                    chave_origem=f"fixture-e2e-pesquisa-publica-{numero}",
+                )
+            )
         await session.commit()
 
 

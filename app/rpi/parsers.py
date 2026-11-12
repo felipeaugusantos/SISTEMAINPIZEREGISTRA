@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Iterator
 from datetime import date, datetime
 from pathlib import Path
@@ -9,11 +10,34 @@ from app.rpi.types import ClassificacaoMarcaRpi, MovimentacaoRpi, RegistroRpi, T
 
 FORMATO_DATA_RPI = "%d/%m/%Y"
 
+logger = logging.getLogger(__name__)
+
 
 def _data(valor: str | None) -> date | None:
     if not valor:
         return None
     return datetime.strptime(valor, FORMATO_DATA_RPI).date()
+
+
+def _deposito_sanitizado(data_deposito: date | None, data_rpi: date, numero: str) -> date | None:
+    """Descarta data de depósito posterior à data da própria RPI.
+
+    Um depósito é sempre anterior à revista que o publica, então
+    data_deposito > data_rpi só pode ser erro de digitação na fonte
+    (caso real: cobertura da base exibindo depósito em 2030). Sem esta
+    validação o valor contaminava func.max(data_deposito) em
+    app.trademarks.quality e a "Cobertura de depósitos" de todos os
+    relatórios. O registro é mantido; só a data inválida é descartada.
+    """
+    if data_deposito is not None and data_deposito > data_rpi:
+        logger.warning(
+            "Data de depósito futura descartada no processo %s: %s (RPI de %s)",
+            numero,
+            data_deposito.isoformat(),
+            data_rpi.isoformat(),
+        )
+        return None
+    return data_deposito
 
 
 def _texto(valor: str | None) -> str | None:
@@ -77,7 +101,9 @@ def ler_marcas(caminho: Path) -> Iterator[RegistroRpi]:
             numero=elemento.attrib["numero"].strip(),
             tipo=TipoProcesso.MARCA,
             titulo=nome_marca,
-            data_deposito=_data(elemento.attrib.get("data-deposito")),
+            data_deposito=_deposito_sanitizado(
+                _data(elemento.attrib.get("data-deposito")), data_rpi, elemento.attrib["numero"].strip()
+            ),
             situacao=situacao,
             numero_rpi=numero_rpi,
             data_rpi=data_rpi,
@@ -129,7 +155,9 @@ def ler_patentes(caminho: Path) -> Iterator[RegistroRpi]:
             numero=(processo.findtext("numero") or "").strip(),
             tipo=TipoProcesso.PATENTE,
             titulo=_texto(processo.findtext("titulo")),
-            data_deposito=_data(processo.findtext("data-deposito")),
+            data_deposito=_deposito_sanitizado(
+                _data(processo.findtext("data-deposito")), data_rpi, (processo.findtext("numero") or "").strip()
+            ),
             situacao=titulo_despacho,
             numero_rpi=numero_rpi,
             data_rpi=data_rpi,

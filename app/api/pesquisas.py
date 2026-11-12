@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
@@ -16,7 +17,7 @@ from app.crm import (
     registrar_consentimento_titular,
 )
 from app.database import get_session
-from app.emailing import enviar_alerta_nova_pesquisa
+from app.emailing import enviar_alerta_nova_pesquisa, enviar_confirmacao_pesquisa
 from app.marca import nome_escritorio_para_email
 from app.models import (
     AfinidadeClasse,
@@ -37,6 +38,7 @@ from app.privacy import mascarar_documentos_publicos
 from app.production import versionar_relatorio
 from app.public_report_tokens import emitir_token_relatorio
 from app.ratelimit import RateLimiter
+from app.relatorio_link import definir_link_relatorio
 from app.relatorios import gerar_pdf_resumo_cliente
 from app.request_context import adicionar_detalhes_operacionais
 from app.schemas import (
@@ -60,6 +62,7 @@ from app.schemas import (
 from app.search import buscar_marcas, normalizar_texto, termos_comuns_do_match
 from app.search_ranking import adicionar_contexto_score
 from app.security import AcessoRelatorioPublicoDep
+from app.settings import get_settings
 from app.tenancy import OrganizacaoPublicaDep, validar_limite_pesquisas
 from app.trademarks.affinity import avaliar_afinidade
 from app.trademarks.agent import registrar_execucao_agente
@@ -247,6 +250,32 @@ async def criar_pesquisa(
     # settings.equipe_atendimento_email.
     politica_alerta = await obter_politica_crm(session, organizacao.id)
     await enviar_alerta_nova_pesquisa(dados.marca, dados.nome, dados.empresa, politica_alerta.email_alerta_leads)
+    # E-mail de confirmação ao cliente com link estável (opaco, revogável,
+    # com expiração própria) para consultar o relatório depois. Só existe
+    # neste ramo -- pesquisa nova, gravada com sucesso: reenvios da mesma
+    # marca para o mesmo lead retornam no desvio de duplicidade acima, sem
+    # gerar alerta nem e-mail, e o carimbo confirmacao_email_enviado_em
+    # bloqueia qualquer envio em dobro da mesma pesquisa.
+    if pesquisa.confirmacao_email_enviado_em is None:
+        settings = get_settings()
+        token_link = definir_link_relatorio(pesquisa, ttl_horas=settings.relatorio_link_ttl_horas)
+        await session.commit()
+        # O fragmento (#) não vai ao servidor nem a logs HTTP (mesmo padrão
+        # do link de redefinição de senha).
+        link_relatorio = (
+            f"{settings.app_public_url.rstrip('/')}/relatorios/{pesquisa.id}"
+            f"#token={quote(token_link, safe='')}"
+        )
+        enviado = await enviar_confirmacao_pesquisa(
+            destinatario=dados.email_corporativo,
+            nome=dados.nome,
+            marca=dados.marca,
+            link_relatorio=link_relatorio,
+            organizacao_nome=organizacao.nome,
+        )
+        if enviado:
+            pesquisa.confirmacao_email_enviado_em = datetime.now(UTC)
+            await session.commit()
     return PesquisaMarcaCriada(
         id=pesquisa.id,
         relatorio_url=f"/relatorios/{pesquisa.id}",

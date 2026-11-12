@@ -815,16 +815,16 @@ async def enviar_confirmacao_pesquisa(
     settings = get_settings()
     if not settings.email_enabled:
         return False
-    mensagem = _mensagem_confirmacao_pesquisa(
-        destinatario,
-        nome,
-        marca,
-        link_relatorio,
-        settings.relatorio_link_ttl_horas,
-        settings,
-        organizacao_nome,
-    )
     try:
+        mensagem = _mensagem_confirmacao_pesquisa(
+            destinatario,
+            nome,
+            marca,
+            link_relatorio,
+            settings.relatorio_link_ttl_horas,
+            settings,
+            organizacao_nome,
+        )
         await _enviar_smtp_contabilizado(mensagem, settings, "confirmacao_pesquisa")
         return True
     except Exception as exc:

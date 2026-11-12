@@ -121,9 +121,19 @@ async def test_requisicoes_simultaneas_reutilizam_uma_pesquisa(banco_pesquisas, 
         asyncio.gather(*(chamadas[fluxo](banco) for fluxo in fluxos)), timeout=15,
     )
     assert respostas[0].id == respostas[1].id
-    assert sorted(item.duplicada for item in respostas) == [False, True]
-    repetida = next(item for item in respostas if item.duplicada)
-    assert repetida.pesquisa_original_id == respostas[0].id
+    # Revisão de segurança (12/11/2026): a resposta PÚBLICA não revela mais
+    # duplicidade (oráculo de enumeração marca+e-mail). A deduplicação
+    # continua comprovada no banco abaixo; o fluxo interno autenticado
+    # segue marcando a repetida.
+    for fluxo, item in zip(fluxos, respostas, strict=True):
+        if fluxo == "publica":
+            assert item.duplicada is False
+            assert item.pesquisa_original_id is None
+    internas = [item for fluxo, item in zip(fluxos, respostas, strict=True) if fluxo == "interna"]
+    if len(internas) == 2:
+        assert sorted(item.duplicada for item in internas) == [False, True]
+        repetida = next(item for item in internas if item.duplicada)
+        assert repetida.pesquisa_original_id == respostas[0].id
     assert await banco.admin.fetchval(
         "SELECT count(*) FROM pesquisas_marca WHERE lead_id=$1", banco.lead_id,
     ) == 1

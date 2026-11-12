@@ -106,6 +106,8 @@ class Settings(BaseSettings):
     password_reset_minutes: int = 30
     # Validade do link estável do relatório enviado no e-mail de confirmação
     # da pesquisa pública (o token HMAC da tela continua com 15 minutos).
+    # Separado do SMTP global: publicação não ativa envio novo por acidente.
+    confirmacao_pesquisa_email_enabled: bool = False
     relatorio_link_ttl_horas: int = 168
     temporary_password_minutes: int = Field(default=60, ge=5, le=1440)
     anonimizacao_token_minutos: int = 1440

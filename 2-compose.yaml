@@ -1,0 +1,485 @@
+services:
+  # Achado FASE6-13 da auditoria (04/09/2026): varredura de malware nos
+  # uploads do portal do cliente (app/malware_scan.py, protocolo INSTREAM).
+  # Desligado por padrão via CLAMAV_ENABLED -- o primeiro boot baixa a base
+  # de assinaturas de vírus (freshclam) e pode levar vários minutos; o
+  # healthcheck só fica "healthy" depois que o daemon está pronto para
+  # escanear de verdade.
+  clamav:
+    image: clamav/clamav-debian:1.4
+    restart: unless-stopped
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "sh", "-c", "echo PING | nc -w 3 127.0.0.1 3310 | grep -q PONG"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 5m
+
+  # IA em sombra (leads): modelo local, sem chave de API, nenhum dado de
+  # lead sai do servidor. profile "ia-sombra" -- NÃO sobe com `docker
+  # compose up` normal, só com `docker compose --profile ia-sombra up -d`,
+  # para não baixar ~5GB de imagem+modelo nem consumir RAM/disco sem essa
+  # decisão explícita. Ver settings.ia_sombra_enabled.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ia-sombra"]
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 2m
+
+  # Baixa o modelo uma única vez (idempotente -- `ollama pull` não rebaixa
+  # se já presente) e sai. Rodar: `docker compose --profile ia-sombra up
+  # ollama-pull` depois do `ollama` estar healthy.
+  ollama-pull:
+    image: ollama/ollama:latest
+    profiles: ["ia-sombra"]
+    restart: "no"
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["ollama"]
+    command: ["pull", "qwen2.5:7b-instruct-q4_K_M"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  # RAG local (pgvector): baixa o modelo de embeddings usado por
+  # app.ia_sombra.gerar_embedding_ollama para indexar leads com resultado
+  # conhecido (ganho/perdido) e buscar precedentes parecidos -- mesmo
+  # servidor Ollama do modelo de geração acima, sem custo de API externa.
+  ollama-pull-embedding:
+    image: ollama/ollama:latest
+    profiles: ["ia-sombra"]
+    restart: "no"
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["ollama"]
+    command: ["pull", "nomic-embed-text"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "127.0.0.1:8025:8025"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    # Achado 1 da auditoria de filas (07/10/2026): allkeys-lru podia descartar
+    # chaves da própria fila sob pressão de memória, perdendo trabalhos. Com
+    # noeviction o Redis rejeita novas escritas em vez de apagar jobs (falha
+    # visível, não silenciosa), e o maxmemory sobe para dar folga.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  db:
+    # pgvector/pgvector:pg16 = postgres:16 (Debian) + extensao pgvector
+    # pre-instalada -- troca decidida para viabilizar o RAG local da IA em
+    # sombra (app.ia_sombra.buscar_leads_similares), sem imagem alpine
+    # oficial com pgvector disponivel. Mesmo volume de dados (Postgres 16
+    # padrao), so troca o container.
+    image: pgvector/pgvector:pg16
+    # /dev/shm padrão do Docker (64MB) é pequeno para queries paralelas sobre as
+    # tabelas grandes (movimentacoes ~27M) e causa "No space left on device".
+    shm_size: 256mb
+    # work_mem elevado evita bitmap "lossy" nas buscas trigram por título após o
+    # backfill BADEPI ter preenchido o título de ~4,6M marcas.
+    command:
+      - "postgres"
+      - "-c"
+      - "work_mem=64MB"
+      # Sem query paralela: evita alocar segmentos DSM em /dev/shm (que causavam
+      # "No space left on device" nos relatórios sobre as tabelas grandes).
+      - "-c"
+      - "max_parallel_workers_per_gather=0"
+    environment:
+      POSTGRES_DB: inpi
+      POSTGRES_USER: inpi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-inpi}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-inpi-app-local-change-me}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-create-app-role.sh:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inpi -d inpi"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    command: ["/bin/true"]
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://inpi:${POSTGRES_PASSWORD:-inpi}@db:5432/inpi
+      RUN_MIGRATIONS: "true"
+      BOOTSTRAP_ADMIN: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    environment:
+      APP_ENV: development
+      APP_VERSION: ${APP_VERSION:-development}
+      RUN_MIGRATIONS: "false"
+      BOOTSTRAP_ADMIN: "true"
+      DATABASE_URL: postgresql+asyncpg://inpi_app:${APP_DB_PASSWORD:-inpi-app-local-change-me}@db:5432/inpi
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@zeregistra.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      SESSION_DURATION_HOURS: ${SESSION_DURATION_HOURS:-8}
+      SESSION_IDLE_MINUTES: ${SESSION_IDLE_MINUTES:-60}
+      AUDIT_IP_SALT: ${AUDIT_IP_SALT:-desenvolvimento-local}
+      SECURITY_MASTER_KEY: ${SECURITY_MASTER_KEY:-desenvolvimento-local-chave-mestra}
+      SECURITY_MASTER_KEY_VERSION: ${SECURITY_MASTER_KEY_VERSION:-1}
+      SECURITY_MASTER_KEY_PREVIOUS: ${SECURITY_MASTER_KEY_PREVIOUS:-}
+      SECURITY_MASTER_KEY_PREVIOUS_VERSION: ${SECURITY_MASTER_KEY_PREVIOUS_VERSION:-0}
+      # Auditoria A12: valores do .env do host só chegam ao container se forem mapeados aqui.
+      GATEWAY_WEBHOOK_SECRET: ${GATEWAY_WEBHOOK_SECRET:-}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_S3_BUCKET: ${STORAGE_S3_BUCKET:-}
+      STORAGE_S3_ENDPOINT: ${STORAGE_S3_ENDPOINT:-}
+      STORAGE_S3_REGION: ${STORAGE_S3_REGION:-us-east-1}
+      STORAGE_S3_ACCESS_KEY: ${STORAGE_S3_ACCESS_KEY:-}
+      STORAGE_S3_SECRET_KEY: ${STORAGE_S3_SECRET_KEY:-}
+      ADMIN_FORCE_HTTPS: ${ADMIN_FORCE_HTTPS:-false}
+      INTEGRATION_AUTH_ENABLED: ${INTEGRATION_AUTH_ENABLED:-false}
+      INPI_INTEGRATION_TOKEN: ${INPI_INTEGRATION_TOKEN:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8000}
+      REDIS_URL: redis://redis:6379/0
+      REDIS_REQUIRED: "true"
+      RATELIMIT_REDIS_ENABLED: "true"
+      RPI_STALE_HOURS: ${RPI_STALE_HOURS:-12}
+      CLAMAV_ENABLED: ${CLAMAV_ENABLED:-false}
+      CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+      QUEUE_RETRY_BASE_SECONDS: ${QUEUE_RETRY_BASE_SECONDS:-5}
+      QUEUE_RETRY_MAX_SECONDS: ${QUEUE_RETRY_MAX_SECONDS:-300}
+      QUEUE_IDEMPOTENCY_TTL_SECONDS: ${QUEUE_IDEMPOTENCY_TTL_SECONDS:-86400}
+      WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-false}
+      OPENWA_BASE_URL: ${OPENWA_BASE_URL:-http://openwa:2785}
+      OPENWA_API_KEY: ${OPENWA_API_KEY:-}
+      OPENWA_WEBHOOK_SECRET: ${OPENWA_WEBHOOK_SECRET:-}
+      OPENWA_SESSAO_VIGILANCIA: ${OPENWA_SESSAO_VIGILANCIA:-vigilancia}
+      OPENWA_SESSAO_PROSPECCAO: ${OPENWA_SESSAO_PROSPECCAO:-prospeccao}
+      TRUSTED_PROXY_NETWORKS: ${TRUSTED_PROXY_NETWORKS:-127.0.0.1/32,::1/128,172.16.0.0/12,192.168.0.0/16}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:8000}
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-true}
+      CONFIRMACAO_PESQUISA_EMAIL_ENABLED: ${CONFIRMACAO_PESQUISA_EMAIL_ENABLED:-false}
+      RELATORIO_LINK_TTL_HORAS: ${RELATORIO_LINK_TTL_HORAS:-168}
+      RECUPERACAO_PESQUISA_EMAIL_ENABLED: ${RECUPERACAO_PESQUISA_EMAIL_ENABLED:-false}
+      RECUPERACAO_CODIGO_MINUTOS: ${RECUPERACAO_CODIGO_MINUTOS:-15}
+      RECUPERACAO_CODIGO_MAX_TENTATIVAS: ${RECUPERACAO_CODIGO_MAX_TENTATIVAS:-5}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-nao-responda@zeregistra.local}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Zé Registra}
+      EQUIPE_ATENDIMENTO_EMAIL: ${EQUIPE_ATENDIMENTO_EMAIL:-}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      SMTP_SSL: ${SMTP_SSL:-false}
+      SMTP_TIMEOUT_SECONDS: ${SMTP_TIMEOUT_SECONDS:-10}
+      SMTP_MAX_ATTEMPTS: ${SMTP_MAX_ATTEMPTS:-3}
+      EMAIL_DAILY_LIMIT: ${EMAIL_DAILY_LIMIT:-500}
+      EMAIL_DAILY_WARNING_PERCENT: ${EMAIL_DAILY_WARNING_PERCENT:-80}
+      EMAIL_PROVIDER_STRATEGY: ${EMAIL_PROVIDER_STRATEGY:-single}
+      EMAIL_PROVIDER_QUOTA_COOLDOWN_MINUTES: ${EMAIL_PROVIDER_QUOTA_COOLDOWN_MINUTES:-60}
+      EMAIL_SECONDARY_OPERATIONS: ${EMAIL_SECONDARY_OPERATIONS:-prospeccao_lead,passo_cadencia}
+      SMTP_SECONDARY_ENABLED: ${SMTP_SECONDARY_ENABLED:-false}
+      SMTP_SECONDARY_NAME: ${SMTP_SECONDARY_NAME:-Comercial}
+      SMTP_SECONDARY_HOST: ${SMTP_SECONDARY_HOST:-}
+      SMTP_SECONDARY_PORT: ${SMTP_SECONDARY_PORT:-587}
+      SMTP_SECONDARY_USERNAME: ${SMTP_SECONDARY_USERNAME:-}
+      SMTP_SECONDARY_PASSWORD: ${SMTP_SECONDARY_PASSWORD:-}
+      SMTP_SECONDARY_FROM_ADDRESS: ${SMTP_SECONDARY_FROM_ADDRESS:-}
+      SMTP_SECONDARY_FROM_NAME: ${SMTP_SECONDARY_FROM_NAME:-Zé Registra}
+      SMTP_SECONDARY_STARTTLS: ${SMTP_SECONDARY_STARTTLS:-true}
+      SMTP_SECONDARY_SSL: ${SMTP_SECONDARY_SSL:-false}
+      SMTP_SECONDARY_TIMEOUT_SECONDS: ${SMTP_SECONDARY_TIMEOUT_SECONDS:-10}
+      EMAIL_SECONDARY_DAILY_LIMIT: ${EMAIL_SECONDARY_DAILY_LIMIT:-500}
+      EMAIL_SECONDARY_DAILY_WARNING_PERCENT: ${EMAIL_SECONDARY_DAILY_WARNING_PERCENT:-80}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      OAUTH_ATTEMPT_MINUTES: ${OAUTH_ATTEMPT_MINUTES:-10}
+      OAUTH_AUTO_LINK_VERIFIED_EMAIL: ${OAUTH_AUTO_LINK_VERIFIED_EMAIL:-true}
+      GOOGLE_OAUTH_ENABLED: ${GOOGLE_OAUTH_ENABLED:-false}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      APPLE_OAUTH_ENABLED: ${APPLE_OAUTH_ENABLED:-false}
+      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
+      APPLE_TEAM_ID: ${APPLE_TEAM_ID:-}
+      APPLE_KEY_ID: ${APPLE_KEY_ID:-}
+      APPLE_PRIVATE_KEY: ${APPLE_PRIVATE_KEY:-}
+      CLICKSIGN_ENABLED: ${CLICKSIGN_ENABLED:-false}
+      CLICKSIGN_BASE_URL: ${CLICKSIGN_BASE_URL:-https://sandbox.clicksign.com/api/v3}
+      CLICKSIGN_API_TOKEN: ${CLICKSIGN_API_TOKEN:-}
+      CLICKSIGN_WEBHOOK_SECRET: ${CLICKSIGN_WEBHOOK_SECRET:-}
+      CLICKSIGN_WEBHOOK_URL: ${CLICKSIGN_WEBHOOK_URL:-}
+      IA_SOMBRA_ENABLED: ${IA_SOMBRA_ENABLED:-false}
+      IA_SOMBRA_HOST: ${IA_SOMBRA_HOST:-ollama}
+      IA_SOMBRA_PORT: ${IA_SOMBRA_PORT:-11434}
+      IA_SOMBRA_MODELO: ${IA_SOMBRA_MODELO:-qwen2.5:7b-instruct-q4_K_M}
+      IA_SOMBRA_EMBEDDING_MODELO: ${IA_SOMBRA_EMBEDDING_MODELO:-nomic-embed-text}
+      IA_SOMBRA_TIMEOUT_SEGUNDOS: ${IA_SOMBRA_TIMEOUT_SEGUNDOS:-120}
+      IA_SOMBRA_PROVIDER: ${IA_SOMBRA_PROVIDER:-ollama}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODELO: ${GEMINI_MODELO:-gemini-flash-latest}
+      GEMINI_MODELO_FALLBACK: ${GEMINI_MODELO_FALLBACK:-gemini-flash-lite-latest}
+      GEMINI_TIMEOUT_SEGUNDOS: ${GEMINI_TIMEOUT_SEGUNDOS:-60}
+      GEMINI_MAX_CHAMADAS_POR_EXECUCAO: ${GEMINI_MAX_CHAMADAS_POR_EXECUCAO:-5}
+      GEMINI_INTERVALO_MINIMO_SEGUNDOS: ${GEMINI_INTERVALO_MINIMO_SEGUNDOS:-7}
+      ASSISTENTE_CRM_ENABLED: ${ASSISTENTE_CRM_ENABLED:-false}
+      PROSPECCAO_TITULARIDADE_INPI_AO_VIVO_ENABLED: ${PROSPECCAO_TITULARIDADE_INPI_AO_VIVO_ENABLED:-false}
+      PROSPECCAO_TITULARIDADE_INPI_TIMEOUT_SEGUNDOS: ${PROSPECCAO_TITULARIDADE_INPI_TIMEOUT_SEGUNDOS:-8}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"
+      interval: 10s
+      timeout: 6s
+      retries: 6
+    restart: unless-stopped
+
+  rpi-sync:
+    build: .
+    command:
+      - /app/.venv/bin/python
+      - -m
+      - app.cli.atualizar_rpis_automaticamente
+    environment:
+      APP_ENV: development
+      APP_VERSION: ${APP_VERSION:-development}
+      RUN_MIGRATIONS: "false"
+      BOOTSTRAP_ADMIN: "false"
+      DATABASE_URL: postgresql+asyncpg://inpi_app:${APP_DB_PASSWORD:-inpi-app-local-change-me}@db:5432/inpi
+      RPI_SYNC_START_NUMBER: ${RPI_SYNC_START_NUMBER:-2900}
+      RPI_SYNC_POLL_SECONDS: ${RPI_SYNC_POLL_SECONDS:-10}
+      RPI_MINIMUM_RECORD_RATIO: ${RPI_MINIMUM_RECORD_RATIO:-0.50}
+      RPI_ANOMALY_REFERENCE_MINIMUM: ${RPI_ANOMALY_REFERENCE_MINIMUM:-1000}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: [/app/.venv/bin/python, -m, app.worker]
+    environment:
+      APP_ENV: development
+      APP_VERSION: ${APP_VERSION:-development}
+      RUN_MIGRATIONS: "false"
+      BOOTSTRAP_ADMIN: "false"
+      DATABASE_URL: postgresql+asyncpg://inpi_app:${APP_DB_PASSWORD:-inpi-app-local-change-me}@db:5432/inpi
+      REDIS_URL: redis://redis:6379/0
+      SECURITY_MASTER_KEY: ${SECURITY_MASTER_KEY:-desenvolvimento-local-chave-mestra}
+      SECURITY_MASTER_KEY_VERSION: ${SECURITY_MASTER_KEY_VERSION:-1}
+      SECURITY_MASTER_KEY_PREVIOUS: ${SECURITY_MASTER_KEY_PREVIOUS:-}
+      SECURITY_MASTER_KEY_PREVIOUS_VERSION: ${SECURITY_MASTER_KEY_PREVIOUS_VERSION:-0}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_S3_BUCKET: ${STORAGE_S3_BUCKET:-}
+      STORAGE_S3_ENDPOINT: ${STORAGE_S3_ENDPOINT:-}
+      STORAGE_S3_REGION: ${STORAGE_S3_REGION:-us-east-1}
+      STORAGE_S3_ACCESS_KEY: ${STORAGE_S3_ACCESS_KEY:-}
+      STORAGE_S3_SECRET_KEY: ${STORAGE_S3_SECRET_KEY:-}
+      QUEUE_RETRY_BASE_SECONDS: ${QUEUE_RETRY_BASE_SECONDS:-5}
+      QUEUE_RETRY_MAX_SECONDS: ${QUEUE_RETRY_MAX_SECONDS:-300}
+      QUEUE_IDEMPOTENCY_TTL_SECONDS: ${QUEUE_IDEMPOTENCY_TTL_SECONDS:-86400}
+      WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-false}
+      OPENWA_BASE_URL: ${OPENWA_BASE_URL:-http://openwa:2785}
+      OPENWA_API_KEY: ${OPENWA_API_KEY:-}
+      OPENWA_WEBHOOK_SECRET: ${OPENWA_WEBHOOK_SECRET:-}
+      OPENWA_SESSAO_VIGILANCIA: ${OPENWA_SESSAO_VIGILANCIA:-vigilancia}
+      OPENWA_SESSAO_PROSPECCAO: ${OPENWA_SESSAO_PROSPECCAO:-prospeccao}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:8000}
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-true}
+      CONFIRMACAO_PESQUISA_EMAIL_ENABLED: ${CONFIRMACAO_PESQUISA_EMAIL_ENABLED:-false}
+      RELATORIO_LINK_TTL_HORAS: ${RELATORIO_LINK_TTL_HORAS:-168}
+      RECUPERACAO_PESQUISA_EMAIL_ENABLED: ${RECUPERACAO_PESQUISA_EMAIL_ENABLED:-false}
+      RECUPERACAO_CODIGO_MINUTOS: ${RECUPERACAO_CODIGO_MINUTOS:-15}
+      RECUPERACAO_CODIGO_MAX_TENTATIVAS: ${RECUPERACAO_CODIGO_MAX_TENTATIVAS:-5}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-nao-responda@zeregistra.local}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Zé Registra}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      SMTP_SSL: ${SMTP_SSL:-false}
+      SMTP_TIMEOUT_SECONDS: ${SMTP_TIMEOUT_SECONDS:-10}
+      SMTP_MAX_ATTEMPTS: ${SMTP_MAX_ATTEMPTS:-3}
+      EMAIL_DAILY_LIMIT: ${EMAIL_DAILY_LIMIT:-500}
+      EMAIL_DAILY_WARNING_PERCENT: ${EMAIL_DAILY_WARNING_PERCENT:-80}
+      EMAIL_PROVIDER_STRATEGY: ${EMAIL_PROVIDER_STRATEGY:-single}
+      EMAIL_PROVIDER_QUOTA_COOLDOWN_MINUTES: ${EMAIL_PROVIDER_QUOTA_COOLDOWN_MINUTES:-60}
+      EMAIL_SECONDARY_OPERATIONS: ${EMAIL_SECONDARY_OPERATIONS:-prospeccao_lead,passo_cadencia}
+      SMTP_SECONDARY_ENABLED: ${SMTP_SECONDARY_ENABLED:-false}
+      SMTP_SECONDARY_NAME: ${SMTP_SECONDARY_NAME:-Comercial}
+      SMTP_SECONDARY_HOST: ${SMTP_SECONDARY_HOST:-}
+      SMTP_SECONDARY_PORT: ${SMTP_SECONDARY_PORT:-587}
+      SMTP_SECONDARY_USERNAME: ${SMTP_SECONDARY_USERNAME:-}
+      SMTP_SECONDARY_PASSWORD: ${SMTP_SECONDARY_PASSWORD:-}
+      SMTP_SECONDARY_FROM_ADDRESS: ${SMTP_SECONDARY_FROM_ADDRESS:-}
+      SMTP_SECONDARY_FROM_NAME: ${SMTP_SECONDARY_FROM_NAME:-Zé Registra}
+      SMTP_SECONDARY_STARTTLS: ${SMTP_SECONDARY_STARTTLS:-true}
+      SMTP_SECONDARY_SSL: ${SMTP_SECONDARY_SSL:-false}
+      SMTP_SECONDARY_TIMEOUT_SECONDS: ${SMTP_SECONDARY_TIMEOUT_SECONDS:-10}
+      EMAIL_SECONDARY_DAILY_LIMIT: ${EMAIL_SECONDARY_DAILY_LIMIT:-500}
+      EMAIL_SECONDARY_DAILY_WARNING_PERCENT: ${EMAIL_SECONDARY_DAILY_WARNING_PERCENT:-80}
+      CADENCIA_EMAIL_HORARIO_INICIO: ${CADENCIA_EMAIL_HORARIO_INICIO:-8}
+      CADENCIA_EMAIL_HORARIO_FIM: ${CADENCIA_EMAIL_HORARIO_FIM:-19}
+      CADENCIA_EMAIL_MAX_TENTATIVAS: ${CADENCIA_EMAIL_MAX_TENTATIVAS:-3}
+      IMAP_ENABLED: ${IMAP_ENABLED:-false}
+      IMAP_HOST: ${IMAP_HOST:-}
+      IMAP_PORT: ${IMAP_PORT:-993}
+      IMAP_USERNAME: ${IMAP_USERNAME:-}
+      IMAP_PASSWORD: ${IMAP_PASSWORD:-}
+      IMAP_SSL: ${IMAP_SSL:-true}
+      IA_SOMBRA_ENABLED: ${IA_SOMBRA_ENABLED:-false}
+      IA_SOMBRA_HOST: ${IA_SOMBRA_HOST:-ollama}
+      IA_SOMBRA_PORT: ${IA_SOMBRA_PORT:-11434}
+      IA_SOMBRA_MODELO: ${IA_SOMBRA_MODELO:-qwen2.5:7b-instruct-q4_K_M}
+      IA_SOMBRA_EMBEDDING_MODELO: ${IA_SOMBRA_EMBEDDING_MODELO:-nomic-embed-text}
+      IA_SOMBRA_TIMEOUT_SEGUNDOS: ${IA_SOMBRA_TIMEOUT_SEGUNDOS:-120}
+      IA_SOMBRA_PROVIDER: ${IA_SOMBRA_PROVIDER:-ollama}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODELO: ${GEMINI_MODELO:-gemini-flash-latest}
+      GEMINI_MODELO_FALLBACK: ${GEMINI_MODELO_FALLBACK:-gemini-flash-lite-latest}
+      GEMINI_TIMEOUT_SEGUNDOS: ${GEMINI_TIMEOUT_SEGUNDOS:-60}
+      GEMINI_MAX_CHAMADAS_POR_EXECUCAO: ${GEMINI_MAX_CHAMADAS_POR_EXECUCAO:-5}
+      GEMINI_INTERVALO_MINIMO_SEGUNDOS: ${GEMINI_INTERVALO_MINIMO_SEGUNDOS:-7}
+      ASSISTENTE_CRM_ENABLED: ${ASSISTENTE_CRM_ENABLED:-false}
+      PROSPECCAO_TITULARIDADE_INPI_AO_VIVO_ENABLED: ${PROSPECCAO_TITULARIDADE_INPI_AO_VIVO_ENABLED:-false}
+      PROSPECCAO_TITULARIDADE_INPI_TIMEOUT_SEGUNDOS: ${PROSPECCAO_TITULARIDADE_INPI_TIMEOUT_SEGUNDOS:-8}
+    volumes:
+      # Mesmo volume persistente do api/rpi-sync -- o job
+      # prospeccao.importar_cnpj_rfb roda aqui e cacheia os arquivos
+      # baixados da RFB em /app/data/rfb_cnpj_cache (ver
+      # app/cli/importar_cnpj_rfb.py) para sobreviver a reinicios do host
+      # sem precisar rebaixar vários GB (achado de 03/09/2026: esta VPS
+      # reinicia sozinha algumas vezes por dia, por motivo ainda não
+      # identificado nos logs).
+      - ./data:/app/data
+      # Achado FASE6-9d da auditoria (04/09/2026): plataforma.verificar_saude
+      # (app/alertas_plataforma.py) precisa checar se o backup do banco está
+      # rodando -- somente leitura, o worker nunca escreve em backups/.
+      - ./backups:/app/backups:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Banco efemero exclusivo dos testes -- NUNCA aponta para o "db" de producao.
+  # Volume proprio (test_postgres_data), sem persistencia real entre execucoes
+  # que importe (pode ser apagado a qualquer momento).
+  db-test:
+    image: pgvector/pgvector:pg16
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: inpi
+      POSTGRES_USER: inpi
+      POSTGRES_PASSWORD: inpi
+      APP_DB_PASSWORD: inpi-app-teste
+    volumes:
+      - test_postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-create-app-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inpi -d inpi"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis-test:
+    image: redis:7-alpine
+    profiles: ["test"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Suite de testes real (pytest), sem substituir os testes de CI. So sobe com
+  # `docker compose --profile test run --rm test [args do pytest]` -- nunca com
+  # `docker compose up`, para nao afetar a stack em execucao nem tocar o banco
+  # de producao ("db"/"redis" acima).
+  test:
+    build:
+      context: .
+      target: test
+    profiles: ["test"]
+    environment:
+      APP_ENV: test
+      DATABASE_URL: postgresql+asyncpg://inpi:inpi@db-test:5432/inpi
+      REDIS_URL: redis://redis-test:6379/0
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Teste-Seguro-123!}
+      AUDIT_IP_SALT: teste-local
+      SECURITY_MASTER_KEY: ${SECURITY_MASTER_KEY:-desenvolvimento-local-chave-mestra}
+      # Fase 1 da reanalise de 12/09/2026: sem isso, test_fase8_seguranca_postgres.py,
+      # test_saas_rls_postgres.py e test_phase7_postgres.py ficam pulados (skip) em
+      # silencio aqui e SO rodam de verdade no CI -- foi exatamente essa lacuna que
+      # deixou o CI vermelho por 2 dias (30+ commits) sem ninguem perceber.
+      TEST_ADMIN_DATABASE_URL: postgresql://inpi:inpi@db-test:5432/inpi
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      db-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  test_postgres_data:
+  clamav_data:
+  ollama_data:

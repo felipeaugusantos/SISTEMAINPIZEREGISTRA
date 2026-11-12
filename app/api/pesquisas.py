@@ -199,14 +199,20 @@ async def criar_pesquisa(
         session.add(lead)
         await session.flush()
     else:
-        lead.nome = dados.nome
-        lead.empresa_id = empresa.id if empresa else None
-        lead.empresa = empresa.nome if empresa else dados.empresa or lead.empresa
-        lead.email = dados.email_corporativo
-        lead.telefone = dados.telefone
-        lead.marca = dados.marca
-        lead.atividade = dados.atividade
-        lead.aceite_marketing = lead.aceite_marketing or dados.aceite_marketing
+        # Revisão de segurança (12/11/2026): o formulário público não comprova
+        # a posse do e-mail informado. Um reenvio não pode mais sobrescrever
+        # os dados do contato -- só preenche campos vazios -- e lead já
+        # convertido não é tocado (mesma regra do achado H7 do POST /v1/leads,
+        # que ainda não estava aplicada neste fluxo). O consentimento do
+        # reenvio continua registrado: é trilha nova, não sobrescrita.
+        if lead.status != StatusLead.CONVERTIDO:
+            lead.nome = lead.nome or dados.nome
+            lead.empresa_id = lead.empresa_id or (empresa.id if empresa else None)
+            lead.empresa = lead.empresa or (empresa.nome if empresa else dados.empresa)
+            lead.telefone = lead.telefone or dados.telefone
+            lead.marca = lead.marca or dados.marca
+            lead.atividade = lead.atividade or dados.atividade
+            lead.aceite_marketing = lead.aceite_marketing or dados.aceite_marketing
         registrar_consentimento_titular(lead, organizacao.politica_privacidade_versao)
 
     original = await detectar_pesquisa_duplicada(session, organizacao.id, lead.id, dados.marca)
@@ -214,13 +220,20 @@ async def criar_pesquisa(
         # Reenvios da mesma marca para o mesmo lead reutilizam a pesquisa.
         # Não geram novo registro, alerta ou e-mail ao comercial.
         await session.commit()
+        # Resposta uniforme (revisão de segurança 12/11/2026): devolver
+        # duplicada=True e o id da original transformava o endpoint em
+        # oráculo -- qualquer pessoa que soubesse o par marca+e-mail
+        # confirmava que aquela pessoa pesquisou aquela marca. Como o
+        # formulário não comprova a posse do e-mail, a resposta pública não
+        # distingue reenvio de pesquisa nova; o re-uso da original continua
+        # registrado no banco e nos fluxos internos autenticados.
         return PesquisaMarcaCriada(
             id=original,
             relatorio_url=f"/relatorios/{original}",
             relatorio_token=emitir_token_relatorio(original, organizacao.id),
             lead_id=lead.id,
-            duplicada=True,
-            pesquisa_original_id=original,
+            duplicada=False,
+            pesquisa_original_id=None,
         )
     pesquisa = PesquisaMarca(
         organizacao_id=organizacao.id,

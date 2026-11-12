@@ -91,3 +91,65 @@ def test_patente_numera_despachos_em_ordem(tmp_path: Path) -> None:
     assert [r.ordem for r in registros] == [0, 1]
     # O despacho mais recente (maior ordem) deve ser o desempate no import em lote.
     assert registros[-1].situacao == "Deferimento"
+
+
+def _escrever_marca(caminho, data_rpi: str, data_deposito: str) -> None:
+    caminho.write_text(
+        f"""<?xml version="1.0" encoding="UTF-8"?>
+<revista numero="2914" data="{data_rpi}">
+  <processo numero="999000001" data-deposito="{data_deposito}">
+    <despachos><despacho codigo="IPAS009" nome="Publicação do pedido"/></despachos>
+    <titulares><titular nome-razao-social="EMPRESA TESTE" pais="BR"/></titulares>
+    <marca apresentacao="Nominativa" natureza="Produtos e/ou Serviço"><nome>MARCA DATA</nome></marca>
+  </processo>
+</revista>""",
+        encoding="utf-8",
+    )
+
+
+def test_deposito_futuro_em_relacao_a_rpi_e_descartado(tmp_path: Path) -> None:
+    # Erro de digitação na fonte (caso real: cobertura da base exibindo
+    # depósito em 2030). O registro é mantido, só a data inválida sai.
+    arquivo = tmp_path / "marca.xml"
+    _escrever_marca(arquivo, "10/11/2026", "18/07/2030")
+
+    registro = next(ler_marcas(arquivo))
+
+    assert registro.numero == "999000001"
+    assert registro.titulo == "MARCA DATA"
+    assert registro.data_deposito is None
+
+
+def test_deposito_ate_a_data_da_rpi_e_mantido(tmp_path: Path) -> None:
+    arquivo = tmp_path / "marca.xml"
+    _escrever_marca(arquivo, "10/11/2026", "10/11/2026")
+
+    registro = next(ler_marcas(arquivo))
+
+    assert registro.data_deposito is not None
+    assert registro.data_deposito.isoformat() == "2026-11-10"
+
+
+def test_deposito_futuro_em_patente_tambem_e_descartado(tmp_path: Path) -> None:
+    arquivo = tmp_path / "patente.xml"
+    arquivo.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<revista numero="2914" dataPublicacao="10/11/2026" diretoria="Patente">
+  <despacho>
+    <codigo>121</codigo><titulo>Exigência</titulo>
+    <processo-patente>
+      <numero>BR 10 2030 000001-0</numero><data-deposito>18/07/2030</data-deposito>
+      <titulo>INVENÇÃO DATA</titulo>
+      <titular-lista><titular><nome-completo>UNIVERSIDADE TESTE</nome-completo>
+        <endereco><pais><sigla>BR</sigla></pais></endereco>
+      </titular></titular-lista>
+    </processo-patente>
+  </despacho>
+</revista>""",
+        encoding="utf-8",
+    )
+
+    registro = next(ler_patentes(arquivo))
+
+    assert registro.numero == "BR 10 2030 000001-0"
+    assert registro.data_deposito is None

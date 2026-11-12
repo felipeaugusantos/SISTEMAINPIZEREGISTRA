@@ -54,6 +54,14 @@ class PesquisaMarca(Base):
     relatorio_link_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
     relatorio_link_expira_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     confirmacao_email_enviado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Recuperação de acesso à pesquisa com comprovação de posse do e-mail
+    # (revisão de segurança 12/11/2026). Só o hash do código de 6 dígitos
+    # fica na base, com expiração curta, limite de tentativas e uso único.
+    # O código nunca é logado nem gravado em claro.
+    recuperacao_codigo_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    recuperacao_codigo_expira_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recuperacao_codigo_tentativas: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    recuperacao_codigo_enviado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     relatorio_completo_gerado_por: Mapped[str | None] = mapped_column(String(150), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -1,4 +1,5 @@
 import logging
+import secrets
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Annotated
@@ -9,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import hash_token
 from app.captcha import exigir_captcha
 from app.crm import (
     avancar_fase_lead,
@@ -18,7 +20,11 @@ from app.crm import (
     registrar_consentimento_titular,
 )
 from app.database import get_session
-from app.emailing import enviar_alerta_nova_pesquisa, enviar_confirmacao_pesquisa
+from app.emailing import (
+    enviar_alerta_nova_pesquisa,
+    enviar_codigo_recuperacao_pesquisa,
+    enviar_confirmacao_pesquisa,
+)
 from app.marca import nome_escritorio_para_email
 from app.models import (
     AfinidadeClasse,
@@ -55,6 +61,9 @@ from app.schemas import (
     PesquisaMarcaCriada,
     PrognosticoRegistrabilidadeResponse,
     QualidadeBaseResponse,
+    RecuperacaoAcessoPesquisaConfirmar,
+    RecuperacaoAcessoPesquisaCreate,
+    RecuperacaoAcessoPesquisaResposta,
     RelatorioMarcaResponse,
     ResumoPublicoMarcaResponse,
     TitularResponse,
@@ -107,6 +116,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/pesquisas-marca", tags=["pesquisas de marcas"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 limitar_pesquisas = RateLimiter(limite=10, janela_segundos=60, escopo="pesquisas-publicas")
+limitar_recuperacao = RateLimiter(limite=5, janela_segundos=300, escopo="recuperacao-pesquisa", sensivel=True)
+limitar_confirmacao_recuperacao = RateLimiter(
+    limite=10, janela_segundos=300, escopo="recuperacao-pesquisa-confirmar", sensivel=True
+)
 limitar_relatorios = RateLimiter(limite=60, janela_segundos=60, escopo="relatorios-publicos")
 
 
@@ -227,10 +240,15 @@ async def criar_pesquisa(
         # formulário não comprova a posse do e-mail, a resposta pública não
         # distingue reenvio de pesquisa nova; o re-uso da original continua
         # registrado no banco e nos fluxos internos autenticados.
+        # Revisão de segurança 12/11/2026 (posse do e-mail): o reenvio não
+        # devolve mais um token utilizável da pesquisa original -- quem
+        # soubesse o par marca+e-mail abria o relatório dela sem provar
+        # posse da caixa. O acesso a pesquisas anteriores exige o código de
+        # verificação enviado ao e-mail (POST .../recuperar-acesso).
         return PesquisaMarcaCriada(
             id=original,
             relatorio_url=f"/relatorios/{original}",
-            relatorio_token=emitir_token_relatorio(original, organizacao.id),
+            relatorio_token=None,
             lead_id=lead.id,
             duplicada=False,
             pesquisa_original_id=None,
@@ -310,6 +328,159 @@ async def criar_pesquisa(
             logger.warning("Falha ao liberar transação opcional da pesquisa")
         logger.warning("Falha na confirmação após criação da pesquisa")
     return resposta
+
+
+async def _localizar_pesquisa_do_par(
+    session: AsyncSession,
+    organizacao_id: int,
+    email: str,
+    marca: str,
+) -> str | None:
+    """Resolve o par e-mail+marca para a pesquisa reutilizada, se existir.
+
+    Mesmo caminho de deduplicação do formulário público: primeiro o lead
+    ativo pelo e-mail, depois a pesquisa da marca para aquele lead.
+    """
+    lead = await buscar_lead_ativo_por_email(session, organizacao_id, email)
+    if lead is None:
+        return None
+    return await detectar_pesquisa_duplicada(session, organizacao_id, lead.id, marca)
+
+
+_RESPOSTA_RECUPERACAO_UNIFORME = RecuperacaoAcessoPesquisaResposta(
+    detalhe=(
+        "Se esta marca tiver uma pesquisa associada a este e-mail, "
+        "enviamos um código de acesso. Ele vale por poucos minutos e "
+        "só pode ser usado uma vez."
+    )
+)
+
+
+@router.post(
+    "/recuperar-acesso",
+    response_model=RecuperacaoAcessoPesquisaResposta,
+    # Mesma proteção do formulário público: limite por IP e CAPTCHA.
+    dependencies=[Depends(limitar_recuperacao), Depends(exigir_captcha)],
+)
+async def solicitar_recuperacao_acesso(
+    dados: RecuperacaoAcessoPesquisaCreate,
+    session: SessionDep,
+    organizacao: OrganizacaoPublicaDep,
+) -> RecuperacaoAcessoPesquisaResposta:
+    """Inicia a recuperação de acesso com prova de posse do e-mail.
+
+    A resposta é SEMPRE a mesma, exista ou não pesquisa para o par
+    marca+e-mail: o endpoint não pode virar oráculo de enumeração. O
+    código (6 dígitos, uso único, expiração curta, só o hash na base) vai
+    por e-mail -- nunca o link do relatório -- e só quando o envio de
+    recuperação está habilitado; desabilitado, o fluxo falha fechado.
+    """
+    try:
+        settings = get_settings()
+        if not (settings.email_enabled and settings.recuperacao_pesquisa_email_enabled):
+            return _RESPOSTA_RECUPERACAO_UNIFORME
+        pesquisa_id = await _localizar_pesquisa_do_par(
+            session, organizacao.id, dados.email_corporativo, dados.marca
+        )
+        if pesquisa_id is None:
+            return _RESPOSTA_RECUPERACAO_UNIFORME
+        pesquisa = (
+            await session.execute(
+                select(PesquisaMarca).where(
+                    PesquisaMarca.id == pesquisa_id,
+                    PesquisaMarca.organizacao_id == organizacao.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if pesquisa is None:
+            return _RESPOSTA_RECUPERACAO_UNIFORME
+        codigo = f"{secrets.randbelow(1_000_000):06d}"
+        pesquisa.recuperacao_codigo_hash = hash_token(codigo)
+        pesquisa.recuperacao_codigo_expira_em = datetime.now(UTC) + timedelta(
+            minutes=settings.recuperacao_codigo_minutos
+        )
+        pesquisa.recuperacao_codigo_tentativas = 0
+        await session.commit()
+        enviado = await enviar_codigo_recuperacao_pesquisa(
+            destinatario=dados.email_corporativo,
+            marca=dados.marca,
+            codigo=codigo,
+            organizacao_nome=organizacao.nome,
+        )
+        if enviado:
+            pesquisa.recuperacao_codigo_enviado_em = datetime.now(UTC)
+            await session.commit()
+    except Exception:
+        try:
+            await session.rollback()
+        except Exception:
+            logger.warning("Falha ao liberar transação da recuperação de pesquisa")
+        logger.warning("Falha ao iniciar recuperação de acesso à pesquisa")
+    return _RESPOSTA_RECUPERACAO_UNIFORME
+
+
+@router.post(
+    "/recuperar-acesso/confirmar",
+    response_model=PesquisaMarcaCriada,
+    dependencies=[Depends(limitar_confirmacao_recuperacao), Depends(exigir_captcha)],
+)
+async def confirmar_recuperacao_acesso(
+    dados: RecuperacaoAcessoPesquisaConfirmar,
+    session: SessionDep,
+    organizacao: OrganizacaoPublicaDep,
+) -> PesquisaMarcaCriada:
+    """Troca o código de posse pelo acesso ao relatório da pesquisa.
+
+    Qualquer falha devolve o mesmo 400 genérico (par inexistente, código
+    errado, expirado, usado ou bloqueado por tentativas). O código é de
+    uso único: ao acertar, os campos de recuperação são limpos antes de
+    emitir o token curto (15 minutos, mesmo da tela pós-envio).
+    """
+    erro = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Código inválido, expirado ou já utilizado",
+    )
+    pesquisa_id = await _localizar_pesquisa_do_par(
+        session, organizacao.id, dados.email_corporativo, dados.marca
+    )
+    if pesquisa_id is None:
+        raise erro
+    pesquisa = (
+        await session.execute(
+            select(PesquisaMarca).where(
+                PesquisaMarca.id == pesquisa_id,
+                PesquisaMarca.organizacao_id == organizacao.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if pesquisa is None or not pesquisa.recuperacao_codigo_hash:
+        raise erro
+    settings = get_settings()
+    tentativas = pesquisa.recuperacao_codigo_tentativas or 0
+    if tentativas >= settings.recuperacao_codigo_max_tentativas:
+        raise erro
+    expira_em = pesquisa.recuperacao_codigo_expira_em
+    if expira_em is not None and expira_em.tzinfo is None:
+        expira_em = expira_em.replace(tzinfo=UTC)
+    if expira_em is None or expira_em <= datetime.now(UTC):
+        raise erro
+    if not secrets.compare_digest(pesquisa.recuperacao_codigo_hash, hash_token(dados.codigo)):
+        pesquisa.recuperacao_codigo_tentativas = tentativas + 1
+        await session.commit()
+        raise erro
+    # Uso único: limpa antes de emitir o acesso.
+    pesquisa.recuperacao_codigo_hash = None
+    pesquisa.recuperacao_codigo_expira_em = None
+    pesquisa.recuperacao_codigo_tentativas = None
+    await session.commit()
+    return PesquisaMarcaCriada(
+        id=pesquisa.id,
+        relatorio_url=f"/relatorios/{pesquisa.id}",
+        relatorio_token=emitir_token_relatorio(pesquisa.id, organizacao.id),
+        lead_id=pesquisa.lead_id,
+        duplicada=False,
+        pesquisa_original_id=None,
+    )
 
 
 _ROTULOS_DIRETRIZ_PUBLICOS = {

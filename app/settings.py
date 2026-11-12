@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     ratelimit_redis_enabled: bool = False
     trusted_proxy_networks: str = "127.0.0.1/32,::1/128"
     password_reset_minutes: int = 30
+    # Validade do link estável do relatório enviado no e-mail de confirmação
+    # da pesquisa pública (o token HMAC da tela continua com 15 minutos).
+    relatorio_link_ttl_horas: int = 168
     temporary_password_minutes: int = Field(default=60, ge=5, le=1440)
     anonimizacao_token_minutos: int = 1440
     app_public_url: str = "http://localhost:8000"

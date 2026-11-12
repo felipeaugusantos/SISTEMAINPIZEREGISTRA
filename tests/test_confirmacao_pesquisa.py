@@ -402,7 +402,7 @@ def test_fluxo_publico_duplicado_nao_envia_confirmacao(monkeypatch: pytest.Monke
         app.dependency_overrides.clear()
 
     assert resposta.status_code == 201, resposta.text
-    assert resposta.json()["duplicada"] is True
+    assert resposta.json()["duplicada"] is False  # resposta uniforme (PR #242): reenvio nao marca duplicidade
     assert capturados == []
 
 

@@ -88,7 +88,10 @@ test("reenvio da mesma marca reutiliza a pesquisa sem duplicar", async ({ page }
   expect(segundaResposta.status).toBe(201);
   const segunda = segundaResposta.corpo;
 
-  expect(segunda.duplicada).toBe(true);
+  // Revisão de segurança (PR #242): a resposta pública é uniforme e não
+  // marca duplicidade — o reenvio reutiliza a pesquisa (mesmo id) sem
+  // revelar que ela já existia.
+  expect(segunda.duplicada).toBe(false);
   expect(segunda.id).toBe(primeira.id);
   await page.waitForURL(new RegExp(`/relatorios/${primeira.id}`));
   await expect(page.locator("#report-content")).toBeVisible({ timeout: 20000 });

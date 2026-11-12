@@ -96,7 +96,7 @@ test("reenvio da mesma marca reutiliza a pesquisa sem duplicar", async ({ page }
   expect(segunda.relatorio_token).toBeNull();
   await expect(page.locator("#form-status")).toContainText("código de acesso");
   await expect(page.locator("#recovery-panel")).toBeVisible();
-  await expect(page.locator("#recovery-email")).toHaveValue(DADOS.email_corporativo);
+  await expect(page.locator("#recovery-email")).toHaveValue(DADOS.email);
   await expect(page.locator("#recovery-brand")).toHaveValue(DADOS.marca);
 });
 

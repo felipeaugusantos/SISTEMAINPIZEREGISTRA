@@ -100,6 +100,7 @@ from app.models import (
 from app.normalization import normalizar_numero_processo
 from app.proxy import cliente_ip
 from app.ratelimit import RateLimiter
+from app.relatorio_link import revogar_link_relatorio
 from app.relatorios import gerar_pdf_relatorio
 from app.schemas import (
     LeadCreate,
@@ -1288,6 +1289,33 @@ class MoverPesquisaInput(BaseModel):
         if bool(self.lead_id_destino) == bool(self.novo_cliente):
             raise ValueError("Informe o lead de destino ou os dados de um novo cliente, não os dois")
         return self
+
+
+@router.post("/v1/admin/pesquisas/{pesquisa_id}/relatorio-link/revogar")
+async def revogar_link_relatorio_publico(
+    pesquisa_id: str,
+    session: SessionDep,
+    usuario: LeadsManageDep,
+) -> dict:
+    """Desliga o link estável do relatório enviado no e-mail de confirmação.
+
+    O token HMAC de 15 minutos expira sozinho; o link estável só deixa de
+    valer por expiração própria ou por esta revogação explícita (o hash é
+    limpo, então o mesmo token nunca mais valida).
+    """
+    pesquisa = (
+        await session.execute(
+            select(PesquisaMarca).where(
+                PesquisaMarca.id == pesquisa_id,
+                PesquisaMarca.organizacao_id == usuario.organizacao_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if pesquisa is None:
+        raise HTTPException(status_code=404, detail="Pesquisa não encontrada")
+    revogar_link_relatorio(pesquisa)
+    await session.commit()
+    return {"pesquisa_id": pesquisa_id, "relatorio_link_ativo": False}
 
 
 @router.post("/v1/admin/pesquisas/{pesquisa_id}/mover-lead")

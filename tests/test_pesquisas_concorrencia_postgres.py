@@ -95,7 +95,7 @@ async def _publica(banco):
                 nome="Cliente", email_corporativo=banco.email, telefone="11999999999",
                 marca="NORTE STUDIO", atividade="Servicos de tecnologia", aceite_privacidade=True,
             ), session,
-            SimpleNamespace(id=banco.org_id, modulos=["consulta"], limites={}, politica_privacidade_versao="1"),
+            SimpleNamespace(id=banco.org_id, nome="Organizacao Teste", modulos=["consulta"], limites={}, politica_privacidade_versao="1"),
         )
 
 

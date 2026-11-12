@@ -1,6 +1,8 @@
+import logging
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
@@ -16,7 +18,7 @@ from app.crm import (
     registrar_consentimento_titular,
 )
 from app.database import get_session
-from app.emailing import enviar_alerta_nova_pesquisa
+from app.emailing import enviar_alerta_nova_pesquisa, enviar_confirmacao_pesquisa
 from app.marca import nome_escritorio_para_email
 from app.models import (
     AfinidadeClasse,
@@ -37,6 +39,7 @@ from app.privacy import mascarar_documentos_publicos
 from app.production import versionar_relatorio
 from app.public_report_tokens import emitir_token_relatorio
 from app.ratelimit import RateLimiter
+from app.relatorio_link import definir_link_relatorio
 from app.relatorios import gerar_pdf_resumo_cliente
 from app.request_context import adicionar_detalhes_operacionais
 from app.schemas import (
@@ -60,6 +63,7 @@ from app.schemas import (
 from app.search import buscar_marcas, normalizar_texto, termos_comuns_do_match
 from app.search_ranking import adicionar_contexto_score
 from app.security import AcessoRelatorioPublicoDep
+from app.settings import get_settings
 from app.tenancy import OrganizacaoPublicaDep, validar_limite_pesquisas
 from app.trademarks.affinity import avaliar_afinidade
 from app.trademarks.agent import registrar_execucao_agente
@@ -97,6 +101,8 @@ from app.trademarks.veredito import (
     determinar_veredito_publico,
     montar_entrada_veredito,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/pesquisas-marca", tags=["pesquisas de marcas"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -254,13 +260,10 @@ async def criar_pesquisa(
     )
     await session.commit()
     await session.refresh(pesquisa)
-    # Achado da Fase 15.2 (auditoria fina de Leads, 23/09/2026): o
-    # destinatário agora é configurável por organização
-    # (PoliticaCRM.email_alerta_leads), não mais preso à env var global
-    # settings.equipe_atendimento_email.
-    politica_alerta = await obter_politica_crm(session, organizacao.id)
-    await enviar_alerta_nova_pesquisa(dados.marca, dados.nome, dados.empresa, politica_alerta.email_alerta_leads)
-    return PesquisaMarcaCriada(
+    # Materialize a resposta antes de qualquer integração opcional. Rollback
+    # de token/carimbo não pode expirar objetos e quebrar a pesquisa já salva.
+    organizacao_nome = organizacao.nome
+    resposta = PesquisaMarcaCriada(
         id=pesquisa.id,
         relatorio_url=f"/relatorios/{pesquisa.id}",
         relatorio_token=emitir_token_relatorio(pesquisa.id, organizacao.id),
@@ -268,6 +271,45 @@ async def criar_pesquisa(
         duplicada=pesquisa.duplicada,
         pesquisa_original_id=pesquisa.pesquisa_original_id,
     )
+    try:
+        politica_alerta = await obter_politica_crm(session, organizacao.id)
+        await enviar_alerta_nova_pesquisa(dados.marca, dados.nome, dados.empresa, politica_alerta.email_alerta_leads)
+    except Exception:
+        try:
+            await session.rollback()
+        except Exception:
+            logger.warning("Falha ao liberar transação opcional da pesquisa")
+        logger.warning("Falha no alerta interno após criação da pesquisa")
+
+    # Só o ramo de pesquisa nova tenta enviar. O carimbo documenta aceitação
+    # SMTP, não é um lock nem garantia exactly-once. Duplicatas retornam acima,
+    # mesmo após falha; não reenvie automaticamente um timeout ambíguo.
+    try:
+        settings = get_settings()
+        if settings.email_enabled and settings.confirmacao_pesquisa_email_enabled:
+            token_link = definir_link_relatorio(pesquisa, ttl_horas=settings.relatorio_link_ttl_horas)
+            await session.commit()
+            link_relatorio = (
+                f"{settings.app_public_url.rstrip('/')}/relatorios/{resposta.id}"
+                f"#token={quote(token_link, safe='')}"
+            )
+            enviado = await enviar_confirmacao_pesquisa(
+                destinatario=dados.email_corporativo,
+                nome=dados.nome,
+                marca=dados.marca,
+                link_relatorio=link_relatorio,
+                organizacao_nome=organizacao_nome,
+            )
+            if enviado:
+                pesquisa.confirmacao_email_enviado_em = datetime.now(UTC)
+                await session.commit()
+    except Exception:
+        try:
+            await session.rollback()
+        except Exception:
+            logger.warning("Falha ao liberar transação opcional da pesquisa")
+        logger.warning("Falha na confirmação após criação da pesquisa")
+    return resposta
 
 
 _ROTULOS_DIRETRIZ_PUBLICOS = {

@@ -13,8 +13,12 @@ from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from urllib.parse import quote
 
+from email_validator import validate_email
+from fastapi import HTTPException
+
 from app.database import session_factory
 from app.models import EventoOperacional
+from app.ratelimit import RateLimiter
 from app.settings import Settings, get_settings
 
 logger = logging.getLogger("ze_registra.emailing")
@@ -28,6 +32,7 @@ logger = logging.getLogger("ze_registra.emailing")
 # falha transitória, não rejeição, e não é contado aqui.
 _ERROS_REJEICAO_SMTP = (smtplib.SMTPResponseException, smtplib.SMTPRecipientsRefused)
 _PROVEDORES_ESGOTADOS_ATE: dict[str, float] = {}
+_LIMITE_CONFIRMACAO = RateLimiter(3, 3600, escopo="confirmacao-pesquisa-destinatario", sensivel=True)
 
 
 @dataclass(frozen=True)
@@ -729,6 +734,136 @@ async def enviar_alerta_nova_pesquisa(
         # requisição do cliente; a central de notificações do painel já cobre o alerta.
         await _registrar_email_rejeitado("alerta_nova_pesquisa", exc)
         logger.exception("Falha ao enviar alerta de nova pesquisa por e-mail")
+
+
+def _mensagem_confirmacao_pesquisa(
+    destinatario: str,
+    nome: str,
+    marca: str,
+    link: str,
+    validade_horas: int,
+    settings: Settings,
+    organizacao_nome: str | None = None,
+) -> EmailMessage:
+    nome_seguro = html.escape(nome or "cliente")
+    marca_segura = html.escape(marca)
+    # Cabeçalhos não podem conter quebras de linha vindas do formulário.
+    marca_cabecalho = " ".join(marca.split())
+    dias = max(1, round(validade_horas / 24))
+    rotulo_validade = f"{dias} dia" + ("s" if dias != 1 else "")
+    mensagem = EmailMessage()
+    remetente = _definir_remetente(mensagem, settings, organizacao_nome) or NOME_PLATAFORMA
+    mensagem["Subject"] = f"Recebemos sua pesquisa da marca {marca_cabecalho} — {remetente}"
+    mensagem["To"] = destinatario
+    mensagem.set_content(
+        f"Olá, {nome or 'cliente'}.\n\n"
+        f"Confirmamos que a pesquisa de anterioridade da marca {marca} foi recebida "
+        "e está disponível para consulta.\n\n"
+        f"Consulte o resultado completo no link abaixo (válido por {rotulo_validade}):\n\n{link}\n\n"
+        "Importante: esta pesquisa é indicativa. Ela não substitui a busca oficial, "
+        "o exame de mérito do INPI nem uma análise jurídica especializada, e não "
+        "representa garantia de registro da marca.\n\n"
+        f"Atenciosamente,\n{remetente}"
+    )
+    mensagem.add_alternative(
+        f"""
+        <!doctype html>
+        <html lang="pt-BR"><body style="margin:0;background:#f5f3eb;padding:28px;">
+          <main style="max-width:600px;margin:auto;background:#fff;border:1px solid #d8ddd6;
+                       border-radius:20px;padding:36px;font-family:Arial,sans-serif;color:#10251d;">
+            <p style="margin:0;color:#08704d;font-weight:700;letter-spacing:.08em;">
+              {_cabecalho_marca(organizacao_nome, sufixo="PESQUISA DE MARCA")}
+            </p>
+            <h1 style="font-size:28px;margin:22px 0 12px;">Recebemos sua pesquisa</h1>
+            <p>Olá, {nome_seguro}.</p>
+            <p>Confirmamos que a pesquisa de anterioridade da marca
+               <b>{marca_segura}</b> foi recebida e está disponível para consulta.</p>
+            <p style="margin:28px 0;">
+              <a href="{html.escape(link, quote=True)}"
+                 style="display:inline-block;background:#086044;color:#fff;text-decoration:none;
+                        border-radius:10px;padding:14px 22px;font-weight:700;">
+                Ver resultado da pesquisa
+              </a>
+            </p>
+            <p style="color:#607068;font-size:13px;">
+              Este link é individual e válido por {rotulo_validade}.
+            </p>
+            <hr style="border:none;border-top:1px solid #d8ddd6;margin:24px 0;"/>
+            <p style="color:#607068;font-size:13px;">
+              Importante: esta pesquisa é indicativa. Ela não substitui a busca oficial,
+              o exame de mérito do INPI nem uma análise jurídica especializada, e não
+              representa garantia de registro da marca.
+            </p>
+          </main>
+        </body></html>
+        """,
+        subtype="html",
+    )
+    return mensagem
+
+
+async def _registrar_falha_confirmacao(codigo: str) -> None:
+    """Falhas transitórias/supressões sem endereço, marca ou token nos eventos."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    try:
+        async with session_factory() as session:
+            session.add(EventoOperacional(
+                componente="email", operacao="confirmacao_pesquisa", sucesso=False,
+                duracao_ms=0, status_http=0, codigo_erro=codigo,
+                detalhes={"motivo": codigo},
+            ))
+            await session.commit()
+    except Exception:
+        logger.warning("Falha ao registrar estado da confirmação de pesquisa")
+
+
+async def enviar_confirmacao_pesquisa(
+    *,
+    destinatario: str,
+    nome: str,
+    marca: str,
+    link_relatorio: str,
+    organizacao_nome: str | None = None,
+) -> bool:
+    """Confirma ao cliente, por e-mail, a pesquisa pública recebida e processada.
+
+    Devolve True quando o e-mail saiu. Silenciosa (False) se o envio estiver
+    desabilitado; falhas de SMTP são registradas e logadas sem derrubar a
+    requisição -- a pesquisa já está gravada e o relatório já apareceu na
+    tela, o e-mail é reforço, não pré-requisito.
+    """
+    settings = get_settings()
+    if not settings.email_enabled or not settings.confirmacao_pesquisa_email_enabled:
+        return False
+    try:
+        # Sintaxe e domínio normalizados, sem consulta DNS e sem afirmar posse
+        # da caixa. SMTPUTF8 não é exigido dos provedores configurados.
+        destinatario = validate_email(
+            destinatario, check_deliverability=False, allow_smtputf8=False,
+            test_environment=settings.app_env == "test",
+        ).normalized
+        # Limite por destinatário compartilhado entre IPs/organizações. A chave
+        # não guarda endereço em claro; Redis usa a proteção atômica existente.
+        try:
+            _LIMITE_CONFIRMACAO.aplicar(hashlib.sha256(destinatario.lower().encode()).hexdigest())
+        except HTTPException:
+            await _registrar_falha_confirmacao("limite_destinatario")
+            return False
+        mensagem = _mensagem_confirmacao_pesquisa(
+            destinatario, nome, marca, link_relatorio,
+            settings.relatorio_link_ttl_horas, settings, organizacao_nome,
+        )
+        await _enviar_smtp_contabilizado(mensagem, settings, "confirmacao_pesquisa")
+        return True
+    except Exception as exc:
+        await _registrar_email_rejeitado("confirmacao_pesquisa", exc)
+        if not isinstance(exc, _ERROS_REJEICAO_SMTP):
+            await _registrar_falha_confirmacao(type(exc).__name__)
+        # Não inclui a exceção: resposta SMTP pode conter PII; link nunca vai
+        # ao evento. Timeout é ambíguo, portanto não há retry automático.
+        logger.warning("Falha na confirmação de pesquisa (%s)", type(exc).__name__)
+        return False
 
 
 async def enviar_proposta_email(

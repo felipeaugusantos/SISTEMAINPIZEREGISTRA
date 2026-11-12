@@ -46,6 +46,14 @@ class PesquisaMarca(Base):
     relatorio_completo_gerado_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
+    # Link estável do relatório público, enviado no e-mail de confirmação da
+    # pesquisa. Diferente do token HMAC de 15 minutos (app.public_report_tokens),
+    # este é opaco, guardado só como hash (mesmo padrão de
+    # PropostaComercial.public_token_hash), tem expiração própria e pode ser
+    # revogado por um operador (basta limpar os campos).
+    relatorio_link_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
+    relatorio_link_expira_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    confirmacao_email_enviado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     relatorio_completo_gerado_por: Mapped[str | None] = mapped_column(String(150), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

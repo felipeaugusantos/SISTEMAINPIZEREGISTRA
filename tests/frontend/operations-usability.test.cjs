@@ -102,6 +102,7 @@ test('M03/M09: resumo real, abas por teclado, diálogo e foco de retorno', { tim
   await page.waitForFunction(() => document.querySelector('[data-last-contact-summary]').textContent.includes('concluído'));
   assert.match(await page.locator('.lead-operational-summary').innerText(), /Retorno atrasado/);
   assert.match(await page.locator('[data-last-contact-time]').innerText(), /15\/11\/2026/);
+  assert.equal(await page.locator('#lead-dialog-content').evaluate(el => el.firstElementChild.classList.contains('lead-operational-summary')), true);
   if (process.env.OPERATIONS_SCREENSHOTS) { fs.mkdirSync(process.env.OPERATIONS_SCREENSHOTS, { recursive: true }); await page.locator('#lead-dialog').screenshot({ path: path.join(process.env.OPERATIONS_SCREENSHOTS, 'resumo-dialogo.png') }); }
   const first = page.locator('#lead-dialog .lead-tab').first(); await first.focus(); await page.keyboard.press('ArrowRight');
   assert.equal(await page.locator('#lead-dialog .lead-tab[aria-selected=true]').getAttribute('data-tab'), 'atendimento');

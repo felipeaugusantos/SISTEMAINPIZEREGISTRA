@@ -604,6 +604,10 @@ async function openLead(id, selectedResearchId = null) {
     renderMateriaisMarca(lead);
     renderLogoCliente(lead);
   }
+  if (operationsMode) {
+    const summary = dialogContent.querySelector('.lead-operational-summary');
+    if (summary) dialogContent.prepend(summary);
+  }
   // Item 30 da auditoria completa do CRM (06/09/2026): score calculado sob
   // demanda (endpoint dedicado, não vem no payload do lead) -- busca à
   // parte, sem travar a abertura do modal se demorar ou falhar.

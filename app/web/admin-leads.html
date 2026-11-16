@@ -8,11 +8,12 @@
     <title>Painel de leads — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=71" />
     <link rel="stylesheet" href="/static/ze-brand.css?v=1" />
-    <link rel="stylesheet" href="/static/admin-leads.css?v=14" />
-    <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=14 -->
+    <link rel="stylesheet" href="/static/admin-leads.css?v=15" />
+    <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=15 -->
     <script src="/static/admin-shell.js?v=59" defer></script>
-    <script src="/static/lead-dialog.js?v=13" defer></script>
-    <script src="/static/admin-leads.js?v=81" defer></script>
+    <script src="/static/lead-dialog.js?v=14" defer></script>
+    <script src="/static/operations-views.js?v=1" defer></script>
+    <script src="/static/admin-leads.js?v=82" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
     <header class="topbar">
@@ -82,6 +83,18 @@
         </p>
       </section>
 
+      <section id="lead-saved-views" class="operations-views" aria-labelledby="lead-views-title">
+        <h2 id="lead-views-title">Visões salvas</h2>
+        <p>Preferências deste usuário e organização, neste navegador. Não inclua dados de clientes no nome. O texto da busca não é salvo.</p>
+        <div class="operations-view-controls">
+          <label>Visão <select data-views-list aria-label="Visão salva"></select></label>
+          <button type="button" class="secondary-button" data-view-action="apply">Aplicar visão</button>
+          <label>Nome da visão <input data-view-name maxlength="60" autocomplete="off"></label>
+          <button type="button" class="secondary-button" data-view-action="save">Salvar nova visão</button>
+          <button type="button" class="secondary-button" data-view-action="rename">Renomear</button>
+          <button type="button" class="secondary-button" data-view-action="delete">Excluir visão</button>
+        </div><p data-views-status role="status"></p>
+      </section>
       <form id="lead-filters" class="admin-filters">
         <label>
           <span>Buscar lead</span>
@@ -111,6 +124,7 @@
         <button id="clear-lead-filters" class="secondary-button" type="button">Limpar filtros</button>
       </form>
 
+      <div id="lead-active-filters" class="operations-active-filters" role="group" aria-label="Filtros ativos"></div>
       <div id="admin-message" class="status-message" role="status"></div>
       <section id="deletion-requests" class="overview-section deletion-requests-section" hidden>
         <header>
@@ -176,7 +190,7 @@
     </main>
 
     <section id="lead-workspace" aria-label="Detalhes do lead">
-    <dialog id="lead-dialog" class="lead-dialog">
+    <dialog id="lead-dialog" class="lead-dialog" aria-labelledby="lead-dialog-title">
       <div class="lead-dialog-frame">
         <header><div><p class="eyebrow">Oportunidade</p><h2 id="lead-dialog-title">Lead</h2></div><button class="dialog-close" type="button" aria-label="Fechar">×</button></header>
         <div id="lead-dialog-content" class="lead-dialog-content"></div>
@@ -215,11 +229,14 @@
       <form id="research-move-form">
         <h2>Mover pesquisa para outro cliente</h2>
         <p id="research-move-description"></p>
-        <label class="research-move-option"><input type="radio" name="destino" value="existente" checked> Cliente já cadastrado (informe o ID do lead)</label>
-        <label id="research-move-lead-id-field">ID do lead de destino
-          <input name="lead_id_destino" type="number" min="1">
-          <small>Está na URL da tela do contato: /admin/pesquisas?lead_id=<b>123</b></small>
-        </label>
+        <label class="research-move-option"><input type="radio" name="destino" value="existente" checked> Cliente já cadastrado (busque e selecione)</label>
+        <div id="research-move-lead-id-field">
+          <label>Buscar contato ou empresa <input id="research-move-search" type="search" minlength="2" maxlength="120" autocomplete="off" aria-describedby="research-move-search-status"></label>
+          <input name="lead_id_destino" type="hidden">
+          <p id="research-move-search-status" role="status">Digite ao menos 2 caracteres.</p>
+          <ul id="research-move-results" class="operations-move-results" aria-label="Leads encontrados"></ul>
+          <p id="research-move-selected" role="status"></p>
+        </div>
         <label class="research-move-option"><input type="radio" name="destino" value="novo"> Cliente novo (ainda não cadastrado)</label>
         <div id="research-move-novo-fields" hidden>
           <label>Nome <input name="novo_nome" maxlength="150"></label>

@@ -37,7 +37,7 @@ Sem novas dependências de produção ou de desenvolvimento. Os módulos JavaScr
 - Suíte Python completa: 2.360 aprovados, 60 ignorados, 19 falhas. Seis ocorreram na configuração de proxy do HTTPX e 13 pela indisponibilidade do PostgreSQL local. Reexecutar o arquivo do assistente sem as variáveis de proxy resultou em 20 aprovações. Nenhum desses módulos foi modificado nesta entrega.
 - Testes Node/VM: retorno, privacidade, respostas fora de ordem, cliques repetidos e tratamento de falhas. Não são evidência visual.
 - Workflow dedicado `operations-usability.yml`: Chromium real no GitHub, APIs simuladas, sem acesso a produção. Testa fluxos em 1440 e 390 px, retorno por breadcrumb/navegador, diálogo/aba, recarga, visões, movimentação, resumo, classes/payload e teclado/foco. Gera capturas da interface renderizada com dados fictícios.
-- A rodada do commit `3a04a3e15e46` aprovou os 40 testes então existentes. Novos testes de nomes acessíveis/contraste e capturas específicas foram adicionados para a revisão final. Consultar o status do commit final no PR.
+- A rodada do commit `53e8c676b74f` aprovou os 41 testes (28 de navegador e 13 de comportamento/privacidade). Evidência: https://github.com/felipeaugusantos/SISTEMAINPIZEREGISTRA/actions/runs/43894597942 . As capturas incluem visões salvas, resumo e Consulta em dados fictícios. O resumo também usa a data do histórico quando o campo agregado do lead está ausente. Resultados por commit estão disponíveis em Checks no PR.
 
 ## Limitações e condições para revisão
 

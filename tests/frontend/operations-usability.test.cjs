@@ -8,7 +8,7 @@ const web = path.resolve(__dirname, '../../app/web');
 const read = file => fs.readFileSync(path.join(web, file), 'utf8');
 const research = id => ({ id: `r${id}`, marca: `Marca ${id}`, criado_em: '2026-11-15T12:00:00Z', risco_nivel: 'baixo' });
 const lead = id => ({ id, nome: `Contato ${id}`, empresa: `Empresa ${id}`, status: 'novo', pesquisas: [research(id)], total_pesquisas: 1,
-  criado_em: '2026-11-15T12:00:00Z', responsavel_nome: 'Operador Teste', proxima_acao_em: '2026-01-01T12:00:00Z', ultimo_contato_em: '2026-11-15T12:00:00Z', tags: [] });
+  criado_em: '2026-11-15T12:00:00Z', responsavel_nome: 'Operador Teste', proxima_acao_em: '2026-01-01T12:00:00Z', ultimo_contato_em: null, tags: [] });
 async function fixture(page, { userId = 7, orgId = 1, denied = false } = {}) {
   page.setDefaultTimeout(7000);
   const errors = [], requests = [];
@@ -101,6 +101,7 @@ test('M03/M09: resumo real, abas por teclado, diálogo e foco de retorno', { tim
   assert.match(await page.locator('.lead-operational-summary').innerText(), /Operador Teste/);
   await page.waitForFunction(() => document.querySelector('[data-last-contact-summary]').textContent.includes('concluído'));
   assert.match(await page.locator('.lead-operational-summary').innerText(), /Retorno atrasado/);
+  assert.match(await page.locator('[data-last-contact-time]').innerText(), /15\/11\/2026/);
   if (process.env.OPERATIONS_SCREENSHOTS) { fs.mkdirSync(process.env.OPERATIONS_SCREENSHOTS, { recursive: true }); await page.locator('#lead-dialog').screenshot({ path: path.join(process.env.OPERATIONS_SCREENSHOTS, 'resumo-dialogo.png') }); }
   const first = page.locator('#lead-dialog .lead-tab').first(); await first.focus(); await page.keyboard.press('ArrowRight');
   assert.equal(await page.locator('#lead-dialog .lead-tab[aria-selected=true]').getAttribute('data-tab'), 'atendimento');

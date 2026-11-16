@@ -162,7 +162,7 @@ function operationalSummary(lead) {
   return `<section class="lead-operational-summary" aria-label="Resumo operacional">
     <h3>Resumo do atendimento</h3><dl>
       <div><dt>Responsável</dt><dd>${escapeHtml(lead.responsavel_nome || "Não atribuído")}</dd></div>
-      <div><dt>Último contato</dt><dd>${formatDate(lead.ultimo_contato_em)}<span data-last-contact-summary></span></dd></div>
+      <div><dt>Último contato</dt><dd><time data-last-contact-time>${formatDate(lead.ultimo_contato_em)}</time><span data-last-contact-summary></span></dd></div>
       <div><dt>Próxima ação</dt><dd>${scheduled ? `Retorno agendado: ${formatDate(lead.proxima_acao_em)}` : "Não informada"}</dd></div>
       <div><dt>Acompanhamento</dt><dd class="${overdue ? "operations-overdue" : ""}">${scheduled ? overdue ? "Retorno atrasado" : "Retorno agendado" : "Sem agendamento informado"}</dd></div>
     </dl><button type="button" class="secondary-button" data-summary-attendance>Ver atendimento e próxima ação</button></section>`;
@@ -197,7 +197,10 @@ async function loadLeadContacts(leadId, pesquisaId = "") {
   if (operationsMode && Number(state.openLeadId) !== Number(leadId)) return;
   if (operationsMode && !pesquisaId) {
     const summary = dialogContent.querySelector('[data-last-contact-summary]');
-    if (summary) summary.textContent = data.contatos[0]?.resultado ? ` · ${data.contatos[0].resultado}` : '';
+    const last = data.contatos[0];
+    if (summary) summary.textContent = last?.resultado ? ` · ${last.resultado}` : '';
+    const date = dialogContent.querySelector('[data-last-contact-time]');
+    if (date && last?.criado_em) date.textContent = formatDate(last.criado_em);
   }
   if (count) count.textContent = `${data.total} registro${data.total === 1 ? "" : "s"}`;
   list.innerHTML = data.contatos.length

@@ -6,7 +6,13 @@ window.createLeadDialog = (() => {
     if (instances.has(root)) return instances.get(root);
     const dialog = root.querySelector("#lead-dialog");
     const dialogContent = root.querySelector("#lead-dialog-content");
-    if (operationsMode) root.classList.add("operations-workspace");
+    if (operationsMode) {
+      root.classList.add("operations-workspace");
+      for (const modal of root.querySelectorAll('dialog')) {
+        const heading = modal.querySelector('h2');
+        if (heading) { heading.id ||= `${modal.id}-title`; modal.setAttribute('aria-labelledby', heading.id); }
+      }
+    }
     message ||= root.querySelector("#admin-message");
     let selectedResearch = null;
     let dialogOpener = null;
@@ -510,6 +516,7 @@ async function openLead(id, selectedResearchId = null) {
     <div class="lead-tab-panel" data-panel="propostas" hidden>
       <section class="lead-propostas" id="lead-propostas"><p class="lead-funil-loading">Carregando propostas…</p></section>
     </div>`;
+  if (operationsMode) dialogContent.querySelector('.lead-tabs')?.setAttribute('aria-label', 'Seções do atendimento');
   const tabs = [...dialogContent.querySelectorAll('.lead-tab')];
   const panels = [...dialogContent.querySelectorAll('.lead-tab-panel')];
   for (const [index, tab] of tabs.entries()) {

@@ -62,6 +62,14 @@ test('M01: criar, aplicar, renomear, excluir e isolar visões sem persistir busc
   await page.locator('#lead-search').fill('cliente@example.com'); await page.locator('#lead-status-filter').selectOption('novo');
   await page.locator('[data-view-name]').fill('Novos'); await page.locator('[data-view-action=save]').click();
   await page.waitForFunction(() => document.querySelector('[data-views-status]').textContent.includes('salva'));
+  if (process.env.OPERATIONS_SCREENSHOTS) {
+    fs.mkdirSync(process.env.OPERATIONS_SCREENSHOTS, { recursive: true });
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 }); await page.locator('#lead-saved-views').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(process.env.OPERATIONS_SCREENSHOTS, `visoes-${width}.png`) });
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }
   const stored = await page.evaluate(() => localStorage.getItem('zr_lead_views:v1:1:7'));
   assert.ok(stored.includes('novo')); assert.ok(!stored.includes('cliente@example.com'));
   await page.locator('#clear-lead-filters').click(); await page.locator('[data-view-action=apply]').click();
@@ -93,6 +101,7 @@ test('M03/M09: resumo real, abas por teclado, diálogo e foco de retorno', { tim
   assert.match(await page.locator('.lead-operational-summary').innerText(), /Operador Teste/);
   await page.waitForFunction(() => document.querySelector('[data-last-contact-summary]').textContent.includes('concluído'));
   assert.match(await page.locator('.lead-operational-summary').innerText(), /Retorno atrasado/);
+  if (process.env.OPERATIONS_SCREENSHOTS) { fs.mkdirSync(process.env.OPERATIONS_SCREENSHOTS, { recursive: true }); await page.locator('#lead-dialog').screenshot({ path: path.join(process.env.OPERATIONS_SCREENSHOTS, 'resumo-dialogo.png') }); }
   const first = page.locator('#lead-dialog .lead-tab').first(); await first.focus(); await page.keyboard.press('ArrowRight');
   assert.equal(await page.locator('#lead-dialog .lead-tab[aria-selected=true]').getAttribute('data-tab'), 'atendimento');
   await page.keyboard.press('Escape'); assert.equal(await opener.evaluate(el => el === document.activeElement), true); assert.deepEqual(f.errors, []);
@@ -156,4 +165,20 @@ test('M09 Análise: checklist abre etapa e ajuda devolve foco ao fechar', { time
   await page.locator('#analysis-progress a[href="#step-report"]').click(); assert.equal(await page.locator('#step-report').evaluate(el => el.open), true);
   await page.locator('#analysis-help-open').click(); await page.keyboard.press('Escape');
   assert.equal(await page.locator('#analysis-help-open').evaluate(el => el === document.activeElement), true); assert.deepEqual(f.errors, []);
+}));
+
+test('M09: diálogos nomeados e controles novos possuem rótulos e contraste legível', { timeout: 30000 }, async () => browserTest(async browser => {
+  const page = await browser.newPage(); await fixture(page); await page.goto('http://operations.test/admin/pesquisas');
+  await page.locator('.view-lead').first().click(); await page.locator('.lead-operational-summary').waitFor();
+  const names = await page.locator('#lead-workspace dialog').evaluateAll(items => items.every(el => {
+    const id = el.getAttribute('aria-labelledby'); return id && document.getElementById(id)?.textContent.trim();
+  })); assert.equal(names, true);
+  const ratio = await page.locator('.lead-operational-summary').evaluate(el => {
+    const rgb = value => value.match(/[\d.]+/g).slice(0, 3).map(Number);
+    const luminance = values => values.map(v => { v /= 255; return v <= .04045 ? v/12.92 : ((v+.055)/1.055)**2.4; }).reduce((sum, v, i) => sum+v*[.2126,.7152,.0722][i], 0);
+    const style = getComputedStyle(el), a = luminance(rgb(style.color)), b = luminance(rgb(style.backgroundColor));
+    return (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+  }); assert.ok(ratio >= 4.5, `contraste do resumo: ${ratio}`);
+  await page.keyboard.press('Escape');
+  const labeled = await page.locator('#lead-saved-views input, #lead-saved-views select').evaluateAll(items => items.every(el => el.labels.length > 0)); assert.equal(labeled, true);
 }));

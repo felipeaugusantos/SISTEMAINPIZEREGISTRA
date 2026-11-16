@@ -10,6 +10,7 @@ const research = id => ({ id: `r${id}`, marca: `Marca ${id}`, criado_em: '2026-1
 const lead = id => ({ id, nome: `Contato ${id}`, empresa: `Empresa ${id}`, status: 'novo', pesquisas: [research(id)], total_pesquisas: 1,
   criado_em: '2026-11-15T12:00:00Z', responsavel_nome: 'Operador Teste', proxima_acao_em: '2026-01-01T12:00:00Z', ultimo_contato_em: '2026-11-15T12:00:00Z', tags: [] });
 async function fixture(page, { userId = 7, orgId = 1, denied = false } = {}) {
+  page.setDefaultTimeout(7000);
   const errors = [], requests = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', async route => {
@@ -25,7 +26,7 @@ async function fixture(page, { userId = 7, orgId = 1, denied = false } = {}) {
     if (p === '/v1/admin/leads') {
       const size = Number(u.searchParams.get('limite')) || 50, offset = Number(u.searchParams.get('deslocamento')) || 0;
       data = { itens: Array.from({ length: Math.min(size, 80-offset) }, (_, i) => lead(i+offset+1)), total: 80, total_global: 80,
-        pesquisas_total: 80, por_status: {}, acoes: { gerenciar: true, arquivar: true }, tem_mais: offset+size < 80 };
+        pesquisas_total: 80, deslocamento: offset, por_status: {}, acoes: { gerenciar: true, arquivar: true }, tem_mais: offset+size < 80 };
     }
     if (/\/v1\/admin\/leads\/\d+$/.test(p)) data = lead(Number(p.split('/').pop()));
     if (p.endsWith('/contatos')) data = { contatos: [{ resultado: 'Contato de teste concluído', canal: 'telefone', criado_em: '2026-11-15T12:00:00Z' }], total: 1 };

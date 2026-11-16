@@ -423,13 +423,13 @@ async function loadLeads() {
     renderRows();
     loadDeletionRequests();
     updatePagination(data);
+    showMessage(data.total ? "" : state.viewMode === "archived" ? "Nenhum cliente arquivado." : "Nenhum contato encontrado.");
     await applyListPosition();
     history.replaceState({ ...history.state, zeLeads: {
       path: location.pathname, offset: state.offset, size: pageSize.value, view: state.viewMode,
       priority: state.priority, scroll: window.scrollY,
       fields: [...filters.querySelectorAll('input, select')].map(el => [el.id, el.value]),
     } }, '');
-    showMessage(data.total ? "" : state.viewMode === "archived" ? "Nenhum cliente arquivado." : "Nenhum contato encontrado.");
   } catch (error) {
     if (requestId === state.requestId) showMessage(error.message, "error");
   } finally { if (requestId === state.requestId) state.loading = false; }
@@ -692,7 +692,8 @@ loadOwners().catch(() => showMessage("Não foi possível carregar os responsáve
       reload: () => { state.offset = 0; loadLeads(); }, clearPriority: () => { state.priority = ''; },
     });
   }
-  await Promise.all([loadLeads(), loadCrmSummary()]);
+  await loadCrmSummary();
+  await loadLeads();
   const leadId = new URLSearchParams(location.search).get("lead_id");
   if (/^\d+$/.test(leadId || "")) await openLead(Number(leadId));
 });

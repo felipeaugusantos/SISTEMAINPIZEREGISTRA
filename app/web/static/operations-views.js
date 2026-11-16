@@ -58,7 +58,7 @@ window.ZeLeadViews = (() => {
         if (persist(views.map(v => v.id === chosen.id ? { ...v, name: label } : v), chosen.id)) notify('Visão renomeada.'); return;
       }
       if (views.length >= 20) return notify('Limite de 20 visões. Exclua uma antes de criar outra.');
-      const id = crypto.randomUUID();
+      const id = [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2, "0")).join("");
       if (persist([...views, { id, name: label, value: sanitize(capture()) }], id)) notify('Visão salva sem o texto livre da busca.');
     });
     list.addEventListener('change', () => { name.value = views.find(v => v.id === list.value)?.name || ''; });

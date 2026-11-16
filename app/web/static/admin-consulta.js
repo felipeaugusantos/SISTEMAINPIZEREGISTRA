@@ -7,6 +7,9 @@ const deleteForm = document.querySelector("#delete-research-form");
 let podeExcluirPesquisa = false;
 let exclusaoPendente = false;
 let classesNice = [];
+let reportRequest = 0;
+// Restore the authenticated deep link when navigating through pushState entries.
+window.addEventListener("popstate", () => location.reload());
 
 function setStatus(texto, tipo) {
   statusEl.hidden = false;
@@ -46,6 +49,7 @@ function preencherClasses(select) {
     option.textContent = `${codigo} — ${titulo}`;
     select.append(option);
   }
+  window.ZeNiceSelector?.enhance(select);
 }
 
 function atualizarMarcas() {
@@ -86,7 +90,7 @@ document.querySelector("#adicionar-marca").addEventListener("click", adicionarMa
 api("/v1/admin/consulta/classes-nice").then(classes => {
   classesNice = classes;
   document.querySelectorAll('[data-field="classes_nice"]').forEach(preencherClasses);
-}).catch(() => {});
+}).catch(() => setStatus("Não foi possível carregar as classes Nice. Atualize a página para selecionar classes específicas.", "error"));
 atualizarMarcas();
 
 function card(valor, rotulo) {
@@ -179,9 +183,10 @@ async function renderExplicacaoIA(pesquisaId) {
   let explicacao;
   try {
     const r = await fetch(`/v1/admin/consulta/${encodeURIComponent(pesquisaId)}/explicacao-ia`);
-    if (!r.ok) { box.hidden = true; return; }
+    if (!r.ok) { if (pesquisaId === pesquisaAtual) box.hidden = true; return; }
     explicacao = await r.json();
-  } catch { box.hidden = true; return; }
+  } catch { if (pesquisaId === pesquisaAtual) box.hidden = true; return; }
+  if (pesquisaId !== pesquisaAtual) return;
   if (explicacao.erro || explicacao.status !== "pendente") { box.hidden = true; return; }
   box.hidden = false;
   box.innerHTML = `<p class="eyebrow">Explicação da IA · tradução do risco já calculado, revisão necessária</p>
@@ -194,13 +199,14 @@ async function renderExplicacaoIA(pesquisaId) {
   box.querySelectorAll("[data-revisar-explicacao]").forEach(botao => botao.addEventListener("click", async () => {
     box.querySelectorAll("button").forEach(b => { b.disabled = true; });
     try {
-      await fetch(`/v1/admin/consulta/${encodeURIComponent(pesquisaId)}/explicacao-ia/${explicacao.id}/revisar`, {
+      await api(`/v1/admin/consulta/${encodeURIComponent(pesquisaId)}/explicacao-ia/${explicacao.id}/revisar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: botao.dataset.revisarExplicacao }),
       });
       box.hidden = true;
-    } catch {
+    } catch (error) {
+      setStatus(error.message, "error");
       box.querySelectorAll("button").forEach(b => { b.disabled = false; });
     }
   }));
@@ -209,13 +215,18 @@ async function renderExplicacaoIA(pesquisaId) {
 function escapeHtmlConsulta(v) { const s = document.createElement("span"); s.textContent = v ?? ""; return s.innerHTML; }
 
 async function carregarRelatorio(id) {
+  const request = ++reportRequest;
+  resultado.hidden = true;
+  document.querySelector("#res-explicacao-ia").hidden = true;
   setStatus("Gerando relatório…", "loading");
   try {
     const data = await api(`/v1/admin/consulta/${encodeURIComponent(id)}/relatorio`);
+    if (request !== reportRequest) return;
     renderRelatorio(data);
     renderExplicacaoIA(id);
     setStatus("Consulta concluída.", "success");
   } catch (error) {
+    if (request !== reportRequest) return;
     setStatus(error.message, "error");
   }
 }
@@ -338,6 +349,9 @@ checkboxSemEmail?.addEventListener("change", () => {
 
 form.addEventListener("submit", async event => {
   event.preventDefault();
+  const button = form.querySelector("button[type=submit]");
+  if (button.disabled) return;
+  button.disabled = true;
   const formData = new FormData(form);
   const semEmail = formData.get("cliente_sem_email") === "on";
   const dados = {
@@ -366,6 +380,8 @@ form.addEventListener("submit", async event => {
     await abrirContatos(resultado.lead_id);
   } catch (error) {
     setStatus(error.message, "error");
+  } finally {
+    button.disabled = false;
   }
 });
 

@@ -1,12 +1,22 @@
 // Shared lead workspace. Loading this script does not bind page elements.
 window.createLeadDialog = (() => {
   const instances = new WeakMap();
-  return function createLeadDialog(root, { message, onChange = async () => {}, onSummary = async () => {}, onClose = () => {} } = {}) {
+  return function createLeadDialog(root, { message, onChange = async () => {}, onSummary = async () => {}, onClose = () => {}, operationsMode = false } = {}) {
     if (!root) throw new Error("Lead dialog root is required");
     if (instances.has(root)) return instances.get(root);
     const dialog = root.querySelector("#lead-dialog");
     const dialogContent = root.querySelector("#lead-dialog-content");
+    if (operationsMode) {
+      root.classList.add("operations-workspace");
+      for (const modal of root.querySelectorAll('dialog')) {
+        const heading = modal.querySelector('h2');
+        if (heading) { heading.id ||= `${modal.id}-title`; modal.setAttribute('aria-labelledby', heading.id); }
+      }
+    }
     message ||= root.querySelector("#admin-message");
+    let selectedResearch = null;
+    let dialogOpener = null;
+    let leadRequest = 0;
     const state = { owners: [], canManage: false, canDeleteResearch: false, canPii: false, openLeadId: null, emailStatus: null };
     async function loadContext() {
       const usuario = await responsePayload(await fetch("/v1/auth/me"));
@@ -146,6 +156,18 @@ function moveAction(item) {
   return `<button class="secondary-button move-research" type="button" data-research-id="${escapeHtml(item.id)}" data-research-marca="${escapeHtml(item.marca)}">Não é este cliente — mover</button>`;
 }
 
+function operationalSummary(lead) {
+  const scheduled = lead.proxima_acao_em && Number.isFinite(Date.parse(lead.proxima_acao_em));
+  const overdue = scheduled && Date.parse(lead.proxima_acao_em) < Date.now();
+  return `<section class="lead-operational-summary" aria-label="Resumo operacional">
+    <h3>Resumo do atendimento</h3><dl>
+      <div><dt>Responsável</dt><dd>${escapeHtml(lead.responsavel_nome || "Não atribuído")}</dd></div>
+      <div><dt>Último contato</dt><dd><time data-last-contact-time>${formatDate(lead.ultimo_contato_em)}</time><span data-last-contact-summary></span></dd></div>
+      <div><dt>Próxima ação</dt><dd>${scheduled ? `Retorno agendado: ${formatDate(lead.proxima_acao_em)}` : "Não informada"}</dd></div>
+      <div><dt>Acompanhamento</dt><dd class="${overdue ? "operations-overdue" : ""}">${scheduled ? overdue ? "Retorno atrasado" : "Retorno agendado" : "Sem agendamento informado"}</dd></div>
+    </dl><button type="button" class="secondary-button" data-summary-attendance>Ver atendimento e próxima ação</button></section>`;
+}
+
 function contactChannelLabel(value) {
   return ({ telefone: "Telefone", whatsapp: "WhatsApp", email: "E-mail", reuniao: "Reuniao", outro: "Outro" })[value] || value;
 }
@@ -172,6 +194,14 @@ async function loadLeadContacts(leadId, pesquisaId = "") {
     return;
   }
   const data = await response.json();
+  if (operationsMode && Number(state.openLeadId) !== Number(leadId)) return;
+  if (operationsMode && !pesquisaId) {
+    const summary = dialogContent.querySelector('[data-last-contact-summary]');
+    const last = data.contatos[0];
+    if (summary) summary.textContent = last?.resultado ? ` · ${last.resultado}` : '';
+    const date = dialogContent.querySelector('[data-last-contact-time]');
+    if (date && last?.criado_em) date.textContent = formatDate(last.criado_em);
+  }
   if (count) count.textContent = `${data.total} registro${data.total === 1 ? "" : "s"}`;
   list.innerHTML = data.contatos.length
     ? data.contatos.map(contactHistoryItem).join("")
@@ -382,13 +412,18 @@ async function abrirRegistroAtendimento(leadId, pesquisaId) {
 }
 
 async function openLead(id, selectedResearchId = null) {
+  const request = ++leadRequest;
   await loadContext();
+  if (request !== leadRequest) return;
+  if (!dialog.open) dialogOpener = document.activeElement;
+  selectedResearch = selectedResearchId;
   state.openLeadId = id;
   dialogContent.innerHTML = "<p>Carregando histórico…</p>";
   if (!dialog.open) dialog.showModal();
   const response = await fetch(`/v1/admin/leads/${id}`);
   if (!response.ok) { dialogContent.innerHTML = "<p class=\"status-message error\">Não foi possível abrir o contato.</p>"; return; }
   const lead = await response.json();
+  if (request !== leadRequest) return;
   const pesquisasExibidas = selectedResearchId
     ? lead.pesquisas.filter(item => String(item.id) === String(selectedResearchId))
     : lead.pesquisas;
@@ -428,6 +463,7 @@ async function openLead(id, selectedResearchId = null) {
   dialogContent.innerHTML = `
     ${lead.processo_vinculado_pendente ? processoNaoVinculadoAviso(lead) : ""}
     ${emailQuota}
+    ${operationsMode ? operationalSummary(lead) : ""}
     <section class="lead-contact-summary"><div data-icon="email"><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>${state.canManage && lead.email ? ` <button type="button" class="secondary-button lead-send-email" data-lead-id="${lead.id}" ${emailBlocked ? "disabled" : ""}>${emailBlocked ? "Limite atingido" : "Enviar e-mail"}</button>` : ""}</div><div data-icon="telefone"><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a>${phoneDigits(lead.telefone) ? ` <a class="secondary-button" href="https://wa.me/${phoneDigits(lead.telefone)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div><div id="lead-site-row" hidden><span>Site</span><a id="lead-site-link" href="#" target="_blank" rel="noopener"></a></div><div data-icon="documento"><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div data-icon="empresa"><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong>${lead.empresa ? ` <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(lead.empresa)}" target="_blank" rel="noopener">Buscar no Google</a> <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(`site:instagram.com ${lead.empresa}`)}" target="_blank" rel="noopener">Buscar no Instagram</a>` : ""}</div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div><div><span>Prioridade (IA)</span><strong id="lead-qualificacao-badge">—</strong></div></section>
     <nav class="lead-tabs" role="tablist">${ABAS_LEAD.map(([id, label], i) => `<button type="button" class="lead-tab${i === 0 ? " active" : ""}" role="tab" aria-selected="${i === 0}" data-tab="${id}">${label}</button>`).join("")}</nav>
     <div class="lead-tab-panel" data-panel="atendimento" hidden>
@@ -483,10 +519,37 @@ async function openLead(id, selectedResearchId = null) {
     <div class="lead-tab-panel" data-panel="propostas" hidden>
       <section class="lead-propostas" id="lead-propostas"><p class="lead-funil-loading">Carregando propostas…</p></section>
     </div>`;
-  dialogContent.querySelectorAll(".lead-tab").forEach(botao => botao.addEventListener("click", () => {
-    dialogContent.querySelectorAll(".lead-tab").forEach(b => { const ativa = b === botao; b.classList.toggle("active", ativa); b.setAttribute("aria-selected", String(ativa)); });
-    dialogContent.querySelectorAll(".lead-tab-panel").forEach(p => { p.hidden = p.dataset.panel !== botao.dataset.tab; });
-  }));
+  if (operationsMode) dialogContent.querySelector('.lead-tabs')?.setAttribute('aria-label', 'Seções do atendimento');
+  const tabs = [...dialogContent.querySelectorAll('.lead-tab')];
+  const panels = [...dialogContent.querySelectorAll('.lead-tab-panel')];
+  for (const [index, tab] of tabs.entries()) {
+    if (operationsMode) {
+      tab.id = `lead-${lead.id}-tab-${tab.dataset.tab}`;
+      tab.setAttribute('aria-controls', `lead-${lead.id}-panel-${tab.dataset.tab}`);
+      tab.tabIndex = index === 0 ? 0 : -1;
+      const panel = panels.find(el => el.dataset.panel === tab.dataset.tab);
+      if (panel) { panel.id = `lead-${lead.id}-panel-${tab.dataset.tab}`; panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', tab.id); }
+      tab.addEventListener('keydown', event => {
+        let next;
+        if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+        if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+        if (event.key === 'Home') next = 0;
+        if (event.key === 'End') next = tabs.length - 1;
+        if (next === undefined) return;
+        event.preventDefault(); tabs[next].click(); tabs[next].focus({ preventScroll: true });
+      });
+    }
+    tab.addEventListener('click', () => {
+      for (const other of tabs) {
+        const active = other === tab; other.classList.toggle('active', active); other.setAttribute('aria-selected', String(active));
+        if (operationsMode) other.tabIndex = active ? 0 : -1;
+      }
+      for (const panel of panels) panel.hidden = panel.dataset.panel !== tab.dataset.tab;
+    });
+  }
+  dialogContent.querySelector('[data-summary-attendance]')?.addEventListener('click', () => {
+    const tab = tabs.find(el => el.dataset.tab === 'atendimento'); tab?.click(); tab?.focus({ preventScroll: true });
+  });
   const sendEmailButton = dialogContent.querySelector(".lead-send-email");
   if (sendEmailButton) sendEmailButton.addEventListener("click", async () => {
     if (!confirm(`Enviar o e-mail comercial padrão para ${lead.email}?`)) return;
@@ -540,6 +603,10 @@ async function openLead(id, selectedResearchId = null) {
     renderPortalArquivos(lead);
     renderMateriaisMarca(lead);
     renderLogoCliente(lead);
+  }
+  if (operationsMode) {
+    const summary = dialogContent.querySelector('.lead-operational-summary');
+    if (summary) dialogContent.prepend(summary);
   }
   // Item 30 da auditoria completa do CRM (06/09/2026): score calculado sob
   // demanda (endpoint dedicado, não vem no payload do lead) -- busca à
@@ -1343,19 +1410,62 @@ researchDeleteForm.addEventListener("submit", async event => {
   }
 });
 
+const moveSearch = operationsMode && root.querySelector('#research-move-search');
+let moveSearchVersion = 0, moveSearchTimer, moveSelection = null, moveOpener = null;
+function clearMoveSelection() {
+  moveSelection = null; researchMoveForm.elements.lead_id_destino.value = '';
+  root.querySelector('#research-move-selected')?.replaceChildren();
+}
+if (moveSearch) {
+  moveSearch.addEventListener('input', () => {
+    clearTimeout(moveSearchTimer); const version = ++moveSearchVersion; clearMoveSelection();
+    const results = root.querySelector('#research-move-results'); results.replaceChildren();
+    const status = root.querySelector('#research-move-search-status'); const term = moveSearch.value.trim();
+    if (term.length < 2) { status.textContent = 'Digite ao menos 2 caracteres.'; return; }
+    status.textContent = 'Buscando leads…';
+    moveSearchTimer = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ busca: term, limite: '20', ordenacao: 'nome' });
+        const data = await responsePayload(await fetch(`/v1/admin/leads?${params}`));
+        if (version !== moveSearchVersion || !researchMoveDialog.open) return;
+        status.textContent = data.itens.length ? `${data.itens.length} resultado(s). Selecione o destino.${data.total > 20 ? ' Refine a busca para localizar outros leads.' : ''}` : 'Nenhum lead encontrado.';
+        for (const lead of data.itens) {
+          const li = document.createElement('li'), button = document.createElement('button');
+          button.type = 'button'; button.className = 'secondary-button';
+          button.textContent = `${lead.nome} · ${lead.empresa || 'Sem empresa'} · Lead ${lead.id}`;
+          button.addEventListener('click', () => {
+            moveSelection = { id: lead.id, name: lead.nome }; researchMoveForm.elements.lead_id_destino.value = lead.id;
+            root.querySelector('#research-move-selected').textContent = `Destino selecionado: ${button.textContent}`;
+            results.replaceChildren(); moveSearch.focus({ preventScroll: true });
+          }); li.append(button); results.append(li);
+        }
+      } catch (error) { if (version === moveSearchVersion) status.textContent = error.message || 'Falha ao buscar. Digite novamente para tentar.'; }
+    }, 300);
+  });
+  moveSearch.addEventListener('keydown', event => { if (event.key === 'Enter') event.preventDefault(); });
+  researchMoveDialog.addEventListener('close', () => {
+    ++moveSearchVersion; clearTimeout(moveSearchTimer);
+    if (moveOpener?.isConnected) moveOpener.focus({ preventScroll: true });
+  });
+}
+
 function openResearchMove(researchId, marcaAtual) {
   state.moveResearchId = researchId;
+  moveOpener = document.activeElement;
+  if (moveSearch) { ++moveSearchVersion; clearMoveSelection(); root.querySelector("#research-move-results").replaceChildren(); root.querySelector("#research-move-search-status").textContent = "Digite ao menos 2 caracteres."; }
   researchMoveForm.reset();
   root.querySelector("#research-move-description").textContent = `Pesquisa de "${marcaAtual}" — escolha para qual cliente ela pertence de verdade.`;
   root.querySelector("#research-move-lead-id-field").hidden = false;
   root.querySelector("#research-move-novo-fields").hidden = true;
   root.querySelector("#research-move-message").hidden = true;
   researchMoveDialog.showModal();
+  moveSearch?.focus({ preventScroll: true });
 }
 
 researchMoveForm.querySelectorAll('input[name="destino"]').forEach(radio => {
   radio.addEventListener("change", () => {
     const novo = researchMoveForm.destino.value === "novo";
+    if (moveSearch) { ++moveSearchVersion; clearMoveSelection(); root.querySelector("#research-move-results").replaceChildren(); }
     root.querySelector("#research-move-lead-id-field").hidden = novo;
     root.querySelector("#research-move-novo-fields").hidden = !novo;
   });
@@ -1367,7 +1477,14 @@ root.querySelector("#cancel-research-move").addEventListener("click", () => {
 
 researchMoveForm.addEventListener("submit", async event => {
   event.preventDefault();
+  const button = researchMoveForm.querySelector('button[type="submit"]');
+  if (button.disabled) return;
   const data = Object.fromEntries(new FormData(researchMoveForm));
+  if (moveSearch && data.destino !== 'novo' && !moveSelection) {
+    const status = root.querySelector('#research-move-search-status'); status.textContent = 'Busque e selecione um lead de destino antes de mover.'; moveSearch.focus(); return;
+  }
+  if (moveSearch && !confirm(data.destino === 'novo' ? `Mover a pesquisa para o novo cliente ${data.novo_nome || ''}?` : `Mover a pesquisa para ${moveSelection.name} (Lead ${moveSelection.id})?`)) return;
+  button.disabled = true;
   const statusBox = root.querySelector("#research-move-message");
   statusBox.hidden = false;
   statusBox.className = "status-message loading";
@@ -1388,7 +1505,7 @@ researchMoveForm.addEventListener("submit", async event => {
   } catch (error) {
     statusBox.className = "status-message error";
     statusBox.textContent = error.message;
-  }
+  } finally { button.disabled = false; }
 });
 
 
@@ -1752,7 +1869,30 @@ async function visualizarProposta(id) {
 }
     dialog.querySelector(".dialog-close").addEventListener("click", () => dialog.close());
     dialog.addEventListener("close", onClose);
-    const api = { riskLabels, escapeHtml, formatDate, phoneDigits, statusOptions, showMessage, responsePayload, originLabel, fullReportStatus, aggregateReportStatus, duplicateStatus, deletionAction, abrirRegistroAtendimento, openLead, faseMini, openResearchDelete, criarProposta, setContext(context) {
+    dialog.addEventListener("close", () => {
+      if (operationsMode) {
+        const fallback = [...root.querySelectorAll('tr[data-lead-id]')].find(el => Number(el.dataset.leadId) === Number(state.openLeadId))?.querySelector('.view-lead');
+        (dialogOpener?.isConnected ? dialogOpener : fallback)?.focus({ preventScroll: true });
+      }
+    });
+    const api = { riskLabels, escapeHtml, formatDate, phoneDigits, statusOptions, showMessage, responsePayload, originLabel, fullReportStatus, aggregateReportStatus, duplicateStatus, deletionAction, abrirRegistroAtendimento, openLead, faseMini, openResearchDelete, criarProposta,
+    navigationContext() {
+      if (!dialog.open) return null;
+      return { lead: state.openLeadId, research: selectedResearch,
+        tab: dialogContent.querySelector('.lead-tab.active')?.dataset.tab,
+        scroll: dialogContent.scrollTop };
+    },
+    async restoreNavigationContext(saved) {
+      if (!Number.isInteger(Number(saved.lead)) || Number(saved.lead) <= 0) return;
+      await openLead(Number(saved.lead), saved.research || null);
+      const tab = [...dialogContent.querySelectorAll('.lead-tab')].find(el => el.dataset.tab === saved.tab);
+      tab?.click();
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      dialogContent.scrollTop = Math.max(0, Number(saved.scroll) || 0);
+      const link = [...dialogContent.querySelectorAll('a[href*="/admin/analises/"]')].find(el =>
+        new URL(el.href).pathname.endsWith(`/${encodeURIComponent(saved.research || "")}`));
+      (link || tab || dialog.querySelector('.dialog-close'))?.focus({ preventScroll: true });
+    }, setContext(context) {
       for (const key of ["owners", "canManage", "canDeleteResearch", "canPii"]) {
         if (Object.hasOwn(context, key)) state[key] = context[key];
       }

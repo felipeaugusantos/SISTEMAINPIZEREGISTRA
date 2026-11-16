@@ -49,6 +49,7 @@ function preencherClasses(select) {
     option.textContent = `${codigo} — ${titulo}`;
     select.append(option);
   }
+  window.ZeNiceSelector?.enhance(select);
 }
 
 function atualizarMarcas() {
@@ -89,7 +90,7 @@ document.querySelector("#adicionar-marca").addEventListener("click", adicionarMa
 api("/v1/admin/consulta/classes-nice").then(classes => {
   classesNice = classes;
   document.querySelectorAll('[data-field="classes_nice"]').forEach(preencherClasses);
-}).catch(() => {});
+}).catch(() => setStatus("Não foi possível carregar as classes Nice. Atualize a página para selecionar classes específicas.", "error"));
 atualizarMarcas();
 
 function card(valor, rotulo) {

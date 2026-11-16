@@ -3,6 +3,7 @@ const leadDialog = window.createLeadDialog(document.querySelector("#lead-workspa
   message: document.querySelector("#admin-message"),
   onChange: loadLeads,
   onSummary: loadCrmSummary,
+  operationsMode: true,
 });
 const { riskLabels, escapeHtml, formatDate, phoneDigits, statusOptions, showMessage, responsePayload, originLabel, fullReportStatus, aggregateReportStatus, duplicateStatus, deletionAction, abrirRegistroAtendimento, openLead, faseMini, openResearchDelete, criarProposta } = leadDialog;
 const filters = document.querySelector("#lead-filters");
@@ -60,6 +61,9 @@ function currentParams(includePagination = true) {
   return params;
 }
 
+// Only this list controls restoration, after rows and pagination are mounted.
+// Native history restoration could run after ours and jump to a stale height.
+if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 // History belongs to this list entry. An opaque token also supports the
 // explicit breadcrumb and analysis links opened in another tab.
 function saveListPosition(event) {
@@ -74,6 +78,7 @@ function saveListPosition(event) {
     lead: row?.dataset.leadId || (contact ? String(contact.id) : null),
     research: state.viewMode === "researches" ? researchId : null,
     expanded: [...leadsList.querySelectorAll('.lead-researches-row:not([hidden])')].map(row => row.dataset.leadId),
+    dialog: leadDialog.navigationContext?.(),
     fields: [...filters.querySelectorAll("input, select")].map(el => [el.id, el.value]),
   };
   history.replaceState({ ...history.state, zeLeads: snapshot }, "");
@@ -87,6 +92,15 @@ function saveListPosition(event) {
 }
 document.addEventListener("click", saveListPosition, true);
 document.addEventListener("auxclick", saveListPosition, true);
+let scrollFramePending = false;
+window.addEventListener('scroll', () => {
+  if (scrollFramePending) return;
+  scrollFramePending = true;
+  requestAnimationFrame(() => {
+    scrollFramePending = false;
+    if (history.state?.zeLeads) history.replaceState({ ...history.state, zeLeads: { ...history.state.zeLeads, scroll: window.scrollY } }, '');
+  });
+}, { passive: true });
 let restoredPosition = null;
 function restoreListPosition() {
   let snapshot = history.state?.zeLeads;
@@ -95,6 +109,9 @@ function restoreListPosition() {
     if (token) snapshot = JSON.parse(sessionStorage.getItem(`ze-list:${token}`)) || snapshot;
   } catch (_) { /* Ignore unavailable or invalid storage. */ }
   if (!snapshot || snapshot.path !== location.pathname) return;
+  const cleanUrl = new URL(location.href);
+  cleanUrl.searchParams.delete('retomar');
+  history.replaceState({ ...history.state, zeLeads: snapshot }, '', cleanUrl);
   restoredPosition = snapshot;
   for (const [id, value] of snapshot.fields || []) {
     const field = document.getElementById(id);
@@ -106,7 +123,7 @@ function restoreListPosition() {
   document.querySelector(`[data-view="${snapshot.view === "archived" ? "archived" : "researches"}"]`)?.click();
   state.offset = Math.max(0, Number(snapshot.offset) || 0);
 }
-function applyListPosition() {
+async function applyListPosition() {
   if (!restoredPosition) return;
   const saved = restoredPosition;
   restoredPosition = null;
@@ -119,12 +136,19 @@ function applyListPosition() {
   }
   const selected = [...leadsList.querySelectorAll("tr[data-lead-id]")].find(row =>
     row.dataset.leadId === saved.lead && (!saved.research || row.dataset.researchId === saved.research));
-  if (selected) {
+  const clearHighlight = () => selected?.classList.remove("lead-returned");
+  document.addEventListener("pointerdown", clearHighlight, { once: true });
+  document.addEventListener("keydown", clearHighlight, { once: true });
+  if (selected && !saved.dialog) {
     selected.classList.add("lead-returned");
+    setTimeout(clearHighlight, 5000);
     selected.tabIndex = -1;
     selected.focus({ preventScroll: true });
   }
-  requestAnimationFrame(() => window.scrollTo(0, saved.scroll || 0));
+  await document.fonts?.ready;
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  window.scrollTo({ top: Math.max(0, Number(saved.scroll) || 0), behavior: "instant" });
+  if (saved.dialog) await leadDialog.restoreNavigationContext(saved.dialog);
 }
 
 function quickResearchHistory(lead) {
@@ -352,7 +376,9 @@ function renderExclusoes(selecionadas = new Set()) {
   atualizarSelecaoExclusoes();
 }
 
+let updateActiveFilters = () => {};
 async function loadLeads() {
+  updateActiveFilters(state.priority);
   const requestId = ++state.requestId;
   state.loading = true;
   const params = currentParams();
@@ -397,8 +423,13 @@ async function loadLeads() {
     renderRows();
     loadDeletionRequests();
     updatePagination(data);
-    applyListPosition();
     showMessage(data.total ? "" : state.viewMode === "archived" ? "Nenhum cliente arquivado." : "Nenhum contato encontrado.");
+    await applyListPosition();
+    history.replaceState({ ...history.state, zeLeads: {
+      path: location.pathname, offset: state.offset, size: pageSize.value, view: state.viewMode,
+      priority: state.priority, scroll: window.scrollY,
+      fields: [...filters.querySelectorAll('input, select')].map(el => [el.id, el.value]),
+    } }, '');
   } catch (error) {
     if (requestId === state.requestId) showMessage(error.message, "error");
   } finally { if (requestId === state.requestId) state.loading = false; }
@@ -643,7 +674,26 @@ if (location.pathname.startsWith("/admin/pesquisas")) {
 
 loadOwners().catch(() => showMessage("Não foi possível carregar os responsáveis.", "error")).then(async () => {
   restoreListPosition();
-  await Promise.all([loadLeads(), loadCrmSummary()]);
+  if (window.ZeLeadViews) {
+    updateActiveFilters = await window.ZeLeadViews.init({
+      root: document.querySelector('#lead-saved-views'), filters, message: showMessage,
+      capture: () => ({ fields: Object.fromEntries([...filters.querySelectorAll('input, select')].map(el => [el.id, el.value])),
+        size: pageSize.value, offset: state.offset, priority: state.priority, view: state.viewMode }),
+      apply: saved => {
+        filters.reset();
+        for (const [id, value] of Object.entries(saved.fields)) {
+          const field = document.getElementById(id);
+          if (field && filters.contains(field)) field.value = value;
+        }
+        pageSize.value = saved.size;
+        document.querySelector(`[data-view="${saved.view}"]`)?.click();
+        state.priority = saved.priority; state.offset = saved.offset; loadLeads();
+      },
+      reload: () => { state.offset = 0; loadLeads(); }, clearPriority: () => { state.priority = ''; },
+    });
+  }
+  await loadCrmSummary();
+  await loadLeads();
   const leadId = new URLSearchParams(location.search).get("lead_id");
   if (/^\d+$/.test(leadId || "")) await openLead(Number(leadId));
 });

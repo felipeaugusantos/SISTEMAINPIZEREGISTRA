@@ -9,7 +9,7 @@ let analysis = null;
 progress.addEventListener("click", event => {
   const link = event.target.closest('a[href^="#step-"]');
   const target = link && document.getElementById(link.hash.slice(1));
-  if (target) target.open = true;
+  if (target) { target.open = true; target.querySelector?.("summary")?.focus({ preventScroll: true }); }
 });
 try {
   const token = new URLSearchParams(location.search).get("retorno");

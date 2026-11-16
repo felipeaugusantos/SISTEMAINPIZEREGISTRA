@@ -6,6 +6,11 @@ const helpDrawer = document.querySelector("#analysis-help");
 const registrabilityDialog = document.querySelector("#registrability-dialog");
 const registrabilityForm = document.querySelector("#registrability-form");
 let analysis = null;
+progress.addEventListener("click", event => {
+  const link = event.target.closest('a[href^="#step-"]');
+  const target = link && document.getElementById(link.hash.slice(1));
+  if (target) target.open = true;
+});
 try {
   const token = new URLSearchParams(location.search).get("retorno");
   const saved = token && JSON.parse(sessionStorage.getItem(`ze-list:${token}`));

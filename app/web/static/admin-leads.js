@@ -604,14 +604,26 @@ leadsList.addEventListener("click", event => {
   }
   if (event.target.closest(".view-lead")) openLead(row.dataset.leadId, row.dataset.researchId || null);
   if (event.target.closest(".archive-lead")) { state.archiveId = row.dataset.leadId; archiveDialog.showModal(); }
-  if (event.target.closest(".restore-lead")) fetch(`/v1/admin/leads/${row.dataset.leadId}/restaurar`, { method: "POST" }).then(response => { if (response.ok) loadLeads(); else showMessage("Não foi possível restaurar o contato.", "error"); });
+  const restore = event.target.closest(".restore-lead");
+  if (restore) changeArchive(restore, row.dataset.leadId, false);
 });
 
-document.querySelector("#confirm-archive").addEventListener("click", async event => {
+async function changeArchive(button, id, archive) {
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    await responsePayload(await fetch(`/v1/admin/leads/${id}${archive ? "" : "/restaurar"}`, { method: archive ? "DELETE" : "POST" }));
+    if (archive) archiveDialog.close();
+    showMessage(archive ? "Contato arquivado; pesquisas preservadas." : "Contato restaurado.", "success");
+    await Promise.all([loadLeads(), loadCrmSummary()]);
+  } catch (error) {
+    showMessage(error.message || "Não foi possível atualizar o contato. Tente novamente.", "error");
+  } finally { button.disabled = false; }
+}
+
+document.querySelector("#confirm-archive").addEventListener("click", event => {
   event.preventDefault();
-  const response = await fetch(`/v1/admin/leads/${state.archiveId}`, { method: "DELETE" });
-  if (response.ok) { archiveDialog.close(); showMessage("Contato arquivado; pesquisas preservadas.", "success"); loadLeads(); }
-  else showMessage("Não foi possível arquivar o contato.", "error");
+  changeArchive(event.currentTarget, state.archiveId, true);
 });
 
 

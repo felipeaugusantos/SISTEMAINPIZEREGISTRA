@@ -1856,7 +1856,10 @@ async function visualizarProposta(id) {
     dialog.querySelector(".dialog-close").addEventListener("click", () => dialog.close());
     dialog.addEventListener("close", onClose);
     dialog.addEventListener("close", () => {
-      if (operationsMode && dialogOpener?.isConnected) dialogOpener.focus({ preventScroll: true });
+      if (operationsMode) {
+        const fallback = [...root.querySelectorAll('tr[data-lead-id]')].find(el => Number(el.dataset.leadId) === Number(state.openLeadId))?.querySelector('.view-lead');
+        (dialogOpener?.isConnected ? dialogOpener : fallback)?.focus({ preventScroll: true });
+      }
     });
     const api = { riskLabels, escapeHtml, formatDate, phoneDigits, statusOptions, showMessage, responsePayload, originLabel, fullReportStatus, aggregateReportStatus, duplicateStatus, deletionAction, abrirRegistroAtendimento, openLead, faseMini, openResearchDelete, criarProposta,
     navigationContext() {

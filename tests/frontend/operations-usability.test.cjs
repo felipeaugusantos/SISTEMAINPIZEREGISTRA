@@ -118,3 +118,41 @@ test('M01: whitelist remove texto livre e chaves de usuário/organização são 
   assert.notEqual(api.scope({ id: 1, organizacao: { id: 1 } }), api.scope({ id: 1, organizacao: { id: 2 } }));
   assert.equal(api.scope({ id: 1 }), null);
 });
+
+test('retorno da Análise reabre o mesmo diálogo e aba sem deslocar a lista', { timeout: 30000 }, async () => browserTest(async browser => {
+  const page = await browser.newPage(); const f = await fixture(page);
+  await page.goto('http://operations.test/admin/pesquisas'); await page.locator('.view-lead').first().click();
+  await page.locator('#lead-dialog [data-tab=atendimento]').click();
+  const content = page.locator('#lead-dialog-content');
+  const link = page.locator('#lead-dialog a[href*="/admin/analises/"]').first(); await link.scrollIntoViewIfNeeded();
+  const before = await content.evaluate(el => el.scrollTop); await link.click();
+  await page.locator('.analysis-breadcrumb a').click();
+  await page.waitForFunction(() => document.querySelector('#lead-dialog').open && document.querySelector('.lead-tab.active')?.dataset.tab === 'atendimento');
+  await page.waitForFunction(y => Math.abs(document.querySelector('#lead-dialog-content').scrollTop-y) < 4, before);
+  assert.equal(await page.locator('.lead-returned').count(), 0); assert.deepEqual(f.errors, []);
+}));
+test('M01: filtros aplicados sobrevivem à recarga sem token de retorno antigo', { timeout: 30000 }, async () => browserTest(async browser => {
+  const page = await browser.newPage(); await fixture(page);
+  await page.goto('http://operations.test/admin/pesquisas'); await page.locator('#leads-list tr').first().waitFor();
+  await page.locator('#lead-status-filter').selectOption('qualificado');
+  const filtered = page.waitForResponse(r => r.url().includes('status=qualificado'));
+  await page.locator('#lead-filters button[type=submit]').click();
+  await filtered;
+  await page.reload(); await page.locator('#leads-list tr').first().waitFor();
+  assert.equal(await page.locator('#lead-status-filter').inputValue(), 'qualificado');
+}));
+test('M04: teclado, remover, limpar e seleção vazia preservam contrato', { timeout: 30000 }, async () => browserTest(async browser => {
+  const page = await browser.newPage(); await fixture(page); await page.goto('http://operations.test/admin/consulta');
+  const first = page.locator('.nice-options input').first(); await first.waitFor(); await first.focus(); await page.keyboard.press('Space');
+  assert.equal(await page.locator('[data-field=classes_nice]').evaluate(el => el.selectedOptions.length), 1);
+  await page.locator('.nice-chosen button').click(); assert.equal(await page.locator('[data-field=classes_nice]').evaluate(el => el.selectedOptions.length), 0);
+  await first.check(); await page.locator('.nice-selector').getByRole('button', { name: 'Limpar classes', exact: true }).click();
+  assert.equal(await page.locator('[data-field=classes_nice]').evaluate(el => el.selectedOptions.length), 0);
+  await page.locator('.nice-selector input[type=search]').fill('não existe termo'); assert.equal(await page.locator('.nice-options input').count(), 0);
+}));
+test('M09 Análise: checklist abre etapa e ajuda devolve foco ao fechar', { timeout: 30000 }, async () => browserTest(async browser => {
+  const page = await browser.newPage(); const f = await fixture(page); await page.goto('http://operations.test/admin/analises/r60');
+  await page.locator('#analysis-progress a[href="#step-report"]').click(); assert.equal(await page.locator('#step-report').evaluate(el => el.open), true);
+  await page.locator('#analysis-help-open').click(); await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#analysis-help-open').evaluate(el => el === document.activeElement), true); assert.deepEqual(f.errors, []);
+}));

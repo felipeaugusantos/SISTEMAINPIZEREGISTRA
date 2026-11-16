@@ -92,6 +92,15 @@ function saveListPosition(event) {
 }
 document.addEventListener("click", saveListPosition, true);
 document.addEventListener("auxclick", saveListPosition, true);
+let scrollFramePending = false;
+window.addEventListener('scroll', () => {
+  if (scrollFramePending) return;
+  scrollFramePending = true;
+  requestAnimationFrame(() => {
+    scrollFramePending = false;
+    if (history.state?.zeLeads) history.replaceState({ ...history.state, zeLeads: { ...history.state.zeLeads, scroll: window.scrollY } }, '');
+  });
+}, { passive: true });
 let restoredPosition = null;
 function restoreListPosition() {
   let snapshot = history.state?.zeLeads;
@@ -100,6 +109,9 @@ function restoreListPosition() {
     if (token) snapshot = JSON.parse(sessionStorage.getItem(`ze-list:${token}`)) || snapshot;
   } catch (_) { /* Ignore unavailable or invalid storage. */ }
   if (!snapshot || snapshot.path !== location.pathname) return;
+  const cleanUrl = new URL(location.href);
+  cleanUrl.searchParams.delete('retomar');
+  history.replaceState({ ...history.state, zeLeads: snapshot }, '', cleanUrl);
   restoredPosition = snapshot;
   for (const [id, value] of snapshot.fields || []) {
     const field = document.getElementById(id);
@@ -412,6 +424,11 @@ async function loadLeads() {
     loadDeletionRequests();
     updatePagination(data);
     await applyListPosition();
+    history.replaceState({ ...history.state, zeLeads: {
+      path: location.pathname, offset: state.offset, size: pageSize.value, view: state.viewMode,
+      priority: state.priority, scroll: window.scrollY,
+      fields: [...filters.querySelectorAll('input, select')].map(el => [el.id, el.value]),
+    } }, '');
     showMessage(data.total ? "" : state.viewMode === "archived" ? "Nenhum cliente arquivado." : "Nenhum contato encontrado.");
   } catch (error) {
     if (requestId === state.requestId) showMessage(error.message, "error");

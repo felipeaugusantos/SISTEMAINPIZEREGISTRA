@@ -200,6 +200,53 @@ def _inteiro(valor: Any) -> int:
     return max(numero, 0)
 
 
+def _data_iso(valor: Any) -> str | None:
+    """Data/hora em ISO ou None: o que não for data válida nunca chega à TV."""
+    if not isinstance(valor, str) or not valor:
+        return None
+    try:
+        datetime.fromisoformat(valor.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return valor[:40]
+
+
+def normalizar_backup_erp(bruto: Any, agora: datetime | None = None) -> dict[str, Any]:
+    """Backup noturno por cliente do ERP, só contagens e datas (sem nome de cliente nem caminho de arquivo).
+
+    Saúde: verde se todos os clientes ativos têm backup das últimas 26 h; amarelo se algum está atrasado ou ainda
+    sem backup; vermelho se algum falhou ou o backup mais antigo passou de 50 h; cinza se o ERP não mandou o campo."""
+    if not isinstance(bruto, dict):
+        return {"disponivel": False, "saude": "cinza"}
+    agora = agora or datetime.now(UTC)
+    ativos = _inteiro(bruto.get("clientes_ativos"))
+    resumo: dict[str, Any] = {
+        "disponivel": True,
+        "clientes_ativos": ativos,
+        "em_dia": _inteiro(bruto.get("em_dia")),
+        "atrasados": _inteiro(bruto.get("atrasados")),
+        "sem_backup": _inteiro(bruto.get("sem_backup")),
+        "com_erro": _inteiro(bruto.get("com_erro")),
+        "ultimo_em": _data_iso(bruto.get("ultimo_em")),
+        "mais_antigo_em": _data_iso(bruto.get("mais_antigo_em")),
+    }
+    muito_velho = False
+    if resumo["mais_antigo_em"]:
+        antigo = datetime.fromisoformat(resumo["mais_antigo_em"].replace("Z", "+00:00"))
+        if antigo.tzinfo is None:
+            antigo = antigo.replace(tzinfo=UTC)
+        muito_velho = (agora - antigo).total_seconds() > BACKUP_LIMITE_CRITICO_HORAS * 3600
+    if ativos == 0:
+        resumo["saude"] = "cinza"
+    elif resumo["com_erro"] > 0 or muito_velho:
+        resumo["saude"] = "vermelho"
+    elif resumo["atrasados"] > 0 or resumo["sem_backup"] > 0 or resumo["em_dia"] < ativos:
+        resumo["saude"] = "amarelo"
+    else:
+        resumo["saude"] = "verde"
+    return resumo
+
+
 def normalizar_erp(bruto: Any) -> dict[str, Any]:
     """Copia só os campos conhecidos da resposta do ERP.
 
@@ -231,6 +278,7 @@ def normalizar_erp(bruto: Any) -> dict[str, Any]:
         for item in (dados.get("top_erros") or [])[:3]
         if isinstance(item, dict)
     ]
+    resumo["backup"] = normalizar_backup_erp(dados.get("backup"))
     return resumo
 
 

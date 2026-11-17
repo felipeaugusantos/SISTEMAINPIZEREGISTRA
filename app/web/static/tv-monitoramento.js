@@ -225,11 +225,33 @@
     return item;
   }
 
-  function cartaoBackup(b) {
+  function itemBackupClientes(erp) {
+    const b = erp && erp.status === "ok" && erp.dados && erp.dados.backup ? erp.dados.backup : null;
+    const ok = b && b.disponivel && b.clientes_ativos > 0;
+    const saude = ok ? b.saude : "cinza";
+    const item = el("div", `tv-backup-item saude-${saude}`);
+    const corpo = el("div", "tv-backup-texto");
+    const ultimo = ok && b.ultimo_em ? new Date(b.ultimo_em) : null;
+    const sub = !ok ? "sem leitura do ERP"
+      : ultimo && !Number.isNaN(ultimo.getTime())
+        ? `último ${ultimo.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às ${hora(ultimo)}`
+        : "nenhum backup concluído";
+    const detalhe = ok && b.com_erro > 0 ? ` · ${b.com_erro} com erro` : ok && b.atrasados + b.sem_backup > 0 ? ` · ${b.atrasados + b.sem_backup} atrasado(s)` : "";
+    corpo.append(
+      el("span", "", "Backup dos clientes (EZRA)"),
+      el("strong", "", ok ? `${b.em_dia} de ${b.clientes_ativos} em dia` : "sem leitura"),
+      el("small", "", sub + detalhe),
+    );
+    const estado = { verde: "Em dia", amarelo: "Atrasado", vermelho: "Crítico", cinza: "Sem leitura" }[saude];
+    item.append(corpo, el("em", "tv-backup-selo", estado));
+    return item;
+  }
+
+  function cartaoBackup(b, erp) {
     const alvo = document.getElementById("tv-backup");
     if (!alvo) return;
     const dados = b && typeof b === "object" ? b : {};
-    alvo.replaceChildren(el("h2", "", "Backup"), itemBackup("Último backup local", dados.banco_local), itemBackup("Último envio ao Drive", dados.copia_externa));
+    alvo.replaceChildren(el("h2", "", "Backup"), itemBackup("Backup local", dados.banco_local), itemBackup("Envio ao Drive", dados.copia_externa), itemBackupClientes(erp));
   }
 
   function mostrarAviso(texto) {
@@ -240,7 +262,7 @@
     const velho = ultimoSucesso && Date.now() - ultimoSucesso > VELHO_MS;
     alvoCentral.classList.toggle("velho", Boolean(velho));
     if (velho) alvoErp.classList.add("velho");
-    if (ultimoDado && ultimoDado.backup) cartaoBackup(ultimoDado.backup);
+    if (ultimoDado && ultimoDado.backup) cartaoBackup(ultimoDado.backup, ultimoDado.erp);
     alvoAtualizado.textContent = ultimoSucesso ? `atualizado às ${hora(ultimoSucesso)}` : "aguardando dados…";
   }
 
@@ -265,7 +287,7 @@
       ultimoSucesso = Date.now();
       cartaoCentral(dados.zeregistra);
       cartaoErp(dados.erp);
-      cartaoBackup(dados.backup);
+      cartaoBackup(dados.backup, dados.erp);
       mostrarAviso("");
     } catch (e) {
       mostrarAviso(ultimoSucesso

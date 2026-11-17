@@ -1255,16 +1255,16 @@ table.lead-docs select {
   .admin-body .leads-table .leads-col-actions { width: 24%; }
 
   .admin-body .leads-table th:nth-child(1), .admin-body .leads-table td:nth-child(1) { width: 15%; }
-  .admin-body .leads-table th:nth-child(2), .admin-body .leads-table td:nth-child(2) { width: 24%; }
-  .admin-body .leads-table th:nth-child(3), .admin-body .leads-table td:nth-child(3) { width: 13%; }
-  .admin-body .leads-table th:nth-child(4), .admin-body .leads-table td:nth-child(4) { width: 10%; }
-  .admin-body .leads-table th:nth-child(5), .admin-body .leads-table td:nth-child(5) { width: 10%; }
+  .admin-body .leads-table th:nth-child(2), .admin-body .leads-table td:nth-child(2) { width: 21%; }
+  .admin-body .leads-table th:nth-child(3), .admin-body .leads-table td:nth-child(3) { width: 12%; }
+  .admin-body .leads-table th:nth-child(4), .admin-body .leads-table td:nth-child(4) { width: 9%; }
+  .admin-body .leads-table th:nth-child(5), .admin-body .leads-table td:nth-child(5) { width: 15%; }
   .admin-body .leads-table th:nth-child(6), .admin-body .leads-table td:nth-child(6) { width: 28%; }
   .admin-body .leads-table td:nth-child(1) strong,
   .admin-body .leads-table td:nth-child(1) small,
   .admin-body .leads-table td:nth-child(1) span { overflow-wrap: anywhere; }
   .admin-body .leads-table td:nth-child(4) time { white-space: nowrap; }
-  .admin-body .leads-table td:nth-child(5) .lead-status { width: 100%; min-width: 130px; box-sizing: border-box; }
+  .admin-body .leads-table td:nth-child(5) .lead-status { width: 100%; min-width: 0; box-sizing: border-box; }
   .admin-body .leads-table td:nth-child(6) .lead-row-actions { min-width: 0; width: 100%; flex-wrap: wrap; }
   .admin-body .leads-table td:nth-child(6) .lead-row-actions > * { max-width: 100%; white-space: normal; }
 }
@@ -1426,3 +1426,20 @@ body[data-admin-section="leads"] .visually-hidden { left: 0; }
   body[data-admin-section="leads"] .fase-mini { max-width: 100%; }
 }
 .wa-destino-invalido { opacity: .7; cursor: help; text-decoration: underline dotted; }
+
+/* Janela de descarte de oportunidade (motivo de perda obrigatório). */
+#discard-dialog select,
+#discard-dialog input { width: 100%; box-sizing: border-box; }
+#discard-dialog form > div:last-child { flex-wrap: wrap; }
+@media (max-width: 520px) {
+  #discard-dialog { padding: 18px; }
+  #discard-dialog h2 { font-size: 1.6rem; }
+  #discard-dialog form > div:last-child { flex-direction: column-reverse; }
+  #discard-dialog form > div:last-child button { width: 100%; }
+}
+
+/* Pedido de exclusão do contato: o rótulo é longo; quebra em vez de vazar da célula. */
+body[data-admin-section="leads"] .lead-row-actions .request-delete-lead { white-space: normal; max-width: 100%; box-sizing: border-box; text-align: center; line-height: 1.25; overflow-wrap: anywhere; }
+
+/* Selo de pedido de exclusão de contato pendente: quebra de linha em vez de estourar o cartão no celular. */
+body[data-admin-section="leads"] .lead-row-actions .lead-delete-pending { white-space: normal; max-width: 100%; box-sizing: border-box; line-height: 1.25; overflow-wrap: anywhere; }

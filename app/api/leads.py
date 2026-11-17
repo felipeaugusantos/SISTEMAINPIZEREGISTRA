@@ -89,6 +89,7 @@ from app.models import (
     PropostaComercial,
     QualificacaoIALead,
     RespostaEmailLead,
+    SolicitacaoExclusaoLead,
     SolicitacaoExclusaoPesquisa,
     StatusLead,
     SugestaoIALead,
@@ -534,6 +535,7 @@ def _lead_response(
     pesquisas: list[PesquisaLeadResumo] | None = None,
     mensagens_portal_pendentes: int = 0,
     tem_processo_vinculado: bool = True,
+    exclusao_pendente: bool = False,
 ) -> LeadResponse:
     pesquisas = pesquisas or []
     dados = LeadResponse.model_validate(lead)
@@ -558,6 +560,7 @@ def _lead_response(
     dados.relatorios_completos_gerados = sum(item.relatorio_completo_gerado for item in pesquisas)
     dados.mensagens_portal_pendentes = mensagens_portal_pendentes
     dados.processo_vinculado_pendente = lead.fase in FASES_EXIGEM_PROCESSO_VINCULADO and not tem_processo_vinculado
+    dados.exclusao_pendente = exclusao_pendente
     dados.pesquisas = pesquisas
     logo_asset = lead.logo_cliente or {}
     dados.logo_cliente_url = f"/v1/admin/leads/{lead.id}/logo-cliente" if logo_asset.get("sha256") else None
@@ -989,6 +992,21 @@ async def listar_leads(
             .scalars()
             .all()
         )
+    leads_com_exclusao_pendente: set[int] = set()
+    if ids:
+        leads_com_exclusao_pendente = set(
+            (
+                await session.execute(
+                    select(SolicitacaoExclusaoLead.lead_id).where(
+                        SolicitacaoExclusaoLead.organizacao_id == usuario.organizacao_id,
+                        SolicitacaoExclusaoLead.lead_id.in_(ids),
+                        SolicitacaoExclusaoLead.status == "pendente",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
     if ids:
         contagens_mensagens = await session.execute(
             select(MensagemClientePortal.lead_id, func.count())
@@ -1049,6 +1067,7 @@ async def listar_leads(
                 pesquisas_por_lead.get(item.id, []),
                 mensagens_pendentes_por_lead.get(item.id, 0),
                 item.id in leads_com_processo_vinculado,
+                item.id in leads_com_exclusao_pendente,
             )
             for item in itens
         ],

@@ -309,6 +309,7 @@ class LeadResponse(BaseModel):
     relatorios_completos_gerados: int = 0
     mensagens_portal_pendentes: int = 0
     processo_vinculado_pendente: bool = False
+    exclusao_pendente: bool = False
     pesquisas: list["PesquisaLeadResumo"] = Field(default_factory=list)
     criado_em: datetime
     atualizado_em: datetime

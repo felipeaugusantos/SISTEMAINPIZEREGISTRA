@@ -199,6 +199,14 @@ function leadRow(lead) {
     </tr>${quickResearchHistory(lead)}`;
 }
 
+// Pedido de exclusão do CONTATO: não exclui nada, só entra na fila de aprovação.
+// Distinto de descartar a oportunidade e de excluir uma pesquisa.
+function solicitarExclusaoContato(lead) {
+  if (lead.arquivado_em) return "";
+  if (lead.exclusao_pendente) return `<span class="full-report-status pending lead-delete-pending">Exclusão do contato aguardando aprovação</span>`;
+  return `<button class="danger-button request-delete-lead" type="button">Solicitar exclusão do contato</button>`;
+}
+
 function researchRow(lead, item) {
   // Achado do usuário (08/09/2026): leads sem nenhuma pesquisa de marca
   // (ex.: convertidos do Radar de Prospecção, que não passam pelo
@@ -219,7 +227,7 @@ function researchRow(lead, item) {
       ${atendimento}
       <td data-label="Data da pesquisa">—</td>
       ${statusCol}
-      <td data-label="Ações"><div class="lead-row-actions"><button class="view-lead secondary-button" type="button">Abrir contato</button></div></td>
+      <td data-label="Ações"><div class="lead-row-actions"><button class="view-lead secondary-button" type="button">Abrir contato</button>${acoesExtras("Mais ações", solicitarExclusaoContato(lead))}</div></td>
     </tr>`;
   }
   return `<tr data-lead-id="${lead.id}" data-research-id="${item.id}" class="research-view-row ${lead.arquivado_em ? "archived" : ""}">
@@ -228,7 +236,7 @@ function researchRow(lead, item) {
     ${atendimento}
     <td data-label="Data da pesquisa"><time datetime="${escapeHtml(item.criado_em)}">${formatDate(item.criado_em)}</time></td>
     ${statusCol}
-    <td data-label="Ações"><div class="lead-row-actions"><a class="secondary-button" href="/admin/analises/${encodeURIComponent(item.id)}">Abrir análise</a><button class="view-lead secondary-button" type="button">Abrir contato</button>${acoesExtras("Mais ações", `${state.canManage ? `<button class="generate-research-proposal secondary-button" type="button" data-research-id="${escapeHtml(item.id)}">Gerar proposta</button>` : ""}${deletionAction(item)}`)}</div></td>
+    <td data-label="Ações"><div class="lead-row-actions"><a class="secondary-button" href="/admin/analises/${encodeURIComponent(item.id)}">Abrir análise</a><button class="view-lead secondary-button" type="button">Abrir contato</button>${acoesExtras("Mais ações", `${state.canManage ? `<button class="generate-research-proposal secondary-button" type="button" data-research-id="${escapeHtml(item.id)}">Gerar proposta</button>` : ""}${deletionAction(item)}${solicitarExclusaoContato(lead)}`)}</div></td>
   </tr>`;
 }
 
@@ -330,7 +338,14 @@ async function loadCrmSummary() {
   }
 }
 
-const exclusoesFiltro = { status: "pendente", busca: "", itens: [], total: 0 };
+const exclusoesFiltro = { status: "pendente", busca: "", itens: [], total: 0, leads: [], totalLeads: 0 };
+
+// Pedidos de pesquisa e de contato vivem em tabelas e identificadores distintos; a fila mostra os dois.
+function todasExclusoes() {
+  const pesquisas = exclusoesFiltro.itens.map(item => ({ ...item, tipo: "pesquisa" }));
+  const leads = exclusoesFiltro.leads.map(item => ({ ...item, tipo: "lead" }));
+  return pesquisas.concat(leads).sort((a, b) => String(b.criado_em).localeCompare(String(a.criado_em)));
+}
 
 async function loadDeletionRequests(anexar = false) {
   const section = document.querySelector("#deletion-requests");
@@ -346,20 +361,26 @@ async function loadDeletionRequests(anexar = false) {
       deslocamento: String(anexar ? filtro.itens.length : 0),
     });
     const data = await responsePayload(await fetch(`/v1/admin/exclusoes-pesquisas?${params}`));
+    const paramsLeads = new URLSearchParams({ status_solicitacao: filtro.status, busca: filtro.busca, limite: "200" });
+    const dadosLeads = await responsePayload(await fetch(`/v1/admin/exclusoes-leads?${paramsLeads}`));
     filtro.itens = anexar ? filtro.itens.concat(data.itens) : data.itens;
     filtro.total = data.total;
+    filtro.leads = dadosLeads.itens;
+    filtro.totalLeads = dadosLeads.total;
     renderExclusoes(selecionadas);
   } catch (error) {
     showMessage(error.message, "error");
   }
 }
 
-const ROTULO_STATUS_EXCLUSAO = { pendente: "Pendente", executada: "Excluída", rejeitada: "Rejeitada" };
+const ROTULO_STATUS_EXCLUSAO = { pendente: "Pendente", executada: "Executada", rejeitada: "Rejeitada" };
 
 function renderExclusoes(selecionadas = new Set()) {
-  const { status, itens, total } = exclusoesFiltro;
+  const { status } = exclusoesFiltro;
+  const itens = todasExclusoes();
+  const total = exclusoesFiltro.total + exclusoesFiltro.totalLeads;
   const pendentes = status === "pendente";
-  const parcial = total > itens.length;
+  const parcial = exclusoesFiltro.total > exclusoesFiltro.itens.length || exclusoesFiltro.totalLeads > exclusoesFiltro.leads.length;
   document.querySelector("#deletion-request-count").textContent = pendentes
     ? (parcial ? `${total} pendentes (mostrando ${itens.length})` : `${total} pendente${total === 1 ? "" : "s"}`)
     : `${total} resultado${total === 1 ? "" : "s"}${parcial ? ` (mostrando ${itens.length})` : ""}`;
@@ -371,15 +392,15 @@ function renderExclusoes(selecionadas = new Set()) {
     const acoes = item.status === "pendente" ? `
         <div class="lead-research-actions">
           <button class="secondary-button decide-deletion" data-decision="reject" type="button">Rejeitar</button>
-          <button class="danger-button decide-deletion" data-decision="approve" type="button">Aprovar e excluir</button>
+          <button class="danger-button decide-deletion" data-decision="approve" type="button">${item.tipo === "lead" ? "Aprovar e arquivar contato" : "Aprovar e excluir"}</button>
         </div>` : `
         <p class="deletion-decision"><strong>${escapeHtml(ROTULO_STATUS_EXCLUSAO[item.status] || item.status)}</strong>${item.decidido_por ? ` por ${escapeHtml(item.decidido_por)}` : ""}${item.decidido_em ? ` em ${formatDate(item.decidido_em)}` : ""}${item.decisao_observacao ? ` — ${escapeHtml(item.decisao_observacao)}` : ""}</p>`;
     const escolha = item.status === "pendente"
-      ? `<label class="deletion-pick"><input class="deletion-check" type="checkbox" aria-label="Selecionar solicitação de ${escapeHtml(item.marca)}"${selecionadas.has(item.id) ? " checked" : ""}></label>`
+      ? `<label class="deletion-pick"><input class="deletion-check" type="checkbox" aria-label="Selecionar solicitação de ${escapeHtml(item.marca)}"${selecionadas.has(`${item.tipo}:${item.id}`) ? " checked" : ""}></label>`
       : "";
     return `
-      <article class="learning-review-card deletion-request-card" data-request-id="${item.id}" data-marca="${escapeHtml(item.marca)}">
-        <header>${escolha}<div><p class="eyebrow">${escapeHtml(item.solicitado_por)}</p><h3>${escapeHtml(item.marca)}</h3></div><small>${formatDate(item.criado_em)}</small></header>
+      <article class="learning-review-card deletion-request-card" data-request-id="${item.id}" data-tipo="${item.tipo}" data-marca="${escapeHtml(item.marca)}">
+        <header>${escolha}<div><p class="eyebrow">${item.tipo === "lead" ? "Contato · " : ""}${escapeHtml(item.solicitado_por)}</p><h3>${escapeHtml(item.marca)}</h3></div><small>${formatDate(item.criado_em)}</small></header>
         <p>${escapeHtml(item.motivo)}</p>${acoes}
       </article>`;
   }).join("") : `<p class="deletion-requests-empty">${vazio}</p>`;
@@ -457,7 +478,12 @@ async function loadLeads() {
 
 function exclusoesSelecionadas() {
   return [...document.querySelectorAll("#deletion-request-list .deletion-check:checked")]
-    .map(box => Number(box.closest("[data-request-id]").dataset.requestId));
+    .map(box => { const card = box.closest("[data-request-id]"); return `${card.dataset.tipo}:${card.dataset.requestId}`; });
+}
+
+function marcasSelecionadas() {
+  return [...document.querySelectorAll("#deletion-request-list .deletion-check:checked")]
+    .map(box => { const card = box.closest("[data-request-id]"); return `${card.dataset.tipo === "lead" ? "Contato: " : "Pesquisa: "}${card.dataset.marca}`; });
 }
 
 function atualizarSelecaoExclusoes() {
@@ -499,14 +525,14 @@ document.querySelector("#deletion-requests-toggle")?.addEventListener("click", e
   corpo.hidden = expanded;
 });
 document.querySelector("#deletion-load-more").addEventListener("click", () => loadDeletionRequests(true));
-document.querySelector("#deletion-bulk-approve").addEventListener("click", () => openResearchDelete("approve-lote", exclusoesSelecionadas()));
-document.querySelector("#deletion-bulk-reject").addEventListener("click", () => openResearchDelete("reject-lote", exclusoesSelecionadas()));
+document.querySelector("#deletion-bulk-approve").addEventListener("click", () => openResearchDelete("approve-lote", exclusoesSelecionadas(), { marcas: marcasSelecionadas() }));
+document.querySelector("#deletion-bulk-reject").addEventListener("click", () => openResearchDelete("reject-lote", exclusoesSelecionadas(), { marcas: marcasSelecionadas() }));
 
 document.querySelector("#deletion-request-list").addEventListener("click", event => {
   const button = event.target.closest(".decide-deletion");
   if (!button) return;
   const card = button.closest("[data-request-id]");
-  openResearchDelete(button.dataset.decision === "approve" ? "approve" : "reject", card.dataset.requestId);
+  openResearchDelete(button.dataset.decision === "approve" ? "approve" : "reject", card.dataset.requestId, { tipo: card.dataset.tipo });
 });
 
 filters.addEventListener("submit", event => { event.preventDefault(); state.offset = 0; loadLeads(); });
@@ -609,20 +635,111 @@ viewButtons.forEach(button => button.addEventListener("click", () => {
   if (!restoredPosition) loadLeads();
 }));
 
+// Descarte de oportunidade: o backend exige motivo de perda. A troca direta
+// de status na lista não enviava o motivo (422 sem campo para preencher), então
+// "Descartado" agora abre uma janela com o motivo obrigatório. O descarte
+// continua separado do arquivamento do contato e das solicitações de exclusão.
+const discardDialog = document.querySelector("#discard-dialog");
+const discardForm = document.querySelector("#discard-form");
+const discardMotivo = document.querySelector("#discard-motivo");
+const discardDetalhe = document.querySelector("#discard-detalhe");
+const discardMessage = document.querySelector("#discard-message");
+const discardSubmit = document.querySelector("#confirm-discard");
+let discardTarget = null;
+
+function discardFeedback(text, kind = "error") {
+  discardMessage.hidden = !text;
+  discardMessage.className = `status-message ${kind}`;
+  discardMessage.textContent = text;
+}
+
+function restoreStatusSelect(select) {
+  if (select && select.dataset.previous) {
+    select.value = select.dataset.previous;
+    select.className = `lead-status status-${select.dataset.previous}`;
+  }
+}
+
+function openDiscardDialog(select, leadId) {
+  discardTarget = { select, leadId };
+  discardForm.reset();
+  discardFeedback("");
+  discardSubmit.disabled = false;
+  discardDialog.showModal();
+  discardMotivo.focus();
+}
+
+function closeDiscardDialog() {
+  const target = discardTarget;
+  discardTarget = null;
+  if (discardDialog.open) discardDialog.close();
+  if (target) restoreStatusSelect(target.select);
+}
+
+async function patchLeadStatus(select, leadId, payload) {
+  const response = await fetch(`/v1/admin/leads/${leadId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  if (!response.ok) {
+    const erro = await response.json().catch(() => ({}));
+    const detalhe = Array.isArray(erro.detail) ? erro.detail.map(item => item.msg).filter(Boolean).join(" ") : erro.detail;
+    return { ok: false, detalhe: detalhe || "Não foi possível atualizar o status." };
+  }
+  return { ok: true };
+}
+
+document.querySelector("#cancel-discard").addEventListener("click", closeDiscardDialog);
+discardDialog.addEventListener("cancel", event => { event.preventDefault(); closeDiscardDialog(); });
+discardMotivo.addEventListener("change", () => { if (discardMotivo.value) discardFeedback(""); });
+discardForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!discardTarget || discardSubmit.disabled) return;
+  if (!discardMotivo.value) {
+    discardFeedback("Selecione o motivo da perda para descartar a oportunidade.");
+    discardMotivo.focus();
+    return;
+  }
+  const { select, leadId } = discardTarget;
+  discardSubmit.disabled = true;
+  discardFeedback("Descartando…", "");
+  try {
+    const resultado = await patchLeadStatus(select, leadId, {
+      status: "descartado",
+      motivo_perda: discardMotivo.value,
+      motivo_perda_detalhe: discardDetalhe.value.trim() || null,
+    });
+    if (!resultado.ok) {
+      discardFeedback(resultado.detalhe);
+      discardSubmit.disabled = false;
+      return;
+    }
+    discardTarget = null;
+    discardDialog.close();
+    await Promise.all([loadLeads(), loadCrmSummary()]);
+    showMessage("Oportunidade descartada e motivo registrado.", "success");
+  } catch (_) {
+    discardFeedback("Não foi possível descartar agora. Tente novamente.");
+    discardSubmit.disabled = false;
+  }
+});
+
 leadsList.addEventListener("change", async event => {
   if (!event.target.matches(".lead-status")) return;
   const select = event.target;
   const row = select.closest("tr");
   const previous = select.dataset.previous;
+  if (select.value === "descartado" && previous !== "descartado") {
+    restoreStatusSelect(select);
+    openDiscardDialog(select, row.dataset.leadId);
+    return;
+  }
   select.disabled = true;
   try {
-  const response = await fetch(`/v1/admin/leads/${row.dataset.leadId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: select.value }) });
+  const resultado = await patchLeadStatus(select, row.dataset.leadId, { status: select.value });
   select.disabled = false;
-  if (!response.ok) { const erro = await response.json().catch(() => ({})); select.value = previous; showMessage(erro.detail || "Não foi possível atualizar o status.", "error"); return; }
+  if (!resultado.ok) { select.value = previous; showMessage(resultado.detalhe, "error"); return; }
   select.dataset.previous = select.value;
   select.className = `lead-status status-${select.value}`;
-  showMessage("Status atualizado.", "success");
   await Promise.all([loadLeads(), loadCrmSummary()]);
+  showMessage("Status atualizado.", "success");
   } catch (_) {
     select.value = previous;
     showMessage("Não foi possível atualizar o status. Tente novamente.", "error");
@@ -654,6 +771,11 @@ leadsList.addEventListener("click", event => {
   if (event.target.closest("[data-wa-invalido]")) {
     showMessage("Telefone em formato não reconhecido. Revise o cadastro do contato antes de abrir o WhatsApp.", "error");
     return;
+  }
+  const deleteLead = event.target.closest(".request-delete-lead");
+  if (deleteLead) {
+    const linha = deleteLead.closest("tr[data-lead-id]");
+    if (linha) { openResearchDelete("lead-request", linha.dataset.leadId); return; }
   }
   const deleteResearch = event.target.closest(".request-delete-research");
   if (deleteResearch) {

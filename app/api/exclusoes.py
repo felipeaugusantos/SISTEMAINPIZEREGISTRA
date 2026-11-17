@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import (
@@ -17,6 +18,8 @@ from app.auth import (
 from app.database import get_session
 from app.models import (
     EventoAuditoria,
+    Lead,
+    SolicitacaoExclusaoLead,
     PesquisaMarca,
     SolicitacaoExclusaoPesquisa,
     UsuarioOperacoes,
@@ -441,3 +444,242 @@ async def decidir_solicitacao(
     await session.delete(pesquisa)
     await session.commit()
     return _solicitacao_response(item)
+
+
+# ---------------------------------------------------------------------------
+# Pedido de exclusão de CONTATO (lead). Distinto de descartar a oportunidade e de excluir
+# pesquisa. Nada é apagado: aprovar ARQUIVA o lead (restaurável, pesquisas preservadas).
+# ---------------------------------------------------------------------------
+
+
+def _solicitacao_lead_response(item: SolicitacaoExclusaoLead) -> dict:
+    return {
+        "tipo": "lead",
+        "id": item.id,
+        "lead_id": item.lead_id,
+        "marca": item.lead_nome,
+        "solicitado_por": item.solicitado_por,
+        "motivo": item.motivo,
+        "status": item.status,
+        "decidido_por": item.decidido_por,
+        "decisao_observacao": item.decisao_observacao,
+        "criado_em": item.criado_em,
+        "decidido_em": item.decidido_em,
+    }
+
+
+async def _lead_ativo(session: AsyncSession, usuario: UsuarioAutenticado, lead_id: int) -> Lead | None:
+    return (
+        await session.execute(
+            select(Lead)
+            .where(
+                Lead.id == lead_id,
+                Lead.organizacao_id == usuario.organizacao_id,
+                Lead.arquivado_em.is_(None),
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+
+async def _pendente_lead(
+    session: AsyncSession, usuario: UsuarioAutenticado, lead_id: int
+) -> SolicitacaoExclusaoLead | None:
+    return (
+        await session.execute(
+            select(SolicitacaoExclusaoLead).where(
+                SolicitacaoExclusaoLead.organizacao_id == usuario.organizacao_id,
+                SolicitacaoExclusaoLead.lead_id == lead_id,
+                SolicitacaoExclusaoLead.status == "pendente",
+            )
+        )
+    ).scalar_one_or_none()
+
+
+@router.post("/v1/admin/leads/{lead_id}/solicitar-exclusao", status_code=status.HTTP_201_CREATED)
+async def solicitar_exclusao_lead(
+    lead_id: int,
+    dados: SolicitarExclusaoInput,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    usuario: PesquisaViewDep,
+    _limite: AcaoAdminDep,
+) -> dict:
+    """Registra o pedido na fila de aprovação. Não exclui nem arquiva nada."""
+    lead = await _lead_ativo(session, usuario, lead_id)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    existente = await _pendente_lead(session, usuario, lead.id)
+    if existente is not None:
+        response.status_code = status.HTTP_200_OK
+        return _solicitacao_lead_response(existente)
+    item = SolicitacaoExclusaoLead(
+        organizacao_id=usuario.organizacao_id,
+        lead_id=lead.id,
+        lead_nome=(lead.nome or "Lead")[:200],
+        solicitado_por_id=usuario.id,
+        solicitado_por=usuario.ator,
+        motivo=dados.motivo,
+        status="pendente",
+    )
+    session.add(item)
+    _auditar(
+        session, usuario, request, "solicitar_exclusao", f"lead:{lead.id}", True, 201, {"motivo": dados.motivo}
+    )
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Pedido simultâneo do mesmo lead: o índice único parcial garante uma só pendente.
+        await session.rollback()
+        existente = await _pendente_lead(session, usuario, lead_id)
+        if existente is None:
+            raise
+        response.status_code = status.HTTP_200_OK
+        return _solicitacao_lead_response(existente)
+    await session.refresh(item)
+    return _solicitacao_lead_response(item)
+
+
+@router.get("/v1/admin/exclusoes-leads")
+async def listar_solicitacoes_lead(
+    session: SessionDep,
+    usuario: PesquisaDeleteDep,
+    status_solicitacao: str = "pendente",
+    limite: Annotated[int, Query(ge=1, le=200)] = 100,
+    busca: Annotated[str, Query(max_length=100)] = "",
+) -> dict:
+    filtros = [SolicitacaoExclusaoLead.organizacao_id == usuario.organizacao_id]
+    if status_solicitacao:
+        filtros.append(SolicitacaoExclusaoLead.status == status_solicitacao)
+    termo = busca.strip()
+    if termo:
+        padrao = "%" + termo.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        filtros.append(
+            or_(
+                SolicitacaoExclusaoLead.lead_nome.ilike(padrao, escape="\\"),
+                SolicitacaoExclusaoLead.solicitado_por.ilike(padrao, escape="\\"),
+                SolicitacaoExclusaoLead.motivo.ilike(padrao, escape="\\"),
+            )
+        )
+    total = (await session.execute(select(func.count()).select_from(SolicitacaoExclusaoLead).where(*filtros))).scalar_one()
+    itens = (
+        (
+            await session.execute(
+                select(SolicitacaoExclusaoLead)
+                .where(*filtros)
+                .order_by(SolicitacaoExclusaoLead.criado_em.desc(), SolicitacaoExclusaoLead.id.desc())
+                .limit(limite)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {"total": total, "exibidas": len(itens), "itens": [_solicitacao_lead_response(i) for i in itens]}
+
+
+async def _decidir_lead(
+    session: AsyncSession,
+    usuario: UsuarioAutenticado,
+    request: Request,
+    item: SolicitacaoExclusaoLead,
+    aprovar: bool,
+    observacao: str | None,
+    agora: datetime,
+    modo: str,
+) -> bool:
+    """Aplica a decisão. Devolve True quando o lead já não estava ativo (pedido encerrado sem efeito)."""
+    lead = await _lead_ativo(session, usuario, item.lead_id) if aprovar else None
+    ja_arquivado = aprovar and lead is None
+    item.status = "executada" if aprovar else "rejeitada"
+    item.decidido_por_id = usuario.id
+    item.decidido_por = usuario.ator
+    item.decisao_observacao = "O contato já estava arquivado" if ja_arquivado else observacao
+    item.decidido_em = agora
+    if lead is not None:
+        lead.arquivado_em = agora
+    _auditar(
+        session,
+        usuario,
+        request,
+        "aprovar_exclusao" if aprovar else "rejeitar_exclusao",
+        f"lead:{item.lead_id}",
+        True,
+        200,
+        {"solicitacao_id": item.id, "modo": modo, "efeito": "arquivado" if lead is not None else "nenhum"},
+    )
+    return ja_arquivado
+
+
+@router.post("/v1/admin/exclusoes-leads/decidir-lote")
+async def decidir_solicitacoes_lead_em_lote(
+    dados: DecidirLoteInput,
+    request: Request,
+    session: SessionDep,
+    usuario: PesquisaDeleteDep,
+    _limite: AcaoAdminDep,
+) -> dict:
+    ids = list(dict.fromkeys(dados.ids))
+    itens = (
+        (
+            await session.execute(
+                select(SolicitacaoExclusaoLead)
+                .where(
+                    SolicitacaoExclusaoLead.id.in_(ids),
+                    SolicitacaoExclusaoLead.organizacao_id == usuario.organizacao_id,
+                    SolicitacaoExclusaoLead.status == "pendente",
+                )
+                .order_by(SolicitacaoExclusaoLead.id)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    aprovar = dados.decisao == "aprovar"
+    if aprovar:
+        await _exigir_senha(session, usuario, dados.senha, request, "leads:lote")
+    agora = datetime.now(UTC)
+    ja = 0
+    for item in itens:
+        ja += int(await _decidir_lead(session, usuario, request, item, aprovar, dados.observacao, agora, "lote"))
+    await session.commit()
+    return {
+        "decisao": dados.decisao,
+        "processadas": len(itens),
+        "ja_removidas": ja,
+        "ignoradas": len(ids) - len(itens),
+    }
+
+
+@router.post("/v1/admin/exclusoes-leads/{solicitacao_id}/decidir")
+async def decidir_solicitacao_lead(
+    solicitacao_id: int,
+    dados: DecidirExclusaoInput,
+    request: Request,
+    session: SessionDep,
+    usuario: PesquisaDeleteDep,
+    _limite: AcaoAdminDep,
+) -> dict:
+    item = (
+        await session.execute(
+            select(SolicitacaoExclusaoLead)
+            .where(
+                SolicitacaoExclusaoLead.id == solicitacao_id,
+                SolicitacaoExclusaoLead.organizacao_id == usuario.organizacao_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Solicitação não encontrada")
+    if item.status != "pendente":
+        raise HTTPException(status_code=409, detail="Solicitação já foi decidida")
+    aprovar = dados.decisao == "aprovar"
+    if aprovar:
+        await _exigir_senha(session, usuario, dados.senha, request, f"lead:{item.lead_id}")
+        if await _lead_ativo(session, usuario, item.lead_id) is None:
+            raise HTTPException(status_code=409, detail="O contato já não está ativo")
+    await _decidir_lead(session, usuario, request, item, aprovar, dados.observacao, datetime.now(UTC), "individual")
+    await session.commit()
+    return _solicitacao_lead_response(item)

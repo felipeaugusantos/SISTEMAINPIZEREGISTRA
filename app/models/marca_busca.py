@@ -9,11 +9,13 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -99,6 +101,44 @@ class SolicitacaoExclusaoPesquisa(Base):
     decisao_observacao: Mapped[str | None] = mapped_column(Text, nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     decidido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SolicitacaoExclusaoLead(Base):
+    """Pedido de exclusão de um contato (lead) que depende de aprovação administrativa.
+
+    Aprovar ARQUIVA o lead (restaurável); nunca apaga o registro. Tabela própria, separada
+    dos pedidos de pesquisa, para não misturar identificadores nem semântica.
+    """
+
+    __tablename__ = "solicitacoes_exclusao_lead"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    organizacao_id: Mapped[int] = mapped_column(ForeignKey("organizacoes.id", ondelete="CASCADE"), index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    lead_nome: Mapped[str] = mapped_column(String(200))
+    solicitado_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    solicitado_por: Mapped[str] = mapped_column(String(254))
+    motivo: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pendente", index=True)
+    decidido_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios_operacoes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    decidido_por: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    decisao_observacao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    decidido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index(
+            "uq_exclusao_lead_pendente",
+            "organizacao_id",
+            "lead_id",
+            unique=True,
+            postgresql_where=text("status = 'pendente'"),
+        ),
+    )
 
 
 class MarcaAltoRenome(Base):

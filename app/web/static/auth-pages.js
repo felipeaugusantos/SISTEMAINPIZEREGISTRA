@@ -16,7 +16,9 @@ async function enviar(url, dados) {
     const mensagem = mensagemValidacao || (resposta.status >= 500
       ? `Erro interno (${resposta.status}). Tente novamente em instantes.`
       : `Não foi possível concluir (${resposta.status}).`);
-    throw new Error(mensagem);
+    const erro = new Error(mensagem);
+    erro.status = resposta.status;
+    throw erro;
   }
   return payload;
 }
@@ -171,15 +173,29 @@ recuperacao?.addEventListener("submit", async event => {
 
 const redefinicao = document.querySelector("#reset-password-form");
 let tokenRecuperacao = "";
+// Link de uso único expirado, já usado ou ausente: o formulário não tem mais
+// utilidade, então a saída é oferecer o pedido de um novo link em vez de
+// deixar a pessoa presa na mensagem de erro.
+function oferecerNovoLinkRecuperacao(mensagem) {
+  const msg = document.querySelector("#auth-message");
+  msg.textContent = mensagem;
+  msg.className = "status-message error";
+  redefinicao.querySelector("button").disabled = true;
+  if (document.querySelector("#solicitar-novo-link")) return;
+  const link = document.createElement("a");
+  link.id = "solicitar-novo-link";
+  link.className = "secondary-button auth-secondary-link";
+  link.href = "/esqueci-senha";
+  link.textContent = "Solicitar novo link";
+  msg.insertAdjacentElement("afterend", link);
+  link.focus();
+}
 if (redefinicao) {
   const fragmento = new URLSearchParams(location.hash.replace(/^#/, ""));
   tokenRecuperacao = fragmento.get("token") || "";
   history.replaceState(null, "", "/redefinir-senha");
   if (!tokenRecuperacao) {
-    const msg = document.querySelector("#auth-message");
-    msg.textContent = "Link de recuperação ausente ou inválido. Solicite um novo e-mail.";
-    msg.className = "status-message error";
-    redefinicao.querySelector("button").disabled = true;
+    oferecerNovoLinkRecuperacao("Link de recuperação ausente ou inválido. Solicite um novo e-mail.");
   }
 }
 
@@ -198,6 +214,12 @@ redefinicao?.addEventListener("submit", async event => {
     await enviar("/v1/auth/recuperacao/redefinir", { token: tokenRecuperacao, nova_senha: dados.nova_senha });
     redefinicao.innerHTML = '<p class="status-message success">Senha redefinida com sucesso.</p><a class="secondary-button auth-secondary-link" href="/login">Entrar com a nova senha</a>';
   } catch (erro) {
+    // 400 nesta rota é sempre token inválido/expirado/já usado: insistir no
+    // mesmo link nunca funciona, então o próximo passo é pedir um novo.
+    if (erro.status === 400) {
+      oferecerNovoLinkRecuperacao("Este link expirou ou já foi usado. Solicite um novo link de recuperação.");
+      return;
+    }
     msg.textContent = erro.message;
     msg.className = "status-message error";
   }

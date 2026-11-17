@@ -1,5 +1,5 @@
 import hashlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -17,6 +17,14 @@ from tests.conftest import FakeResult, FakeSession
 
 CHAVE = "chave-de-tv-para-teste-com-bastante-entropia-123"
 HASH = hashlib.sha256(CHAVE.encode()).hexdigest()
+
+
+@pytest.fixture(autouse=True)
+def _sem_redis(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _nada() -> None:
+        return None
+
+    monkeypatch.setattr(tv, "ler_snapshot", _nada)
 
 
 @pytest.fixture(autouse=True)
@@ -198,3 +206,52 @@ def test_pagina_da_tv_e_so_a_casca_sem_dado_e_sem_cache() -> None:
     assert resposta.headers["cache-control"] == "no-store"
     assert "noindex" in resposta.text
     assert "style=" not in resposta.text  # CSP: style-src 'self'
+
+
+def _etapa(horas: float, status: str = "ok", detalhe: str = "") -> dict:
+    ultima = datetime.now(UTC) - timedelta(hours=horas)
+    return {"ultima_em": ultima.isoformat(), "status": status, "detalhe": detalhe}
+
+
+@pytest.mark.parametrize(
+    ("horas", "saude"),
+    [(5, "verde"), (25.9, "verde"), (27, "amarelo"), (49, "amarelo"), (51, "vermelho")],
+)
+def test_saude_do_backup_por_idade(horas: float, saude: str) -> None:
+    assert tv._saude_backup(_etapa(horas), datetime.now(UTC))["saude"] == saude
+
+
+def test_saude_do_backup_falha_ou_sem_dado() -> None:
+    agora = datetime.now(UTC)
+    assert tv._saude_backup(_etapa(2, "critico", "A última execução do backup falhou."), agora)["saude"] == "vermelho"
+    assert tv._saude_backup(None, agora) == {"ultima_em": None, "saude": "cinza"}
+    assert tv._saude_backup({"ultima_em": "lixo"}, agora)["saude"] == "cinza"
+
+
+async def test_resumo_backup_so_expoe_data_e_cor(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _snapshot() -> dict:
+        return {
+            "etapas": [
+                {**_etapa(6), "chave": "dump", "tamanho_bytes": 5, "detalhe": "Há 6 h."},
+                {**_etapa(30), "chave": "offsite"},
+                {**_etapa(1), "chave": "disco"},
+            ]
+        }
+
+    monkeypatch.setattr(tv, "ler_snapshot", _snapshot)
+    resumo = await tv.resumo_backup()
+    assert resumo["disponivel"] is True
+    assert set(resumo) == {"disponivel", "banco_local", "copia_externa"}
+    assert set(resumo["banco_local"]) == {"ultima_em", "saude"}
+    assert resumo["banco_local"]["saude"] == "verde"
+    assert resumo["copia_externa"]["saude"] == "amarelo"
+
+
+async def test_resumo_backup_sem_redis_nao_derruba_a_tv(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _quebra() -> dict:
+        raise RuntimeError("redis fora")
+
+    monkeypatch.setattr(tv, "ler_snapshot", _quebra)
+    resumo = await tv.resumo_backup()
+    assert resumo["disponivel"] is False
+    assert resumo["banco_local"]["saude"] == "cinza"

@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_session
 from app.models import EventoAuditoria, EventoOperacional
 from app.ratelimit import RateLimiter
+from app.saude_backups import ler_snapshot
 from app.settings import get_settings
 from app.tenancy import aplicar_contexto_tenant
 
@@ -282,6 +283,53 @@ async def resumo_erp() -> dict[str, Any]:
             return _resposta_erp("indisponivel")
 
 
+BACKUP_LIMITE_ATENCAO_HORAS = 26.0
+BACKUP_LIMITE_CRITICO_HORAS = 50.0
+
+
+def _saude_backup(etapa: Any, agora: datetime) -> dict[str, Any]:
+    """Última execução e saúde de uma etapa da rotina de backup (só data/hora e cor, sem caminho nem detalhe).
+
+    Verde até 26 h, amarelo até 50 h, vermelho acima disso ou quando a última execução falhou."""
+    if not isinstance(etapa, dict) or not etapa.get("ultima_em"):
+        return {"ultima_em": None, "saude": "cinza"}
+    try:
+        ultima = datetime.fromisoformat(str(etapa["ultima_em"]).replace("Z", "+00:00"))
+    except ValueError:
+        return {"ultima_em": None, "saude": "cinza"}
+    if ultima.tzinfo is None:
+        ultima = ultima.replace(tzinfo=UTC)
+    horas = (agora - ultima).total_seconds() / 3600
+    if etapa.get("status") == "critico" and "falhou" in str(etapa.get("detalhe", "")).lower():
+        saude = "vermelho"
+    elif horas > BACKUP_LIMITE_CRITICO_HORAS:
+        saude = "vermelho"
+    elif horas > BACKUP_LIMITE_ATENCAO_HORAS:
+        saude = "amarelo"
+    else:
+        saude = "verde"
+    return {"ultima_em": ultima.isoformat(), "saude": saude}
+
+
+async def resumo_backup() -> dict[str, Any]:
+    """Último backup local do banco e última cópia externa, lidos do instantâneo que o worker publica no Redis."""
+    agora = datetime.now(UTC)
+    try:
+        snapshot = await asyncio.wait_for(ler_snapshot(), timeout=2.0)
+    except Exception:  # noqa: BLE001 -- Redis fora do ar não pode derrubar a TV
+        logger.warning("TV: leitura do estado dos backups falhou", exc_info=True)
+        snapshot = None
+    if not isinstance(snapshot, dict):
+        sem_dado = {"ultima_em": None, "saude": "cinza"}
+        return {"disponivel": False, "banco_local": sem_dado, "copia_externa": dict(sem_dado)}
+    etapas = {e.get("chave"): e for e in snapshot.get("etapas", []) if isinstance(e, dict)}
+    return {
+        "disponivel": True,
+        "banco_local": _saude_backup(etapas.get("dump"), agora),
+        "copia_externa": _saude_backup(etapas.get("offsite"), agora),
+    }
+
+
 @router.get("/tv")
 async def painel_tv(session: SessionDep, response: Response, _chave: ChaveTvDep) -> dict[str, Any]:
     """Resumo agregado dos dois sistemas para a TV (somente leitura)."""
@@ -289,5 +337,5 @@ async def painel_tv(session: SessionDep, response: Response, _chave: ChaveTvDep)
     # Leitura agregada da plataforma inteira, liberada só depois da chave da TV (mesmo recurso do webhook
     # do WhatsApp e do portal): a auditoria tem RLS por organização e esta consulta cruza todas.
     await aplicar_contexto_tenant(session, get_settings().default_organization_id, superadmin=True)
-    central, erp = await asyncio.gather(_resumo_central(session), resumo_erp())
-    return {"gerado_em": datetime.now(UTC), "zeregistra": central, "erp": erp}
+    central, erp, backup = await asyncio.gather(_resumo_central(session), resumo_erp(), resumo_backup())
+    return {"gerado_em": datetime.now(UTC), "zeregistra": central, "erp": erp, "backup": backup}

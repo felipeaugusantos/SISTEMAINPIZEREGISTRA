@@ -204,6 +204,34 @@
     ], fora);
   }
 
+  function idade(valor) {
+    const horas = (Date.now() - new Date(valor).getTime()) / 3600000;
+    if (horas < 1) return "há menos de 1 h";
+    if (horas < 48) return `há ${Math.floor(horas)} h`;
+    return `há ${Math.floor(horas / 24)} dias`;
+  }
+
+  function itemBackup(rotulo, leitura) {
+    const saude = leitura && leitura.ultima_em ? leitura.saude : "cinza";
+    const item = el("div", `tv-backup-item saude-${saude}`);
+    const quando = leitura && leitura.ultima_em ? new Date(leitura.ultima_em) : null;
+    const texto = quando && !Number.isNaN(quando.getTime())
+      ? `${quando.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às ${hora(quando)}`
+      : "sem leitura";
+    const estado = { verde: "Em dia", amarelo: "Atrasado", vermelho: "Crítico", cinza: "Sem leitura" }[saude];
+    const corpo = el("div", "tv-backup-texto");
+    corpo.append(el("span", "", rotulo), el("strong", "", texto), el("small", "", quando ? idade(leitura.ultima_em) : "sem dado"));
+    item.append(corpo, el("em", "tv-backup-selo", estado));
+    return item;
+  }
+
+  function cartaoBackup(b) {
+    const alvo = document.getElementById("tv-backup");
+    if (!alvo) return;
+    const dados = b && typeof b === "object" ? b : {};
+    alvo.replaceChildren(el("h2", "", "Backup"), itemBackup("Último backup local", dados.banco_local), itemBackup("Último envio ao Drive", dados.copia_externa));
+  }
+
   function mostrarAviso(texto) {
     if (texto) { alvoAviso.textContent = texto; alvoAviso.hidden = false; } else { alvoAviso.hidden = true; }
   }
@@ -212,6 +240,7 @@
     const velho = ultimoSucesso && Date.now() - ultimoSucesso > VELHO_MS;
     alvoCentral.classList.toggle("velho", Boolean(velho));
     if (velho) alvoErp.classList.add("velho");
+    if (ultimoDado && ultimoDado.backup) cartaoBackup(ultimoDado.backup);
     alvoAtualizado.textContent = ultimoSucesso ? `atualizado às ${hora(ultimoSucesso)}` : "aguardando dados…";
   }
 
@@ -236,6 +265,7 @@
       ultimoSucesso = Date.now();
       cartaoCentral(dados.zeregistra);
       cartaoErp(dados.erp);
+      cartaoBackup(dados.backup);
       mostrarAviso("");
     } catch (e) {
       mostrarAviso(ultimoSucesso

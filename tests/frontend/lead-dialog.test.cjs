@@ -9,8 +9,10 @@ const web = path.resolve(__dirname, "../../app/web");
 const lead = { id: 42, nome: "Contato de teste", pesquisas: [], status: "novo", tags: [],
   criado_em: "2026-01-01T12:00:00Z", empresa: "Empresa teste" };
 
-async function fixture(page, screen, permissions) {
+async function fixture(page, screen, permissions, opts = {}) {
   const requests = [], errors = [];
+  const usuarioMock = { id: 1, perfil: "operador", permissoes: permissions, ...(opts.usuario || {}) };
+  const leadMock = { ...lead, ...(opts.leadData || {}) };
   page.on("pageerror", e => errors.push(e.message));
   await page.route("**/*", async route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname;
@@ -28,12 +30,12 @@ async function fixture(page, screen, permissions) {
     }
     const base = { itens: [], contatos: [], total: 0, deslocamento: 0, tem_mais: false };
     let data = base;
-    if (p === "/v1/auth/me") data = { perfil: "operador", permissoes: permissions };
-    else if (p === "/v1/admin/leads/42") data = lead;
+    if (p === "/v1/auth/me") data = usuarioMock;
+    else if (p === "/v1/admin/leads/42") data = leadMock;
     else if (p === "/v1/admin/leads/42/propostas") data = { propostas: [{ id: 7, numero: "PROP-TESTE", versao: 1,
       marca: "MARCA TESTE", status: "rascunho", total: 1500 }] };
     else if (p === "/v1/admin/propostas/7/documento") data = { texto: "Conteúdo da proposta para visualização" };
-    else if (p === "/v1/admin/leads") data = { ...base, itens: [lead], total: 1,
+    else if (p === "/v1/admin/leads") data = { ...base, itens: [leadMock], total: 1,
       total_global: 1, pesquisas_total: 0, por_status: { novo: 1 },
       acoes: { gerenciar: permissions.includes("leads.manage") } };
     else if (p === "/v1/admin/leads-kanban") data = {
@@ -163,6 +165,53 @@ test("CRM respeita acesso PII e mantém o payload autorizado", async () => {
     const patch = requests.find(r => r.path === "/v1/admin/leads/42" && r.method === "PATCH");
     assert.deepEqual(patch.body.tags, ["teste", "retorno"]);
     assert.equal(patch.body.notas, "Anotação fictícia");
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
+test("Portal do cliente some para quem não é responsável nem administrador", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const { requests, errors } = await fixture(page, "crm", ["leads.view", "leads.manage"],
+      { usuario: { id: 1 }, leadData: { responsavel_id: 2 } });
+    await page.locator("[data-open-contact]").first().click();
+    await page.locator('#lead-dialog[open] [data-tab="atendimento"]').click();
+    await page.locator("#lead-crm-form").waitFor();
+    assert.equal(await page.locator(".lead-portal-access").count(), 0);
+    assert.equal(await page.locator(".lead-portal-messages").count(), 0);
+    assert.equal(await page.locator(".lead-portal-arquivos").count(), 0);
+    assert.ok(!requests.some(r => /portal-(acesso|mensagens|arquivos)/.test(r.path)));
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
+test("Portal do cliente aparece para o responsável pelo lead", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const { requests, errors } = await fixture(page, "crm", ["leads.view", "leads.manage"],
+      { usuario: { id: 2 }, leadData: { responsavel_id: 2 } });
+    await page.locator("[data-open-contact]").first().click();
+    await page.locator(".lead-portal-access").waitFor();
+    await page.locator(".lead-portal-messages").waitFor();
+    await page.locator(".lead-portal-arquivos").waitFor();
+    assert.ok(requests.some(r => r.path === "/v1/admin/leads/42/portal-acesso"));
+    assert.ok(requests.some(r => r.path === "/v1/admin/leads/42/portal-mensagens"));
+    assert.ok(requests.some(r => r.path === "/v1/admin/leads/42/portal-arquivos"));
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
+test("Portal do cliente aparece para administrador mesmo sem ser responsável", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const { requests, errors } = await fixture(page, "crm", ["leads.view", "leads.manage"],
+      { usuario: { id: 1, perfil: "administrador" }, leadData: { responsavel_id: 2 } });
+    await page.locator("[data-open-contact]").first().click();
+    await page.locator(".lead-portal-access").waitFor();
+    assert.ok(requests.some(r => r.path === "/v1/admin/leads/42/portal-acesso"));
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });

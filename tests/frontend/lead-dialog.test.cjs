@@ -9,8 +9,10 @@ const web = path.resolve(__dirname, "../../app/web");
 const lead = { id: 42, nome: "Contato de teste", pesquisas: [], status: "novo", tags: [],
   criado_em: "2026-01-01T12:00:00Z", empresa: "Empresa teste" };
 
-async function fixture(page, screen, permissions) {
+async function fixture(page, screen, permissions, opts = {}) {
   const requests = [], errors = [];
+  const usuarioMock = { id: 1, perfil: "operador", permissoes: permissions, ...(opts.usuario || {}) };
+  const leadMock = { ...lead, ...(opts.leadData || {}) };
   page.on("pageerror", e => errors.push(e.message));
   await page.route("**/*", async route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname;
@@ -28,12 +30,12 @@ async function fixture(page, screen, permissions) {
     }
     const base = { itens: [], contatos: [], total: 0, deslocamento: 0, tem_mais: false };
     let data = base;
-    if (p === "/v1/auth/me") data = { perfil: "operador", permissoes: permissions };
-    else if (p === "/v1/admin/leads/42") data = lead;
+    if (p === "/v1/auth/me") data = usuarioMock;
+    else if (p === "/v1/admin/leads/42") data = leadMock;
     else if (p === "/v1/admin/leads/42/propostas") data = { propostas: [{ id: 7, numero: "PROP-TESTE", versao: 1,
       marca: "MARCA TESTE", status: "rascunho", total: 1500 }] };
     else if (p === "/v1/admin/propostas/7/documento") data = { texto: "Conteúdo da proposta para visualização" };
-    else if (p === "/v1/admin/leads") data = { ...base, itens: [lead], total: 1,
+    else if (p === "/v1/admin/leads") data = { ...base, itens: [leadMock], total: 1,
       total_global: 1, pesquisas_total: 0, por_status: { novo: 1 },
       acoes: { gerenciar: permissions.includes("leads.manage") } };
     else if (p === "/v1/admin/leads-kanban") data = {

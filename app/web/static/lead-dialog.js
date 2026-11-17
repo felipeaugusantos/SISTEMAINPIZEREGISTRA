@@ -58,13 +58,14 @@ function formatDate(value, withTime = true) {
 }
 
 function phoneDigits(value) { return String(value || "").replace(/\D/g, ""); }
-// R02 (plano de correções 17/11/2026): normalizar o destino do WhatsApp
+// R02 (plano de correções 17/11/2026): validar o destino do WhatsApp
 // antes de habilitar o atalho. phoneDigits só removia não-dígitos e gerava
-// wa.me sem DDI para telefones nacionais de 10/11 dígitos (destino errado).
-// Regras: "+" inicial ou prefixo 00 = internacional, mantém como está;
-// 12/13 dígitos começando com 55 = nacional com DDI, mantém; 10/11 dígitos
-// = nacional sem DDI, prefixa 55; qualquer outro formato = ambíguo, fica
-// bloqueado pedindo revisão em vez de presumir um destino.
+// wa.me sem DDI (destino errado ou falho). Regras: "+" inicial ou prefixo
+// 00 = internacional, mantém como está; 12/13 dígitos começando com 55 =
+// nacional com DDI, mantém; 10/11 dígitos sem DDI = país incerto, então o
+// atalho só abre depois de o operador confirmar explicitamente o código do
+// país (sugerimos +55 Brasil, sem alterar o cadastro); qualquer outro
+// formato = ambíguo, fica bloqueado pedindo revisão.
 function formatTelefoneExibicao(digits) {
   if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
     const ddd = digits.slice(2, 4);
@@ -83,12 +84,13 @@ function whatsappDestino(telefone) {
     return { ok: false, motivo: "invalido" };
   }
   if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) return { ok: true, destino: digits, exibicao: formatTelefoneExibicao(digits) };
-  if (digits.length === 10 || digits.length === 11) return { ok: true, destino: `55${digits}`, exibicao: formatTelefoneExibicao(`55${digits}`) };
+  if (digits.length === 10 || digits.length === 11) return { ok: false, motivo: "confirmar-pais", sugestao: `55${digits}`, exibicaoSugestao: formatTelefoneExibicao(`55${digits}`) };
   return { ok: false, motivo: "ambiguo" };
 }
 function whatsappLinkHtml(telefone, { label = "WhatsApp", extraClass = "" } = {}) {
   const wa = whatsappDestino(telefone);
   if (wa.motivo === "vazio") return "";
+  if (wa.motivo === "confirmar-pais") return `<a class="${extraClass}" href="https://wa.me/${wa.sugestao}" target="_blank" rel="noopener" data-wa-sugestao="${escapeHtml(wa.exibicaoSugestao)}" aria-label="${label} (confirmar código do país)" title="Confirmar código do país">${label}</a>`;
   if (!wa.ok) return `<button type="button" class="${extraClass} wa-destino-invalido" data-wa-invalido title="Telefone em formato não reconhecido">Revisar telefone</button>`;
   return `<a class="${extraClass}" href="https://wa.me/${wa.destino}" target="_blank" rel="noopener" data-wa-destino="${escapeHtml(wa.exibicao)}" aria-label="Abrir WhatsApp para ${escapeHtml(wa.exibicao)}" title="${escapeHtml(wa.exibicao)}">${label}</a>`;
 }
@@ -254,7 +256,7 @@ function researchCard(item) {
   return `<article class="lead-research-card">
     <div><strong>${escapeHtml(item.marca)}</strong>${duplicateStatus(item)}<small>${formatDate(item.criado_em)}</small></div>
     <p>${escapeHtml(item.atividade || "Atividade não informada")}</p>
-    <div class="lead-research-meta">${item.classe_nice ? `<span>NCL ${escapeHtml(item.classe_nice)}</span>` : ""}${item.risco_nivel ? `<span class="risk-pill risk-${escapeHtml(item.risco_nivel)}">Risco ${escapeHtml(riskLabels[item.risco_nivel] || item.risco_nivel)}${item.risco_pontuacao !== null ? ` · ${item.risco_pontuacao} pontos` : ""}</span>` : `<span>Análise ainda não calculada</span>`}${fullReportStatus(item)}</div>
+    <div class="lead-research-meta">${item.classe_nice ? `<span>NCL ${escapeHtml(item.classe_nice)}</span>` : ""}${item.risco_nivel ? `<span class="risk-pill risk-${escapeHtml(item.risco_nivel)}">Risco ${escapeHtml(riskLabels[item.risco_nivel] || item.risco_nivel)}${item.risco_pontuacao != null ? ` · ${item.risco_pontuacao} pontos` : ""}</span>` : `<span>Análise ainda não calculada</span>`}${fullReportStatus(item)}</div>
     <div class="lead-research-actions"><a class="secondary-button" href="/admin/analises/${encodeURIComponent(item.id)}">Abrir Central de Análise</a>${reportAction}${moveAction(item)}${deletionAction(item)}</div>
   </article>`;
 }
@@ -1906,6 +1908,13 @@ async function visualizarProposta(id) {
       if (waLink) {
         // R02: o destino completo é confirmado antes de abrir o WhatsApp.
         if (!confirm(`Abrir conversa no WhatsApp com ${waLink.dataset.waDestino}?`)) event.preventDefault();
+        return;
+      }
+      const waSugestao = event.target.closest("a[data-wa-sugestao]");
+      if (waSugestao) {
+        // R02: sem código do país no cadastro, o operador confirma
+        // explicitamente o destino internacional antes de abrir.
+        if (!confirm(`Este telefone não tem código do país. Abrir conversa no WhatsApp como ${waSugestao.dataset.waSugestao} (Brasil)?`)) event.preventDefault();
         return;
       }
       if (event.target.closest("[data-wa-invalido]")) showMessage("Telefone em formato não reconhecido. Revise o cadastro do contato antes de abrir o WhatsApp.", "error");

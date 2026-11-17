@@ -241,14 +241,18 @@
     const legenda = fora
       ? `ERP indisponível${e.indisponivel_desde ? ` desde ${hora(e.indisponivel_desde)}` : ""} · último dado ${hora(e.atualizado_em)}`
       : `7 dias: ações (verde) e erros (vermelho) · ${num(d.clientes_sem_uso_7d)} clientes sem uso em 7 dias`;
-    const filhos = [
+    const filhos = [];
+    if (!fora && typeof d.motivo === "string" && d.motivo.trim()) {
+      filhos.push(el("p", "tv-motivo", d.motivo.trim()));
+    }
+    filhos.push(
       heroi(num(d.clientes_ativos_24h), "clientes com uso (24 h)", [
         numero(num(d.erros_abertos), "erros abertos", nivelAbertos),
         numero(num(d.usuarios_ativos_24h), "usuários ativos (24 h)", ""),
         numero(num(d.acoes_24h), "ações (24 h)", ""),
       ]),
       el("p", "tv-legenda", legenda),
-    ];
+    );
     if (!fora) {
       const parados = listaSemUso(d.clientes_sem_uso);
       if (parados) filhos.push(parados);

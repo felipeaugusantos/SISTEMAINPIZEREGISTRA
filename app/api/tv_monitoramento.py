@@ -384,8 +384,30 @@ def _saude_backup(etapa: Any, agora: datetime) -> dict[str, Any]:
     return {"ultima_em": ultima.isoformat(), "saude": saude}
 
 
+_SAUDE_POR_STATUS_ETAPA = {"ok": "verde", "atencao": "amarelo", "critico": "vermelho", "desconhecido": "cinza"}
+
+
+def _saude_teste_restauracao(etapa: Any) -> dict[str, Any]:
+    """Último teste semanal de restauração: data, se passou e cor (sem caminho nem detalhe do teste).
+
+    A cor segue o status que o worker calculou (limite de idade em
+    alerta_simulado_max_dias); falha no último teste é sempre vermelho.
+    """
+    if not isinstance(etapa, dict) or not etapa.get("ultima_em"):
+        return {"ultima_em": None, "sucesso": None, "saude": "cinza"}
+    try:
+        ultima = datetime.fromisoformat(str(etapa["ultima_em"]).replace("Z", "+00:00"))
+    except ValueError:
+        return {"ultima_em": None, "sucesso": None, "saude": "cinza"}
+    if ultima.tzinfo is None:
+        ultima = ultima.replace(tzinfo=UTC)
+    falhou = "falhou" in str(etapa.get("detalhe", "")).lower()
+    saude = "vermelho" if falhou else _SAUDE_POR_STATUS_ETAPA.get(str(etapa.get("status")), "cinza")
+    return {"ultima_em": ultima.isoformat(), "sucesso": not falhou, "saude": saude}
+
+
 async def resumo_backup() -> dict[str, Any]:
-    """Último backup local do banco e última cópia externa, lidos do instantâneo que o worker publica no Redis."""
+    """Último backup local, última cópia externa e último teste de restauração (snapshot do worker no Redis)."""
     agora = datetime.now(UTC)
     try:
         snapshot = await asyncio.wait_for(ler_snapshot(), timeout=2.0)
@@ -394,12 +416,14 @@ async def resumo_backup() -> dict[str, Any]:
         snapshot = None
     if not isinstance(snapshot, dict):
         sem_dado = {"ultima_em": None, "saude": "cinza"}
-        return {"disponivel": False, "banco_local": sem_dado, "copia_externa": dict(sem_dado)}
+        sem_teste = {"ultima_em": None, "sucesso": None, "saude": "cinza"}
+        return {"disponivel": False, "banco_local": sem_dado, "copia_externa": dict(sem_dado), "teste_restauracao": sem_teste}
     etapas = {e.get("chave"): e for e in snapshot.get("etapas", []) if isinstance(e, dict)}
     return {
         "disponivel": True,
         "banco_local": _saude_backup(etapas.get("dump"), agora),
         "copia_externa": _saude_backup(etapas.get("offsite"), agora),
+        "teste_restauracao": _saude_teste_restauracao(etapas.get("simulado")),
     }
 
 

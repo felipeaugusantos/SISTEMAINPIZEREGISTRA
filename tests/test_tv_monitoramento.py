@@ -270,16 +270,20 @@ async def test_resumo_backup_so_expoe_data_e_cor(monkeypatch: pytest.MonkeyPatch
                 {**_etapa(6), "chave": "dump", "tamanho_bytes": 5, "detalhe": "Há 6 h."},
                 {**_etapa(30), "chave": "offsite"},
                 {**_etapa(1), "chave": "disco"},
+                {**_etapa(24 * 3), "chave": "simulado", "status": "ok", "detalhe": "Há 3 dia(s)."},
             ]
         }
 
     monkeypatch.setattr(tv, "ler_snapshot", _snapshot)
     resumo = await tv.resumo_backup()
     assert resumo["disponivel"] is True
-    assert set(resumo) == {"disponivel", "banco_local", "copia_externa"}
+    assert set(resumo) == {"disponivel", "banco_local", "copia_externa", "teste_restauracao"}
     assert set(resumo["banco_local"]) == {"ultima_em", "saude"}
     assert resumo["banco_local"]["saude"] == "verde"
     assert resumo["copia_externa"]["saude"] == "amarelo"
+    assert set(resumo["teste_restauracao"]) == {"ultima_em", "sucesso", "saude"}
+    assert resumo["teste_restauracao"]["sucesso"] is True
+    assert resumo["teste_restauracao"]["saude"] == "verde"
 
 
 async def test_resumo_backup_sem_redis_nao_derruba_a_tv(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -290,6 +294,27 @@ async def test_resumo_backup_sem_redis_nao_derruba_a_tv(monkeypatch: pytest.Monk
     resumo = await tv.resumo_backup()
     assert resumo["disponivel"] is False
     assert resumo["banco_local"]["saude"] == "cinza"
+    assert resumo["teste_restauracao"] == {"ultima_em": None, "sucesso": None, "saude": "cinza"}
+
+
+def test_teste_restauracao_cor_e_resultado() -> None:
+    ok = tv._saude_teste_restauracao({"ultima_em": datetime.now(UTC).isoformat(), "status": "ok", "detalhe": "Há 1 dia."})
+    assert ok["sucesso"] is True and ok["saude"] == "verde" and ok["ultima_em"]
+    falha = tv._saude_teste_restauracao(
+        {"ultima_em": datetime.now(UTC).isoformat(), "status": "critico", "detalhe": "O último simulado de restauração falhou."}
+    )
+    assert falha["sucesso"] is False and falha["saude"] == "vermelho"
+    velho = tv._saude_teste_restauracao({"ultima_em": datetime.now(UTC).isoformat(), "status": "critico", "detalhe": "Último simulado há 9 dias."})
+    assert velho["sucesso"] is True and velho["saude"] == "vermelho"
+    atencao = tv._saude_teste_restauracao({"ultima_em": datetime.now(UTC).isoformat(), "status": "atencao", "detalhe": ""})
+    assert atencao["saude"] == "amarelo"
+
+
+def test_teste_restauracao_sem_dado_ou_lixo() -> None:
+    vazio = {"ultima_em": None, "sucesso": None, "saude": "cinza"}
+    assert tv._saude_teste_restauracao(None) == vazio
+    assert tv._saude_teste_restauracao({"status": "atencao"}) == vazio
+    assert tv._saude_teste_restauracao({"ultima_em": "ontem"}) == vazio
 
 
 def test_backup_erp_so_contagens_e_datas() -> None:

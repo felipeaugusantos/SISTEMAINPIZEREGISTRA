@@ -261,6 +261,24 @@ def normalizar_backup_erp(bruto: Any, agora: datetime | None = None) -> dict[str
     return resumo
 
 
+def _saude_erp(erros_1h: int, erros_abertos: int, acoes_24h: int) -> tuple[str, str | None]:
+    """Cor do cartão do ERP e o motivo curto quando não é verde.
+
+    Vermelho: 10+ erros novos na última hora. Amarelo com motivo escrito: algum
+    erro novo na última hora, algum erro aberto esperando revisão, ou nenhuma
+    ação registrada em 24 h - antes um ERP parado aparecia "Saudável".
+    """
+    if erros_1h >= 10:
+        return "vermelho", f"{erros_1h} erros novos na última hora"
+    if erros_1h >= 1:
+        return "amarelo", f"{erros_1h} erro(s) novo(s) na última hora"
+    if erros_abertos > 0:
+        return "amarelo", f"{erros_abertos} erro(s) aberto(s) para revisar"
+    if acoes_24h == 0:
+        return "amarelo", "Sem uso nas últimas 24 h"
+    return "verde", None
+
+
 def normalizar_erp(bruto: Any) -> dict[str, Any]:
     """Copia só os campos conhecidos da resposta do ERP.
 
@@ -270,10 +288,11 @@ def normalizar_erp(bruto: Any) -> dict[str, Any]:
     """
     dados = bruto if isinstance(bruto, dict) else {}
     erros_1h = _inteiro(dados.get("erros_novos_1h"))
-    saude = "vermelho" if erros_1h >= 10 else "amarelo" if erros_1h >= 1 else "verde"
     resumo: dict[str, Any] = {campo: _inteiro(dados.get(campo)) for campo in _CAMPOS_INTEIROS_ERP}
     resumo["agregado"] = True
+    saude, motivo = _saude_erp(erros_1h, resumo["erros_abertos"], resumo["acoes_24h"])
     resumo["saude"] = saude
+    resumo["motivo"] = motivo[:120] if motivo else None
     resumo["gerado_em"] = str(dados.get("gerado_em") or "")[:40]
     resumo["serie"] = [
         {

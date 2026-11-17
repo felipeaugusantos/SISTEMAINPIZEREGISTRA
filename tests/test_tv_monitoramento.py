@@ -132,6 +132,7 @@ def test_normalizar_erp_copia_so_campos_conhecidos() -> None:
     }
     r = tv.normalizar_erp(bruto)
     assert r["saude"] == "vermelho"
+    assert r["motivo"] == "12 erros novos na última hora"
     assert r["serie"] == [{"dia": "2026-11-17", "acoes": 50, "erros": 2}]
     assert r["top_erros"] == [{"rota": "/caixa", "origem": "navegador", "quantidade": 7}]
     assert "Secreta" not in str(r) and "Loja" not in str(r) and "a@b.com" not in str(r)
@@ -174,7 +175,25 @@ def test_inteiro_ou_nulo() -> None:
 
 def test_normalizar_erp_com_entrada_invalida_vira_zeros() -> None:
     r = tv.normalizar_erp("lixo")
-    assert r["erros_abertos"] == 0 and r["saude"] == "verde" and r["serie"] == [] and r["top_erros"] == []
+    assert r["erros_abertos"] == 0 and r["serie"] == [] and r["top_erros"] == []
+    # tudo zero = ERP sem uso: nunca pode dizer "Saudável"
+    assert r["saude"] == "amarelo" and r["motivo"] == "Sem uso nas últimas 24 h"
+
+
+@pytest.mark.parametrize(
+    ("campos", "saude", "motivo"),
+    [
+        ({"acoes_24h": 5}, "verde", None),
+        ({"acoes_24h": 5, "erros_abertos": 2}, "amarelo", "2 erro(s) aberto(s) para revisar"),
+        ({"acoes_24h": 0, "usuarios_ativos_24h": 0}, "amarelo", "Sem uso nas últimas 24 h"),
+        ({"acoes_24h": 5, "erros_novos_1h": 3}, "amarelo", "3 erro(s) novo(s) na última hora"),
+        ({"acoes_24h": 5, "erros_abertos": 7, "erros_novos_1h": 10}, "vermelho", "10 erros novos na última hora"),
+    ],
+)
+def test_normalizar_erp_saude_honesta_com_motivo(campos: dict, saude: str, motivo: str | None) -> None:
+    r = tv.normalizar_erp(campos)
+    assert r["saude"] == saude
+    assert r["motivo"] == motivo
 
 
 def _cliente_http_falso(monkeypatch: pytest.MonkeyPatch, handler) -> list[httpx.Request]:

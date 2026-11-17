@@ -1,4 +1,5 @@
-// Painel de TV (17/11/2026): Zé Registra e EZRA ERP lado a lado, só números agregados.
+// Painel de TV (17/11/2026): Zé Registra e EZRA ERP lado a lado, números agregados; a lista de
+// clientes do ERP sem uso em 7 dias mostra nome e dias (aprovado pelo dono em 17/11/2026).
 // Sem login: a chave de leitura vem no fragmento da URL (#t=...), que não vai para log do servidor,
 // fica guardada neste navegador e some da barra de endereço. Atualiza sozinho; se algo falha, avisa na tela.
 (function () {
@@ -200,6 +201,28 @@
     ], false);
   }
 
+  function listaSemUso(lista) {
+    const itens = (Array.isArray(lista) ? lista : []).filter((i) => i && typeof i.nome === "string" && i.nome.trim());
+    if (!itens.length) return null;
+    const LIMITE = 6;
+    const caixa = el("div", "tv-sem-uso");
+    caixa.append(el("h3", "", `Sem uso em 7 dias (${num(itens.length)})`));
+    const ul = el("ul", "");
+    itens.slice(0, LIMITE).forEach((i) => {
+      const dias = i.dias_sem_uso === null || i.dias_sem_uso === undefined ? null : Number(i.dias_sem_uso);
+      const valido = dias !== null && Number.isFinite(dias) && dias >= 0;
+      const li = el("li");
+      li.append(
+        el("span", "", i.nome.trim()),
+        el("b", "", valido ? `há ${Math.floor(dias)} ${Math.floor(dias) === 1 ? "dia" : "dias"}` : "nunca usou"),
+      );
+      ul.append(li);
+    });
+    if (itens.length > LIMITE) ul.append(el("li", "tv-sem-uso-mais", `+ ${num(itens.length - LIMITE)} outros sem uso`));
+    caixa.append(ul);
+    return caixa;
+  }
+
   function cartaoErp(e) {
     if (e.status === "nao_configurado") {
       montarCartao(alvoErp, "EZRA ERP", "cinza", "Não configurado", [el("p", "tv-vazio", "Origem do ERP ainda não configurada")], true);
@@ -218,16 +241,21 @@
     const legenda = fora
       ? `ERP indisponível${e.indisponivel_desde ? ` desde ${hora(e.indisponivel_desde)}` : ""} · último dado ${hora(e.atualizado_em)}`
       : `7 dias: ações (verde) e erros (vermelho) · ${num(d.clientes_sem_uso_7d)} clientes sem uso em 7 dias`;
-    montarCartao(alvoErp, "EZRA ERP", fora ? "cinza" : d.saude, fora ? "Indisponível" : "", [
+    const filhos = [
       heroi(num(d.clientes_ativos_24h), "clientes com uso (24 h)", [
         numero(num(d.erros_abertos), "erros abertos", nivelAbertos),
         numero(num(d.usuarios_ativos_24h), "usuários ativos (24 h)", ""),
         numero(num(d.acoes_24h), "ações (24 h)", ""),
       ]),
       el("p", "tv-legenda", legenda),
-      grafico((d.serie || []).map((p) => ({ dia: p.dia, acoes: p.acoes, erros: p.erros }))),
-      ...(fora ? [] : [topErros(d.top_erros, "erp")]),
-    ], fora);
+    ];
+    if (!fora) {
+      const parados = listaSemUso(d.clientes_sem_uso);
+      if (parados) filhos.push(parados);
+    }
+    filhos.push(grafico((d.serie || []).map((p) => ({ dia: p.dia, acoes: p.acoes, erros: p.erros }))));
+    if (!fora) filhos.push(topErros(d.top_erros, "erp"));
+    montarCartao(alvoErp, "EZRA ERP", fora ? "cinza" : d.saude, fora ? "Indisponível" : "", filhos, fora);
   }
 
   function idade(valor) {

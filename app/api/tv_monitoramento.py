@@ -8,7 +8,9 @@ e em 60 min parada), então o acesso é por uma chave de leitura própria:
 - só o hash SHA-256 fica configurado (TV_MONITORAMENTO_TOKEN_SHA256); vazio =
   painel desligado, e trocar o hash revoga a chave anterior;
 - a resposta é agregada: contagens, saúde, série de 7 dias e top 3 erros por
-  operação. Sem nome de organização, usuário, e-mail, IP nem texto de erro;
+  operação. Sem nome de organização, usuário, e-mail, IP nem texto de erro.
+  Única exceção, aprovada pelo dono em 17/11/2026: a lista de clientes do ERP
+  sem uso em 7 dias leva o nome e há quantos dias (sem e-mail nem documento);
 - limite de taxa por IP e Cache-Control no-store.
 
 O resumo do EZRA ERP vem do servidor daquele sistema (chamada servidor a
@@ -202,6 +204,16 @@ def _inteiro(valor: Any) -> int:
     return max(numero, 0)
 
 
+def _inteiro_ou_nulo(valor: Any) -> int | None:
+    if valor is None:
+        return None
+    try:
+        numero = int(valor)
+    except (TypeError, ValueError):
+        return None
+    return numero if numero >= 0 else None
+
+
 def _data_iso(valor: Any) -> str | None:
     """Data/hora em ISO ou None: o que não for data válida nunca chega à TV."""
     if not isinstance(valor, str) or not valor:
@@ -252,8 +264,9 @@ def normalizar_backup_erp(bruto: Any, agora: datetime | None = None) -> dict[str
 def normalizar_erp(bruto: Any) -> dict[str, Any]:
     """Copia só os campos conhecidos da resposta do ERP.
 
-    Se o outro sistema passar a devolver mais coisa (nome de cliente, texto de
-    erro), isso nunca chega à TV.
+    Se o outro sistema passar a devolver mais coisa (e-mail, documento, texto
+    de erro), isso nunca chega à TV. A única informação nominal é a lista de
+    clientes sem uso (nome + dias), aprovada pelo dono em 17/11/2026.
     """
     dados = bruto if isinstance(bruto, dict) else {}
     erros_1h = _inteiro(dados.get("erros_novos_1h"))
@@ -280,6 +293,16 @@ def normalizar_erp(bruto: Any) -> dict[str, Any]:
         for item in (dados.get("top_erros") or [])[:3]
         if isinstance(item, dict)
     ]
+    lista_sem_uso: list[dict[str, Any]] = []
+    bruto_sem_uso = dados.get("clientes_sem_uso")
+    if isinstance(bruto_sem_uso, list):
+        for item in bruto_sem_uso[:20]:
+            if not isinstance(item, dict):
+                continue
+            nome = str(item.get("nome") or "").strip()[:60]
+            if nome:
+                lista_sem_uso.append({"nome": nome, "dias_sem_uso": _inteiro_ou_nulo(item.get("dias_sem_uso"))})
+    resumo["clientes_sem_uso"] = lista_sem_uso
     resumo["backup"] = normalizar_backup_erp(dados.get("backup"))
     return resumo
 

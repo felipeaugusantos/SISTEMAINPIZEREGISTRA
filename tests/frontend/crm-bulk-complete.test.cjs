@@ -129,3 +129,20 @@ for (const failure of ["429", "409", "network", "refresh"]) {
     } finally { await browser.close(); }
   });
 }
+
+test("bulk: quoted titles remain literal in the accessible checkbox label", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const { errors } = await fixture(page);
+    const title = `Contato "Empresa A" e 'Empresa B' <prioridade> & retorno`;
+    await page.evaluate(data => renderReminders(data), data([{ ...item(9), titulo: title }]));
+    const checkbox = page.locator('.select-reminder');
+    assert.equal(await checkbox.getAttribute('aria-label'), `Selecionar lembrete: ${title}`);
+    assert.equal(await checkbox.isVisible(), true);
+    await checkbox.check();
+    assert.equal(await checkbox.isChecked(), true);
+    assert.deepEqual(await checkbox.evaluate(el => [...el.attributes].map(attr => attr.name).sort()), ['aria-label', 'class', 'data-id', 'type']);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});

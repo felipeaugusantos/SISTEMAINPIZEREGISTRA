@@ -116,7 +116,7 @@ for (const width of [1440, 390]) test(`M04 ${width}: 45 classes, busca, teclado 
   await page.locator('.nice-options input').check(); await page.locator('.nice-selector input[type=search]').fill('45'); await page.locator('.nice-options input').check();
   assert.equal(await page.locator('[data-field=classes_nice]').evaluate(el => [...el.selectedOptions].map(o => o.value).join(',')), '30,45');
   await page.locator('[data-field=marca]').fill('Marca teste'); await page.locator('[name=nome]').fill('Contato Teste'); await page.locator('[name=email]').fill('teste@example.com');
-  await page.locator('#consulta-form button[type=submit]').click(); await page.waitForFunction(() => location.pathname.endsWith('/r1'));
+  await page.locator('#consulta-form button[type=submit]').click(); await page.locator('#confirmar-consulta').click(); await page.waitForFunction(() => location.pathname.endsWith('/r1'));
   const post = f.requests.find(r => r.path === '/v1/admin/consulta' && r.method === 'POST'); assert.deepEqual(JSON.parse(post.body).marcas[0].classes_nice, ['30','45']);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   if (process.env.OPERATIONS_SCREENSHOTS) { fs.mkdirSync(process.env.OPERATIONS_SCREENSHOTS, { recursive: true }); await page.screenshot({ path: path.join(process.env.OPERATIONS_SCREENSHOTS, `consulta-${width}.png`), fullPage: true }); }
@@ -142,6 +142,30 @@ test('retorno da Análise reabre o mesmo diálogo e aba sem deslocar a lista', {
   await page.waitForFunction(() => document.querySelector('#lead-dialog').open && document.querySelector('.lead-tab.active')?.dataset.tab === 'atendimento');
   await page.waitForFunction(y => Math.abs(document.querySelector('#lead-dialog-content').scrollTop-y) < 4, before);
   assert.equal(await page.locator('.lead-returned').count(), 0); assert.deepEqual(f.errors, []);
+}));
+test('M01: estado dos filtros é persistido já no envio, antes da resposta', { timeout: 30000 }, async () => browserTest(async browser => {
+  // Segura a resposta da consulta filtrada: prova de forma determinística que
+  // o snapshot zeLeads já está atualizado durante a requisição em voo. Antes
+  // da correção o replaceState só rodava depois da resposta; uma recarga nessa
+  // janela restaurava o snapshot antigo e os filtros sumiam (falha
+  // intermitente M01/e2e visões salvas).
+  const page = await browser.newPage();
+  await fixture(page);
+  let liberarResposta;
+  const respostaPendente = new Promise(resolve => { liberarResposta = resolve; });
+  await page.route('**/v1/admin/leads?*', async route => {
+    if (route.request().url().includes('status=qualificado')) await respostaPendente;
+    await route.fallback();
+  });
+  await page.goto('http://operations.test/admin/pesquisas'); await page.locator('#leads-list tr').first().waitFor();
+  await page.locator('#lead-status-filter').selectOption('qualificado');
+  await page.locator('#lead-filters button[type=submit]').click();
+  // Com a resposta bloqueada, o estado persistido já deve refletir o filtro.
+  await page.waitForFunction(() => (history.state?.zeLeads?.fields || []).some(([id, v]) => id === 'lead-status-filter' && v === 'qualificado'), undefined, { timeout: 5000 });
+  liberarResposta();
+  await page.waitForResponse(r => r.url().includes('status=qualificado'));
+  await page.reload(); await page.locator('#leads-list tr').first().waitFor();
+  assert.equal(await page.locator('#lead-status-filter').inputValue(), 'qualificado');
 }));
 test('M01: filtros aplicados sobrevivem à recarga sem token de retorno antigo', { timeout: 30000 }, async () => browserTest(async browser => {
   const page = await browser.newPage(); await fixture(page);

@@ -48,6 +48,10 @@ test('Centro: classes selecionadas pela interface persistem no banco e retorno m
   await page.locator('.nice-options input[value="35"]').check();
   const created = page.waitForResponse(r => new URL(r.url()).pathname === '/v1/admin/consulta' && r.request().method() === 'POST');
   await page.locator('#consulta-form button[type=submit]').click();
+  // R08: a gravação exige a etapa de revisão fora do formulário; o POST só
+  // dispara após confirmar o resumo.
+  await expect(page.locator('#consulta-revisao')).toBeVisible();
+  await page.locator('#confirmar-consulta').click();
   const response = await created; expect(response.ok()).toBeTruthy(); const data = await response.json();
   expect(data.itens.map(item => item.classe_nice).sort()).toEqual(['30', '35']);
   const detail = await (await context.request.get(`/v1/admin/leads/${data.lead_id}`)).json();

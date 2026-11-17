@@ -46,9 +46,18 @@
             </article>
           </div>
           <button id="adicionar-marca" class="secondary-button consulta-add-marca" type="button">Adicionar outra marca</button>
+          <p id="consulta-marcas-status" class="status-message" role="status" hidden></p>
         </fieldset>
         <fieldset>
           <legend>Cliente — toda consulta gera um lead para o comercial</legend>
+          <div class="consulta-cliente-busca">
+            <label>Buscar cliente existente <small>(opcional) — preenche os dados abaixo; revise antes de pesquisar</small>
+              <input id="cliente-busca" type="search" autocomplete="off" placeholder="Nome, empresa, e-mail ou telefone">
+            </label>
+            <p id="cliente-busca-status" class="section-hint" role="status"></p>
+            <ul id="cliente-busca-resultados" class="consulta-cliente-resultados"></ul>
+            <p id="cliente-selecionado" class="status-message success" hidden></p>
+          </div>
           <div class="user-fields">
             <label>Nome <small>(obrigatório)</small><input name="nome" required minlength="2" maxlength="150" placeholder="Nome do cliente"></label>
             <label>Empresa<input name="empresa" maxlength="200"></label>
@@ -59,6 +68,14 @@
         </fieldset>
         <button class="primary-button form-submit" type="submit">Pesquisar</button>
       </form>
+      <section id="consulta-revisao" class="consulta-revisao" hidden>
+        <header><div><p class="eyebrow">Revise antes de pesquisar</p><h2>Resumo da consulta</h2></div></header>
+        <div id="consulta-revisao-resumo"></div>
+        <div class="consulta-revisao-acoes">
+          <button id="confirmar-consulta" class="primary-button" type="button">Confirmar e pesquisar</button>
+          <button id="voltar-consulta" class="secondary-button" type="button">Voltar e ajustar</button>
+        </div>
+      </section>
       <div id="consulta-status" class="status-message" role="status" aria-live="polite" hidden></div>
     </section>
 

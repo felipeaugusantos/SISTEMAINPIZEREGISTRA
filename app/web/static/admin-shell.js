@@ -535,8 +535,10 @@ document.querySelector("#admin-logout").addEventListener("click", async () => {
 // crítica nunca tem botão de adiar (leitura_obrigatoria=true e
 // pode_adiar=false vêm calculados assim pelo backend); nunca é modal.
 async function carregarAtualizacoesPendentes() {
-  const resposta = await originalFetch("/v1/admin/atualizacoes");
-  if (!resposta.ok) return;
+  // R11: falha de rede na leitura do banner não pode virar rejeição não
+  // tratada -- o aviso é complementar, então falha silenciosa aqui é ok.
+  const resposta = await originalFetch("/v1/admin/atualizacoes").catch(() => null);
+  if (!resposta || !resposta.ok) return;
   const dados = await resposta.json();
   const agora = new Date();
   const pendentes = dados.novidades.filter((item) => {
@@ -553,13 +555,17 @@ function escapeAdminHtml(value) {
   return element.innerHTML;
 }
 
+// R03 (plano de correções 17/11/2026): nas rotas do Centro de Operações o
+// histórico de versões sai do caminho da operação -- resumo compacto com
+// link para a central; só avisos críticos abrem expandidos. Expandir ou
+// recolher o resumo não grava leitura; confirmação e adiamento seguem os
+// mesmos contratos. As demais áreas admin mantêm a apresentação anterior.
+const CENTRO_COMPACTO_SECTIONS = new Set(["leads", "consulta"]);
+
 function renderAtualizacoesBanner(itens) {
   document.querySelector("#admin-atualizacoes-banner")?.remove();
   if (!itens.length) return;
-  const banner = document.createElement("div");
-  banner.id = "admin-atualizacoes-banner";
-  banner.className = "admin-avisos-banner";
-  banner.innerHTML = itens.map((item) => `
+  const avisoItem = (item) => `
     <article class="admin-aviso-item ${item.classificacao === "critica" ? "is-critico" : ""}" data-atualizacao-id="${item.id}">
       <div>
         <strong>${item.classificacao === "critica" ? "Atualização crítica" : "Nova versão"} · ${escapeAdminHtml(item.versao)}</strong>
@@ -571,36 +577,75 @@ function renderAtualizacoesBanner(itens) {
         ${item.pode_adiar ? `<button type="button" class="secondary-button" data-adiar-atualizacao="${item.id}">Lembrar em 7 dias</button>` : ""}
         <a class="secondary-button" href="/admin/atualizacoes">Ver central de atualizações</a>
       </div>
-    </article>
-  `).join("");
+    </article>`;
+  const compacto = CENTRO_COMPACTO_SECTIONS.has(document.body?.dataset.adminSection || "");
+  const criticos = itens.filter(item => item.classificacao === "critica");
+  const comuns = itens.filter(item => item.classificacao !== "critica");
+  const banner = document.createElement("div");
+  banner.id = "admin-atualizacoes-banner";
+  banner.className = "admin-avisos-banner";
+  banner.innerHTML = compacto
+    ? `<p class="admin-avisos-resumo">${itens.length} aviso${itens.length === 1 ? "" : "s"} da plataforma${criticos.length ? ` (${criticos.length} crítico${criticos.length === 1 ? "" : "s"})` : ""} · <a href="/admin/atualizacoes">Abrir central de atualizações</a>${comuns.length ? ` <button type="button" class="secondary-button" data-toggle-avisos aria-expanded="false">Ver avisos (${comuns.length})</button>` : ""}</p>${criticos.map(avisoItem).join("")}${comuns.length ? `<div class="admin-avisos-extra" hidden>${comuns.map(avisoItem).join("")}</div>` : ""}`
+    : itens.map(avisoItem).join("");
   // Prepend dentro de .admin-main (nunca document.body): o sidebar é
   // position:fixed e todo o conteúdo já tem margin-left pra não ficar por
   // baixo dele -- um banner solto no body ficava com metade do texto
   // escondida atrás do sidebar (achado do usuário, captura de tela).
   (document.querySelector(".admin-main") || document.body).prepend(banner);
+  banner.querySelector("[data-toggle-avisos]")?.addEventListener("click", event => {
+    const botao = event.currentTarget;
+    const extra = banner.querySelector(".admin-avisos-extra");
+    const expanded = botao.getAttribute("aria-expanded") === "true";
+    botao.setAttribute("aria-expanded", String(!expanded));
+    botao.textContent = expanded ? `Ver avisos (${comuns.length})` : "Ocultar avisos";
+    extra.hidden = expanded;
+  });
+  // R11: dispensar/confirmar falhava em silêncio e deixava o botão
+  // desabilitado para sempre em rejeição de rede; agora toda falha reativa
+  // o botão e mostra mensagem acionável junto ao aviso (sem roubar o foco).
+  const erroBanner = document.createElement("p");
+  erroBanner.className = "admin-avisos-erro status-message error";
+  erroBanner.setAttribute("role", "status");
+  erroBanner.hidden = true;
+  banner.appendChild(erroBanner);
+  const mostrarErro = (texto) => { erroBanner.textContent = texto; erroBanner.hidden = false; };
   banner.querySelectorAll("[data-confirmar-atualizacao]").forEach((botao) => {
     botao.addEventListener("click", async () => {
       botao.disabled = true;
-      const resposta = await fetch(`/v1/admin/atualizacoes/${botao.dataset.confirmarAtualizacao}/confirmar-leitura`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmar: true }),
-      });
-      if (resposta.ok) banner.querySelector(`[data-atualizacao-id="${botao.dataset.confirmarAtualizacao}"]`)?.remove();
-      else botao.disabled = false;
+      erroBanner.hidden = true;
+      try {
+        const resposta = await fetch(`/v1/admin/atualizacoes/${botao.dataset.confirmarAtualizacao}/confirmar-leitura`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmar: true }),
+        });
+        if (resposta.ok) banner.querySelector(`[data-atualizacao-id="${botao.dataset.confirmarAtualizacao}"]`)?.remove();
+        else mostrarErro(resposta.status === 401 ? "Sua sessão expirou. Entre novamente e repita a confirmação." : "Não foi possível registrar a leitura agora. Tente novamente.");
+      } catch {
+        mostrarErro("Sem conexão com o servidor. Verifique sua internet e tente novamente.");
+      } finally {
+        botao.disabled = false;
+      }
       if (!banner.querySelector(".admin-aviso-item")) banner.remove();
     });
   });
   banner.querySelectorAll("[data-adiar-atualizacao]").forEach((botao) => {
     botao.addEventListener("click", async () => {
       botao.disabled = true;
-      const resposta = await fetch(`/v1/admin/atualizacoes/${botao.dataset.adiarAtualizacao}/adiar`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dias: 7 }),
-      });
-      if (resposta.ok) banner.querySelector(`[data-atualizacao-id="${botao.dataset.adiarAtualizacao}"]`)?.remove();
-      else botao.disabled = false;
+      erroBanner.hidden = true;
+      try {
+        const resposta = await fetch(`/v1/admin/atualizacoes/${botao.dataset.adiarAtualizacao}/adiar`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dias: 7 }),
+        });
+        if (resposta.ok) banner.querySelector(`[data-atualizacao-id="${botao.dataset.adiarAtualizacao}"]`)?.remove();
+        else mostrarErro(resposta.status === 401 ? "Sua sessão expirou. Entre novamente e repita o adiamento." : "Não foi possível adiar o aviso agora. Tente novamente.");
+      } catch {
+        mostrarErro("Sem conexão com o servidor. Verifique sua internet e tente novamente.");
+      } finally {
+        botao.disabled = false;
+      }
       if (!banner.querySelector(".admin-aviso-item")) banner.remove();
     });
   });

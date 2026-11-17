@@ -281,6 +281,45 @@ document.querySelector("#simulate-retention").addEventListener("click", async ()
   }
 });
 
+// R14 (plano de correções 17/11/2026): localizar o lead por nome, empresa,
+// e-mail ou telefone com seleção explícita e revisão do alvo, em vez de
+// exigir o ID interno de memória.
+const legalHoldBusca = document.querySelector("#legal-hold-busca");
+const legalHoldBuscaStatus = document.querySelector("#legal-hold-busca-status");
+const legalHoldBuscaResultados = document.querySelector("#legal-hold-busca-resultados");
+const legalHoldSelecionado = document.querySelector("#legal-hold-selecionado");
+let buscaHoldVersion = 0, buscaHoldTimer;
+legalHoldBusca.addEventListener("input", () => {
+  clearTimeout(buscaHoldTimer);
+  const version = ++buscaHoldVersion;
+  legalHoldBuscaResultados.replaceChildren();
+  legalHoldSelecionado.hidden = true;
+  const termo = legalHoldBusca.value.trim();
+  if (termo.length < 2) { legalHoldBuscaStatus.textContent = termo ? "Digite ao menos 2 caracteres." : ""; return; }
+  legalHoldBuscaStatus.textContent = "Buscando leads…";
+  buscaHoldTimer = setTimeout(async () => {
+    try {
+      const params = new URLSearchParams({ busca: termo, limite: "10", ordenacao: "nome" });
+      const data = await api(`/v1/admin/leads?${params}`);
+      if (version !== buscaHoldVersion) return;
+      legalHoldBuscaStatus.textContent = data.itens.length ? `${data.itens.length} resultado(s). Selecione o lead.` : "Nenhum lead encontrado.";
+      for (const lead of data.itens) {
+        const li = document.createElement("li"), button = document.createElement("button");
+        button.type = "button"; button.className = "secondary-button";
+        button.textContent = `${lead.nome} · ${lead.empresa || "Sem empresa"} · ${lead.email || lead.telefone || "sem contato"}`;
+        button.addEventListener("click", () => {
+          legalHoldForm.elements.lead_id.value = lead.id;
+          legalHoldSelecionado.hidden = false;
+          legalHoldSelecionado.textContent = `Lead selecionado: ${button.textContent}. Revise o alvo e o motivo antes de gravar.`;
+          legalHoldBuscaResultados.replaceChildren();
+          legalHoldBuscaStatus.textContent = "";
+        });
+        li.append(button); legalHoldBuscaResultados.append(li);
+      }
+    } catch { if (version === buscaHoldVersion) legalHoldBuscaStatus.textContent = "Falha ao buscar. Digite novamente para tentar."; }
+  }, 300);
+});
+
 legalHoldForm.addEventListener("submit", async event => {
   event.preventDefault();
   const dados = Object.fromEntries(new FormData(legalHoldForm));

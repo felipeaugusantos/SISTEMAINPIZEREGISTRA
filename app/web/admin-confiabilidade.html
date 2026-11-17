@@ -166,6 +166,10 @@
       <p>Bloqueie um lead para impedir o descarte enquanto houver obrigação legal ou operacional.</p>
       <form id="legal-hold-form" class="reliability-form">
         <div class="user-fields">
+          <label class="field-full">Buscar lead <small>(nome, empresa, e-mail ou telefone) — selecione para preencher o ID</small><input id="legal-hold-busca" type="search" autocomplete="off" placeholder="Nome, empresa, e-mail ou telefone"></label>
+          <p id="legal-hold-busca-status" class="section-hint" role="status"></p>
+          <ul id="legal-hold-busca-resultados" class="consulta-cliente-resultados"></ul>
+          <p id="legal-hold-selecionado" class="status-message success" hidden></p>
           <label>ID do lead<input name="lead_id" type="number" min="1" required></label>
           <label class="field-full">Motivo do bloqueio<input name="motivo" minlength="20" maxlength="1000" required></label>
         </div>

@@ -336,6 +336,80 @@ function renderOutrasClasses(itens) {
   );
 }
 
+// R08 (plano de correções 17/11/2026): validar combinações já no
+// preenchimento (limite de 50 e marca+classe repetida), reaproveitar
+// cliente existente com escolha explícita e revisar um resumo curto antes
+// de pesquisar. O servidor continua revalidando tudo na gravação.
+const marcasStatus = document.querySelector("#consulta-marcas-status");
+function coletarMarcas() {
+  return [...document.querySelectorAll(".consulta-marca-item")].map(item => ({
+    marca: item.querySelector('[data-field="marca"]').value.trim(),
+    atividade: item.querySelector('[data-field="atividade"]').value.trim() || null,
+    classes_nice: [...item.querySelector('[data-field="classes_nice"]').selectedOptions].map(option => option.value),
+  }));
+}
+function validarMarcas(mostrar = true) {
+  const marcas = coletarMarcas();
+  const erros = [];
+  const combinacoes = marcas.reduce((total, item) => total + (item.classes_nice.length || 1), 0);
+  const vistos = new Set();
+  marcas.forEach((item, indice) => {
+    const chave = `${item.marca.toLowerCase().replace(/\s+/g, " ")}::${item.classes_nice.length ? item.classes_nice.slice().sort().join(",") : "*"}`;
+    if (item.marca && vistos.has(chave)) erros.push(`A marca ${indice + 1} repete uma combinação já informada.`);
+    vistos.add(chave);
+  });
+  if (combinacoes > 50) erros.push(`Esta consulta soma ${combinacoes} combinações; o limite é 50. Reduza marcas ou classes.`);
+  if (mostrar) {
+    marcasStatus.hidden = !erros.length;
+    marcasStatus.className = "status-message error";
+    marcasStatus.textContent = erros.join(" ");
+  }
+  return { marcas, erros, combinacoes };
+}
+document.querySelector("#consulta-marcas").addEventListener("input", () => validarMarcas());
+document.querySelector("#consulta-marcas").addEventListener("change", () => validarMarcas());
+
+const clienteBusca = document.querySelector("#cliente-busca");
+const clienteBuscaStatus = document.querySelector("#cliente-busca-status");
+const clienteBuscaResultados = document.querySelector("#cliente-busca-resultados");
+const clienteSelecionado = document.querySelector("#cliente-selecionado");
+let buscaClienteVersion = 0, buscaClienteTimer;
+function limparSelecaoCliente() { clienteSelecionado.hidden = true; clienteSelecionado.textContent = ""; }
+clienteBusca.addEventListener("input", () => {
+  clearTimeout(buscaClienteTimer);
+  const version = ++buscaClienteVersion;
+  limparSelecaoCliente();
+  clienteBuscaResultados.replaceChildren();
+  const termo = clienteBusca.value.trim();
+  if (termo.length < 2) { clienteBuscaStatus.textContent = termo ? "Digite ao menos 2 caracteres." : ""; return; }
+  clienteBuscaStatus.textContent = "Buscando clientes…";
+  buscaClienteTimer = setTimeout(async () => {
+    try {
+      const params = new URLSearchParams({ busca: termo, limite: "10", ordenacao: "nome" });
+      const data = await api(`/v1/admin/leads?${params}`);
+      if (version !== buscaClienteVersion) return;
+      clienteBuscaStatus.textContent = data.itens.length ? `${data.itens.length} resultado(s). Selecione para preencher os dados abaixo.` : "Nenhum cliente encontrado; preencha os dados abaixo para cadastrar um novo.";
+      for (const lead of data.itens) {
+        const li = document.createElement("li"), button = document.createElement("button");
+        button.type = "button"; button.className = "secondary-button";
+        button.textContent = `${lead.nome} · ${lead.empresa || "Sem empresa"} · ${lead.email || lead.telefone || "sem contato"}`;
+        button.addEventListener("click", () => {
+          form.elements.nome.value = lead.nome || "";
+          form.elements.empresa.value = lead.empresa || "";
+          form.elements.email.value = lead.email || "";
+          form.elements.telefone.value = lead.telefone || "";
+          if (checkboxSemEmail && lead.email) { checkboxSemEmail.checked = false; checkboxSemEmail.dispatchEvent(new Event("change")); }
+          clienteSelecionado.hidden = false;
+          clienteSelecionado.textContent = `Cliente selecionado: ${button.textContent}. Revise os dados antes de pesquisar.`;
+          clienteBuscaResultados.replaceChildren();
+          clienteBuscaStatus.textContent = "";
+        });
+        li.append(button); clienteBuscaResultados.append(li);
+      }
+    } catch (error) { if (version === buscaClienteVersion) clienteBuscaStatus.textContent = "Falha ao buscar. Digite novamente para tentar."; }
+  }, 300);
+});
+
 const checkboxSemEmail = document.querySelector("#cliente-sem-email");
 const campoEmail = document.querySelector("#campo-email input");
 const telefoneObrigatorio = document.querySelector("#telefone-obrigatorio");
@@ -347,11 +421,44 @@ checkboxSemEmail?.addEventListener("change", () => {
   telefoneObrigatorio.hidden = !semEmail;
 });
 
-form.addEventListener("submit", async event => {
+const revisaoSection = document.querySelector("#consulta-revisao");
+const revisaoResumo = document.querySelector("#consulta-revisao-resumo");
+form.addEventListener("submit", event => {
   event.preventDefault();
-  const button = form.querySelector("button[type=submit]");
+  const { marcas, erros, combinacoes } = validarMarcas();
+  if (!form.reportValidity()) return;
+  if (erros.length) { marcasStatus.scrollIntoView({ block: "center" }); return; }
+  const formData = new FormData(form);
+  const semEmail = formData.get("cliente_sem_email") === "on";
+  const cliente = semEmail
+    ? `${formData.get("nome")} · ${formData.get("telefone") || "sem telefone"} (sem e-mail)`
+    : `${formData.get("nome")} · ${formData.get("email")}`;
+  revisaoResumo.replaceChildren();
+  const lista = document.createElement("ul");
+  const itemCliente = document.createElement("li");
+  itemCliente.textContent = `Cliente: ${cliente}`;
+  lista.append(itemCliente);
+  marcas.forEach((item, indice) => {
+    const li = document.createElement("li");
+    li.textContent = `Marca ${indice + 1}: ${item.marca} — ${item.classes_nice.length ? `classes ${item.classes_nice.join(", ")}` : "todas as classes (1 consulta)"}`;
+    lista.append(li);
+  });
+  const total = document.createElement("p");
+  total.textContent = `Total: ${combinacoes} combinação(ões) de marca/classe. Nenhuma classe selecionada pesquisa em todas.`;
+  revisaoResumo.append(lista, total);
+  revisaoSection.hidden = false;
+  revisaoSection.scrollIntoView({ block: "center" });
+  document.querySelector("#confirmar-consulta").focus();
+});
+document.querySelector("#voltar-consulta").addEventListener("click", () => {
+  revisaoSection.hidden = true;
+  form.querySelector("button[type=submit]").focus();
+});
+document.querySelector("#confirmar-consulta").addEventListener("click", async () => {
+  const button = document.querySelector("#confirmar-consulta");
   if (button.disabled) return;
   button.disabled = true;
+  revisaoSection.hidden = true;
   const formData = new FormData(form);
   const semEmail = formData.get("cliente_sem_email") === "on";
   const dados = {
@@ -360,11 +467,7 @@ form.addEventListener("submit", async event => {
     email: semEmail ? null : String(formData.get("email") || "").trim(),
     telefone: String(formData.get("telefone") || "").trim(),
     cliente_sem_email: semEmail,
-    marcas: [...document.querySelectorAll(".consulta-marca-item")].map(item => ({
-      marca: item.querySelector('[data-field="marca"]').value.trim(),
-      atividade: item.querySelector('[data-field="atividade"]').value.trim() || null,
-      classes_nice: [...item.querySelector('[data-field="classes_nice"]').selectedOptions].map(option => option.value),
-    })),
+    marcas: coletarMarcas(),
   };
   setStatus("Registrando consulta…", "loading");
   try {

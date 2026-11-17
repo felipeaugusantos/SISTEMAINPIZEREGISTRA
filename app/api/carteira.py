@@ -652,6 +652,7 @@ async def listar_carteira(
         "itens": [
             {
                 "id": monitorado.id,
+                "processo_id": processo.id,
                 "numero": processo.numero,
                 "titulo": processo.titulo,
                 "titulo_exibicao": _titulo_exibicao(processo),

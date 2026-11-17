@@ -140,6 +140,38 @@ function rotas(page, handlers = [], { shell = false } = {}) {
     await page.close();
   }
 
+  // E4/R10: conflito 409 preserva o parecer digitado e oferece recarga confirmada.
+  {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await rotas(page, [
+      [/\/v1\/admin\/analises\/r1\/parecer$/, route => route.fulfill({ status: 409, json: { detail: 'Versão desatualizada do relatório.' } })],
+      [/\/v1\/admin\/analises\//, route => route.fulfill({ json: {
+        pesquisa: { id: 'r1', marca: 'Marca 1', criado_em: '2026-01-01T00:00:00Z', relatorio_token: 't' },
+        lead: null, permissoes: { validacao_visualizar: true, risco_visualizar: true, risco_revisar: true }, usuario: { nome: 'Especialista Teste' },
+        relatorio_completo: { gerado: false, base_disponivel: true },
+        workflow: { state: 'PENDING_REVIEW', history: [], report_version: 3 },
+        analise_consolidada: {
+          versao_relatorio: 3, versao_motor: 'motor v1', revisao: { validada: false },
+          conclusao_preliminar: { nivel_risco: 'moderado', cobertura: 0.92, aviso: 'Leitura automática preliminar, sujeita à revisão do especialista.' },
+          apresentacao: { situacao: { codigo: 'inconclusiva', rotulo: 'Inconclusiva', explicacao: 'A pesquisa automática encontrou anterioridades que exigem revisão humana antes do parecer.' } },
+          pendencias: [{ criterio: 'Colidência', descricao: 'Revisar a marca anterior CAFÉ EXEMPLO (processo 900000000000000), classe 30.' }],
+          analise_conjunto: { marca: 'Marca 1' }, matriz: null, anterioridades: [], fontes: { ultima_rpi: '2700' }, disclaimers: [],
+          estatistica: { disponivel: false }, titulo: 'Análise de registrabilidade da marca Marca 1',
+          recomendacao: 'Resolver a colidência apontada antes de protocolar o pedido.', diretriz_acao: null, legado: false,
+        },
+      } })],
+    ]);
+    await page.goto('http://operations.test/admin/analises/r1');
+    await page.locator('#step-opinion summary').click();
+    await page.locator('#consolidated-review-form select[name="nivel_humano"]').selectOption('baixo');
+    await page.locator('#consolidated-review-form textarea[name="observacoes_humanas"]').fill('Parecer do especialista: colidência relevante na classe 30, recomendo ajuste do logo antes do protocolo.');
+    await page.locator('#consolidated-review-form button[type="submit"]').click();
+    await page.waitForFunction(() => document.body.textContent.includes('alterada em outra sessão'));
+    await page.locator('#step-opinion').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${OUT}/ev-e4-r10-conflito.png` });
+    await page.close();
+  }
+
   // E3/R15: indicadores com fonte/período e distinção sem amostra.
   {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });

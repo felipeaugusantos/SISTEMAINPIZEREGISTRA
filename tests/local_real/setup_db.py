@@ -1,11 +1,11 @@
 """Cria o schema no Postgres local (create_all) e o papel inpi_app usado pelos testes de RLS."""
 import asyncio
 
+from _harness import engine
 from sqlalchemy import text
 
-from _harness import engine
-from app.database import Base
 import app.models  # noqa: F401
+from app.database import Base
 
 
 async def main() -> None:

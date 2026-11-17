@@ -19,8 +19,8 @@ from app.database import get_session
 from app.models import (
     EventoAuditoria,
     Lead,
-    SolicitacaoExclusaoLead,
     PesquisaMarca,
+    SolicitacaoExclusaoLead,
     SolicitacaoExclusaoPesquisa,
     UsuarioOperacoes,
 )

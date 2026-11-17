@@ -4,10 +4,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _harness as h
 import httpx
 from sqlalchemy import text
 
-import _harness as h
 from app.auth import obter_usuario_atual
 from app.main import app
 

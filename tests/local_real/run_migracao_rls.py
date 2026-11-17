@@ -5,11 +5,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _harness as h
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import text
-
-import _harness as h
 
 ARQ = next((Path(__file__).resolve().parents[2] / "migrations" / "versions").glob("ze40a7c1d905_*.py"))
 spec = importlib.util.spec_from_file_location("mig", ARQ)

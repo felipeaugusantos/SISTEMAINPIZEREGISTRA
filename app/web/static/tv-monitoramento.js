@@ -69,12 +69,13 @@
     svg.setAttribute("preserveAspectRatio", "none");
     const pontos = Array.isArray(serie) ? serie : [];
     if (!pontos.length) return svg;
-    const max = Math.max(1, ...pontos.map((p) => Number(p.acoes) || 0), ...pontos.map((p) => Number(p.erros) || 0));
+    const max = Math.max(1, ...pontos.map((p) => Number(p.acoes) || 0));
+    const maxErros = Math.max(1, ...pontos.map((p) => Number(p.erros) || 0));
     const passo = W / pontos.length;
     pontos.forEach((p, i) => {
       const x = i * passo;
       const alturaAcoes = ((Number(p.acoes) || 0) / max) * (base - topo);
-      const alturaErros = ((Number(p.erros) || 0) / max) * (base - topo);
+      const alturaErros = (Number(p.erros) || 0) > 0 ? Math.max(6, ((Number(p.erros) || 0) / maxErros) * (base - topo) * 0.6) : 0;
       const barra = document.createElementNS(NS, "rect");
       barra.setAttribute("class", "tv-barra-acao");
       barra.setAttribute("x", x + passo * 0.12);
@@ -140,7 +141,7 @@
         );
         return g;
       })(),
-      el("p", "tv-sub", `${num(c.organizacoes_ativas_24h)} organizações com uso em 24 h · últimos 7 dias`),
+      el("p", "tv-sub", `${num(c.organizacoes_ativas_24h)} organizações com uso em 24 h · 7 dias: azul = ações, vermelho = erros (escala própria)`),
       Object.assign(el("div", "tv-grafico"), {}),
       topErros(c.top_erros, "central"),
     ], false);
@@ -169,7 +170,7 @@
     );
     const aviso = fora
       ? `ERP indisponível${e.indisponivel_desde ? ` desde ${hora(e.indisponivel_desde)}` : ""} · último dado ${hora(e.atualizado_em)}`
-      : `${num(d.clientes_ativos_24h)} clientes com uso em 24 h · ${num(d.clientes_sem_uso_7d)} sem uso em 7 dias`;
+      : `${num(d.clientes_ativos_24h)} clientes com uso em 24 h · ${num(d.clientes_sem_uso_7d)} sem uso em 7 dias · azul = ações, vermelho = erros`;
     const graf = el("div", "tv-grafico");
     graf.append(grafico((d.serie || []).map((p) => ({ dia: p.dia, acoes: p.acoes, erros: p.erros }))));
     montarCartao(alvoErp, "EZRA ERP", fora ? "cinza" : d.saude, fora ? "Indisponível" : "", [g, el("p", "tv-sub", aviso), graf, topErros(d.top_erros, "erp")], fora);

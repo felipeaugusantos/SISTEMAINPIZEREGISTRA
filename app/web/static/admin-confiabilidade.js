@@ -420,8 +420,10 @@ document.querySelector("#confirm-mfa").addEventListener("click", async () => {
     mfaPanel.hidden = true;
     mfaRecovery.hidden = false;
     definirStatus(mfaStatus, "MFA ativado. Guarde os códigos de recuperação.", "success");
-    mfaButton.textContent = "MFA ativo";
-    mfaButton.disabled = true;
+    // R17: após ativar, o botão passa a oferecer reconfiguração (que exige o
+    // código atual), em vez de ficar desabilitado com um rótulo ambíguo.
+    mfaButton.textContent = "Reconfigurar autenticador";
+    mfaButton.disabled = false;
   } catch (error) {
     definirStatus(mfaStatus, error.message, "error");
   }
@@ -442,6 +444,26 @@ document.querySelector("#download-recovery").addEventListener("click", () => {
 
 carregar();
 carregarPoliticas();
+
+// R17 (plano de correções 17/11/2026): o rótulo do botão só mudava depois de
+// ativar o MFA na própria página -- quem já tinha autenticador no login via
+// "Ativar MFA" de novo. Carrega o estado real em /v1/auth/me e distingue
+// ativo, inativo e estado indisponível, sem trazer segredo nem códigos.
+async function carregarEstadoMfa() {
+  try {
+    const dados = await api("/v1/auth/me");
+    if (dados.mfa_ativo) {
+      mfaButton.textContent = "Reconfigurar autenticador";
+      mfaButton.disabled = false;
+      definirStatus(mfaStatus, "MFA ativo nesta conta. A reconfiguração pede o código atual do autenticador antes de gerar um novo.", "success");
+    } else {
+      definirStatus(mfaStatus, "MFA inativo nesta conta.", "loading");
+    }
+  } catch {
+    definirStatus(mfaStatus, "Estado do MFA indisponível no momento. Recarregue a página para conferir.", "error");
+  }
+}
+carregarEstadoMfa();
 
 async function carregarIdentidades() {
   try {

@@ -24,7 +24,7 @@ form.addEventListener("submit", async event => {
   const pergunta = input.value.trim();
   if (!pergunta) return;
   message.textContent = "";
-  adicionarMensagem("user", pergunta);
+  const blocoPergunta = adicionarMensagem("user", pergunta);
   input.value = "";
   input.disabled = true;
   const botao = form.querySelector("button");
@@ -38,6 +38,8 @@ form.addEventListener("submit", async event => {
       body: JSON.stringify({ pergunta, historico }),
     });
     const data = await response.json().catch(() => ({}));
+    // R11: tratar rejeição/HTTP/expiração com mensagem acionável.
+    if (response.status === 401) throw new Error("Sua sessão expirou. Entre novamente e reenvie a pergunta.");
     if (!response.ok) throw new Error(data.detail || "Não foi possível consultar o assistente.");
     carregando.remove();
     adicionarMensagem("model", data.resposta);
@@ -45,8 +47,12 @@ form.addEventListener("submit", async event => {
     if (historico.length > 12) historico.splice(0, historico.length - 12);
   } catch (error) {
     carregando.remove();
+    // R11: em falha a pergunta volta ao campo (recuperável) e a bolha
+    // otimista sai do histórico, para tentar de novo sem duplicar mensagem.
+    blocoPergunta.remove();
+    input.value = pergunta;
     message.className = "status-message error";
-    message.textContent = error.message;
+    message.textContent = error.message || "Sem conexão com o servidor. Verifique sua internet e tente novamente.";
   } finally {
     input.disabled = false;
     botao.disabled = false;

@@ -115,11 +115,11 @@
         </label>
         <label><span>Responsável</span><select id="lead-owner-filter"><option value="">Todos</option></select></label>
         <label><span>Origem</span><select id="lead-origin-filter"><option value="">Todas</option><option value="relatorio">Relatório</option><option value="processo">Processo</option><option value="resultados">Resultados</option><option value="geral">Contato geral</option><option value="landing">Página de captação</option><option value="importacao">Importação em lote</option><option value="prospeccao">Radar de Prospecção</option><option value="operador">Cadastro manual</option></select></label>
-        <label><span>Desde</span><input id="lead-date-start" type="date" /></label>
-        <label><span>Até</span><input id="lead-date-end" type="date" /></label>
+        <label><span>Contato criado desde</span><input id="lead-date-start" type="date" /></label>
+        <label><span>Contato criado até</span><input id="lead-date-end" type="date" /></label>
         <label><span>Marketing</span><select id="lead-marketing-filter"><option value="">Todos</option><option value="true">Autorizado</option><option value="false">Não autorizado</option></select></label>
-        <label><span>Risco nas pesquisas</span><select id="lead-risk-filter"><option value="">Todos</option><option value="baixo">Baixo</option><option value="moderado">Moderado</option><option value="alto">Alto</option><option value="critico">Crítico</option></select></label>
-        <label><span>Ordenar por</span><select id="lead-sort"><option value="recentes">Mais recentes</option><option value="antigos">Mais antigos</option><option value="nome">Nome do contato</option></select></label>
+        <label><span>Contatos com pesquisa de risco</span><select id="lead-risk-filter"><option value="">Todos</option><option value="baixo">Baixo</option><option value="moderado">Moderado</option><option value="alto">Alto</option><option value="critico">Crítico</option></select></label>
+        <label><span>Ordenar por</span><select id="lead-sort"><option value="recentes">Criação do contato (mais recentes)</option><option value="antigos">Criação do contato (mais antigos)</option><option value="nome">Nome do contato</option></select></label>
         <button class="primary-button" type="submit">Filtrar</button>
         <button id="clear-lead-filters" class="secondary-button" type="button">Limpar filtros</button>
       </form>
@@ -130,7 +130,9 @@
         <header>
           <div><p class="eyebrow">Aprovação administrativa</p><h2>Solicitações de exclusão</h2></div>
           <span id="deletion-request-count">0 pendentes</span>
+          <button type="button" id="deletion-requests-toggle" class="secondary-button" aria-expanded="false" aria-controls="deletion-requests-body">Ver fila de aprovações</button>
         </header>
+        <div id="deletion-requests-body" hidden>
         <div class="deletion-filter-bar">
           <label><span>Situação</span><select id="deletion-filter-status"><option value="pendente">Pendentes</option><option value="executada">Excluídas</option><option value="rejeitada">Rejeitadas</option><option value="">Todas</option></select></label>
           <label><span>Buscar</span><input id="deletion-filter-busca" type="search" maxlength="100" placeholder="Marca, solicitante ou motivo" autocomplete="off"></label>
@@ -143,6 +145,7 @@
         </div>
         <div id="deletion-request-list" class="learning-review-list"></div>
         <button id="deletion-load-more" class="secondary-button" type="button" hidden>Carregar mais</button>
+        </div>
       </section>
       <section class="lead-view-toolbar" aria-label="Visualização dos resultados">
         <div class="lead-view-switch" role="group" aria-label="Agrupar resultados">

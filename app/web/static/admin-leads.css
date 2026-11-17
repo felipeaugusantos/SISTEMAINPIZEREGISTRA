@@ -1392,3 +1392,37 @@ table.lead-docs select {
   .operations-view-controls input, .operations-view-controls select { width: 100%; box-sizing: border-box; }
   .lead-operational-summary dl { grid-template-columns: 1fr; }
 }
+
+/* R01 (plano de correções 17/11/2026): controles utilizáveis no celular e
+   tabela sem compressão no tablet, preservando o layout do desktop.
+   Regras isoladas nas rotas do Centro ([data-admin-section=leads]) para
+   não alterar o CRM compartilhado, que usa este mesmo stylesheet. */
+@media (max-width: 760px) {
+  body[data-admin-section="leads"] .leads-table td .lead-status { width: 100%; min-width: 140px; }
+  body[data-admin-section="leads"] .admin-body .leads-table td:nth-child(6) .lead-row-actions,
+  body[data-admin-section="leads"] .leads-table td:nth-child(6) .lead-row-actions { min-width: 0; }
+  body[data-admin-section="leads"] .lead-row-actions { flex-wrap: wrap; }
+  body[data-admin-section="leads"] .lead-row-actions > a, body[data-admin-section="leads"] .lead-row-actions > button,
+  body[data-admin-section="leads"] .lead-row-extra > a, body[data-admin-section="leads"] .lead-row-extra > button { flex: 1 1 150px; justify-content: center; text-align: center; }
+  body[data-admin-section="leads"] .lead-row-extra { display: none; }
+  body[data-admin-section="leads"] .lead-row-actions.open .lead-row-extra { display: contents; }
+  body[data-admin-section="leads"] .lead-actions-toggle { display: inline-flex; }
+}
+@media (min-width: 761px) {
+  .lead-actions-toggle { display: none; }
+  .lead-row-extra { display: contents; }
+}
+/* Span .visually-hidden usa position:absolute; dentro da tabela com
+   min-width no tablet ele estendia a rolagem horizontal do documento. */
+body[data-admin-section="leads"] .visually-hidden { left: 0; }
+@media (min-width: 761px) and (max-width: 1080px) {
+  body[data-admin-section="leads"] .leads-table-shell { overflow-x: clip; }
+  body[data-admin-section="leads"] .crm-pipeline { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  body[data-admin-section="leads"] .admin-body .leads-table, body[data-admin-section="leads"] .leads-table { min-width: 1000px !important; }
+  body[data-admin-section="leads"] .research-view-row .lead-row-actions,
+  body[data-admin-section="leads"] .admin-body .leads-table td:nth-child(6) .lead-row-actions { min-width: 0; flex-wrap: wrap; }
+  body[data-admin-section="leads"] .lead-row-actions > a, body[data-admin-section="leads"] .lead-row-actions > button,
+  body[data-admin-section="leads"] .lead-row-extra > a, body[data-admin-section="leads"] .lead-row-extra > button { width: 100%; justify-content: center; text-align: center; }
+  body[data-admin-section="leads"] .fase-mini { max-width: 100%; }
+}
+.wa-destino-invalido { opacity: .7; cursor: help; text-decoration: underline dotted; }

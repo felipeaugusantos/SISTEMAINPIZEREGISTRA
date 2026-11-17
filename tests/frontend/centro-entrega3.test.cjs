@@ -53,6 +53,12 @@ test('R08: revisão resume combinações antes de pesquisar e confirma envia', (
   await page.locator('#consulta-revisao:not([hidden])').waitFor();
   assert.match(await page.locator('#consulta-revisao-resumo').textContent(), /todas as classes \(1 consulta\)/);
   assert.equal(requests.filter(r => r.path === '/v1/admin/consulta' && r.method === 'POST').length, 0);
+  assert.equal(await page.locator('#consulta-form').isHidden(), true, 'revisão é etapa única: formulário original some');
+  await page.locator('#voltar-consulta').click();
+  assert.equal(await page.locator('#consulta-form').isVisible(), true, 'voltar reexibe o formulário para ajuste');
+  assert.equal(requests.filter(r => r.path === '/v1/admin/consulta' && r.method === 'POST').length, 0);
+  await page.locator('#consulta-form button.form-submit').first().click();
+  await page.locator('#consulta-revisao:not([hidden])').waitFor();
   await page.locator('#confirmar-consulta').click();
   await page.waitForFunction(() => true);
   assert.equal(requests.filter(r => r.path === '/v1/admin/consulta' && r.method === 'POST').length, 1);
@@ -102,10 +108,11 @@ test('R09: estado do workflow em português e próxima ação visível', () => b
       workflow: { state: 'PENDING_REVIEW', history: [], report_version: 1 },
       analise_consolidada: {
         versao_relatorio: 3, versao_motor: 'motor v1', revisao: { validada: false },
-        conclusao_preliminar: {}, apresentacao: { situacao: { codigo: 'inconclusiva', rotulo: 'Inconclusiva', explicacao: 'x' } },
-        pendencias: [{ criterio: 'Colidência', descricao: 'Revisar marca anterior' }],
+        conclusao_preliminar: {}, apresentacao: { situacao: { codigo: 'inconclusiva', rotulo: 'Inconclusiva', explicacao: 'A pesquisa automática encontrou anterioridades que exigem revisão humana antes do parecer.' } },
+        pendencias: [{ criterio: 'Colidência', descricao: 'Revisar a marca anterior CAFÉ EXEMPLO (processo 900000000000000), classe 30.' }],
         analise_conjunto: { marca: 'Marca 1' }, matriz: null, anterioridades: [], fontes: {}, disclaimers: [],
-        estatistica: { disponivel: false }, titulo: 't', recomendacao: 'r', diretriz_acao: null, legado: false,
+        estatistica: { disponivel: false }, titulo: 'Análise de registrabilidade da marca Marca 1',
+        recomendacao: 'Resolver a colidência apontada antes de protocolar o pedido.', diretriz_acao: null, legado: false,
       },
     } })],
   ]);
@@ -132,7 +139,18 @@ test('R14: busca de processo por marca preenche o ID com escolha explícita', ()
 
 test('R14: legal hold localiza lead sem exigir ID de memória', () => browserTest(async browser => {
   const page = await browser.newPage();
-  await rotas(page, [
+  const { errors } = await rotas(page, [
+    ['/v1/admin/confiabilidade', route => route.fulfill({ json: {
+      uso: { usuarios: 3, pesquisas: 12, leads: 8 }, fila: { status: 'ok', pendentes: 0 },
+      organizacao: { nome: 'Org Teste', status: 'ativa', assinatura_status: 'ativa', retencao_dados_dias: 365, branding: {} },
+      retencao: { matriz: [] }, permissoes: {},
+    } })],
+    ['/v1/auth/social/identities/me', route => route.fulfill({ json: { providers: [
+      { nome: 'Google', linked: false, enabled: true }, { nome: 'Apple', linked: false, enabled: false },
+    ] } })],
+    ['/v1/admin/politicas-privacidade', route => route.fulfill({ json: {
+      vigente: null, consentimentos_pendentes: 0, regra_novo_consentimento: 'Aceite exigido apenas na próxima interação pública.', politicas: [],
+    } })],
     ['/v1/admin/leads', route => route.fulfill({ json: { itens: [
       { id: 11, nome: 'Lead Bloqueio', empresa: 'Empresa X', email: 'x@example.com', telefone: '', status: 'novo', tags: [] },
     ], total: 1 } })],
@@ -142,6 +160,7 @@ test('R14: legal hold localiza lead sem exigir ID de memória', () => browserTes
   await page.locator('#legal-hold-busca-resultados button').first().waitFor();
   await page.locator('#legal-hold-busca-resultados button').first().click();
   assert.equal(await page.locator('#legal-hold-form [name="lead_id"]').inputValue(), '11');
+  assert.deepEqual(errors, []);
 }));
 
 test('R15: indicadores indicam fonte/período e distinguem sem amostra', () => browserTest(async browser => {

@@ -9,7 +9,22 @@ let exclusaoPendente = false;
 let classesNice = [];
 let reportRequest = 0;
 // Restore the authenticated deep link when navigating through pushState entries.
-window.addEventListener("popstate", () => location.reload());
+// R10 (plano de correções 17/11/2026): preenchimento não enviado não é
+// descartado em silêncio -- voltar/recarregar com formulário preenchido
+// pede confirmação. Proteção em memória apenas, sem rascunho persistente.
+let consultaDirty = false;
+form.addEventListener("input", () => { consultaDirty = true; });
+form.addEventListener("change", () => { consultaDirty = true; });
+const avisoSaida = "Há uma consulta preenchida que ainda não foi pesquisada. Sair e descartar o preenchimento?";
+window.addEventListener("beforeunload", event => {
+  if (!consultaDirty) return;
+  event.preventDefault();
+  event.returnValue = true;
+});
+window.addEventListener("popstate", () => {
+  if (consultaDirty && !confirm(avisoSaida)) { history.pushState(null, "", location.href); return; }
+  location.reload();
+});
 
 function setStatus(texto, tipo) {
   statusEl.hidden = false;
@@ -446,12 +461,14 @@ form.addEventListener("submit", event => {
   const total = document.createElement("p");
   total.textContent = `Total: ${combinacoes} combinação(ões) de marca/classe. Nenhuma classe selecionada pesquisa em todas.`;
   revisaoResumo.append(lista, total);
+  form.hidden = true;
   revisaoSection.hidden = false;
   revisaoSection.scrollIntoView({ block: "center" });
   document.querySelector("#confirmar-consulta").focus();
 });
 document.querySelector("#voltar-consulta").addEventListener("click", () => {
   revisaoSection.hidden = true;
+  form.hidden = false;
   form.querySelector("button[type=submit]").focus();
 });
 document.querySelector("#confirmar-consulta").addEventListener("click", async () => {
@@ -474,6 +491,7 @@ document.querySelector("#confirmar-consulta").addEventListener("click", async ()
     const resultado = await api("/v1/admin/consulta", { method: "POST", body: JSON.stringify(dados) });
     const primeira = resultado.itens[0];
     pesquisaAtual = primeira.id;
+    consultaDirty = false;
     exclusaoPendente = false;
     atualizarAcaoExclusao();
     history.pushState(null, "", primeira.relatorio_url);
@@ -482,6 +500,7 @@ document.querySelector("#confirmar-consulta").addEventListener("click", async ()
     await carregarRelatorio(primeira.id);
     await abrirContatos(resultado.lead_id);
   } catch (error) {
+    form.hidden = false;
     setStatus(error.message, "error");
   } finally {
     button.disabled = false;

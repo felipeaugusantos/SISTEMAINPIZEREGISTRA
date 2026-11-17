@@ -20,7 +20,9 @@ Registra continua normal.
 import asyncio
 import hashlib
 import logging
+import os
 import secrets
+import shutil
 from datetime import UTC, datetime, time, timedelta
 from time import monotonic
 from typing import Annotated, Any
@@ -378,6 +380,68 @@ async def resumo_backup() -> dict[str, Any]:
     }
 
 
+SISTEMA_LIMITE_ATENCAO = 80.0
+SISTEMA_LIMITE_CRITICO = 90.0
+_DISCO_CAMINHO = "/app/data"
+
+
+def _saude_percentual(percentual: float) -> str:
+    if percentual >= SISTEMA_LIMITE_CRITICO:
+        return "vermelho"
+    if percentual >= SISTEMA_LIMITE_ATENCAO:
+        return "amarelo"
+    return "verde"
+
+
+def _leitura_cpu() -> dict[str, Any]:
+    """CPU sustentada: carga média dos últimos 5 minutos dividida pelos núcleos da VPS (o container vê o /proc do host)."""
+    try:
+        with open("/proc/loadavg", encoding="ascii") as arquivo:
+            carga_5min = float(arquivo.read().split()[1])
+    except (OSError, ValueError, IndexError):
+        return {"percentual": None, "saude": "cinza"}
+    nucleos = os.cpu_count() or 1
+    percentual = carga_5min / nucleos * 100
+    return {"percentual": round(percentual), "saude": _saude_percentual(percentual)}
+
+
+def _leitura_memoria() -> dict[str, Any]:
+    try:
+        valores: dict[str, int] = {}
+        with open("/proc/meminfo", encoding="ascii") as arquivo:
+            for linha in arquivo:
+                chave, _, resto = linha.partition(":")
+                if chave in ("MemTotal", "MemAvailable"):
+                    valores[chave] = int(resto.split()[0])
+        total, livre = valores["MemTotal"], valores["MemAvailable"]
+    except (OSError, ValueError, KeyError, IndexError):
+        return {"percentual": None, "saude": "cinza"}
+    if total <= 0:
+        return {"percentual": None, "saude": "cinza"}
+    percentual = (total - livre) / total * 100
+    return {"percentual": round(percentual), "saude": _saude_percentual(percentual)}
+
+
+def _leitura_disco() -> dict[str, Any]:
+    try:
+        uso = shutil.disk_usage(_DISCO_CAMINHO)
+    except OSError:
+        return {"percentual": None, "livre_gb": None, "saude": "cinza"}
+    if uso.total <= 0:
+        return {"percentual": None, "livre_gb": None, "saude": "cinza"}
+    percentual = uso.used / uso.total * 100
+    return {
+        "percentual": round(percentual),
+        "livre_gb": round(uso.free / 1024**3),
+        "saude": _saude_percentual(percentual),
+    }
+
+
+def resumo_sistema() -> dict[str, Any]:
+    """CPU, memória e disco da VPS: só percentuais e GB livres (sem caminhos, processos nem nomes)."""
+    return {"cpu": _leitura_cpu(), "memoria": _leitura_memoria(), "disco": _leitura_disco()}
+
+
 @router.get("/tv")
 async def painel_tv(session: SessionDep, response: Response, _chave: ChaveTvDep) -> dict[str, Any]:
     """Resumo agregado dos dois sistemas para a TV (somente leitura)."""
@@ -386,4 +450,4 @@ async def painel_tv(session: SessionDep, response: Response, _chave: ChaveTvDep)
     # do WhatsApp e do portal): a auditoria tem RLS por organização e esta consulta cruza todas.
     await aplicar_contexto_tenant(session, get_settings().default_organization_id, superadmin=True)
     central, erp, backup = await asyncio.gather(_resumo_central(session), resumo_erp(), resumo_backup())
-    return {"gerado_em": datetime.now(UTC), "zeregistra": central, "erp": erp, "backup": backup}
+    return {"gerado_em": datetime.now(UTC), "zeregistra": central, "erp": erp, "backup": backup, "sistema": resumo_sistema()}

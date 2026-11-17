@@ -51,6 +51,7 @@ body.tv {
 .tv-numero.critico { background: #fdeeee; border-color: #f1a9a4; }
 .tv-numero.critico strong { color: #b42318; }
 .tv-legenda { display: flex; justify-content: space-between; gap: calc(1 * var(--u)); font-size: calc(.85 * var(--u)); color: var(--suave); margin: 0; }
+.tv-motivo { margin: 0; font-size: calc(1.05 * var(--u)); font-weight: 600; color: var(--cor-selo); background: var(--fundo-selo); border-radius: calc(.75 * var(--u)); padding: calc(.55 * var(--u)) calc(1 * var(--u)); }
 .tv-grafico { flex: 1; min-height: calc(4.6 * var(--u)); display: flex; flex-direction: column; }
 .tv-grafico svg { flex: 1; min-height: 0; width: 100%; display: block; }
 .tv-dias { display: flex; padding-top: calc(.35 * var(--u)); }
@@ -140,6 +141,7 @@ body.tv {
   .tv-numero strong { font-size: 20px; }
   .tv-numero span { font-size: 11px; margin-top: 2px; }
   .tv-legenda { font-size: 12px; }
+  .tv-motivo { font-size: 13px; padding: 7px 10px; border-radius: 8px; }
   .tv-grafico { flex: none; height: 150px; min-height: 0; }
   .tv-grafico svg { height: 118px; flex: none; }
   .tv-dias { padding-top: 4px; }

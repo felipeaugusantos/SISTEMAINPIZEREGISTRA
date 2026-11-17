@@ -109,11 +109,50 @@ body.tv {
 .tv-medidor-barra.p95 { width: 95%; }
 .tv-medidor-barra.p100 { width: 100%; }
 @media (max-width: 900px) {
-  .tv-grade { grid-template-columns: 1fr; } body.tv { overflow: auto; }
-  .tv-topo h1 { font-size: 6vw; } .tv-relogio span { font-size: 7vw; } .tv-relogio small, .tv-topo p { font-size: 3vw; }
-  .tv-titulo h2 { font-size: 5vw; } .tv-selo { font-size: 3vw; }
-  .tv-heroi { flex-direction: column; align-items: flex-start; } .tv-numeros { width: 100%; }
-  .tv-grande { flex: 0 0 13.5vw; display: flex; flex-direction: column; justify-content: flex-end; }
-.tv-grande strong { font-size: 16vw; } .tv-grande span, .tv-legenda, .tv-numero span, .tv-dias span { font-size: 2.8vw; } .tv-numero strong { font-size: 6.5vw; }
-  .tv-top li { font-size: 3vw; } .tv-top li i { font-size: 2.6vw; } .tv-grafico { min-height: 40vw; } .tv-aviso, .tv-vazio { font-size: 3.5vw; }
+  /* Celular: tamanhos fixos em px (vw ficaria miúdo) e tudo empilhado. A TV (acima de 900 px) segue igual. */
+  body.tv { padding: 12px 12px 20px; gap: 12px; overflow: auto; cursor: auto; }
+  .tv-topo { align-items: flex-start; gap: 8px; }
+  .tv-topo h1 { font-size: 24px; }
+  .tv-topo p { font-size: 12px; margin-top: 2px; }
+  .tv-relogio span { font-size: 26px; }
+  .tv-relogio small { font-size: 11px; }
+  .tv-aviso { font-size: 14px; padding: 10px 14px; border-radius: 10px; border-width: 1px; }
+  .tv-grade { grid-template-columns: 1fr; gap: 12px; flex: none; align-content: start; }
+  .tv-cartao { padding: 14px; gap: 12px; border-radius: 16px; border-top-width: 4px; }
+  .tv-titulo { gap: 8px; }
+  .tv-titulo h2 { font-size: 20px; }
+  .tv-selo { font-size: 12px; padding: 4px 10px; gap: 6px; }
+  .tv-selo::before { width: 8px; height: 8px; }
+  .tv-heroi { flex-direction: column; gap: 10px; min-height: 0; }
+  .tv-grande { flex: none; flex-direction: row; align-items: baseline; gap: 10px; }
+  .tv-grande strong { font-size: 44px; }
+  .tv-grande span { font-size: 13px; margin-top: 0; }
+  .tv-numeros { width: 100%; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tv-numero { padding: 10px; border-radius: 10px; border-width: 1px; }
+  .tv-numero strong { font-size: 20px; }
+  .tv-numero span { font-size: 11px; margin-top: 2px; }
+  .tv-legenda { font-size: 12px; }
+  .tv-grafico { flex: none; height: 150px; min-height: 0; }
+  .tv-grafico svg { height: 118px; flex: none; }
+  .tv-dias { padding-top: 4px; }
+  .tv-dias span { font-size: 10px; }
+  .tv-top { gap: 6px; }
+  .tv-top li { font-size: 13px; padding: 8px 10px; gap: 8px; border-radius: 8px; }
+  .tv-top li i { font-size: 11px; padding: 2px 8px; }
+  .tv-top li.tv-ok { font-size: 13px; padding: 10px; }
+  .tv-vazio { font-size: 15px; }
+  .tv-sistema { grid-template-columns: 1fr; gap: 8px; padding-top: 10px; margin-top: 0; border-top-width: 1px; }
+  .tv-sistema h3 { font-size: 14px; width: auto; }
+  .tv-medidor { padding: 8px 10px; border-radius: 8px; }
+  .tv-medidor-topo span { font-size: 12px; }
+  .tv-medidor-topo strong { font-size: 15px; }
+  .tv-medidor-trilho { height: 6px; margin: 6px 0 2px; }
+  .tv-medidor small { font-size: 11px; }
+  .tv-backup { flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 14px; }
+  .tv-backup h2 { font-size: 15px; width: auto; }
+  .tv-backup-item { padding: 10px 12px; border-radius: 10px; border-left-width: 4px; gap: 8px; }
+  .tv-backup-texto span { font-size: 12px; }
+  .tv-backup-texto strong { font-size: 15px; }
+  .tv-backup-texto small { font-size: 11px; }
+  .tv-backup-selo { font-size: 12px; padding: 4px 10px; white-space: nowrap; }
 }

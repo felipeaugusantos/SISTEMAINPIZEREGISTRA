@@ -57,7 +57,10 @@ test("Concluir: one PATCH through bursts, re-render and list refresh; next remin
     await burst(page);
     assert.equal(await page.locator(".complete-reminder:disabled").count(), 2);
     assert.equal(await page.locator(".complete-reminder[aria-busy=true]").count(), 2);
-    await page.locator("#crm-reminders").screenshot({ path: "/downloads/crm-concluir-salvando.png" });
+    if (process.env.CRM_SCREENSHOT) {
+      fs.mkdirSync(path.dirname(process.env.CRM_SCREENSHOT), { recursive: true });
+      await page.locator("#crm-reminders").screenshot({ path: process.env.CRM_SCREENSHOT });
+    }
     const refreshed = page.waitForRequest(req => req.method() === "GET" && req.url().includes("/v1/admin/crm/lembretes"));
     releasePatch();
     await refreshed;

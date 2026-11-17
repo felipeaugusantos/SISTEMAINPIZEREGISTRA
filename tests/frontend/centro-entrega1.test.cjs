@@ -17,7 +17,7 @@ const TELEFONES = {
   5: '1234',                 // ambíguo -> bloqueia
   6: '',                     // vazio -> sem atalho
 };
-const research = id => ({ id: `r${id}`, marca: `Marca ${id}`, criado_em: '2026-11-15T12:00:00Z', atividade: 'café', risco_nivel: 'alto' });
+const research = id => ({ id: `r${id}`, marca: `Marca ${id}`, criado_em: '2026-11-15T12:00:00Z', atividade: 'café', risco_nivel: 'alto', risco_pontuacao: 87 });
 const lead = id => ({ id, nome: `Contato ${id}`, empresa: `Empresa ${id}`, status: 'novo', pesquisas: [research(id)], total_pesquisas: 1,
   criado_em: '2026-11-15T12:00:00Z', responsavel_nome: 'Operador Teste', proxima_acao_em: '2026-01-01T12:00:00Z', ultimo_contato_em: null,
   telefone: TELEFONES[id] || '', email: `c${id}@example.com`, tags: [] });
@@ -59,19 +59,22 @@ async function fixture(page, { shell = false, exclusoes = 0 } = {}) {
 }
 async function browserTest(fn) { const browser = await chromium.launch(); try { await fn(browser); } finally { await browser.close(); } }
 
-test('R02: destinos de WhatsApp normalizados, confirmados e ambíguos bloqueados', { timeout: 30000 }, async () => browserTest(async browser => {
+test('R02: destinos de WhatsApp validados; país incerto exige confirmação explícita', { timeout: 30000 }, async () => browserTest(async browser => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const f = await fixture(page);
   await page.goto('http://operations.test/admin/pesquisas');
   await page.locator('#leads-list tr').first().waitFor();
-  const href = id => page.locator(`tr[data-lead-id="${id}"] a[data-wa-destino]`).getAttribute('href');
-  assert.equal(await href(1), 'https://wa.me/5516982050534');
-  assert.equal(await href(2), 'https://wa.me/551632050534');
-  assert.equal(await href(3), 'https://wa.me/5516982050534');
-  assert.equal(await href(4), 'https://wa.me/14155550100');
-  assert.equal(await page.locator('tr[data-lead-id="1"] a[data-wa-destino]').getAttribute('aria-label'), 'Abrir WhatsApp para +55 (16) 98205-0534');
+  // Com DDI explícito (+55 ou internacional): link direto com destino visível.
+  assert.equal(await page.locator('tr[data-lead-id="3"] a[data-wa-destino]').getAttribute('href'), 'https://wa.me/5516982050534');
+  assert.equal(await page.locator('tr[data-lead-id="4"] a[data-wa-destino]').getAttribute('href'), 'https://wa.me/14155550100');
+  assert.equal(await page.locator('tr[data-lead-id="3"] a[data-wa-destino]').getAttribute('aria-label'), 'Abrir WhatsApp para +55 (16) 98205-0534');
+  // Nacional 10/11 dígitos sem DDI: país incerto, abre só após confirmação explícita.
+  assert.equal(await page.locator('tr[data-lead-id="1"] a[data-wa-destino]').count(), 0);
+  assert.equal(await page.locator('tr[data-lead-id="1"] a[data-wa-sugestao]').getAttribute('href'), 'https://wa.me/5516982050534');
+  assert.equal(await page.locator('tr[data-lead-id="2"] a[data-wa-sugestao]').getAttribute('href'), 'https://wa.me/551632050534');
   // Formato ambíguo: sem link, botão pede revisão e orienta o operador.
   assert.equal(await page.locator('tr[data-lead-id="5"] a[data-wa-destino]').count(), 0);
+  assert.equal(await page.locator('tr[data-lead-id="5"] a[data-wa-sugestao]').count(), 0);
   await page.locator('tr[data-lead-id="5"] [data-wa-invalido]').click();
   await page.waitForFunction(() => document.querySelector('#admin-message').textContent.includes('formato não reconhecido'));
   // Vazio: nenhum controle de WhatsApp.
@@ -80,8 +83,11 @@ test('R02: destinos de WhatsApp normalizados, confirmados e ambíguos bloqueados
   // O destino completo é confirmado antes de abrir; cancelar não navega.
   let aviso = '';
   page.on('dialog', async dialog => { aviso = dialog.message(); await dialog.dismiss(); });
-  await page.locator('tr[data-lead-id="1"] a[data-wa-destino]').click();
+  await page.locator('tr[data-lead-id="1"] a[data-wa-sugestao]').click();
+  assert.match(aviso, /código do país/);
   assert.match(aviso, /\+55 \(16\) 98205-0534/);
+  await page.locator('tr[data-lead-id="3"] a[data-wa-destino]').click();
+  assert.match(aviso, /Abrir conversa no WhatsApp com \+55 \(16\) 98205-0534/);
   assert.deepEqual(f.errors, []);
 }));
 

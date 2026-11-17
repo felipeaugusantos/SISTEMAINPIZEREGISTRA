@@ -29,6 +29,7 @@ const adminSections = [
   { id: "configuracao", label: "Configuração", href: "/admin/configuracao/regras-automaticas", symbol: "CG", permission: "leads.view" },
   { id: "reliability", label: "Confiabilidade e LGPD", href: "/admin/confiabilidade", symbol: "CF", permission: "production.manage", parent: "configuracao" },
   { id: "observability", label: "Observabilidade", href: "/admin/observabilidade", symbol: "OB", permission: "production.view", profiles: ["administrador", "tech"], parent: "configuracao" },
+  { id: "monitoramento", label: "Monitoramento de uso", href: "/admin/monitoramento", symbol: "MU", permission: "production.view", profiles: ["administrador", "tech"], parent: "configuracao" },
   { id: "config-regras", label: "Regras automáticas", href: "/admin/configuracao/regras-automaticas", symbol: "RA", permission: "leads.view", parent: "configuracao" },
   { id: "config-propostas", label: "Modelo de propostas", href: "/admin/configuracao/modelo-propostas", symbol: "PR", permission: "leads.view", parent: "configuracao" },
   { id: "config-email-leads", label: "Modelo de e-mail (leads)", href: "/admin/configuracao/modelo-email-leads", symbol: "EM", permission: "leads.view", parent: "configuracao" },

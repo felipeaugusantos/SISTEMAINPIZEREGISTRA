@@ -33,3 +33,14 @@
 .lead-dialog-message{margin:0;border-radius:0;border-width:0 0 1px}.lead-dialog-message:empty{display:none}
 @media(max-width:1150px){.crm-reminder{grid-template-columns:1fr 1fr}.crm-reminder-actions{grid-column:1/-1;justify-content:flex-start}}
 @media(max-width:700px){.crm-reminder-card>header{align-items:stretch;flex-direction:column}.crm-reminder-filter,.crm-reminder,.crm-reminder-dialog form{grid-template-columns:1fr}.crm-reminder-dialog header,.crm-reminder-dialog footer,.crm-reminder-dialog .wide,.crm-reminder-dialog .status-message{grid-column:auto}.crm-reminder-metrics{justify-content:flex-start}}
+
+/* Bulk selection stays within the current reminder page. */
+.crm-reminder-bulk{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:14px;border:1px solid #cbd9d0;border-radius:12px;background:#f1f6f2}
+.crm-reminder-bulk[hidden]{display:none}
+.crm-reminder-bulk>label,.crm-reminder-select{display:flex;align-items:center;gap:7px;font-size:.85rem;font-weight:700;cursor:pointer}
+.crm-reminder-bulk small{flex-basis:100%;color:var(--muted)}
+.crm-reminder-bulk input,.crm-reminder-select input{width:18px;height:18px;accent-color:var(--forest);flex-shrink:0}
+.crm-reminder-actions .crm-reminder-select{flex-basis:100%;justify-content:flex-end}
+.crm-reminder-bulk button:disabled{opacity:.55;cursor:not-allowed}
+@media(max-width:1150px){.crm-reminder-actions .crm-reminder-select{justify-content:flex-start}}
+@media(max-width:700px){.crm-reminder-bulk{align-items:stretch;flex-direction:column;flex-wrap:nowrap}.crm-reminder-bulk small{flex-basis:auto}.crm-reminder-bulk button{width:100%}}

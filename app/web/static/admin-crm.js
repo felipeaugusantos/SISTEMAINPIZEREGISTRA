@@ -8,6 +8,8 @@ const postponeDialog = document.querySelector("#postpone-dialog");
 const postponeForm = document.querySelector("#postpone-form");
 let postponeReminderId = null;
 let completingReminder = false;
+let completingReminderBatch = false;
+const selectedReminders = new Set();
 let crmClientSearchTimer = null;
 const crmMessage = document.querySelector("#crm-message");
 const channels = { telefone: "Telefone", whatsapp: "WhatsApp", email: "E-mail", reuniao: "Reunião", outro: "Atendimento" };
@@ -20,7 +22,10 @@ async function api(url, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = Array.isArray(data.detail) ? data.detail.map(item => item.msg).join(" · ") : data.detail;
-    throw new Error(detail || `Não foi possível concluir (${response.status})`);
+    const error = new Error(detail || `Não foi possível concluir (${response.status})`);
+    error.status = response.status;
+    error.retryAfter = response.headers.get("Retry-After");
+    throw error;
   }
   return data;
 }
@@ -165,9 +170,11 @@ const crm_remindersPager = window.ZRPagination?.create({
 
 });
 function renderReminders(data) {
+  selectedReminders.clear();
   crmState.canManage = data.acoes.gerenciar; crmState.remindersTotal = data.total; renderReminderMetrics(data.metricas); renderCustomerAlerts(data.cadastros_para_atualizar);
   document.querySelector("#new-reminder").hidden = !crmState.canManage;
-  document.querySelector("#crm-reminders").innerHTML = data.itens.length ? data.itens.map(item => `<article class="crm-reminder ${item.vencido ? "overdue" : ""} priority-${esc(item.prioridade)}"><div><span class="crm-reminder-type">${esc(item.tipo_nome)}</span><h3>${esc(item.titulo)}</h3><p>${esc(item.cliente)}${item.empresa ? ` · ${esc(item.empresa)}` : ""}</p>${item.descricao ? `<small>${esc(item.descricao)}</small>` : ""}${item.motivo_adiamento ? `<small class="crm-reminder-motivo">Adiado: ${esc(item.motivo_adiamento)}</small>` : ""}</div><div class="crm-reminder-due"><span>${item.vencido ? "Vencido" : "Alerta"}</span><strong>${dateTime.format(new Date(item.lembrar_em))}</strong><small>${esc(item.responsavel || "Não atribuído")} · prioridade ${esc(item.prioridade)}</small></div>${crmState.canManage && item.status === "pendente" ? `<div class="crm-reminder-actions"><button class="primary-button complete-reminder" data-id="${item.id}" type="button">Concluir</button><button class="secondary-button postpone-reminder" data-id="${item.id}" type="button">Adiar 1 dia</button><button class="text-button cancel-reminder-item" data-id="${item.id}" type="button">Cancelar</button></div>` : `<span class="crm-reminder-state">${esc(item.status)}</span>`}</article>`).join("") : `<div class="crm-empty"><strong>Nenhum lembrete neste filtro.</strong><p>Crie alertas para que retornos e tarefas não dependam da memória da equipe.</p></div>`;
+  document.querySelector("#crm-reminders").innerHTML = data.itens.length ? data.itens.map(item => `<article class="crm-reminder ${item.vencido ? "overdue" : ""} priority-${esc(item.prioridade)}"><div><span class="crm-reminder-type">${esc(item.tipo_nome)}</span><h3>${esc(item.titulo)}</h3><p>${esc(item.cliente)}${item.empresa ? ` · ${esc(item.empresa)}` : ""}</p>${item.descricao ? `<small>${esc(item.descricao)}</small>` : ""}${item.motivo_adiamento ? `<small class="crm-reminder-motivo">Adiado: ${esc(item.motivo_adiamento)}</small>` : ""}</div><div class="crm-reminder-due"><span>${item.vencido ? "Vencido" : "Alerta"}</span><strong>${dateTime.format(new Date(item.lembrar_em))}</strong><small>${esc(item.responsavel || "Não atribuído")} · prioridade ${esc(item.prioridade)}</small></div>${crmState.canManage && item.status === "pendente" ? `<div class="crm-reminder-actions"><label class="crm-reminder-select"><input type="checkbox" class="select-reminder" data-id="${item.id}" aria-label="${esc(`Selecionar lembrete: ${item.titulo}`)}"> Selecionar</label><button class="primary-button complete-reminder" data-id="${item.id}" type="button">Concluir</button><button class="secondary-button postpone-reminder" data-id="${item.id}" type="button">Adiar 1 dia</button><button class="text-button cancel-reminder-item" data-id="${item.id}" type="button">Cancelar</button></div>` : `<span class="crm-reminder-state">${esc(item.status)}</span>`}</article>`).join("") : `<div class="crm-empty"><strong>Nenhum lembrete neste filtro.</strong><p>Crie alertas para que retornos e tarefas não dependam da memória da equipe.</p></div>`;
+  document.querySelector("#crm-reminder-bulk").hidden = !crmState.canManage || !data.itens.some(item => item.status === "pendente");
   setCompletingReminder(completingReminder);
   const page = Math.floor(crmState.remindersOffset / crmState.remindersLimit) + 1;
   document.querySelector("#crm-reminders-page").textContent = `Página ${page}`;
@@ -228,8 +235,25 @@ async function pesquisarClientesLembrete(termo) {
 }
 async function updateReminder(id, payload) { await api(`/v1/admin/crm/lembretes/${id}`, { method: "PATCH", body: JSON.stringify(payload) }); await loadReminders(); }
 
+function syncReminderSelection() {
+  const boxes = [...document.querySelectorAll("#crm-reminders .select-reminder")];
+  const all = document.querySelector("#crm-reminder-select-page");
+  all.checked = boxes.length > 0 && selectedReminders.size === boxes.length;
+  all.indeterminate = selectedReminders.size > 0 && selectedReminders.size < boxes.length;
+  all.disabled = completingReminder || !boxes.length;
+  boxes.forEach(box => { box.checked = selectedReminders.has(Number(box.dataset.id)); box.disabled = completingReminder; });
+  document.querySelector("#crm-reminder-selection").textContent = `${selectedReminders.size} selecionado(s)`;
+  const button = document.querySelector("#crm-reminder-complete-selected");
+  button.disabled = completingReminder || !selectedReminders.size;
+  button.textContent = completingReminderBatch ? "Salvando lote…" : "Concluir selecionados";
+  button.setAttribute("aria-busy", String(completingReminderBatch));
+}
 function setCompletingReminder(pending) {
   completingReminder = pending;
+  syncReminderSelection();
+  document.querySelector("#crm-reminder-filter").inert = pending;
+  document.querySelector('[aria-label="Paginação dos lembretes"]').inert = pending;
+  document.querySelectorAll("#crm-reminders .postpone-reminder, #crm-reminders .cancel-reminder-item").forEach(button => { button.disabled = pending; });
   document.querySelectorAll("#crm-reminders .complete-reminder").forEach(button => {
     button.disabled = pending;
     button.setAttribute("aria-busy", String(pending));
@@ -243,6 +267,50 @@ async function completeReminder(id) {
   try { await updateReminder(id, { status: "concluido" }); }
   finally { setCompletingReminder(false); }
 }
+
+async function completeSelectedReminders() {
+  if (completingReminder || !crmState.canManage || !selectedReminders.size) return;
+  const ids = [...selectedReminders];
+  if (!window.confirm(`Concluir ${ids.length} lembrete(s) selecionado(s) desta página? Só confirme se as tarefas já foram realizadas.`)) return;
+  completingReminderBatch = true;
+  setCompletingReminder(true);
+  const statusBox = document.querySelector("#crm-reminder-bulk-message");
+  statusBox.hidden = false;
+  statusBox.className = "status-message loading";
+  statusBox.textContent = `Salvando ${ids.length} lembrete(s)…`;
+  let message, kind = "success";
+  try {
+    const result = await api("/v1/admin/crm/lembretes/concluir-em-lote", { method: "POST", body: JSON.stringify({ ids }) });
+    message = `${result.concluidos.length} lembrete(s) concluído(s). ${result.ignorados.length} já não estavam pendentes e foram mantidos sem alteração.`;
+  } catch (error) {
+    kind = "error";
+    message = error.status === 429
+      ? `Limite de alterações atingido. Aguarde ${error.retryAfter ? `o prazo indicado pelo servidor (${error.retryAfter})` : "pelo menos um minuto"} antes de tentar novamente. Nenhuma repetição automática foi feita.`
+      : `${error.message}. O resultado pode não ter sido confirmado; confira a lista atualizada antes de tentar novamente.`;
+  }
+  try { await loadReminders(); }
+  catch (error) { kind = "error"; message += ` Não foi possível atualizar a lista: ${error.message}. Atualize a página antes de tentar novamente.`; }
+  finally {
+    completingReminderBatch = false;
+    selectedReminders.clear();
+    setCompletingReminder(false);
+    statusBox.className = `status-message ${kind}`;
+    statusBox.textContent = message;
+  }
+}
+document.querySelector("#crm-reminder-complete-selected").addEventListener("click", completeSelectedReminders);
+document.querySelector("#crm-reminder-select-page").addEventListener("change", event => {
+  if (completingReminder) return;
+  selectedReminders.clear();
+  if (event.target.checked) document.querySelectorAll("#crm-reminders .select-reminder").forEach(box => selectedReminders.add(Number(box.dataset.id)));
+  syncReminderSelection();
+});
+document.querySelector("#crm-reminders").addEventListener("change", event => {
+  if (completingReminder || !event.target.matches(".select-reminder")) return;
+  const id = Number(event.target.dataset.id);
+  if (event.target.checked) selectedReminders.add(id); else selectedReminders.delete(id);
+  syncReminderSelection();
+});
 
 form.addEventListener("submit", event => { event.preventDefault(); crmState.offset = 0; loadHistory().catch(error => show(error.message)); });
 reminderFilter.addEventListener("submit", event => { event.preventDefault(); crmState.remindersOffset = 0; loadReminders().catch(error => show(error.message)); });
@@ -282,6 +350,7 @@ document.querySelector("#close-reminder").addEventListener("click", () => remind
 document.querySelector("#cancel-reminder").addEventListener("click", () => reminderDialog.close());
 document.querySelector("#crm-customer-alerts").addEventListener("click", event => { const button = event.target.closest(".create-update-reminder"); if (button) openReminder(button.dataset.leadId, "atualizar_cadastro", button.closest("article")?.querySelector("strong")?.textContent || ""); });
 document.querySelector("#crm-reminders").addEventListener("click", event => {
+  if (completingReminder) return;
   const complete = event.target.closest(".complete-reminder"), postpone = event.target.closest(".postpone-reminder"), cancel = event.target.closest(".cancel-reminder-item");
   if (complete) completeReminder(complete.dataset.id).catch(error => show(error.message));
   if (postpone) openPostpone(postpone.dataset.id);
@@ -290,7 +359,9 @@ document.querySelector("#crm-reminders").addEventListener("click", event => {
 document.querySelector("#close-postpone").addEventListener("click", () => postponeDialog.close());
 document.querySelector("#cancel-postpone").addEventListener("click", () => postponeDialog.close());
 postponeForm.addEventListener("submit", async event => {
-  event.preventDefault(); const motivo = new FormData(postponeForm).get("motivo").trim();
+  event.preventDefault();
+  if (completingReminder) return;
+  const motivo = new FormData(postponeForm).get("motivo").trim();
   if (!motivo) return;
   const statusBox = document.querySelector("#postpone-message"); statusBox.hidden = false; statusBox.className = "status-message loading"; statusBox.textContent = "Salvando…";
   try {

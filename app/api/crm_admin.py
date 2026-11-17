@@ -529,6 +529,57 @@ async def criar_lembrete(
     return _serializar_lembrete(item)
 
 
+class ConcluirLembretesInput(BaseModel):
+    ids: list[Annotated[int, Field(gt=0, strict=True)]] = Field(min_length=1, max_length=200)
+
+
+@router.post("/lembretes/concluir-em-lote")
+async def concluir_lembretes_em_lote(
+    dados: ConcluirLembretesInput,
+    request: Request,
+    session: SessionDep,
+    usuario: CRMManageDep,
+) -> dict:
+    ids = sorted(set(dados.ids))
+    # Lock in a stable order: overlapping batches cannot overwrite each other's
+    # completion author/time. Explicit IDs only, never a server-side "all" filter.
+    itens = (
+        await session.execute(
+            select(LembreteCRM)
+            .where(LembreteCRM.id.in_(ids), LembreteCRM.organizacao_id == usuario.organizacao_id)
+            .order_by(LembreteCRM.id)
+            .with_for_update(of=LembreteCRM)
+        )
+    ).scalars().all()
+    if len(itens) != len(ids):
+        raise HTTPException(status_code=404, detail="Um ou mais lembretes não foram encontrados. Atualize a lista.")
+    agora = datetime.now(UTC)
+    concluidos = []
+    ignorados = []
+    for item in itens:
+        if item.status != "pendente":
+            ignorados.append(item.id)
+            continue
+        item.status = "concluido"
+        item.concluido_em = agora
+        item.concluido_por = usuario.ator
+        concluidos.append(item.id)
+        _auditar_lembrete(
+            session, usuario, request, "concluir_lote", item.id,
+            {"status": "concluido", "origem": "lote", "quantidade": len(ids)},
+        )
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        logger.warning("Conflito de integridade ao concluir lote de lembretes: %s", exc)
+        raise HTTPException(
+            status_code=409,
+            detail="Nenhum lembrete do lote foi salvo: há um conflito de dados. Avise o suporte.",
+        ) from exc
+    return {"concluidos": concluidos, "ignorados": ignorados}
+
+
 @router.patch("/lembretes/{lembrete_id}")
 async def atualizar_lembrete(
     lembrete_id: int,

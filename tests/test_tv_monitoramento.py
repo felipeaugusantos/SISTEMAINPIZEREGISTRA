@@ -255,3 +255,51 @@ async def test_resumo_backup_sem_redis_nao_derruba_a_tv(monkeypatch: pytest.Monk
     resumo = await tv.resumo_backup()
     assert resumo["disponivel"] is False
     assert resumo["banco_local"]["saude"] == "cinza"
+
+
+def test_backup_erp_so_contagens_e_datas() -> None:
+    agora = datetime.now(UTC)
+    ontem = (agora - timedelta(hours=5)).isoformat()
+    r = tv.normalizar_backup_erp(
+        {
+            "clientes_ativos": 5,
+            "em_dia": 5,
+            "atrasados": 0,
+            "sem_backup": 0,
+            "com_erro": 0,
+            "ultimo_em": ontem,
+            "mais_antigo_em": ontem,
+            "caminho": "geral/abc/2026-11-17.ndjson.gz",
+            "cliente": "Clínica Secreta",
+        },
+        agora,
+    )
+    assert r["saude"] == "verde" and r["em_dia"] == 5
+    assert "caminho" not in r and "cliente" not in r
+    assert "ndjson" not in str(r) and "Secreta" not in str(r)
+
+
+@pytest.mark.parametrize(
+    ("campos", "saude"),
+    [
+        ({"clientes_ativos": 5, "em_dia": 4, "atrasados": 1}, "amarelo"),
+        ({"clientes_ativos": 5, "em_dia": 4, "sem_backup": 1}, "amarelo"),
+        ({"clientes_ativos": 5, "em_dia": 4, "atrasados": 1, "com_erro": 1}, "vermelho"),
+        ({"clientes_ativos": 0}, "cinza"),
+    ],
+)
+def test_backup_erp_saude(campos: dict, saude: str) -> None:
+    assert tv.normalizar_backup_erp(campos)["saude"] == saude
+
+
+def test_backup_erp_muito_atrasado_fica_vermelho() -> None:
+    agora = datetime.now(UTC)
+    antigo = (agora - timedelta(hours=60)).isoformat()
+    r = tv.normalizar_backup_erp({"clientes_ativos": 2, "em_dia": 1, "atrasados": 1, "mais_antigo_em": antigo}, agora)
+    assert r["saude"] == "vermelho"
+
+
+def test_backup_erp_ausente_ou_lixo() -> None:
+    assert tv.normalizar_backup_erp(None) == {"disponivel": False, "saude": "cinza"}
+    assert tv.normalizar_backup_erp({"clientes_ativos": 1, "ultimo_em": "ontem"})["ultimo_em"] is None
+    assert tv.normalizar_erp({})["backup"]["disponivel"] is False

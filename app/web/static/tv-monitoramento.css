@@ -66,13 +66,13 @@ body.tv {
 .tv-top li.tv-ok { background: var(--verde-claro); color: #006b2e; font-weight: 600; font-size: 1vw; padding: .85vw 1vw; }
 .tv-vazio { font-size: 1.4vw; color: var(--suave); margin: auto; text-align: center; }
 .tv-backup { display: flex; align-items: stretch; gap: 1.2vw; background: #fff; border-radius: 1.2vw; padding: .9vw 1.6vw; box-shadow: 0 .95vw 2.1vw -.95vw rgba(0, 61, 26, .22), 0 .1vw .3vw rgba(0, 61, 26, .06); }
-.tv-backup h2 { margin: 0; align-self: center; font-size: 1.3vw; font-weight: 700; width: 7vw; }
+.tv-backup h2 { margin: 0; align-self: center; font-size: 1.3vw; font-weight: 700; width: 5.5vw; }
 .tv-backup-item { --realce: #00a84a; --fundo-selo: #e6f5ed; --cor-selo: #007a35; flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 1vw; border: .08vw solid var(--linha); border-left: .3vw solid var(--realce); border-radius: .9vw; padding: .6vw 1.1vw; }
 .tv-backup-item.saude-amarelo { --realce: #f2a900; --fundo-selo: #fff1d6; --cor-selo: #9a5b00; background: #fff8e6; }
 .tv-backup-item.saude-vermelho { --realce: #e5372d; --fundo-selo: #fde8e8; --cor-selo: #b42318; background: #fdeeee; }
 .tv-backup-item.saude-cinza { --realce: #aab6af; --fundo-selo: #e8ecea; --cor-selo: #5b6b62; }
 .tv-backup-texto span { display: block; font-size: .85vw; color: var(--suave); }
-.tv-backup-texto strong { display: block; font-size: 1.6vw; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.tv-backup-texto strong { display: block; font-size: 1.45vw; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .tv-backup-texto small { display: block; font-size: .85vw; color: var(--suave); }
 .tv-backup-selo { font-style: normal; font-weight: 700; font-size: .95vw; padding: .4vw .9vw; border-radius: 99vw; background: var(--fundo-selo); color: var(--cor-selo); }
 @media (max-width: 900px) {

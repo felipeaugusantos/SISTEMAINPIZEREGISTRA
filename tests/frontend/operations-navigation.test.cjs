@@ -8,7 +8,7 @@ function element() {
   return { hidden: false, disabled: false, value: '', textContent: '', innerHTML: '', handlers: {},
     addEventListener(type, fn) { this.handlers[type] = fn; },
     querySelector() { return this.child ||= element(); }, querySelectorAll() { return []; },
-    replaceChildren() {}, append() {}, scrollIntoView() {}, reset() {}, focus() {},
+    replaceChildren() {}, append() {}, scrollIntoView() {}, reset() {}, focus() {}, reportValidity() { return true; },
     classList: { add() {}, remove() {} } };
 }
 async function fixture(fetcher = async () => ({ ok: true, json: async () => ({}) })) {
@@ -88,10 +88,12 @@ test('Pesquisa: duplo envio produz um POST e falha libera o formulário', async 
     return { ok: true, json: async () => ({}) };
   });
   const submit = f.get('#consulta-form').handlers.submit;
-  const first = submit({ preventDefault() {} }); await submit({ preventDefault() {} });
-  assert.equal(posts, 1); assert.equal(f.get('#consulta-form').child.disabled, true);
+  submit({ preventDefault() {} }); submit({ preventDefault() {} });
+  const confirmar = f.get('#confirmar-consulta').handlers.click;
+  const first = confirmar(); await confirmar();
+  assert.equal(posts, 1); assert.equal(f.get('#confirmar-consulta').disabled, true);
   release(); await first;
-  assert.equal(f.get('#consulta-form').child.disabled, false);
+  assert.equal(f.get('#confirmar-consulta').disabled, false);
   assert.equal(f.get('#consulta-status').textContent, 'Indisponível');
 });
 test('Análise: checklist abre a etapa fechada antes de navegar até ela', () => {

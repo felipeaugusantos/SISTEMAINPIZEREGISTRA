@@ -150,6 +150,15 @@ function originLabel(value) {
   );
 }
 
+// R09: rótulos de estado sempre em português, distintos para risco
+// técnico, conclusão profissional e validação do relatório.
+const workflowStateLabels = {
+  DRAFT: "Rascunho",
+  PENDING_REVIEW: "Revisão pendente",
+  IN_REVIEW: "Em revisão",
+  CHANGES_REQUESTED: "Ajustes solicitados",
+  VALIDATED: "Validado",
+};
 function fullReportStatus(item, compact = false) {
   if (!item) return "";
   if (item.relatorio_completo_gerado) {
@@ -159,7 +168,7 @@ function fullReportStatus(item, compact = false) {
     return `<span class="full-report-status ready" title="${escapeHtml(detail)}">Completo gerado${compact ? "" : ` · ${escapeHtml(detail)}`}</span>`;
   }
   if (item.review_required) {
-    return `<span class="full-report-status pending">Revisão obrigatória · ${escapeHtml(String(item.analysis_state || "PENDING_REVIEW").replaceAll("_", " "))}</span>`;
+    return `<span class="full-report-status pending">Revisão obrigatória · ${escapeHtml(workflowStateLabels[item.analysis_state] || workflowStateLabels.PENDING_REVIEW)}</span>`;
   }
   return `<span class="full-report-status pending">Validado · aguardando emissão</span>`;
 }
@@ -1929,7 +1938,7 @@ async function visualizarProposta(id) {
         (dialogOpener?.isConnected ? dialogOpener : fallback)?.focus({ preventScroll: true });
       }
     });
-    const api = { riskLabels, escapeHtml, formatDate, phoneDigits, whatsappDestino, whatsappLinkHtml, statusOptions, showMessage, responsePayload, originLabel, fullReportStatus, aggregateReportStatus, duplicateStatus, deletionAction, abrirRegistroAtendimento, openLead, faseMini, openResearchDelete, criarProposta,
+    const api = { riskLabels, workflowStateLabels, escapeHtml, formatDate, phoneDigits, whatsappDestino, whatsappLinkHtml, statusOptions, showMessage, responsePayload, originLabel, fullReportStatus, aggregateReportStatus, duplicateStatus, deletionAction, abrirRegistroAtendimento, openLead, faseMini, openResearchDelete, criarProposta,
     navigationContext() {
       if (!dialog.open) return null;
       return { lead: state.openLeadId, research: selectedResearch,

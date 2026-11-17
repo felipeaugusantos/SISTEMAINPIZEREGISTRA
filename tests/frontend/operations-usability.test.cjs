@@ -116,7 +116,7 @@ for (const width of [1440, 390]) test(`M04 ${width}: 45 classes, busca, teclado 
   await page.locator('.nice-options input').check(); await page.locator('.nice-selector input[type=search]').fill('45'); await page.locator('.nice-options input').check();
   assert.equal(await page.locator('[data-field=classes_nice]').evaluate(el => [...el.selectedOptions].map(o => o.value).join(',')), '30,45');
   await page.locator('[data-field=marca]').fill('Marca teste'); await page.locator('[name=nome]').fill('Contato Teste'); await page.locator('[name=email]').fill('teste@example.com');
-  await page.locator('#consulta-form button[type=submit]').click(); await page.waitForFunction(() => location.pathname.endsWith('/r1'));
+  await page.locator('#consulta-form button[type=submit]').click(); await page.locator('#confirmar-consulta').click(); await page.waitForFunction(() => location.pathname.endsWith('/r1'));
   const post = f.requests.find(r => r.path === '/v1/admin/consulta' && r.method === 'POST'); assert.deepEqual(JSON.parse(post.body).marcas[0].classes_nice, ['30','45']);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   if (process.env.OPERATIONS_SCREENSHOTS) { fs.mkdirSync(process.env.OPERATIONS_SCREENSHOTS, { recursive: true }); await page.screenshot({ path: path.join(process.env.OPERATIONS_SCREENSHOTS, `consulta-${width}.png`), fullPage: true }); }

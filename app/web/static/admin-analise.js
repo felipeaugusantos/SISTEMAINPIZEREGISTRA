@@ -227,7 +227,7 @@ async function load() {
 async function sendJson(url, options) {
   const response = await fetch(url, options);
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.detail || "Operação não concluída.");
+  if (!response.ok) { const erro = new Error(data.detail || "Operação não concluída."); erro.status = response.status; throw erro; }
   return data;
 }
 async function downloadFullReport() {
@@ -306,7 +306,29 @@ sections.addEventListener("submit", async event => {
     if (form.id === "consolidated-review-form") await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/parecer`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nivel_humano: values.get("nivel_humano"), observacoes_humanas: values.get("observacoes_humanas"), versao_relatorio: analysis.analise_consolidada.versao_relatorio, diretriz_acao_humana: values.get("diretriz_acao_humana") || null, veredito_humano: values.get("veredito_humano") || null }) });
     if (form.id === "workflow-form") await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/workflow`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: values.get("action"), notes: values.get("notes")?.trim() || null, versao_relatorio: analysis.workflow.report_version }) });
     showMessage("Etapa atualizada com sucesso.", "success"); await load();
-  } catch (error) { showMessage(error.message, "error"); button.disabled = false; }
+  } catch (error) {
+    // R10 (plano de correções 17/11/2026): em conflito de versão, o texto
+    // digitado permanece na tela (o formulário não é recarregado) e a nova
+    // versão só entra após confirmação explícita. A proteção otimista
+    // (versao_relatorio) não é substituída nem enfraquecida.
+    if (error.status === 409) {
+      showMessage("Esta análise foi alterada em outra sessão. Seu texto continua na tela; revise a nova versão antes de salvar de novo.", "error");
+      let recarregar = form.querySelector("[data-recarregar-versao]");
+      if (!recarregar) {
+        recarregar = document.createElement("button");
+        recarregar.type = "button";
+        recarregar.className = "secondary-button";
+        recarregar.dataset.recarregarVersao = "true";
+        recarregar.textContent = "Recarregar versão mais recente";
+        recarregar.addEventListener("click", async () => { await load(); });
+        button.after(recarregar);
+      }
+      recarregar.hidden = false;
+    } else {
+      showMessage(error.message, "error");
+    }
+    button.disabled = false;
+  }
 });
 sections.addEventListener("click", async event => {
   const help = event.target.closest(".context-help");

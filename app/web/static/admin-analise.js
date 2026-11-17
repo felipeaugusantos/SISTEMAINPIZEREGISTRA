@@ -132,7 +132,11 @@ function renderUnified(data) {
   const disclaimers = (item.disclaimers || []).map(d => `<li><strong>${escapeHtml(d.titulo)}:</strong> ${escapeHtml(d.texto)}</li>`).join("");
   const sobrescritaPeloHumano = presentation.situacao?.origem === "parecer_humano";
   const iaPreliminar = sobrescritaPeloHumano && presentation.situacao_ia_preliminar ? `<p class="analysis-empty">Pré-análise automática da IA (antes do parecer): <span class="situacao-badge situacao-${escapeHtml(presentation.situacao_ia_preliminar.codigo)}">${escapeHtml(presentation.situacao_ia_preliminar.rotulo)}</span></p>` : "";
+  const pendencias = item.pendencias || [];
+  const bloqueio = pendencias.length ? `${pendencias.length} pendência(s) — primeira: ${pendencias[0].criterio}` : (item.revisao.validada ? "Nenhum bloqueio" : "Revisão de especialista pendente");
+  const proximaAcao = pendencias.length ? "Resolver as pendências listadas abaixo" : (item.revisao.validada ? "Gerar o relatório completo validado" : (item.diretriz_acao ? (diretrizLabels[item.diretriz_acao.codigo] || label(item.diretriz_acao.codigo)) : "Iniciar a revisão do especialista"));
   return step({ id: "unified", number: 1, title: "Análise de registrabilidade", subtitle: `Versão ${item.versao_relatorio} · ${item.versao_motor}`, state: item.revisao.validada ? "completed" : "attention", stateLabel: item.revisao.validada ? "Validada por especialista" : "Preliminar", open: true, body: `
+    <p class="analysis-next">Bloqueio atual: <strong>${escapeHtml(bloqueio)}</strong> · Próxima ação: <strong>${escapeHtml(proximaAcao)}</strong></p>
     <section class="unified-conclusion"><p class="eyebrow">${sobrescritaPeloHumano ? "Veredito do especialista (sobrescreve a IA)" : "Conclusão automática preliminar"}</p><h3>Situação: <span class="situacao-badge situacao-${escapeHtml(presentation.situacao?.codigo || "inconclusiva")}">${escapeHtml(presentation.situacao?.rotulo || "Inconclusiva - requer revisão")}</span></h3><p>${escapeHtml(presentation.situacao?.explicacao)}</p>${iaPreliminar}<p>${escapeHtml(item.titulo)}</p><p>${escapeHtml(item.recomendacao)}</p>${diretriz}
     <div class="analysis-grid"><div class="analysis-stat"><span>Risco técnico</span><strong>${escapeHtml(label(result.nivel_risco || "não calculado"))}</strong></div><div class="analysis-stat"><span>Cobertura dos critérios</span><strong>${percent(result.cobertura)}</strong></div><div class="analysis-stat"><span>Pendências</span><strong>${item.pendencias.length}</strong></div></div>
     ${impediments ? `<h3>Possíveis impedimentos (${presentation.impedimentos.length})</h3><ul class="analysis-alerts">${impediments}</ul>` : ""}
@@ -162,6 +166,14 @@ function renderOpinion(data) {
   return step({ id: "opinion", number: 2, title: "Parecer humano", subtitle: "Síntese profissional vinculada à versão", state: reviewed ? "completed" : "pending", stateLabel: reviewed ? "Registrado" : "Pendente", body: saved + form });
 }
 
+// R09: estados do workflow sempre em português, sem códigos em inglês.
+const workflowStateLabels = {
+  DRAFT: "Rascunho",
+  PENDING_REVIEW: "Revisão pendente",
+  IN_REVIEW: "Em revisão",
+  CHANGES_REQUESTED: "Ajustes solicitados",
+  VALIDATED: "Validado",
+};
 function renderReport(data) {
   const report = data.relatorio_completo;
   const workflow = data.workflow;
@@ -178,7 +190,7 @@ function renderReport(data) {
   const history = (workflow.history || []).map(item => `<li><strong>${escapeHtml(item.after?.state || item.details?.action || "Tentativa")}</strong> · ${escapeHtml(item.actor)} · ${formatDate(item.created_at)}${item.success ? "" : ` · bloqueada: ${escapeHtml(item.details?.reason || "regra do workflow")}`}</li>`).join("");
   const reportState = validated ? "completed" : "attention";
   const stateLabel = validated ? "Versão validada" : "Revisão pendente";
-  return step({ id: "report", number: 3, title: "Workflow humano e relatório", subtitle: "Validação formal vinculada à versão atual", state: reportState, stateLabel, body: `<div class="analysis-grid"><div class="analysis-stat"><span>Estado da análise</span><strong>${escapeHtml(label(workflow.state))}</strong></div><div class="analysis-stat"><span>Versão em revisão</span><strong>${escapeHtml(workflow.report_version || "—")}</strong></div><div class="analysis-stat"><span>Validado por</span><strong>${escapeHtml(workflow.validated_by || "Pendente")}</strong></div><div class="analysis-stat"><span>Validado em</span><strong>${formatDate(workflow.validated_at)}</strong></div></div>${workflow.notes ? `<div class="analysis-opinion">${escapeHtml(workflow.notes)}</div>` : ""}<p class="analysis-empty">Enquanto a revisão obrigatória estiver pendente, o documento não pode ser emitido como relatório completo validado.</p>${workflowForm}${history ? `<h3>Histórico do workflow</h3><ul class="analysis-alerts">${history}</ul>` : ""}<div class="analysis-action-row">${action}</div>` });
+  return step({ id: "report", number: 3, title: "Workflow humano e relatório", subtitle: "Validação formal vinculada à versão atual", state: reportState, stateLabel, body: `<div class="analysis-grid"><div class="analysis-stat"><span>Estado da análise</span><strong>${escapeHtml(workflowStateLabels[workflow.state] || label(workflow.state))}</strong></div><div class="analysis-stat"><span>Versão em revisão</span><strong>${escapeHtml(workflow.report_version || "—")}</strong></div><div class="analysis-stat"><span>Validado por</span><strong>${escapeHtml(workflow.validated_by || "Pendente")}</strong></div><div class="analysis-stat"><span>Validado em</span><strong>${formatDate(workflow.validated_at)}</strong></div></div>${workflow.notes ? `<div class="analysis-opinion">${escapeHtml(workflow.notes)}</div>` : ""}<p class="analysis-empty">Enquanto a revisão obrigatória estiver pendente, o documento não pode ser emitido como relatório completo validado.</p>${workflowForm}${history ? `<h3>Histórico do workflow</h3><ul class="analysis-alerts">${history}</ul>` : ""}<div class="analysis-action-row">${action}</div>` });
 }
 
 function renderProgress(data) {
@@ -215,7 +227,7 @@ async function load() {
 async function sendJson(url, options) {
   const response = await fetch(url, options);
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.detail || "Operação não concluída.");
+  if (!response.ok) { const erro = new Error(data.detail || "Operação não concluída."); erro.status = response.status; throw erro; }
   return data;
 }
 async function downloadFullReport() {
@@ -294,7 +306,29 @@ sections.addEventListener("submit", async event => {
     if (form.id === "consolidated-review-form") await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/parecer`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nivel_humano: values.get("nivel_humano"), observacoes_humanas: values.get("observacoes_humanas"), versao_relatorio: analysis.analise_consolidada.versao_relatorio, diretriz_acao_humana: values.get("diretriz_acao_humana") || null, veredito_humano: values.get("veredito_humano") || null }) });
     if (form.id === "workflow-form") await sendJson(`/v1/admin/analises/${encodeURIComponent(pesquisaId)}/workflow`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: values.get("action"), notes: values.get("notes")?.trim() || null, versao_relatorio: analysis.workflow.report_version }) });
     showMessage("Etapa atualizada com sucesso.", "success"); await load();
-  } catch (error) { showMessage(error.message, "error"); button.disabled = false; }
+  } catch (error) {
+    // R10 (plano de correções 17/11/2026): em conflito de versão, o texto
+    // digitado permanece na tela (o formulário não é recarregado) e a nova
+    // versão só entra após confirmação explícita. A proteção otimista
+    // (versao_relatorio) não é substituída nem enfraquecida.
+    if (error.status === 409) {
+      showMessage("Esta análise foi alterada em outra sessão. Seu texto continua na tela; revise a nova versão antes de salvar de novo.", "error");
+      let recarregar = form.querySelector("[data-recarregar-versao]");
+      if (!recarregar) {
+        recarregar = document.createElement("button");
+        recarregar.type = "button";
+        recarregar.className = "secondary-button";
+        recarregar.dataset.recarregarVersao = "true";
+        recarregar.textContent = "Recarregar versão mais recente";
+        recarregar.addEventListener("click", async () => { await load(); });
+        button.after(recarregar);
+      }
+      recarregar.hidden = false;
+    } else {
+      showMessage(error.message, "error");
+    }
+    button.disabled = false;
+  }
 });
 sections.addEventListener("click", async event => {
   const help = event.target.closest(".context-help");

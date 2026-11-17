@@ -32,6 +32,10 @@
     <section class="finance-card">
       <header class="finance-list-heading"><div><p class="eyebrow">POR PROCESSO</p><h2>Custo de um processo específico</h2><p>Inclui lançamentos financeiros vinculados e custos jurídicos registrados.</p></div></header>
       <form id="processo-form" class="finance-period-form">
+        <label><span>Buscar processo <small>(marca ou número oficial) — selecione para preencher o ID</small></span><input id="processo-busca" type="search" autocomplete="off" placeholder="Ex.: CAFÉ DO BRASIL ou 900000000000000"></label>
+        <p id="processo-busca-status" class="section-hint" role="status"></p>
+        <ul id="processo-busca-resultados" class="consulta-cliente-resultados"></ul>
+        <p id="processo-selecionado" class="status-message success" hidden></p>
         <label><span>ID do processo</span><input name="processo_id" type="number" min="1" required></label>
         <button class="primary-button" type="submit">Consultar</button>
       </form>

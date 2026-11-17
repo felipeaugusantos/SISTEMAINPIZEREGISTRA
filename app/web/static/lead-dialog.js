@@ -60,6 +60,42 @@ function formatDate(value, withTime = true) {
 }
 
 function phoneDigits(value) { return String(value || "").replace(/\D/g, ""); }
+// R02 (plano de correções 17/11/2026): validar o destino do WhatsApp
+// antes de habilitar o atalho. phoneDigits só removia não-dígitos e gerava
+// wa.me sem DDI (destino errado ou falho). Regras: "+" inicial ou prefixo
+// 00 = internacional, mantém como está; 12/13 dígitos começando com 55 =
+// nacional com DDI, mantém; 10/11 dígitos sem DDI = país incerto, então o
+// atalho só abre depois de o operador confirmar explicitamente o código do
+// país (sugerimos +55 Brasil, sem alterar o cadastro); qualquer outro
+// formato = ambíguo, fica bloqueado pedindo revisão.
+function formatTelefoneExibicao(digits) {
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    const ddd = digits.slice(2, 4);
+    const corte = digits.length === 13 ? 9 : 8;
+    return `+55 (${ddd}) ${digits.slice(4, corte)}-${digits.slice(corte)}`;
+  }
+  return `+${digits}`;
+}
+function whatsappDestino(telefone) {
+  const original = String(telefone || "").trim();
+  const digits = original.replace(/\D/g, "");
+  if (!digits) return { ok: false, motivo: "vazio" };
+  const internacional = digits.startsWith("00") ? digits.slice(2) : (original.startsWith("+") ? digits : null);
+  if (internacional !== null) {
+    if (internacional.length >= 8 && internacional.length <= 15) return { ok: true, destino: internacional, exibicao: formatTelefoneExibicao(internacional) };
+    return { ok: false, motivo: "invalido" };
+  }
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) return { ok: true, destino: digits, exibicao: formatTelefoneExibicao(digits) };
+  if (digits.length === 10 || digits.length === 11) return { ok: false, motivo: "confirmar-pais", sugestao: `55${digits}`, exibicaoSugestao: formatTelefoneExibicao(`55${digits}`) };
+  return { ok: false, motivo: "ambiguo" };
+}
+function whatsappLinkHtml(telefone, { label = "WhatsApp", extraClass = "" } = {}) {
+  const wa = whatsappDestino(telefone);
+  if (wa.motivo === "vazio") return "";
+  if (wa.motivo === "confirmar-pais") return `<a class="${extraClass}" href="https://wa.me/${wa.sugestao}" target="_blank" rel="noopener" data-wa-sugestao="${escapeHtml(wa.exibicaoSugestao)}" aria-label="${label} (confirmar código do país)" title="Confirmar código do país">${label}</a>`;
+  if (!wa.ok) return `<button type="button" class="${extraClass} wa-destino-invalido" data-wa-invalido title="Telefone em formato não reconhecido">Revisar telefone</button>`;
+  return `<a class="${extraClass}" href="https://wa.me/${wa.destino}" target="_blank" rel="noopener" data-wa-destino="${escapeHtml(wa.exibicao)}" aria-label="Abrir WhatsApp para ${escapeHtml(wa.exibicao)}" title="${escapeHtml(wa.exibicao)}">${label}</a>`;
+}
 function ownerOptions(selected) {
   return `<option value="">Não atribuído</option>${state.owners.map(owner =>
     `<option value="${owner.id}" ${String(selected || "") === String(owner.id) ? "selected" : ""}>${escapeHtml(owner.nome)}</option>`
@@ -116,6 +152,15 @@ function originLabel(value) {
   );
 }
 
+// R09: rótulos de estado sempre em português, distintos para risco
+// técnico, conclusão profissional e validação do relatório.
+const workflowStateLabels = {
+  DRAFT: "Rascunho",
+  PENDING_REVIEW: "Revisão pendente",
+  IN_REVIEW: "Em revisão",
+  CHANGES_REQUESTED: "Ajustes solicitados",
+  VALIDATED: "Validado",
+};
 function fullReportStatus(item, compact = false) {
   if (!item) return "";
   if (item.relatorio_completo_gerado) {
@@ -125,7 +170,7 @@ function fullReportStatus(item, compact = false) {
     return `<span class="full-report-status ready" title="${escapeHtml(detail)}">Completo gerado${compact ? "" : ` · ${escapeHtml(detail)}`}</span>`;
   }
   if (item.review_required) {
-    return `<span class="full-report-status pending">Revisão obrigatória · ${escapeHtml(String(item.analysis_state || "PENDING_REVIEW").replaceAll("_", " "))}</span>`;
+    return `<span class="full-report-status pending">Revisão obrigatória · ${escapeHtml(workflowStateLabels[item.analysis_state] || workflowStateLabels.PENDING_REVIEW)}</span>`;
   }
   return `<span class="full-report-status pending">Validado · aguardando emissão</span>`;
 }
@@ -222,7 +267,7 @@ function researchCard(item) {
   return `<article class="lead-research-card">
     <div><strong>${escapeHtml(item.marca)}</strong>${duplicateStatus(item)}<small>${formatDate(item.criado_em)}</small></div>
     <p>${escapeHtml(item.atividade || "Atividade não informada")}</p>
-    <div class="lead-research-meta">${item.classe_nice ? `<span>NCL ${escapeHtml(item.classe_nice)}</span>` : ""}${item.risco_nivel ? `<span class="risk-pill risk-${escapeHtml(item.risco_nivel)}">Risco ${escapeHtml(riskLabels[item.risco_nivel] || item.risco_nivel)}${item.risco_pontuacao !== null ? ` · ${item.risco_pontuacao} pontos` : ""}</span>` : `<span>Análise ainda não calculada</span>`}${fullReportStatus(item)}</div>
+    <div class="lead-research-meta">${item.classe_nice ? `<span>NCL ${escapeHtml(item.classe_nice)}</span>` : ""}${item.risco_nivel ? `<span class="risk-pill risk-${escapeHtml(item.risco_nivel)}">Risco ${escapeHtml(riskLabels[item.risco_nivel] || item.risco_nivel)}${item.risco_pontuacao != null ? ` · ${item.risco_pontuacao} pontos` : ""}</span>` : `<span>Análise ainda não calculada</span>`}${fullReportStatus(item)}</div>
     <div class="lead-research-actions"><a class="secondary-button" href="/admin/analises/${encodeURIComponent(item.id)}">Abrir Central de Análise</a>${reportAction}${moveAction(item)}${deletionAction(item)}</div>
   </article>`;
 }
@@ -476,7 +521,7 @@ async function openLead(id, selectedResearchId = null) {
     ${lead.processo_vinculado_pendente ? processoNaoVinculadoAviso(lead) : ""}
     ${emailQuota}
     ${operationsMode ? operationalSummary(lead) : ""}
-    <section class="lead-contact-summary"><div data-icon="email"><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>${state.canManage && lead.email ? ` <button type="button" class="secondary-button lead-send-email" data-lead-id="${lead.id}" ${emailBlocked ? "disabled" : ""}>${emailBlocked ? "Limite atingido" : "Enviar e-mail"}</button>` : ""}</div><div data-icon="telefone"><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a>${phoneDigits(lead.telefone) ? ` <a class="secondary-button" href="https://wa.me/${phoneDigits(lead.telefone)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div><div id="lead-site-row" hidden><span>Site</span><a id="lead-site-link" href="#" target="_blank" rel="noopener"></a></div><div data-icon="documento"><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div data-icon="empresa"><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong>${lead.empresa ? ` <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(lead.empresa)}" target="_blank" rel="noopener">Buscar no Google</a> <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(`site:instagram.com ${lead.empresa}`)}" target="_blank" rel="noopener">Buscar no Instagram</a>` : ""}</div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div><div><span>Prioridade (IA)</span><strong id="lead-qualificacao-badge">—</strong></div></section>
+    <section class="lead-contact-summary"><div data-icon="email"><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>${state.canManage && lead.email ? ` <button type="button" class="secondary-button lead-send-email" data-lead-id="${lead.id}" ${emailBlocked ? "disabled" : ""}>${emailBlocked ? "Limite atingido" : "Enviar e-mail"}</button>` : ""}</div><div data-icon="telefone"><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a>${(() => { const waHtml = operationsMode ? whatsappLinkHtml(lead.telefone, { extraClass: "secondary-button" }) : (phoneDigits(lead.telefone) ? `<a class="secondary-button" href="https://wa.me/${phoneDigits(lead.telefone)}" target="_blank" rel="noopener">WhatsApp</a>` : ""); return waHtml ? ` ${waHtml}` : ""; })()}</div><div id="lead-site-row" hidden><span>Site</span><a id="lead-site-link" href="#" target="_blank" rel="noopener"></a></div><div data-icon="documento"><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div data-icon="empresa"><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong>${lead.empresa ? ` <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(lead.empresa)}" target="_blank" rel="noopener">Buscar no Google</a> <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(`site:instagram.com ${lead.empresa}`)}" target="_blank" rel="noopener">Buscar no Instagram</a>` : ""}</div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div><div><span>Prioridade (IA)</span><strong id="lead-qualificacao-badge">—</strong></div></section>
     <nav class="lead-tabs" role="tablist">${ABAS_LEAD.map(([id, label], i) => `<button type="button" class="lead-tab${i === 0 ? " active" : ""}" role="tab" aria-selected="${i === 0}" data-tab="${id}">${label}</button>`).join("")}</nav>
     <div class="lead-tab-panel" data-panel="atendimento" hidden>
       <section class="lead-qualificacao-ia lg-full" id="lead-qualificacao-ia" hidden></section>
@@ -1881,6 +1926,24 @@ async function visualizarProposta(id) {
     }
   }
 }
+    if (operationsMode) dialog.addEventListener("click", event => {
+      // R02: validação de destino ativa apenas no Centro (operationsMode);
+      // demais consumidores mantêm o link simples de wa.me sem confirmação.
+      const waLink = event.target.closest("a[data-wa-destino]");
+      if (waLink) {
+        // R02: o destino completo é confirmado antes de abrir o WhatsApp.
+        if (!confirm(`Abrir conversa no WhatsApp com ${waLink.dataset.waDestino}?`)) event.preventDefault();
+        return;
+      }
+      const waSugestao = event.target.closest("a[data-wa-sugestao]");
+      if (waSugestao) {
+        // R02: sem código do país no cadastro, o operador confirma
+        // explicitamente o destino internacional antes de abrir.
+        if (!confirm(`Este telefone não tem código do país. Abrir conversa no WhatsApp como ${waSugestao.dataset.waSugestao} (Brasil)?`)) event.preventDefault();
+        return;
+      }
+      if (event.target.closest("[data-wa-invalido]")) showMessage("Telefone em formato não reconhecido. Revise o cadastro do contato antes de abrir o WhatsApp.", "error");
+    });
     dialog.querySelector(".dialog-close").addEventListener("click", () => dialog.close());
     dialog.addEventListener("close", onClose);
     dialog.addEventListener("close", () => {
@@ -1889,7 +1952,7 @@ async function visualizarProposta(id) {
         (dialogOpener?.isConnected ? dialogOpener : fallback)?.focus({ preventScroll: true });
       }
     });
-    const api = { riskLabels, escapeHtml, formatDate, phoneDigits, statusOptions, showMessage, responsePayload, originLabel, fullReportStatus, aggregateReportStatus, duplicateStatus, deletionAction, abrirRegistroAtendimento, openLead, faseMini, openResearchDelete, criarProposta,
+    const api = { riskLabels, workflowStateLabels, escapeHtml, formatDate, phoneDigits, whatsappDestino, whatsappLinkHtml, statusOptions, showMessage, responsePayload, originLabel, fullReportStatus, aggregateReportStatus, duplicateStatus, deletionAction, abrirRegistroAtendimento, openLead, faseMini, openResearchDelete, criarProposta,
     navigationContext() {
       if (!dialog.open) return null;
       return { lead: state.openLeadId, research: selectedResearch,

@@ -50,10 +50,16 @@ function renderAuditPagination(data) {
 
 function render(data) {
   document.querySelector("#production-environment").textContent = data.ambiente;
+  // R15: toda leitura indica fonte, período e atualização, e distingue zero
+  // real de sem amostra (0 requisições monitoradas não significa 0% de erro
+  // nem 0 ms; significa ausência de amostras no período).
+  const semAmostra = Number(data.requisicoes_24h) === 0;
   document.querySelector("#metric-requests").textContent = data.requisicoes_24h;
-  document.querySelector("#metric-errors").textContent = percent(data.taxa_erros_24h);
-  document.querySelector("#metric-duration").textContent = `${Math.round(data.duracao_media_ms_24h)} ms`;
+  document.querySelector("#metric-errors").textContent = semAmostra ? "sem amostra" : percent(data.taxa_erros_24h);
+  document.querySelector("#metric-duration").textContent = semAmostra ? "sem amostra" : `${Math.round(data.duracao_media_ms_24h)} ms`;
   document.querySelector("#metric-divergence").textContent = percent(data.taxa_divergencia);
+  document.querySelector("#metrics-caption").textContent =
+    `Fonte: telemetria da Observabilidade · Período: últimas 24 horas · Atualizado em ${new Date().toLocaleString("pt-BR")}. Detalhes e gráficos em Observabilidade.${semAmostra ? " Sem requisições monitoradas no período: taxa e tempo médio não têm amostra para cálculo." : ""}`;
   document.querySelector("#metric-versions").textContent = data.relatorios_versionados;
   document.querySelector("#metric-versioned-reports").textContent = data.pesquisas_com_versao;
   renderAudit(data.auditoria);

@@ -78,12 +78,17 @@ test("pesquisa pública gera relatório com ocorrências e baixa o PDF", async (
 });
 
 test("reenvio da mesma marca reutiliza a pesquisa sem duplicar", async ({ page }) => {
-  await preencherFormulario(page);
+  // Marca própria para este teste: a deduplicação é por lead + marca +
+  // classe Nice e o e-mail é compartilhado no arquivo; reutilizar a marca
+  // do teste anterior tornava o "primeiro" envio uma duplicata conforme a
+  // análise dele fosse concluída ou não (corrida).
+  const marca = "MARCAE2EPUBLICA CAFE";
+  await preencherFormulario(page, { marca });
   const primeira = (await enviarFormulario(page)).corpo;
   // Aguarda o redirecionamento do primeiro envio antes de voltar ao formulário.
   await page.waitForURL(/\/relatorios\//);
 
-  await preencherFormulario(page);
+  await preencherFormulario(page, { marca });
   const segundaResposta = await enviarFormulario(page);
   expect(segundaResposta.status).toBe(201);
   const segunda = segundaResposta.corpo;
@@ -97,7 +102,7 @@ test("reenvio da mesma marca reutiliza a pesquisa sem duplicar", async ({ page }
   await expect(page.locator("#form-status")).toContainText("código de acesso");
   await expect(page.locator("#recovery-panel")).toBeVisible();
   await expect(page.locator("#recovery-email")).toHaveValue(DADOS.email);
-  await expect(page.locator("#recovery-brand")).toHaveValue(DADOS.marca);
+  await expect(page.locator("#recovery-brand")).toHaveValue(marca);
 });
 
 test("relatório exige token: acesso direto mostra estado de erro", async ({ page, request }) => {

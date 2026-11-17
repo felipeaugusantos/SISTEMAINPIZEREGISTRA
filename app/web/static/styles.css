@@ -5368,6 +5368,12 @@ a[aria-disabled="true"] {
     flex: 1 1 160px;
   }
 
+  /* R01: o gatilho circular de ajuda (46px) não participa do crescimento
+     responsivo dos botões de ação — sem isso ele vira um oval no mobile. */
+  .admin-body .analysis-heading-actions > .help-trigger {
+    flex: 0 0 auto;
+  }
+
   #rpi-query-form { grid-template-columns: 1fr; }
   #rpi-query-form button { width: 100%; }
 }

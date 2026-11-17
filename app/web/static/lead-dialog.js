@@ -17,10 +17,12 @@ window.createLeadDialog = (() => {
     let selectedResearch = null;
     let dialogOpener = null;
     let leadRequest = 0;
-    const state = { owners: [], canManage: false, canDeleteResearch: false, canPii: false, openLeadId: null, emailStatus: null };
+    const state = { owners: [], canManage: false, canDeleteResearch: false, canPii: false, openLeadId: null, emailStatus: null, usuarioId: null, portalAdmin: false };
     async function loadContext() {
       const usuario = await responsePayload(await fetch("/v1/auth/me"));
       const pode = chave => usuario.superadmin || usuario.perfil === "administrador" || (usuario.permissoes || []).includes(chave);
+      state.usuarioId = usuario.id ?? null;
+      state.portalAdmin = Boolean(usuario.superadmin || usuario.perfil === "administrador");
       state.canManage = Boolean(pode("leads.manage"));
       state.canDeleteResearch = Boolean(pode("leads.delete"));
       state.canPii = Boolean(pode("leads.pii.view"));
@@ -223,6 +225,16 @@ function researchCard(item) {
     <div class="lead-research-meta">${item.classe_nice ? `<span>NCL ${escapeHtml(item.classe_nice)}</span>` : ""}${item.risco_nivel ? `<span class="risk-pill risk-${escapeHtml(item.risco_nivel)}">Risco ${escapeHtml(riskLabels[item.risco_nivel] || item.risco_nivel)}${item.risco_pontuacao !== null ? ` · ${item.risco_pontuacao} pontos` : ""}</span>` : `<span>Análise ainda não calculada</span>`}${fullReportStatus(item)}</div>
     <div class="lead-research-actions"><a class="secondary-button" href="/admin/analises/${encodeURIComponent(item.id)}">Abrir Central de Análise</a>${reportAction}${moveAction(item)}${deletionAction(item)}</div>
   </article>`;
+}
+
+// Mesma regra do backend (app/api/portal_cliente.py): acesso, mensagens e
+// arquivos do portal do cliente só abrem para o responsável pelo atendimento
+// ou para administrador/superadmin. Antes o card era renderizado para qualquer
+// usuário com leads.manage e o backend respondia 403 -- o dialog mostrava uma
+// mensagem de erro e o monitoramento de erros registrava o 403 como falha
+// recorrente (achado do plano de correções de 16/11/2026).
+function podeVerPortalCliente(lead) {
+  return state.portalAdmin || (state.usuarioId !== null && lead.responsavel_id === state.usuarioId);
 }
 
 async function renderPortalMessages(lead) {
@@ -569,7 +581,7 @@ async function openLead(id, selectedResearchId = null) {
       showMessage(error.message || "Não foi possível enviar o e-mail.", "error");
     }
   });
-  if (state.canManage) {
+  if (state.canManage && podeVerPortalCliente(lead)) {
     const portalCard = document.createElement("section");
     portalCard.className = "lead-portal-access";
     portalCard.innerHTML = "<strong>Portal do cliente</strong><p>Verificando acesso…</p>";
@@ -601,6 +613,8 @@ async function openLead(id, selectedResearchId = null) {
     }).catch(error => { const mensagem = error.status === 403 ? "Sem permissão ou este lead não está sob sua responsabilidade." : error.status === 401 ? "Sua sessão expirou. Atualize a página e entre novamente." : (error.message || "Não foi possível verificar o acesso."); portalCard.innerHTML = `<strong>Portal do cliente</strong><p>${mensagem}</p>`; });
     renderPortalMessages(lead);
     renderPortalArquivos(lead);
+  }
+  if (state.canManage) {
     renderMateriaisMarca(lead);
     renderLogoCliente(lead);
   }

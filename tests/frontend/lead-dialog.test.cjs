@@ -166,3 +166,18 @@ test("CRM respeita acesso PII e mantém o payload autorizado", async () => {
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });
+test("CRM (sem operationsMode) mantém link direto de WhatsApp sem validação de país", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    // Número de 10 dígitos sem DDI: no CRM o atalho segue o comportamento
+    // anterior (wa.me com os dígitos como cadastrados, sem confirmação).
+    await fixture(page, "crm", ["leads.view", "leads.manage"], { leadData: { telefone: "1632050534" } });
+    await page.evaluate(() => window.createLeadDialog(document.querySelector("#lead-workspace")).openLead(42));
+    const link = page.locator('#lead-dialog a[href="https://wa.me/1632050534"]');
+    await link.waitFor();
+    assert.equal(await link.getAttribute("data-wa-destino"), null);
+    assert.equal(await link.getAttribute("data-wa-sugestao"), null);
+    assert.equal(await page.locator("#lead-dialog [data-wa-invalido]").count(), 0);
+  } finally { await browser.close(); }
+});

@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     security_master_key_previous_version: int = 0
     admin_force_https: bool = False
     integration_auth_enabled: bool = False
+    # Painel de TV (/tv/monitoramento): SHA-256 (hex) da chave de leitura da TV; vazio = painel desligado (404).
+    # A chave em si nunca fica no repositório nem no banco, só o hash. Trocar o hash revoga a chave anterior.
+    tv_monitoramento_token_sha256: str = ""
+    # Origem do resumo agregado do EZRA ERP (rota /api/public/tv/monitoramento) e a chave de leitura dela.
+    erp_tv_url: str = ""
+    erp_tv_token: str = ""
     inpi_integration_token: str = ""
     rpi_sync_interval_seconds: int = 21_600
     rpi_sync_start_number: int = 2900

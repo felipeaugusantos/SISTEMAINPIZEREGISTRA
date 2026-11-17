@@ -66,6 +66,7 @@ from app.api.saas import exigir_superadmin
 from app.api.saas import router as saas_router
 from app.api.scripts_atendimento_config import router as scripts_atendimento_config_router
 from app.api.social_auth import router as social_auth_router
+from app.api.tv_monitoramento import router as tv_monitoramento_router
 from app.api.usuarios import router as usuarios_router
 from app.api.versoes_sistema import router as versoes_sistema_router
 from app.api.vigilancia import router as vigilancia_router
@@ -159,6 +160,7 @@ app.include_router(portfolio_pi_router)
 app.include_router(portfolio_pi_portal_router)
 app.include_router(observabilidade_router)
 app.include_router(monitoramento_router)
+app.include_router(tv_monitoramento_router)
 app.include_router(versoes_sistema_router)
 app.include_router(atualizacoes_router)
 app.include_router(feature_flags_router)
@@ -681,6 +683,15 @@ async def painel_observabilidade() -> FileResponse:
 )
 async def painel_monitoramento() -> FileResponse:
     return FileResponse(web_dir / "admin-monitoramento.html")
+
+
+@app.get("/tv/monitoramento", include_in_schema=False)
+async def painel_tv_monitoramento() -> FileResponse:
+    """Casca do painel de TV: não traz dado nenhum; a chave de leitura vai só na chamada de /v1/monitoramento/tv."""
+    return FileResponse(
+        web_dir / "tv-monitoramento.html",
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+    )
 
 
 @app.get("/privacidade", include_in_schema=False)

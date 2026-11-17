@@ -31,6 +31,10 @@ services:
       # ficar desligado -- fixado aqui explicitamente em vez de depender de
       # alguém lembrar de setar a variável de ambiente.
       CLAMAV_ENABLED: "true"
+      # Painel de TV (/tv/monitoramento). Vazio = painel desligado; segredos só no .env da VPS.
+      TV_MONITORAMENTO_TOKEN_SHA256: ${TV_MONITORAMENTO_TOKEN_SHA256:-}
+      ERP_TV_URL: ${ERP_TV_URL:-}
+      ERP_TV_TOKEN: ${ERP_TV_TOKEN:-}
     restart: unless-stopped
     read_only: true
     tmpfs:

@@ -159,7 +159,32 @@
     alvo.append(cab, ...filhos);
   }
 
-  function cartaoCentral(c) {
+  function medidor(rotulo, leitura, detalhe) {
+    const valido = leitura && typeof leitura.percentual === "number";
+    const saude = valido ? leitura.saude : "cinza";
+    const item = el("div", `tv-medidor saude-${saude}`);
+    const topo = el("div", "tv-medidor-topo");
+    topo.append(el("span", "", valido && detalhe ? `${rotulo} · ${detalhe}` : rotulo), el("strong", "", valido ? `${leitura.percentual}%` : "--"));
+    const trilho = el("div", "tv-medidor-trilho");
+    const barra = el("i", `tv-medidor-barra p${valido ? Math.min(100, Math.max(0, Math.round(leitura.percentual / 5) * 5)) : 0}`);
+    trilho.append(barra);
+    item.append(topo, trilho);
+    return item;
+  }
+
+  function faixaSistema(s) {
+    const d = s && typeof s === "object" ? s : {};
+    const caixa = el("div", "tv-sistema");
+    caixa.append(
+      el("h3", "", "Servidor"),
+      medidor("CPU", d.cpu, "5 min"),
+      medidor("Memória", d.memoria, ""),
+      medidor("Disco", d.disco, d.disco && typeof d.disco.livre_gb === "number" ? `${d.disco.livre_gb} GB livre` : ""),
+    );
+    return caixa;
+  }
+
+  function cartaoCentral(c, sistema) {
     const taxa = Number(c.taxa_erros_24h || 0);
     const nivel5xx = c.erros_5xx_1h >= 10 ? "critico" : c.erros_5xx_1h >= 1 ? "alerta" : "bom";
     montarCartao(alvoCentral, "Zé Registra", c.saude, "", [
@@ -171,6 +196,7 @@
       el("p", "tv-legenda", `7 dias: ações (verde) e erros (vermelho) · ${num(c.organizacoes_ativas_24h)} organizações com uso hoje`),
       grafico(c.serie),
       topErros(c.top_erros, "central"),
+      faixaSistema(sistema),
     ], false);
   }
 
@@ -285,7 +311,7 @@
       const dados = await resposta.json();
       ultimoDado = dados;
       ultimoSucesso = Date.now();
-      cartaoCentral(dados.zeregistra);
+      cartaoCentral(dados.zeregistra, dados.sistema);
       cartaoErp(dados.erp);
       cartaoBackup(dados.backup, dados.erp);
       mostrarAviso("");

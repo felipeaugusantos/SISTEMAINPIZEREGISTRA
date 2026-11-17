@@ -303,3 +303,34 @@ def test_backup_erp_ausente_ou_lixo() -> None:
     assert tv.normalizar_backup_erp(None) == {"disponivel": False, "saude": "cinza"}
     assert tv.normalizar_backup_erp({"clientes_ativos": 1, "ultimo_em": "ontem"})["ultimo_em"] is None
     assert tv.normalizar_erp({})["backup"]["disponivel"] is False
+
+@pytest.mark.parametrize(
+    ("percentual", "saude"),
+    [(10, "verde"), (79.9, "verde"), (80, "amarelo"), (89.9, "amarelo"), (90, "vermelho"), (99, "vermelho")],
+)
+def test_sistema_limites_de_saude(percentual: float, saude: str) -> None:
+    assert tv._saude_percentual(percentual) == saude
+
+
+def test_sistema_so_percentuais_e_gb_livres(monkeypatch: pytest.MonkeyPatch) -> None:
+    resumo = tv.resumo_sistema()
+    assert set(resumo) == {"cpu", "memoria", "disco"}
+    assert set(resumo["disco"]) == {"percentual", "livre_gb", "saude"}
+    assert set(resumo["cpu"]) == {"percentual", "saude"}
+    for leitura in resumo.values():
+        assert leitura["saude"] in {"verde", "amarelo", "vermelho", "cinza"}
+
+
+def test_sistema_disco_ilegivel_fica_cinza(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _falha(_caminho: str) -> None:
+        raise OSError("sem disco")
+
+    monkeypatch.setattr(tv.shutil, "disk_usage", _falha)
+    assert tv._leitura_disco() == {"percentual": None, "livre_gb": None, "saude": "cinza"}
+
+
+def test_sistema_cpu_pela_carga_de_5_minutos(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tv.os, "cpu_count", lambda: 4)
+    monkeypatch.setattr("builtins.open", lambda *_a, **_k: __import__("io").StringIO("3.70 3.60 2.00 1/400 99\n"))
+    leitura = tv._leitura_cpu()
+    assert leitura == {"percentual": 90, "saude": "vermelho"}

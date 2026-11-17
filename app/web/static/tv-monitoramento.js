@@ -305,11 +305,36 @@
     return item;
   }
 
+  function itemTesteRestauracao(leitura) {
+    const l = leitura && typeof leitura === "object" ? leitura : {};
+    const quando = l.ultima_em ? new Date(l.ultima_em) : null;
+    const dataValida = quando && !Number.isNaN(quando.getTime());
+    const saude = dataValida ? l.saude || "cinza" : "cinza";
+    const item = el("div", `tv-backup-item saude-${saude}`);
+    const corpo = el("div", "tv-backup-texto");
+    const texto = dataValida
+      ? `${quando.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às ${hora(quando)}`
+      : "nenhum ainda";
+    const resultado = !dataValida ? "o teste semanal ainda não rodou" : l.sucesso === false ? "o último teste falhou" : idade(l.ultima_em);
+    corpo.append(el("span", "", "Teste de restauração"), el("strong", "", texto), el("small", "", resultado));
+    const estado = saude === "vermelho"
+      ? (l.sucesso === false ? "Falhou" : "Crítico")
+      : { verde: "Funcionou", amarelo: "Antigo", cinza: "Sem teste" }[saude];
+    item.append(corpo, el("em", "tv-backup-selo", estado));
+    return item;
+  }
+
   function cartaoBackup(b, erp) {
     const alvo = document.getElementById("tv-backup");
     if (!alvo) return;
     const dados = b && typeof b === "object" ? b : {};
-    alvo.replaceChildren(el("h2", "", "Backup"), itemBackup("Backup local", dados.banco_local), itemBackup("Envio ao Drive", dados.copia_externa), itemBackupClientes(erp));
+    alvo.replaceChildren(
+      el("h2", "", "Backup"),
+      itemBackup("Backup local", dados.banco_local),
+      itemBackup("Envio ao Drive", dados.copia_externa),
+      itemBackupClientes(erp),
+      itemTesteRestauracao(dados.teste_restauracao),
+    );
   }
 
   function mostrarAviso(texto) {

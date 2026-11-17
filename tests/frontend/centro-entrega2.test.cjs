@@ -65,22 +65,44 @@ test('R11: Zezinho restaura a pergunta e não duplica a bolha em falha', () => b
   assert.deepEqual(errors, []);
 }));
 
+const confiabilidadeMock = {
+  uso: { usuarios: 3, pesquisas: 12, leads: 8 }, fila: { status: 'ok', pendentes: 0 },
+  organizacao: { nome: 'Org Teste', status: 'ativa', assinatura_status: 'ativa', retencao_dados_dias: 365, branding: {} },
+  retencao: { matriz: [] }, permissoes: {},
+};
+
 test('R17: rótulo do MFA reflete o estado real da conta', () => browserTest(async browser => {
   const page = await browser.newPage();
-  await rotasBase(page, [
+  const errors = await rotasBase(page, [
     ['/v1/auth/me', route => route.fulfill({ json: { id: 7, nome: 'Teste', perfil: 'operador', permissoes: [], organizacao: { id: 1 }, mfa_ativo: true } })],
+    ['/v1/admin/confiabilidade', route => route.fulfill({ json: confiabilidadeMock })],
+    ['/v1/auth/social/identities/me', route => route.fulfill({ json: { providers: [
+      { nome: 'Google', linked: false, enabled: true }, { nome: 'Apple', linked: false, enabled: false },
+    ] } })],
+    ['/v1/admin/politicas-privacidade', route => route.fulfill({ json: {
+      vigente: null, consentimentos_pendentes: 0, regra_novo_consentimento: 'Aceite exigido apenas na próxima interação pública.', politicas: [],
+    } })],
   ]);
   await page.goto('http://operations.test/admin/confiabilidade');
   await page.waitForFunction(() => document.querySelector('#enable-mfa').textContent.includes('Reconfigurar'));
   assert.match(await page.locator('#mfa-status').textContent(), /MFA ativo nesta conta/);
+  assert.deepEqual(errors, []);
 }));
 
 test('R17: estado do MFA indisponível é distinguido de inativo', () => browserTest(async browser => {
   const page = await browser.newPage();
-  await rotasBase(page, [
+  const errors = await rotasBase(page, [
     ['/v1/auth/me', route => route.fulfill({ status: 500, json: {} })],
+    ['/v1/admin/confiabilidade', route => route.fulfill({ json: confiabilidadeMock })],
+    ['/v1/auth/social/identities/me', route => route.fulfill({ json: { providers: [
+      { nome: 'Google', linked: false, enabled: true }, { nome: 'Apple', linked: false, enabled: false },
+    ] } })],
+    ['/v1/admin/politicas-privacidade', route => route.fulfill({ json: {
+      vigente: null, consentimentos_pendentes: 0, regra_novo_consentimento: 'Aceite exigido apenas na próxima interação pública.', politicas: [],
+    } })],
   ]);
   await page.goto('http://operations.test/admin/confiabilidade');
   await page.waitForFunction(() => document.querySelector('#mfa-status').textContent.includes('indisponível'));
+  assert.deepEqual(errors, []);
 }));
 

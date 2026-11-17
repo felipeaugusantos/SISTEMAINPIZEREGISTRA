@@ -363,10 +363,10 @@ async function loadDeletionRequests(anexar = false) {
     const data = await responsePayload(await fetch(`/v1/admin/exclusoes-pesquisas?${params}`));
     const paramsLeads = new URLSearchParams({ status_solicitacao: filtro.status, busca: filtro.busca, limite: "200" });
     const dadosLeads = await responsePayload(await fetch(`/v1/admin/exclusoes-leads?${paramsLeads}`));
-    filtro.itens = anexar ? filtro.itens.concat(data.itens) : data.itens;
-    filtro.total = data.total;
-    filtro.leads = dadosLeads.itens;
-    filtro.totalLeads = dadosLeads.total;
+    filtro.itens = anexar ? filtro.itens.concat(data.itens || []) : (data.itens || []);
+    filtro.total = data.total || 0;
+    filtro.leads = dadosLeads.itens || [];
+    filtro.totalLeads = dadosLeads.total || 0;
     renderExclusoes(selecionadas);
   } catch (error) {
     showMessage(error.message, "error");

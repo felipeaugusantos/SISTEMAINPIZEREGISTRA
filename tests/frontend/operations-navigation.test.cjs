@@ -13,10 +13,12 @@ function element() {
 }
 async function fixture(fetcher = async () => ({ ok: true, json: async () => ({}) })) {
   const elements = new Map(), events = {}, requests = [];
+  const confirmState = { value: true, calls: 0 };
   const get = id => { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); };
   const context = vm.createContext({
     document: { querySelector: get, querySelectorAll: () => [], createElement: element },
     window: { addEventListener: (name, fn) => { events[name] = fn; } },
+    confirm: () => { confirmState.calls += 1; return confirmState.value; },
     location: { pathname: '/admin/consulta', reload() { requests.push('reload'); } },
     history: { pushState() {} },
     fetch: async (url, options) => {
@@ -29,12 +31,37 @@ async function fixture(fetcher = async () => ({ ok: true, json: async () => ({})
   });
   vm.runInContext(source, context);
   await new Promise(setImmediate);
-  return { context, get, events, requests, run: code => vm.runInContext(code, context) };
+  return { context, get, events, requests, confirmState, run: code => vm.runInContext(code, context) };
 }
 test('Pesquisa: Voltar/Avançar recarrega o deep link autenticado da URL atual', async () => {
   const f = await fixture();
   f.events.popstate();
   assert.equal(f.requests.at(-1), 'reload');
+});
+test('R10: voltar com consulta preenchida e cancelar a confirmação preserva o formulário', async () => {
+  const f = await fixture();
+  f.get('#consulta-form').handlers.input();
+  f.confirmState.value = false;
+  f.events.popstate();
+  assert.equal(f.confirmState.calls, 1);
+  assert.equal(f.requests.includes('reload'), false);
+});
+test('R10: voltar com consulta preenchida e confirmar recarrega a página', async () => {
+  const f = await fixture();
+  f.get('#consulta-form').handlers.input();
+  f.events.popstate();
+  assert.equal(f.confirmState.calls, 1);
+  assert.equal(f.requests.at(-1), 'reload');
+});
+test('R10: fechar a aba avisa só com preenchimento não enviado', async () => {
+  const f = await fixture();
+  const limpo = { prevented: false, preventDefault() { this.prevented = true; } };
+  f.events.beforeunload(limpo);
+  assert.equal(limpo.prevented, false);
+  f.get('#consulta-form').handlers.change();
+  const sujo = { prevented: false, preventDefault() { this.prevented = true; } };
+  f.events.beforeunload(sujo);
+  assert.equal(sujo.prevented, true);
 });
 test('Pesquisa: resposta antiga não substitui a marca mais recente', async () => {
   let release;

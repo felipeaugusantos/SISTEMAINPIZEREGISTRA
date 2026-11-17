@@ -143,6 +143,30 @@ test('retorno da Análise reabre o mesmo diálogo e aba sem deslocar a lista', {
   await page.waitForFunction(y => Math.abs(document.querySelector('#lead-dialog-content').scrollTop-y) < 4, before);
   assert.equal(await page.locator('.lead-returned').count(), 0); assert.deepEqual(f.errors, []);
 }));
+test('M01: estado dos filtros é persistido já no envio, antes da resposta', { timeout: 30000 }, async () => browserTest(async browser => {
+  // Segura a resposta da consulta filtrada: prova de forma determinística que
+  // o snapshot zeLeads já está atualizado durante a requisição em voo. Antes
+  // da correção o replaceState só rodava depois da resposta; uma recarga nessa
+  // janela restaurava o snapshot antigo e os filtros sumiam (falha
+  // intermitente M01/e2e visões salvas).
+  const page = await browser.newPage();
+  await fixture(page);
+  let liberarResposta;
+  const respostaPendente = new Promise(resolve => { liberarResposta = resolve; });
+  await page.route('**/v1/admin/leads?*', async route => {
+    if (route.request().url().includes('status=qualificado')) await respostaPendente;
+    await route.fallback();
+  });
+  await page.goto('http://operations.test/admin/pesquisas'); await page.locator('#leads-list tr').first().waitFor();
+  await page.locator('#lead-status-filter').selectOption('qualificado');
+  await page.locator('#lead-filters button[type=submit]').click();
+  // Com a resposta bloqueada, o estado persistido já deve refletir o filtro.
+  await page.waitForFunction(() => (history.state?.zeLeads?.fields || []).some(([id, v]) => id === 'lead-status-filter' && v === 'qualificado'), undefined, { timeout: 5000 });
+  liberarResposta();
+  await page.waitForResponse(r => r.url().includes('status=qualificado'));
+  await page.reload(); await page.locator('#leads-list tr').first().waitFor();
+  assert.equal(await page.locator('#lead-status-filter').inputValue(), 'qualificado');
+}));
 test('M01: filtros aplicados sobrevivem à recarga sem token de retorno antigo', { timeout: 30000 }, async () => browserTest(async browser => {
   const page = await browser.newPage(); await fixture(page);
   await page.goto('http://operations.test/admin/pesquisas'); await page.locator('#leads-list tr').first().waitFor();

@@ -397,6 +397,14 @@ async function loadLeads() {
   const requestedOffset = Number(params.get("deslocamento"));
   const requestedSize = Number(params.get("limite"));
   showMessage("Carregando contatos…");
+  // Persiste os filtros já no envio: uma recarga durante a requisição ou antes
+  // do fim da cadeia de renderização não pode mais perder o estado (falha
+  // intermitente M01/e2e visões salvas).
+  history.replaceState({ ...history.state, zeLeads: {
+    path: location.pathname, offset: state.offset, size: pageSize.value, view: state.viewMode,
+    priority: state.priority, scroll: window.scrollY,
+    fields: [...filters.querySelectorAll('input, select')].map(el => [el.id, el.value]),
+  } }, '');
   try {
     const response = await fetch(`/v1/admin/leads?${params}`);
     if (!response.ok) throw new Error("Não foi possível carregar os contatos.");

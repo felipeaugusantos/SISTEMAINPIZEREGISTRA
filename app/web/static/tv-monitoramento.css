@@ -1,0 +1,45 @@
+/* Painel de TV: tela escura, números grandes, legível à distância. Sem estilo inline (CSP style-src 'self'). */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body.tv {
+  background: #0b1020; color: #e8ecf8; font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+  display: flex; flex-direction: column; padding: 1.2vw 1.6vw; gap: 1vw; overflow: hidden; cursor: none;
+}
+.tv-topo { display: flex; justify-content: space-between; align-items: center; }
+.tv-topo h1 { margin: 0; font-size: 2.6vw; font-weight: 600; letter-spacing: .02em; }
+.tv-relogio { text-align: right; }
+.tv-relogio span { font-size: 3.2vw; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tv-relogio small { display: block; font-size: 1.2vw; color: #9aa6c4; }
+.tv-aviso { background: #5c1d1d; color: #ffd6d6; border: .2vw solid #ff6b6b; border-radius: .8vw; padding: .8vw 1.2vw; font-size: 1.8vw; font-weight: 600; }
+.tv-aviso[hidden] { display: none; }
+.tv-grade { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 1.2vw; min-height: 0; }
+.tv-cartao { background: #131a31; border: .25vw solid #263052; border-radius: 1.2vw; padding: 1.4vw; display: flex; flex-direction: column; gap: 1vw; min-height: 0; }
+.tv-cartao.saude-verde { border-color: #2fbf71; }
+.tv-cartao.saude-amarelo { border-color: #f2b705; }
+.tv-cartao.saude-vermelho { border-color: #ff4d4d; }
+.tv-cartao.velho { opacity: .45; filter: grayscale(1); border-color: #555e7a; }
+.tv-titulo { display: flex; align-items: center; justify-content: space-between; }
+.tv-titulo h2 { margin: 0; font-size: 2.4vw; font-weight: 600; }
+.tv-selo { font-size: 1.6vw; font-weight: 700; padding: .3vw 1vw; border-radius: 2vw; text-transform: uppercase; }
+.selo-verde { background: #12452b; color: #6dffa8; }
+.selo-amarelo { background: #4d3b00; color: #ffd75e; }
+.selo-vermelho { background: #5a1616; color: #ff9b9b; }
+.selo-cinza { background: #343b52; color: #c4cbe0; }
+.tv-numeros { display: grid; grid-template-columns: repeat(2, 1fr); gap: .8vw; }
+.tv-numero { background: #0e1429; border-radius: .8vw; padding: .8vw 1vw; }
+.tv-numero strong { display: block; font-size: 4vw; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.tv-numero span { font-size: 1.3vw; color: #9aa6c4; }
+.tv-numero.alerta strong { color: #ffd75e; }
+.tv-numero.critico strong { color: #ff7a7a; }
+.tv-sub { font-size: 1.3vw; color: #9aa6c4; margin: 0; }
+.tv-grafico { flex: 1; min-height: 0; }
+.tv-grafico svg { width: 100%; height: 100%; display: block; }
+.tv-barra-acao { fill: #4f7cff; }
+.tv-barra-erro { fill: #ff6b6b; }
+.tv-eixo { fill: #9aa6c4; font-size: 14px; }
+.tv-top { list-style: none; margin: 0; padding: 0; display: grid; gap: .4vw; }
+.tv-top li { display: flex; justify-content: space-between; gap: 1vw; font-size: 1.5vw; background: #0e1429; border-radius: .6vw; padding: .45vw .9vw; }
+.tv-top li b { font-variant-numeric: tabular-nums; }
+.tv-top li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-vazio { font-size: 1.6vw; color: #9aa6c4; margin: auto; text-align: center; }
+@media (max-width: 900px) { .tv-grade { grid-template-columns: 1fr; } body.tv { overflow: auto; } }

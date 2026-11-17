@@ -1,0 +1,293 @@
+"""Painel de TV: Zé Registra e EZRA ERP lado a lado, só números agregados.
+
+Pedido do dono (17/11/2026): um acompanhamento único dos dois sistemas numa TV
+de monitoramento. A TV não tem login interativo (a sessão normal expira em 8 h
+e em 60 min parada), então o acesso é por uma chave de leitura própria:
+
+- a chave só lê ESTE endpoint (não abre nenhuma outra rota nem sessão);
+- só o hash SHA-256 fica configurado (TV_MONITORAMENTO_TOKEN_SHA256); vazio =
+  painel desligado, e trocar o hash revoga a chave anterior;
+- a resposta é agregada: contagens, saúde, série de 7 dias e top 3 erros por
+  operação. Sem nome de organização, usuário, e-mail, IP nem texto de erro;
+- limite de taxa por IP e Cache-Control no-store.
+
+O resumo do EZRA ERP vem do servidor daquele sistema (chamada servidor a
+servidor, sem CORS e sem credencial no navegador). Se o ERP cair, o cartão dele
+mostra o último valor bom com a hora e "indisponível desde"; o lado do Zé
+Registra continua normal.
+"""
+
+import asyncio
+import hashlib
+import logging
+import secrets
+from datetime import UTC, datetime, time, timedelta
+from time import monotonic
+from typing import Annotated, Any
+from zoneinfo import ZoneInfo
+
+import httpx
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from sqlalchemy import case, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_session
+from app.models import EventoAuditoria, EventoOperacional
+from app.ratelimit import RateLimiter
+from app.settings import get_settings
+from app.tenancy import aplicar_contexto_tenant
+
+logger = logging.getLogger("ze_registra.tv_monitoramento")
+
+router = APIRouter(prefix="/v1/monitoramento", tags=["tv-monitoramento"])
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+FUSO_NEGOCIO = ZoneInfo("America/Sao_Paulo")
+_limitar = RateLimiter(limite=60, janela_segundos=60, escopo="tv-monitoramento")
+
+CACHE_ERP_SEGUNDOS = 30.0
+TIMEOUT_ERP_SEGUNDOS = 4.0
+
+_CAMPOS_INTEIROS_ERP = (
+    "erros_abertos",
+    "erros_novos_1h",
+    "erros_novos_24h",
+    "usuarios_ativos_24h",
+    "acoes_24h",
+    "clientes_ativos_24h",
+    "clientes_sem_uso_7d",
+)
+
+
+def exigir_chave_tv(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    """Chave de leitura da TV. Painel desligado ou chave errada: sem detalhe."""
+    _limitar(request)
+    esperado = get_settings().tv_monitoramento_token_sha256.strip().lower()
+    if not esperado:
+        raise HTTPException(status_code=404, detail="Não encontrado")
+    prefixo = "Bearer "
+    recebido = (authorization or "")[len(prefixo) :] if (authorization or "").startswith(prefixo) else ""
+    calculado = hashlib.sha256(recebido.encode("utf-8")).hexdigest()
+    if not recebido or not secrets.compare_digest(calculado, esperado):
+        raise HTTPException(status_code=401, detail="Chave inválida")
+
+
+ChaveTvDep = Annotated[None, Depends(exigir_chave_tv)]
+
+
+def saude_por_erros(erros_5xx_ultima_hora: int) -> str:
+    """0 erros de servidor na última hora = verde; 1 a 9 = amarelo; 10 ou mais = vermelho.
+
+    Só 5xx conta: respostas 4xx (senha errada, limite de taxa, validação) são
+    ruído esperado e não indicam que o sistema está quebrado.
+    """
+    if erros_5xx_ultima_hora >= 10:
+        return "vermelho"
+    if erros_5xx_ultima_hora >= 1:
+        return "amarelo"
+    return "verde"
+
+
+def _dias_da_serie(dias: int) -> tuple[datetime, list]:
+    hoje = datetime.now(UTC).astimezone(FUSO_NEGOCIO).date()
+    primeiro = hoje - timedelta(days=dias - 1)
+    desde = datetime.combine(primeiro, time.min, tzinfo=FUSO_NEGOCIO)
+    return desde, [primeiro + timedelta(deslocamento) for deslocamento in range(dias)]
+
+
+def _dia(coluna):  # noqa: ANN001, ANN202 -- expressão SQLAlchemy
+    return func.date(func.timezone("America/Sao_Paulo", coluna))
+
+
+async def _resumo_central(session: AsyncSession) -> dict[str, Any]:
+    agora = datetime.now(UTC)
+    ha_24h = agora - timedelta(hours=24)
+    ha_1h = agora - timedelta(hours=1)
+    desde_serie, dias_lista = _dias_da_serie(7)
+
+    requisicoes, erros = (
+        await session.execute(
+            select(
+                func.count(),
+                func.sum(case((EventoOperacional.sucesso.is_(False), 1), else_=0)),
+            ).where(EventoOperacional.criado_em >= ha_24h)
+        )
+    ).one()
+    erros_5xx = (
+        await session.execute(
+            select(func.count()).where(
+                EventoOperacional.criado_em >= ha_1h,
+                EventoOperacional.status_http >= 500,
+            )
+        )
+    ).scalar_one()
+    acoes, usuarios, organizacoes = (
+        await session.execute(
+            select(
+                func.count(),
+                func.count(func.distinct(EventoAuditoria.actor_id)),
+                func.count(func.distinct(EventoAuditoria.organizacao_id)),
+            ).where(EventoAuditoria.criado_em >= ha_24h)
+        )
+    ).one()
+
+    quantidade = func.count()
+    top = (
+        await session.execute(
+            select(EventoOperacional.operacao, EventoOperacional.status_http, quantidade)
+            .where(EventoOperacional.criado_em >= ha_24h, EventoOperacional.sucesso.is_(False))
+            .group_by(EventoOperacional.operacao, EventoOperacional.status_http)
+            .order_by(quantidade.desc())
+            .limit(3)
+        )
+    ).all()
+
+    dia_aud = _dia(EventoAuditoria.criado_em)
+    acoes_por_dia = {
+        dia: int(total or 0)
+        for dia, total in (
+            await session.execute(
+                select(dia_aud, func.count()).where(EventoAuditoria.criado_em >= desde_serie).group_by(dia_aud)
+            )
+        ).all()
+    }
+    dia_op = _dia(EventoOperacional.criado_em)
+    erros_por_dia = {
+        dia: int(total or 0)
+        for dia, total in (
+            await session.execute(
+                select(dia_op, func.sum(case((EventoOperacional.sucesso.is_(False), 1), else_=0)))
+                .where(EventoOperacional.criado_em >= desde_serie)
+                .group_by(dia_op)
+            )
+        ).all()
+    }
+
+    requisicoes = int(requisicoes or 0)
+    erros = int(erros or 0)
+    erros_5xx = int(erros_5xx or 0)
+    return {
+        "agregado": True,
+        "gerado_em": agora,
+        "saude": saude_por_erros(erros_5xx),
+        "erros_5xx_1h": erros_5xx,
+        "requisicoes_24h": requisicoes,
+        "erros_24h": erros,
+        "taxa_erros_24h": erros / requisicoes if requisicoes else 0,
+        "acoes_24h": int(acoes or 0),
+        "usuarios_ativos_24h": int(usuarios or 0),
+        "organizacoes_ativas_24h": int(organizacoes or 0),
+        "serie": [
+            {"dia": dia.isoformat(), "acoes": acoes_por_dia.get(dia, 0), "erros": erros_por_dia.get(dia, 0)}
+            for dia in dias_lista
+        ],
+        "top_erros": [
+            {"operacao": str(operacao)[:80], "status_http": int(status), "quantidade": int(total or 0)}
+            for operacao, status, total in top
+        ],
+    }
+
+
+def _inteiro(valor: Any) -> int:
+    try:
+        numero = int(valor)
+    except (TypeError, ValueError):
+        return 0
+    return max(numero, 0)
+
+
+def normalizar_erp(bruto: Any) -> dict[str, Any]:
+    """Copia só os campos conhecidos da resposta do ERP.
+
+    Se o outro sistema passar a devolver mais coisa (nome de cliente, texto de
+    erro), isso nunca chega à TV.
+    """
+    dados = bruto if isinstance(bruto, dict) else {}
+    erros_1h = _inteiro(dados.get("erros_novos_1h"))
+    saude = "vermelho" if erros_1h >= 10 else "amarelo" if erros_1h >= 1 else "verde"
+    resumo: dict[str, Any] = {campo: _inteiro(dados.get(campo)) for campo in _CAMPOS_INTEIROS_ERP}
+    resumo["agregado"] = True
+    resumo["saude"] = saude
+    resumo["gerado_em"] = str(dados.get("gerado_em") or "")[:40]
+    resumo["serie"] = [
+        {
+            "dia": str(item.get("dia") or "")[:10],
+            "acoes": _inteiro(item.get("acoes")),
+            "erros": _inteiro(item.get("erros_novos")),
+        }
+        for item in (dados.get("serie") or [])[:31]
+        if isinstance(item, dict)
+    ]
+    resumo["top_erros"] = [
+        {
+            "rota": str(item.get("rota") or "")[:80],
+            "origem": str(item.get("origem") or "")[:20],
+            "quantidade": _inteiro(item.get("ocorrencias")),
+        }
+        for item in (dados.get("top_erros") or [])[:3]
+        if isinstance(item, dict)
+    ]
+    return resumo
+
+
+class _EstadoErp:
+    """Último resultado bom e quando o ERP passou a falhar (memória do processo)."""
+
+    def __init__(self) -> None:
+        self.dados: dict[str, Any] | None = None
+        self.obtido_em: datetime | None = None
+        self.consultado_em: float = 0.0
+        self.falhando_desde: datetime | None = None
+        self.lock = asyncio.Lock()
+
+
+_erp = _EstadoErp()
+
+
+def _resposta_erp(status: str) -> dict[str, Any]:
+    return {
+        "status": status,
+        "dados": _erp.dados,
+        "atualizado_em": _erp.obtido_em,
+        "indisponivel_desde": _erp.falhando_desde,
+    }
+
+
+async def resumo_erp() -> dict[str, Any]:
+    config = get_settings()
+    if not config.erp_tv_url or not config.erp_tv_token:
+        return {"status": "nao_configurado", "dados": None, "atualizado_em": None, "indisponivel_desde": None}
+    async with _erp.lock:
+        if monotonic() - _erp.consultado_em < CACHE_ERP_SEGUNDOS and _erp.consultado_em:
+            return _resposta_erp("ok" if _erp.falhando_desde is None else "indisponivel")
+        _erp.consultado_em = monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT_ERP_SEGUNDOS) as cliente:
+                resposta = await cliente.get(
+                    config.erp_tv_url,
+                    headers={"Authorization": f"Bearer {config.erp_tv_token}", "Accept": "application/json"},
+                )
+            resposta.raise_for_status()
+            _erp.dados = normalizar_erp(resposta.json())
+            _erp.obtido_em = datetime.now(UTC)
+            _erp.falhando_desde = None
+            return _resposta_erp("ok")
+        except Exception as erro:  # noqa: BLE001 -- qualquer falha do ERP vira "indisponível", nunca derruba o painel
+            if _erp.falhando_desde is None:
+                _erp.falhando_desde = datetime.now(UTC)
+            logger.warning("Resumo do ERP indisponível: %s", type(erro).__name__)
+            return _resposta_erp("indisponivel")
+
+
+@router.get("/tv")
+async def painel_tv(session: SessionDep, response: Response, _chave: ChaveTvDep) -> dict[str, Any]:
+    """Resumo agregado dos dois sistemas para a TV (somente leitura)."""
+    response.headers["Cache-Control"] = "no-store"
+    # Leitura agregada da plataforma inteira, liberada só depois da chave da TV (mesmo recurso do webhook
+    # do WhatsApp e do portal): a auditoria tem RLS por organização e esta consulta cruza todas.
+    await aplicar_contexto_tenant(session, get_settings().default_organization_id, superadmin=True)
+    central, erp = await asyncio.gather(_resumo_central(session), resumo_erp())
+    return {"gerado_em": datetime.now(UTC), "zeregistra": central, "erp": erp}

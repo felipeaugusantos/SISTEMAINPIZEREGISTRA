@@ -61,60 +61,91 @@
     return el("span", `tv-selo selo-${saude}`, textoOverride || rotulos[saude] || "");
   }
 
+  function heroi(grande, rotuloGrande, numeros) {
+    const h = el("div", "tv-heroi");
+    const g = el("div", "tv-grande");
+    g.append(el("strong", "", grande), el("span", "", rotuloGrande));
+    const n = el("div", "tv-numeros");
+    n.append(...numeros);
+    h.append(g, n);
+    return h;
+  }
+
+  function rotuloDia(p) {
+    const dia = String((p && p.dia) || "");
+    return dia.length >= 10 ? `${dia.slice(8, 10)}/${dia.slice(5, 7)}` : "";
+  }
+
   function grafico(serie) {
     const NS = "http://www.w3.org/2000/svg";
-    const W = 700, H = 200, base = 175, topo = 10;
+    const W = 700, H = 200, topo = 8;
+    const caixa = el("div", "tv-grafico");
     const svg = document.createElementNS(NS, "svg");
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.setAttribute("preserveAspectRatio", "none");
     const pontos = Array.isArray(serie) ? serie : [];
-    if (!pontos.length) return svg;
-    const max = Math.max(1, ...pontos.map((p) => Number(p.acoes) || 0));
+    for (let k = 0; k < 4; k += 1) {
+      const linha = document.createElementNS(NS, "line");
+      linha.setAttribute("class", "tv-grade-linha");
+      linha.setAttribute("x1", 0);
+      linha.setAttribute("x2", W);
+      linha.setAttribute("y1", topo + ((H - topo) * k) / 3 - (k === 3 ? 1 : 0));
+      linha.setAttribute("y2", topo + ((H - topo) * k) / 3 - (k === 3 ? 1 : 0));
+      linha.setAttribute("vector-effect", "non-scaling-stroke");
+      svg.append(linha);
+    }
+    caixa.append(svg);
+    if (!pontos.length) return caixa;
+    const max = Math.max(1, ...pontos.map((p) => Number(p.acoes) || 0)) * 1.08;
     const maxErros = Math.max(1, ...pontos.map((p) => Number(p.erros) || 0));
     const passo = W / pontos.length;
+    const altura = H - topo;
     pontos.forEach((p, i) => {
+      const hoje = i === pontos.length - 1;
       const x = i * passo;
-      const alturaAcoes = ((Number(p.acoes) || 0) / max) * (base - topo);
-      const alturaErros = (Number(p.erros) || 0) > 0 ? Math.max(6, ((Number(p.erros) || 0) / maxErros) * (base - topo) * 0.6) : 0;
+      const alturaAcoes = Math.max(3, ((Number(p.acoes) || 0) / max) * altura);
       const barra = document.createElementNS(NS, "rect");
-      barra.setAttribute("class", "tv-barra-acao");
-      barra.setAttribute("x", x + passo * 0.12);
-      barra.setAttribute("width", passo * 0.76);
-      barra.setAttribute("y", base - alturaAcoes);
+      barra.setAttribute("class", `tv-barra-acao${hoje ? " hoje" : ""}`);
+      barra.setAttribute("x", x + passo * 0.22);
+      barra.setAttribute("width", passo * 0.56);
+      barra.setAttribute("y", H - alturaAcoes);
       barra.setAttribute("height", alturaAcoes);
+      barra.setAttribute("rx", 6);
       svg.append(barra);
-      if (alturaErros > 0) {
+      const erros = Number(p.erros) || 0;
+      if (erros > 0) {
+        const alturaErros = Math.max(5, (erros / maxErros) * altura * 0.3);
         const erro = document.createElementNS(NS, "rect");
         erro.setAttribute("class", "tv-barra-erro");
-        erro.setAttribute("x", x + passo * 0.3);
-        erro.setAttribute("width", passo * 0.4);
-        erro.setAttribute("y", base - alturaErros);
+        erro.setAttribute("x", x + passo * 0.38);
+        erro.setAttribute("width", passo * 0.24);
+        erro.setAttribute("y", H - alturaErros);
         erro.setAttribute("height", alturaErros);
+        erro.setAttribute("rx", 4);
         svg.append(erro);
       }
-      const rotulo = document.createElementNS(NS, "text");
-      rotulo.setAttribute("class", "tv-eixo");
-      rotulo.setAttribute("x", x + passo / 2);
-      rotulo.setAttribute("y", 197);
-      rotulo.setAttribute("text-anchor", "middle");
-      const dia = String(p.dia || "");
-      rotulo.textContent = dia.length >= 10 ? `${dia.slice(8, 10)}/${dia.slice(5, 7)}` : "";
-      svg.append(rotulo);
     });
-    return svg;
+    const dias = el("div", "tv-dias");
+    pontos.forEach((p, i) => dias.append(el("span", i === pontos.length - 1 ? "hoje" : "", rotuloDia(p))));
+    caixa.append(dias);
+    return caixa;
   }
 
   function topErros(lista, tipo) {
     const ul = el("ul", "tv-top");
     const itens = Array.isArray(lista) ? lista.slice(0, 3) : [];
     if (!itens.length) {
-      ul.append(el("li", "", "Nenhum erro nas últimas 24 h"));
+      ul.append(el("li", "tv-ok", "✓ Nenhum erro nas últimas 24 h"));
       return ul;
     }
     itens.forEach((item) => {
       const li = el("li");
-      const nome = tipo === "central" ? `${item.status_http} ${item.operacao}` : `${item.rota || "(sem rota)"} · ${item.origem}`;
-      li.append(el("span", "", nome), el("b", "", `${num(item.quantidade)}x`));
+      if (tipo === "central") {
+        li.append(el("i", "", item.status_http), el("span", "", item.operacao));
+      } else {
+        li.append(el("span", "", `${item.rota || "(sem rota)"} · ${item.origem}`));
+      }
+      li.append(el("b", "", `${num(item.quantidade !== undefined ? item.quantidade : item.ocorrencias)}x`));
       ul.append(li);
     });
     return ul;
@@ -130,22 +161,17 @@
 
   function cartaoCentral(c) {
     const taxa = Number(c.taxa_erros_24h || 0);
+    const nivel5xx = c.erros_5xx_1h >= 10 ? "critico" : c.erros_5xx_1h >= 1 ? "alerta" : "bom";
     montarCartao(alvoCentral, "Zé Registra", c.saude, "", [
-      (() => {
-        const g = el("div", "tv-numeros");
-        g.append(
-          numero(num(c.erros_5xx_1h), "erros de servidor (1 h)", c.erros_5xx_1h >= 10 ? "critico" : c.erros_5xx_1h >= 1 ? "alerta" : ""),
-          numero(num(c.erros_24h), `erros em 24 h (${pct(taxa)})`, ""),
-          numero(num(c.usuarios_ativos_24h), "usuários ativos (24 h)", ""),
-          numero(num(c.acoes_24h), "ações (24 h)", ""),
-        );
-        return g;
-      })(),
-      el("p", "tv-sub", `${num(c.organizacoes_ativas_24h)} organizações com uso em 24 h · 7 dias: azul = ações, vermelho = erros (escala própria)`),
-      Object.assign(el("div", "tv-grafico"), {}),
+      heroi(num(c.usuarios_ativos_24h), "usuários ativos (24 h)", [
+        numero(num(c.erros_5xx_1h), "erros de servidor (1 h)", nivel5xx),
+        numero(num(c.acoes_24h), "ações (24 h)", ""),
+        numero(pct(taxa), `taxa de erros (${num(c.erros_24h)})`, ""),
+      ]),
+      el("p", "tv-legenda", `7 dias: ações (verde) e erros (vermelho) · ${num(c.organizacoes_ativas_24h)} organizações com uso hoje`),
+      grafico(c.serie),
       topErros(c.top_erros, "central"),
     ], false);
-    alvoCentral.querySelector(".tv-grafico").append(grafico(c.serie));
   }
 
   function cartaoErp(e) {
@@ -161,19 +187,49 @@
       ], true);
       return;
     }
-    const g = el("div", "tv-numeros");
-    g.append(
-      numero(num(d.erros_novos_24h), "erros novos (24 h)", d.erros_novos_1h >= 10 ? "critico" : d.erros_novos_1h >= 1 ? "alerta" : ""),
-      numero(num(d.erros_abertos), "erros abertos", ""),
-      numero(num(d.usuarios_ativos_24h), "usuários ativos (24 h)", ""),
-      numero(num(d.acoes_24h), "ações (24 h)", ""),
-    );
-    const aviso = fora
+    const nivelNovos = d.erros_novos_1h >= 10 ? "critico" : d.erros_novos_1h >= 1 ? "alerta" : "";
+    const nivelAbertos = nivelNovos || (d.erros_abertos > 0 ? "alerta" : "bom");
+    const legenda = fora
       ? `ERP indisponível${e.indisponivel_desde ? ` desde ${hora(e.indisponivel_desde)}` : ""} · último dado ${hora(e.atualizado_em)}`
-      : `${num(d.clientes_ativos_24h)} clientes com uso em 24 h · ${num(d.clientes_sem_uso_7d)} sem uso em 7 dias · azul = ações, vermelho = erros`;
-    const graf = el("div", "tv-grafico");
-    graf.append(grafico((d.serie || []).map((p) => ({ dia: p.dia, acoes: p.acoes, erros: p.erros }))));
-    montarCartao(alvoErp, "EZRA ERP", fora ? "cinza" : d.saude, fora ? "Indisponível" : "", [g, el("p", "tv-sub", aviso), graf, topErros(d.top_erros, "erp")], fora);
+      : `7 dias: ações (verde) e erros (vermelho) · ${num(d.clientes_sem_uso_7d)} clientes sem uso em 7 dias`;
+    montarCartao(alvoErp, "EZRA ERP", fora ? "cinza" : d.saude, fora ? "Indisponível" : "", [
+      heroi(num(d.clientes_ativos_24h), "clientes com uso (24 h)", [
+        numero(num(d.erros_abertos), "erros abertos", nivelAbertos),
+        numero(num(d.usuarios_ativos_24h), "usuários ativos (24 h)", ""),
+        numero(num(d.acoes_24h), "ações (24 h)", ""),
+      ]),
+      el("p", "tv-legenda", legenda),
+      grafico((d.serie || []).map((p) => ({ dia: p.dia, acoes: p.acoes, erros: p.erros }))),
+      ...(fora ? [] : [topErros(d.top_erros, "erp")]),
+    ], fora);
+  }
+
+  function idade(valor) {
+    const horas = (Date.now() - new Date(valor).getTime()) / 3600000;
+    if (horas < 1) return "há menos de 1 h";
+    if (horas < 48) return `há ${Math.floor(horas)} h`;
+    return `há ${Math.floor(horas / 24)} dias`;
+  }
+
+  function itemBackup(rotulo, leitura) {
+    const saude = leitura && leitura.ultima_em ? leitura.saude : "cinza";
+    const item = el("div", `tv-backup-item saude-${saude}`);
+    const quando = leitura && leitura.ultima_em ? new Date(leitura.ultima_em) : null;
+    const texto = quando && !Number.isNaN(quando.getTime())
+      ? `${quando.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às ${hora(quando)}`
+      : "sem leitura";
+    const estado = { verde: "Em dia", amarelo: "Atrasado", vermelho: "Crítico", cinza: "Sem leitura" }[saude];
+    const corpo = el("div", "tv-backup-texto");
+    corpo.append(el("span", "", rotulo), el("strong", "", texto), el("small", "", quando ? idade(leitura.ultima_em) : "sem dado"));
+    item.append(corpo, el("em", "tv-backup-selo", estado));
+    return item;
+  }
+
+  function cartaoBackup(b) {
+    const alvo = document.getElementById("tv-backup");
+    if (!alvo) return;
+    const dados = b && typeof b === "object" ? b : {};
+    alvo.replaceChildren(el("h2", "", "Backup"), itemBackup("Último backup local", dados.banco_local), itemBackup("Último envio ao Drive", dados.copia_externa));
   }
 
   function mostrarAviso(texto) {
@@ -184,6 +240,7 @@
     const velho = ultimoSucesso && Date.now() - ultimoSucesso > VELHO_MS;
     alvoCentral.classList.toggle("velho", Boolean(velho));
     if (velho) alvoErp.classList.add("velho");
+    if (ultimoDado && ultimoDado.backup) cartaoBackup(ultimoDado.backup);
     alvoAtualizado.textContent = ultimoSucesso ? `atualizado às ${hora(ultimoSucesso)}` : "aguardando dados…";
   }
 
@@ -208,6 +265,7 @@
       ultimoSucesso = Date.now();
       cartaoCentral(dados.zeregistra);
       cartaoErp(dados.erp);
+      cartaoBackup(dados.backup);
       mostrarAviso("");
     } catch (e) {
       mostrarAviso(ultimoSucesso

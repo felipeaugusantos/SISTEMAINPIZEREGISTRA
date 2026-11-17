@@ -5,12 +5,12 @@
   <meta name="robots" content="noindex,nofollow">
   <meta name="referrer" content="no-referrer">
   <title>Monitoramento — TV</title>
-  <link rel="stylesheet" href="/static/tv-monitoramento.css?v=1">
-  <script src="/static/tv-monitoramento.js?v=1" defer></script>
+  <link rel="stylesheet" href="/static/tv-monitoramento.css?v=3">
+  <script src="/static/tv-monitoramento.js?v=3" defer></script>
 </head>
 <body class="tv">
   <header class="tv-topo">
-    <h1>Monitoramento</h1>
+    <div><h1>Monitoramento</h1><p>Zé Registra e EZRA ERP em tempo real</p></div>
     <div class="tv-relogio"><span id="tv-hora">--:--</span><small id="tv-atualizado">Carregando…</small></div>
   </header>
   <div id="tv-aviso" class="tv-aviso" role="status" hidden></div>
@@ -18,5 +18,6 @@
     <section id="tv-zeregistra" class="tv-cartao" aria-label="Zé Registra"></section>
     <section id="tv-erp" class="tv-cartao" aria-label="EZRA ERP"></section>
   </main>
+  <section id="tv-backup" class="tv-backup" aria-label="Backup"></section>
 </body>
 </html>

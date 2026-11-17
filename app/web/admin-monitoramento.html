@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Monitoramento de erro e uso — Zé Registra</title>
+  <link rel="stylesheet" href="/static/styles.css?v=71">
+  <script src="/static/admin-shell.js?v=59" defer></script>
+  <script src="/static/observabilidade-graficos.js?v=1" defer></script>
+  <script src="/static/admin-monitoramento.js?v=1" defer></script>
+</head>
+<body class="admin-body" data-admin-section="monitoramento">
+  <main class="admin-main admin-dashboard">
+    <section class="admin-overview-hero">
+      <div><p class="eyebrow">Tech / Operações</p><h1>Monitoramento de erro e uso</h1><p>Erros da plataforma, uso por organização e sinais de dificuldade de uso.</p></div>
+      <div class="observability-toolbar">
+        <label><span class="visually-hidden">Período</span><select id="monitoramento-periodo">
+          <option value="7">7 dias</option>
+          <option value="30" selected>30 dias</option>
+          <option value="90">90 dias</option>
+        </select></label>
+        <span id="monitoramento-updated">Carregando…</span>
+        <label class="dash-auto"><input id="monitoramento-auto" type="checkbox" checked><span>Atualizar a cada 60 s</span></label>
+        <button id="monitoramento-refresh" class="secondary-button" type="button">Atualizar</button>
+      </div>
+    </section>
+
+    <div id="monitoramento-message" class="status-message loading" role="status" aria-live="polite">Carregando monitoramento…</div>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Resumo</p><h2>Período selecionado</h2></div></header>
+      <div id="monitoramento-metrics" class="overview-primary-metrics"></div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Evolução</p><h2>Ações e erros por dia</h2><p>Um dia por barra (fuso de Brasília); passe o mouse sobre uma barra para ver o valor.</p></div></header>
+      <div class="dash-graficos">
+        <article class="dash-cartao"><h3>Ações dos usuários e erros por dia</h3><div id="monitoramento-grafico-uso"></div><ul class="dash-legenda"><li><span class="dash-chave dash-barra"></span>Ações</li><li><span class="dash-chave dash-barra-erro"></span>Erros</li></ul></article>
+        <article class="dash-cartao"><h3>Tentativas frustradas por dia</h3><div id="monitoramento-grafico-frustradas"></div><ul class="dash-legenda"><li><span class="dash-chave dash-barra-erro"></span>Ações com falha</li></ul></article>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Uso</p><h2>Uso por organização</h2><p>Ações registradas no painel, usuários ativos e falhas de cada organização no período.</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Organização</th><th>Ações</th><th>Usuários ativos</th><th>Falhas</th><th>Taxa de falha</th><th>Última atividade</th></tr></thead>
+          <tbody id="monitoramento-orgs-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Atenção</p><h2>Organizações ativas sem uso</h2><p>Organizações ativas que não registraram nenhuma ação no período — candidatas a contato de reengajamento.</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Organização</th></tr></thead>
+          <tbody id="monitoramento-sem-uso-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Erros</p><h2>Erros mais frequentes</h2><p>Agrupados por código e operação; investigue um erro específico na tela de Observabilidade, aba Eventos.</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Código</th><th>Operação</th><th>Status</th><th>Ocorrências</th><th>Duração média</th><th>Última ocorrência</th></tr></thead>
+          <tbody id="monitoramento-erros-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Dificuldade de uso</p><h2>Tentativas frustradas (4xx)</h2><p>O sistema não grava abandono de telas; estes são os sinais disponíveis. Respostas 4xx indicam ação recusada — dado inválido, rota errada ou permissão negada.</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Operação</th><th>Status</th><th>Ocorrências</th><th>Última ocorrência</th></tr></thead>
+          <tbody id="monitoramento-frustradas-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Dificuldade de uso</p><h2>Usuários com mais falhas</h2><p>Usuários que mais acumularam ações com falha no período — podem estar travados em algum fluxo.</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Usuário</th><th>Organização</th><th>Falhas</th><th>Recursos distintos</th><th>Última ocorrência</th></tr></thead>
+          <tbody id="monitoramento-usuarios-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Dificuldade de uso</p><h2>Recursos travados</h2><p>O mesmo usuário falhou 3 vezes ou mais no mesmo recurso — sinal forte de que ele não consegue concluir a ação.</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Usuário</th><th>Recurso</th><th>Falhas</th><th>Última ocorrência</th></tr></thead>
+          <tbody id="monitoramento-travados-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="overview-section">
+      <header><div><p class="eyebrow">Dificuldade de uso</p><h2>Operações mais lentas</h2><p>p95 mais alto primeiro — lentidão também faz o usuário desistir. Só operações com pelo menos 5 requisições no período.</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Componente</th><th>Operação</th><th>Requisições</th><th>Média (ms)</th><th>p95 (ms)</th><th>Máximo (ms)</th></tr></thead>
+          <tbody id="monitoramento-lentidao-rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

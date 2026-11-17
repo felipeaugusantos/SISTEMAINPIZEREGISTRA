@@ -41,6 +41,7 @@ from app.api.leads import router as leads_router
 from app.api.leads_guias import router as leads_guias_router
 from app.api.leads_propostas import router as leads_propostas_router
 from app.api.mensageria import router as mensageria_router
+from app.api.monitoramento import router as monitoramento_router
 from app.api.nfse import router as nfse_router
 from app.api.observabilidade import router as observabilidade_router
 from app.api.openwa_webhook import router as openwa_webhook_router
@@ -157,6 +158,7 @@ app.include_router(portal_cliente_router)
 app.include_router(portfolio_pi_router)
 app.include_router(portfolio_pi_portal_router)
 app.include_router(observabilidade_router)
+app.include_router(monitoramento_router)
 app.include_router(versoes_sistema_router)
 app.include_router(atualizacoes_router)
 app.include_router(feature_flags_router)
@@ -670,6 +672,15 @@ async def painel_configuracao_whatsapp() -> FileResponse:
 )
 async def painel_observabilidade() -> FileResponse:
     return FileResponse(web_dir / "admin-observabilidade.html")
+
+
+@app.get(
+    "/admin/monitoramento",
+    include_in_schema=False,
+    dependencies=[Depends(exigir_permissao("production.view"))],
+)
+async def painel_monitoramento() -> FileResponse:
+    return FileResponse(web_dir / "admin-monitoramento.html")
 
 
 @app.get("/privacidade", include_in_schema=False)

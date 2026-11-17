@@ -60,6 +60,40 @@ function formatDate(value, withTime = true) {
 }
 
 function phoneDigits(value) { return String(value || "").replace(/\D/g, ""); }
+// R02 (plano de correções 17/11/2026): normalizar o destino do WhatsApp
+// antes de habilitar o atalho. phoneDigits só removia não-dígitos e gerava
+// wa.me sem DDI para telefones nacionais de 10/11 dígitos (destino errado).
+// Regras: "+" inicial ou prefixo 00 = internacional, mantém como está;
+// 12/13 dígitos começando com 55 = nacional com DDI, mantém; 10/11 dígitos
+// = nacional sem DDI, prefixa 55; qualquer outro formato = ambíguo, fica
+// bloqueado pedindo revisão em vez de presumir um destino.
+function formatTelefoneExibicao(digits) {
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    const ddd = digits.slice(2, 4);
+    const corte = digits.length === 13 ? 9 : 8;
+    return `+55 (${ddd}) ${digits.slice(4, corte)}-${digits.slice(corte)}`;
+  }
+  return `+${digits}`;
+}
+function whatsappDestino(telefone) {
+  const original = String(telefone || "").trim();
+  const digits = original.replace(/\D/g, "");
+  if (!digits) return { ok: false, motivo: "vazio" };
+  const internacional = digits.startsWith("00") ? digits.slice(2) : (original.startsWith("+") ? digits : null);
+  if (internacional !== null) {
+    if (internacional.length >= 8 && internacional.length <= 15) return { ok: true, destino: internacional, exibicao: formatTelefoneExibicao(internacional) };
+    return { ok: false, motivo: "invalido" };
+  }
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) return { ok: true, destino: digits, exibicao: formatTelefoneExibicao(digits) };
+  if (digits.length === 10 || digits.length === 11) return { ok: true, destino: `55${digits}`, exibicao: formatTelefoneExibicao(`55${digits}`) };
+  return { ok: false, motivo: "ambiguo" };
+}
+function whatsappLinkHtml(telefone, { label = "WhatsApp", extraClass = "" } = {}) {
+  const wa = whatsappDestino(telefone);
+  if (wa.motivo === "vazio") return "";
+  if (!wa.ok) return `<button type="button" class="${extraClass} wa-destino-invalido" data-wa-invalido title="Telefone em formato não reconhecido">Revisar telefone</button>`;
+  return `<a class="${extraClass}" href="https://wa.me/${wa.destino}" target="_blank" rel="noopener" data-wa-destino="${escapeHtml(wa.exibicao)}" aria-label="Abrir WhatsApp para ${escapeHtml(wa.exibicao)}" title="${escapeHtml(wa.exibicao)}">${label}</a>`;
+}
 function ownerOptions(selected) {
   return `<option value="">Não atribuído</option>${state.owners.map(owner =>
     `<option value="${owner.id}" ${String(selected || "") === String(owner.id) ? "selected" : ""}>${escapeHtml(owner.nome)}</option>`
@@ -476,7 +510,7 @@ async function openLead(id, selectedResearchId = null) {
     ${lead.processo_vinculado_pendente ? processoNaoVinculadoAviso(lead) : ""}
     ${emailQuota}
     ${operationsMode ? operationalSummary(lead) : ""}
-    <section class="lead-contact-summary"><div data-icon="email"><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>${state.canManage && lead.email ? ` <button type="button" class="secondary-button lead-send-email" data-lead-id="${lead.id}" ${emailBlocked ? "disabled" : ""}>${emailBlocked ? "Limite atingido" : "Enviar e-mail"}</button>` : ""}</div><div data-icon="telefone"><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a>${phoneDigits(lead.telefone) ? ` <a class="secondary-button" href="https://wa.me/${phoneDigits(lead.telefone)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div><div id="lead-site-row" hidden><span>Site</span><a id="lead-site-link" href="#" target="_blank" rel="noopener"></a></div><div data-icon="documento"><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div data-icon="empresa"><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong>${lead.empresa ? ` <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(lead.empresa)}" target="_blank" rel="noopener">Buscar no Google</a> <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(`site:instagram.com ${lead.empresa}`)}" target="_blank" rel="noopener">Buscar no Instagram</a>` : ""}</div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div><div><span>Prioridade (IA)</span><strong id="lead-qualificacao-badge">—</strong></div></section>
+    <section class="lead-contact-summary"><div data-icon="email"><span>E-mail</span><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>${state.canManage && lead.email ? ` <button type="button" class="secondary-button lead-send-email" data-lead-id="${lead.id}" ${emailBlocked ? "disabled" : ""}>${emailBlocked ? "Limite atingido" : "Enviar e-mail"}</button>` : ""}</div><div data-icon="telefone"><span>Telefone</span><a href="tel:${escapeHtml(lead.telefone)}">${escapeHtml(lead.telefone)}</a>${whatsappLinkHtml(lead.telefone, { extraClass: "secondary-button" }) ? ` ${whatsappLinkHtml(lead.telefone, { extraClass: "secondary-button" })}` : ""}</div><div id="lead-site-row" hidden><span>Site</span><a id="lead-site-link" href="#" target="_blank" rel="noopener"></a></div><div data-icon="documento"><span>CPF/CNPJ</span><strong>${escapeHtml(lead.documento || "Não informado")}</strong></div><div data-icon="empresa"><span>Empresa</span><strong>${escapeHtml(lead.empresa || "Não informada")}</strong>${lead.empresa ? ` <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(lead.empresa)}" target="_blank" rel="noopener">Buscar no Google</a> <a class="secondary-button" href="https://www.google.com/search?q=${encodeURIComponent(`site:instagram.com ${lead.empresa}`)}" target="_blank" rel="noopener">Buscar no Instagram</a>` : ""}</div><div><span>Marketing</span><strong>${lead.aceite_marketing ? "Autorizado" : "Não autorizado"}</strong></div><div><span>Score</span><strong id="lead-score-badge">Calculando…</strong></div><div><span>Prioridade (IA)</span><strong id="lead-qualificacao-badge">—</strong></div></section>
     <nav class="lead-tabs" role="tablist">${ABAS_LEAD.map(([id, label], i) => `<button type="button" class="lead-tab${i === 0 ? " active" : ""}" role="tab" aria-selected="${i === 0}" data-tab="${id}">${label}</button>`).join("")}</nav>
     <div class="lead-tab-panel" data-panel="atendimento" hidden>
       <section class="lead-qualificacao-ia lg-full" id="lead-qualificacao-ia" hidden></section>
@@ -1881,6 +1915,15 @@ async function visualizarProposta(id) {
     }
   }
 }
+    dialog.addEventListener("click", event => {
+      const waLink = event.target.closest("a[data-wa-destino]");
+      if (waLink) {
+        // R02: o destino completo é confirmado antes de abrir o WhatsApp.
+        if (!confirm(`Abrir conversa no WhatsApp com ${waLink.dataset.waDestino}?`)) event.preventDefault();
+        return;
+      }
+      if (event.target.closest("[data-wa-invalido]")) showMessage("Telefone em formato não reconhecido. Revise o cadastro do contato antes de abrir o WhatsApp.", "error");
+    });
     dialog.querySelector(".dialog-close").addEventListener("click", () => dialog.close());
     dialog.addEventListener("close", onClose);
     dialog.addEventListener("close", () => {
@@ -1889,7 +1932,7 @@ async function visualizarProposta(id) {
         (dialogOpener?.isConnected ? dialogOpener : fallback)?.focus({ preventScroll: true });
       }
     });
-    const api = { riskLabels, escapeHtml, formatDate, phoneDigits, statusOptions, showMessage, responsePayload, originLabel, fullReportStatus, aggregateReportStatus, duplicateStatus, deletionAction, abrirRegistroAtendimento, openLead, faseMini, openResearchDelete, criarProposta,
+    const api = { riskLabels, escapeHtml, formatDate, phoneDigits, whatsappDestino, whatsappLinkHtml, statusOptions, showMessage, responsePayload, originLabel, fullReportStatus, aggregateReportStatus, duplicateStatus, deletionAction, abrirRegistroAtendimento, openLead, faseMini, openResearchDelete, criarProposta,
     navigationContext() {
       if (!dialog.open) return null;
       return { lead: state.openLeadId, research: selectedResearch,

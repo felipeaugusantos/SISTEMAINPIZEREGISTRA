@@ -553,13 +553,17 @@ function escapeAdminHtml(value) {
   return element.innerHTML;
 }
 
+// R03 (plano de correções 17/11/2026): nas rotas do Centro de Operações o
+// histórico de versões sai do caminho da operação -- resumo compacto com
+// link para a central; só avisos críticos abrem expandidos. Expandir ou
+// recolher o resumo não grava leitura; confirmação e adiamento seguem os
+// mesmos contratos. As demais áreas admin mantêm a apresentação anterior.
+const CENTRO_COMPACTO_SECTIONS = new Set(["leads", "consulta"]);
+
 function renderAtualizacoesBanner(itens) {
   document.querySelector("#admin-atualizacoes-banner")?.remove();
   if (!itens.length) return;
-  const banner = document.createElement("div");
-  banner.id = "admin-atualizacoes-banner";
-  banner.className = "admin-avisos-banner";
-  banner.innerHTML = itens.map((item) => `
+  const avisoItem = (item) => `
     <article class="admin-aviso-item ${item.classificacao === "critica" ? "is-critico" : ""}" data-atualizacao-id="${item.id}">
       <div>
         <strong>${item.classificacao === "critica" ? "Atualização crítica" : "Nova versão"} · ${escapeAdminHtml(item.versao)}</strong>
@@ -571,13 +575,29 @@ function renderAtualizacoesBanner(itens) {
         ${item.pode_adiar ? `<button type="button" class="secondary-button" data-adiar-atualizacao="${item.id}">Lembrar em 7 dias</button>` : ""}
         <a class="secondary-button" href="/admin/atualizacoes">Ver central de atualizações</a>
       </div>
-    </article>
-  `).join("");
+    </article>`;
+  const compacto = CENTRO_COMPACTO_SECTIONS.has(document.body?.dataset.adminSection || "");
+  const criticos = itens.filter(item => item.classificacao === "critica");
+  const comuns = itens.filter(item => item.classificacao !== "critica");
+  const banner = document.createElement("div");
+  banner.id = "admin-atualizacoes-banner";
+  banner.className = "admin-avisos-banner";
+  banner.innerHTML = compacto
+    ? `<p class="admin-avisos-resumo">${itens.length} aviso${itens.length === 1 ? "" : "s"} da plataforma${criticos.length ? ` (${criticos.length} crítico${criticos.length === 1 ? "" : "s"})` : ""} · <a href="/admin/atualizacoes">Abrir central de atualizações</a>${comuns.length ? ` <button type="button" class="secondary-button" data-toggle-avisos aria-expanded="false">Ver avisos (${comuns.length})</button>` : ""}</p>${criticos.map(avisoItem).join("")}${comuns.length ? `<div class="admin-avisos-extra" hidden>${comuns.map(avisoItem).join("")}</div>` : ""}`
+    : itens.map(avisoItem).join("");
   // Prepend dentro de .admin-main (nunca document.body): o sidebar é
   // position:fixed e todo o conteúdo já tem margin-left pra não ficar por
   // baixo dele -- um banner solto no body ficava com metade do texto
   // escondida atrás do sidebar (achado do usuário, captura de tela).
   (document.querySelector(".admin-main") || document.body).prepend(banner);
+  banner.querySelector("[data-toggle-avisos]")?.addEventListener("click", event => {
+    const botao = event.currentTarget;
+    const extra = banner.querySelector(".admin-avisos-extra");
+    const expanded = botao.getAttribute("aria-expanded") === "true";
+    botao.setAttribute("aria-expanded", String(!expanded));
+    botao.textContent = expanded ? `Ver avisos (${comuns.length})` : "Ocultar avisos";
+    extra.hidden = expanded;
+  });
   banner.querySelectorAll("[data-confirmar-atualizacao]").forEach((botao) => {
     botao.addEventListener("click", async () => {
       botao.disabled = true;

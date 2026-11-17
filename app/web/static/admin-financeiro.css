@@ -233,3 +233,11 @@
 .company-search-option:hover,.company-search-option:focus-visible{background:#eef6f1;outline:2px solid #85b99e;outline-offset:-2px}
 .company-search-empty{margin:0;padding:10px 12px;color:var(--muted);font-size:.82rem}
 .nfse-entry-description{display:block;margin-top:3px;color:var(--muted);font-size:.72rem}
+
+/* R01 (plano de correções 17/11/2026): títulos longos e tabelas financeiras
+   legíveis no celular -- rolagem interna sinalizada, sem espremer texto. */
+@media (max-width: 760px) {
+  .finance-list-heading h2, .finance-list-heading p { overflow-wrap: anywhere; }
+  .finance-table th, .finance-table td { white-space: normal; }
+}
+.finance-table-wrap, .batch-grid-wrap { overflow-x: auto; }

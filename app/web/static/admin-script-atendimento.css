@@ -11,3 +11,11 @@
 .script-dialog form { display: flex; flex-direction: column; gap: 1rem; padding: 1.5rem; max-height: 88vh; overflow-y: auto; }
 .script-dialog label { display: flex; flex-direction: column; gap: .35rem; }
 .script-dialog footer { display: flex; justify-content: flex-end; gap: .75rem; }
+
+/* R01 (plano de correções 17/11/2026): título do script não fica cortado no
+   celular. */
+@media (max-width: 760px) {
+  .script-atendimento-card header { flex-wrap: wrap; }
+  .script-atendimento-card h3 { overflow-wrap: anywhere; min-width: 0; }
+  .script-atendimento-card .script-atendimento-actions { flex-wrap: wrap; }
+}

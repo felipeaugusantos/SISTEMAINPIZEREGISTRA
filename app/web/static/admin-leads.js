@@ -5,7 +5,7 @@ const leadDialog = window.createLeadDialog(document.querySelector("#lead-workspa
   onSummary: loadCrmSummary,
   operationsMode: true,
 });
-const { riskLabels, escapeHtml, formatDate, phoneDigits, statusOptions, showMessage, responsePayload, originLabel, fullReportStatus, aggregateReportStatus, duplicateStatus, deletionAction, abrirRegistroAtendimento, openLead, faseMini, openResearchDelete, criarProposta } = leadDialog;
+const { riskLabels, escapeHtml, formatDate, phoneDigits, whatsappLinkHtml, statusOptions, showMessage, responsePayload, originLabel, fullReportStatus, aggregateReportStatus, duplicateStatus, deletionAction, abrirRegistroAtendimento, openLead, faseMini, openResearchDelete, criarProposta } = leadDialog;
 const filters = document.querySelector("#lead-filters");
 const searchInput = document.querySelector("#lead-search");
 const statusFilter = document.querySelector("#lead-status-filter");
@@ -170,16 +170,22 @@ function quickResearchHistory(lead) {
   </tr>`;
 }
 
+// R01: no celular as ações secundárias ficam dentro de um menu nomeado
+// ("Mais ações"); no desktop o menu fica oculto e tudo aparece como antes.
+function acoesExtras(toggleLabel, extras) {
+  if (!extras.trim()) return extras;
+  return `<button class="lead-actions-toggle secondary-button" type="button" aria-expanded="false">${toggleLabel}</button><span class="lead-row-extra">${extras}</span>`;
+}
+
 function leadRow(lead) {
   const pesquisa = lead.ultima_pesquisa;
-  const digits = phoneDigits(lead.telefone);
   const pendingBadge = lead.mensagens_portal_pendentes
     ? `<span class="portal-pending-badge" title="Mensagem pendente do portal" aria-label="Mensagem pendente do portal">!</span>`
     : "";
   const contactLinks = lead.email.includes("***") ? pendingBadge : `
     <span class="lead-quick-actions">
       <a href="mailto:${escapeHtml(lead.email)}" aria-label="Enviar e-mail">E-mail</a>
-      ${digits ? `<a href="https://wa.me/${digits}" target="_blank" rel="noopener" aria-label="Abrir WhatsApp">WhatsApp</a>` : ""}
+      ${whatsappLinkHtml(lead.telefone, { label: "WhatsApp" })}
     ${pendingBadge}</span>`;
   const highestRisk = lead.risco_mais_alto;
   return `
@@ -189,12 +195,11 @@ function leadRow(lead) {
       <td data-label="Atendimento"><strong>${escapeHtml(lead.responsavel_nome || "Não atribuído")}</strong><small>${escapeHtml(originLabel(lead.origem))}</small><small>${lead.proxima_acao_em ? `Próxima ação: ${formatDate(lead.proxima_acao_em)}` : "Sem próxima ação"}</small>${faseMini(lead)}</td>
       <td data-label="Última pesquisa"><time datetime="${escapeHtml(lead.ultima_pesquisa_em || lead.criado_em)}">${formatDate(lead.ultima_pesquisa_em || lead.criado_em)}</time></td>
       <td data-label="Status"><select class="lead-status status-${escapeHtml(lead.status)}" data-previous="${escapeHtml(lead.status)}" aria-label="Status de ${escapeHtml(lead.nome)}" ${lead.arquivado_em || !state.canManage ? "disabled" : ""}>${statusOptions(lead.status)}</select></td>
-      <td data-label="Ações"><div class="lead-row-actions"><button class="view-lead secondary-button" type="button">Abrir contato</button>${state.canArchive ? (lead.arquivado_em ? `<button class="restore-lead secondary-button" type="button">Restaurar</button>` : `<button class="archive-lead danger-link" type="button">Arquivar</button>`) : ""}</div></td>
+      <td data-label="Ações"><div class="lead-row-actions"><button class="view-lead secondary-button" type="button">Abrir contato</button>${state.canArchive ? acoesExtras("Mais ações", lead.arquivado_em ? `<button class="restore-lead secondary-button" type="button">Restaurar</button>` : `<button class="archive-lead danger-link" type="button">Arquivar</button>`) : ""}</div></td>
     </tr>${quickResearchHistory(lead)}`;
 }
 
 function researchRow(lead, item) {
-  const digits = phoneDigits(lead.telefone);
   // Achado do usuário (08/09/2026): leads sem nenhuma pesquisa de marca
   // (ex.: convertidos do Radar de Prospecção, que não passam pelo
   // formulário de pesquisa) simplesmente desapareciam desta visão -- cada
@@ -204,7 +209,7 @@ function researchRow(lead, item) {
   // de prospecção) preenchiam a página inteira sem produzir nenhuma linha.
   // Ações que dependem de uma pesquisa concreta (análise, proposta,
   // exclusão, registrar atendimento) ficam de fora dessa linha-placeholder.
-  const contato = `<td data-label="Contato"><strong>${escapeHtml(lead.nome)}</strong><small>${escapeHtml(lead.empresa || "Empresa não informada")}</small><span>${escapeHtml(lead.email)}</span>${digits ? `<a href="https://wa.me/${digits}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</td>`;
+  const contato = `<td data-label="Contato"><strong>${escapeHtml(lead.nome)}</strong><small>${escapeHtml(lead.empresa || "Empresa não informada")}</small><span>${escapeHtml(lead.email)}</span>${whatsappLinkHtml(lead.telefone, { label: "WhatsApp" })}</td>`;
   const atendimento = `<td data-label="Atendimento"><strong>${escapeHtml(lead.responsavel_nome || "Não atribuído")}</strong><small>${escapeHtml(originLabel(lead.origem))}</small>${faseMini(lead)}</td>`;
   const statusCol = `<td data-label="Status"><select class="lead-status status-${escapeHtml(lead.status)}" data-previous="${escapeHtml(lead.status)}" aria-label="Status de ${escapeHtml(lead.nome)}" ${lead.arquivado_em || !state.canManage ? "disabled" : ""}>${statusOptions(lead.status)}</select></td>`;
   if (!item) {
@@ -223,7 +228,7 @@ function researchRow(lead, item) {
     ${atendimento}
     <td data-label="Data da pesquisa"><time datetime="${escapeHtml(item.criado_em)}">${formatDate(item.criado_em)}</time></td>
     ${statusCol}
-    <td data-label="Ações"><div class="lead-row-actions"><a class="secondary-button" href="/admin/analises/${encodeURIComponent(item.id)}">Abrir análise</a><button class="view-lead secondary-button" type="button">Abrir contato</button>${state.canManage ? `<button class="generate-research-proposal secondary-button" type="button" data-research-id="${escapeHtml(item.id)}">Gerar proposta</button>` : ""}${deletionAction(item)}</div></td>
+    <td data-label="Ações"><div class="lead-row-actions"><a class="secondary-button" href="/admin/analises/${encodeURIComponent(item.id)}">Abrir análise</a><button class="view-lead secondary-button" type="button">Abrir contato</button>${acoesExtras("Mais ações", `${state.canManage ? `<button class="generate-research-proposal secondary-button" type="button" data-research-id="${escapeHtml(item.id)}">Gerar proposta</button>` : ""}${deletionAction(item)}`)}</div></td>
   </tr>`;
 }
 
@@ -236,7 +241,7 @@ function renderRows() {
       if (!row.dataset.researchId) return;
       const actions = row.querySelector(".lead-row-actions");
       if (actions && !actions.querySelector(".register-attendance")) {
-        actions.insertAdjacentHTML("beforeend", `<button class="register-attendance secondary-button" type="button" data-research-id="${escapeHtml(row.dataset.researchId)}">Registrar atendimento</button>`);
+        (actions.querySelector(".lead-row-extra") || actions).insertAdjacentHTML("beforeend", `<button class="register-attendance secondary-button" type="button" data-research-id="${escapeHtml(row.dataset.researchId)}">Registrar atendimento</button>`);
       }
     });
     return;
@@ -255,7 +260,14 @@ async function loadOwners() {
 function updatePagination(data) {
   const first = data.total ? data.deslocamento + 1 : 0;
   const last = Math.min(data.deslocamento + data.itens.length, data.total);
-  document.querySelector("#lead-page-summary").textContent = `${first}–${last} de ${data.total} contatos`;
+  let resumo = `${first}–${last} de ${data.total} contatos`;
+  if (state.viewMode === "researches") {
+    // R05: a visão Por pesquisa expande todas as pesquisas dos contatos da
+    // página -- a contagem de linhas exibidas precisa ficar explícita.
+    const linhas = state.items.reduce((soma, lead) => soma + Math.max(1, (lead.pesquisas || []).length), 0);
+    resumo += ` · ${linhas} linha${linhas === 1 ? "" : "s"} de pesquisa exibida${linhas === 1 ? "" : "s"}`;
+  }
+  document.querySelector("#lead-page-summary").textContent = resumo;
   document.querySelector("#lead-prev").disabled = data.deslocamento === 0;
   document.querySelector("#lead-next").disabled = !data.tem_mais;
   const pages = Math.max(1, Math.ceil(data.total / Number(pageSize.value)));
@@ -470,6 +482,14 @@ document.querySelector("#deletion-filter-busca").addEventListener("input", event
     loadDeletionRequests();
   }, 300);
 });
+document.querySelector("#deletion-requests-toggle")?.addEventListener("click", event => {
+  const botao = event.currentTarget;
+  const corpo = document.querySelector("#deletion-requests-body");
+  const expanded = botao.getAttribute("aria-expanded") === "true";
+  botao.setAttribute("aria-expanded", String(!expanded));
+  botao.textContent = expanded ? "Ver fila de aprovações" : "Ocultar fila de aprovações";
+  corpo.hidden = expanded;
+});
 document.querySelector("#deletion-load-more").addEventListener("click", () => loadDeletionRequests(true));
 document.querySelector("#deletion-bulk-approve").addEventListener("click", () => openResearchDelete("approve-lote", exclusoesSelecionadas()));
 document.querySelector("#deletion-bulk-reject").addEventListener("click", () => openResearchDelete("reject-lote", exclusoesSelecionadas()));
@@ -602,6 +622,24 @@ leadsList.addEventListener("change", async event => {
 });
 
 leadsList.addEventListener("click", event => {
+  const actionsToggle = event.target.closest(".lead-actions-toggle");
+  if (actionsToggle) {
+    const expanded = actionsToggle.getAttribute("aria-expanded") === "true";
+    actionsToggle.setAttribute("aria-expanded", String(!expanded));
+    actionsToggle.textContent = expanded ? "Mais ações" : "Menos ações";
+    actionsToggle.closest(".lead-row-actions")?.classList.toggle("open", !expanded);
+    return;
+  }
+  const waLink = event.target.closest("a[data-wa-destino]");
+  if (waLink) {
+    // R02: o destino completo é confirmado antes de abrir o WhatsApp.
+    if (!confirm(`Abrir conversa no WhatsApp com ${waLink.dataset.waDestino}?`)) event.preventDefault();
+    return;
+  }
+  if (event.target.closest("[data-wa-invalido]")) {
+    showMessage("Telefone em formato não reconhecido. Revise o cadastro do contato antes de abrir o WhatsApp.", "error");
+    return;
+  }
   const deleteResearch = event.target.closest(".request-delete-research");
   if (deleteResearch) {
     openResearchDelete(state.canDeleteResearch ? "direct" : "request", deleteResearch.dataset.researchId);

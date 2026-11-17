@@ -137,6 +137,41 @@ def test_normalizar_erp_copia_so_campos_conhecidos() -> None:
     assert "Secreta" not in str(r) and "Loja" not in str(r) and "a@b.com" not in str(r)
 
 
+def test_normalizar_erp_lista_clientes_sem_uso_so_nome_e_dias() -> None:
+    bruto = {
+        "clientes_sem_uso": [
+            {"nome": "  Loja Parada  ", "dias_sem_uso": 12, "email": "a@b.com", "documento": "12.345"},
+            {"nome": "Clínica Nova", "dias_sem_uso": None},
+            {"nome": "X" * 80, "dias_sem_uso": "9"},
+            {"nome": "   ", "dias_sem_uso": 4},
+            "lixo",
+            {"dias_sem_uso": 7},
+        ]
+    }
+    r = tv.normalizar_erp(bruto)
+    assert r["clientes_sem_uso"] == [
+        {"nome": "Loja Parada", "dias_sem_uso": 12},
+        {"nome": "Clínica Nova", "dias_sem_uso": None},
+        {"nome": "X" * 60, "dias_sem_uso": 9},
+    ]
+    assert "a@b.com" not in str(r) and "12.345" not in str(r)
+
+
+def test_normalizar_erp_lista_clientes_sem_uso_invalida() -> None:
+    assert tv.normalizar_erp({"clientes_sem_uso": "lixo"})["clientes_sem_uso"] == []
+    assert tv.normalizar_erp({})["clientes_sem_uso"] == []
+    muitos = [{"nome": f"Cliente {i}", "dias_sem_uso": i} for i in range(30)]
+    assert len(tv.normalizar_erp({"clientes_sem_uso": muitos})["clientes_sem_uso"]) == 20
+
+
+def test_inteiro_ou_nulo() -> None:
+    assert tv._inteiro_ou_nulo(None) is None
+    assert tv._inteiro_ou_nulo(-1) is None
+    assert tv._inteiro_ou_nulo(0) == 0
+    assert tv._inteiro_ou_nulo("7") == 7
+    assert tv._inteiro_ou_nulo("lixo") is None
+
+
 def test_normalizar_erp_com_entrada_invalida_vira_zeros() -> None:
     r = tv.normalizar_erp("lixo")
     assert r["erros_abertos"] == 0 and r["saude"] == "verde" and r["serie"] == [] and r["top_erros"] == []

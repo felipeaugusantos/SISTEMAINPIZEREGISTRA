@@ -9,11 +9,12 @@ Página `/tv/monitoramento`: os dois sistemas lado a lado, só números agregado
 - **Revogar/trocar**: gere outra chave, troque o hash no `.env` e reinicie a API. A chave antiga para de valer na hora; abra o endereço novo na TV.
 - Limite de 60 requisições/min por IP; resposta com `Cache-Control: no-store`.
 
-## O que aparece (agregado, sem nomes)
+## O que aparece
 - Zé Registra: erros de servidor (5xx) na última hora, erros e taxa em 24 h, usuários ativos, ações, organizações com uso, série de 7 dias, top 3 erros por operação.
   - Saúde: 0 erros 5xx na última hora = verde; 1 a 9 = amarelo; 10 ou mais = vermelho. Respostas 4xx (senha errada, limite de taxa) não contam.
 - EZRA ERP: erros novos/abertos, usuários, ações, clientes com uso e sem uso, série de 7 dias, top 3 erros por rota. Saúde pelos erros novos na última hora (mesma escala).
-- Nunca aparecem nome de organização/cliente, usuário, e-mail, IP nem texto de erro.
+  - Exceção aprovada pelo dono em 17/11/2026: a lista de **clientes sem uso em 7 dias** mostra o nome e há quantos dias ("nunca usou" quando não há registro), limitada a 20. A contagem total continua no rodapé do cartão.
+- Fora essa lista, nunca aparecem nome de organização/cliente, usuário, e-mail, IP nem texto de erro.
 
 ## EZRA ERP
 A central busca o ERP **de servidor para servidor** (`ERP_TV_URL` = `https://<domínio do ERP>/api/public/tv/monitoramento`, `ERP_TV_TOKEN` = chave de leitura do ERP; só o hash dela está no código do ERP). Sem CORS e sem credencial no navegador.

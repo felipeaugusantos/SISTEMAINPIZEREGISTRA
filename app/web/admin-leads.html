@@ -8,12 +8,12 @@
     <title>Painel de leads — Zé Registra</title>
     <link rel="stylesheet" href="/static/styles.css?v=71" />
     <link rel="stylesheet" href="/static/ze-brand.css?v=1" />
-    <link rel="stylesheet" href="/static/admin-leads.css?v=15" />
+    <link rel="stylesheet" href="/static/admin-leads.css?v=20" />
     <!-- Compatibilidade com validadores legados: /static/admin-leads.css?v=15 -->
     <script src="/static/admin-shell.js?v=59" defer></script>
-    <script src="/static/lead-dialog.js?v=14" defer></script>
+    <script src="/static/lead-dialog.js?v=18" defer></script>
     <script src="/static/operations-views.js?v=1" defer></script>
-    <script src="/static/admin-leads.js?v=82" defer></script>
+    <script src="/static/admin-leads.js?v=88" defer></script>
   </head>
   <body class="admin-body ze-brand-theme" data-admin-section="leads">
     <header class="topbar">
@@ -141,7 +141,7 @@
           <label><input id="deletion-select-all" type="checkbox"> <span id="deletion-select-all-label">Selecionar todas</span></label>
           <span id="deletion-selected-count">0 selecionadas</span>
           <button id="deletion-bulk-reject" class="secondary-button" type="button" disabled>Rejeitar selecionadas</button>
-          <button id="deletion-bulk-approve" class="danger-button" type="button" disabled>Aprovar e excluir selecionadas</button>
+          <button id="deletion-bulk-approve" class="danger-button" type="button" disabled>Aprovar selecionadas</button>
         </div>
         <div id="deletion-request-list" class="learning-review-list"></div>
         <button id="deletion-load-more" class="secondary-button" type="button" hidden>Carregar mais</button>
@@ -205,6 +205,30 @@
         <h2>Arquivar contato?</h2>
         <p>O contato sairá da operação, mas todas as pesquisas e relatórios serão preservados.</p>
         <div><button class="secondary-button" value="cancel">Cancelar</button><button id="confirm-archive" class="danger-button" value="confirm">Arquivar</button></div>
+      </form>
+    </dialog>
+    <dialog id="discard-dialog" class="confirm-dialog" aria-labelledby="discard-title">
+      <form id="discard-form" novalidate>
+        <h2 id="discard-title">Descartar oportunidade?</h2>
+        <p id="discard-description">A oportunidade será marcada como perdida e o motivo fica registrado. O contato continua cadastrado; esta ação não exclui nem arquiva o contato.</p>
+        <label>Motivo da perda
+          <select id="discard-motivo" name="motivo_perda" required aria-describedby="discard-message">
+            <option value="">Selecione…</option>
+            <option value="preco">Preço / orçamento</option>
+            <option value="concorrente">Escolheu concorrente</option>
+            <option value="sem_resposta">Sem resposta do cliente</option>
+            <option value="fora_perfil">Fora do perfil / inviável</option>
+            <option value="outro">Outro</option>
+          </select>
+        </label>
+        <label>Detalhe (opcional)
+          <input id="discard-detalhe" name="motivo_perda_detalhe" maxlength="500" placeholder="Ex.: fechou com concorrente X" />
+        </label>
+        <div id="discard-message" class="status-message" role="alert" hidden></div>
+        <div>
+          <button id="cancel-discard" class="secondary-button" type="button">Cancelar</button>
+          <button id="confirm-discard" class="danger-button" type="submit">Descartar oportunidade</button>
+        </div>
       </form>
     </dialog>
     <dialog id="research-delete-dialog" class="confirm-dialog">

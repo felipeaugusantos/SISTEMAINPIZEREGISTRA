@@ -1355,14 +1355,17 @@ async function renderFunil(leadId) {
   });
 }
 
-function openResearchDelete(mode, id) {
+function openResearchDelete(mode, id, extra = {}) {
   state.deleteMode = mode;
   state.deleteResearchId = mode === "direct" || mode === "request" ? id : null;
+  state.deleteLeadId = mode === "lead-request" ? id : null;
+  const ehLead = mode === "lead-request" || extra.tipo === "lead";
+  state.deleteTipo = ehLead ? "lead" : "pesquisa";
   state.deleteRequestId = mode === "approve" || mode === "reject" ? id : null;
   state.deleteRequestIds = mode === "approve-lote" || mode === "reject-lote" ? id : null;
   researchDeleteForm.reset();
   const passwordRequired = mode === "direct" || mode === "approve" || mode === "approve-lote";
-  const reasonRequired = mode === "direct" || mode === "request" || mode === "reject" || mode === "reject-lote";
+  const reasonRequired = mode === "direct" || mode === "request" || mode === "lead-request" || mode === "reject" || mode === "reject-lote";
   root.querySelector("#research-delete-password-field").hidden = !passwordRequired;
   researchDeleteForm.elements.senha.required = passwordRequired;
   researchDeleteForm.elements.motivo.required = reasonRequired;
@@ -1371,15 +1374,17 @@ function openResearchDelete(mode, id) {
     request: "Solicitar exclusão da pesquisa?",
     approve: "Aprovar e excluir a pesquisa?",
     reject: "Rejeitar solicitação de exclusão?",
-    "approve-lote": `Aprovar e excluir ${(id || []).length} pesquisa(s)?`,
+    "lead-request": "Solicitar exclusão do contato?",
+    "approve-lote": `Aprovar ${(id || []).length} solicitação(ões)?`,
     "reject-lote": `Rejeitar ${(id || []).length} solicitação(ões) de exclusão?`,
   };
   const descriptions = {
     direct: "Relatórios, análises e previsões vinculadas serão removidos. Confirme com sua senha atual.",
     request: "A pesquisa permanecerá disponível até um administrador analisar a solicitação.",
     approve: "A aprovação remove definitivamente a pesquisa e exige sua senha atual.",
+    "lead-request": "Isto só envia um pedido. O contato continua ativo até um administrador aprovar; se aprovado, o contato será ARQUIVADO (não apagado) e poderá ser restaurado em Clientes arquivados. Não descarta a oportunidade.",
     reject: "Informe ao solicitante por que a pesquisa deve ser preservada.",
-    "approve-lote": "A aprovação remove definitivamente todas as pesquisas selecionadas e exige sua senha atual.",
+    "approve-lote": "A aprovação EXCLUI as pesquisas selecionadas e ARQUIVA os contatos selecionados (restauráveis) e exige sua senha atual.",
     "reject-lote": "Informe por que as pesquisas selecionadas devem ser preservadas.",
   };
   const preview = root.querySelector("#research-delete-preview");
@@ -1387,12 +1392,9 @@ function openResearchDelete(mode, id) {
     const emLote = mode === "approve-lote" || mode === "reject-lote";
     preview.hidden = !emLote;
     if (emLote) {
-      const marcas = (id || []).map(solicitacao => {
-        const card = root.querySelector(`#deletion-request-list [data-request-id="${Number(solicitacao)}"]`);
-        return card ? card.dataset.marca : `Solicitação ${solicitacao}`;
-      });
+      const marcas = extra.marcas || (id || []).map(solicitacao => `Solicitação ${solicitacao}`);
       root.querySelector("#research-delete-preview-title").textContent =
-        `${marcas.length} ${mode === "approve-lote" ? "pesquisa(s) serão excluídas" : "solicitação(ões) serão rejeitadas"}:`;
+        `${marcas.length} ${mode === "approve-lote" ? "solicitação(ões) serão aprovadas" : "solicitação(ões) serão rejeitadas"}:`;
       const lista = root.querySelector("#research-delete-preview-list");
       lista.replaceChildren(...marcas.map(marca => {
         const li = document.createElement("li");
@@ -1400,6 +1402,10 @@ function openResearchDelete(mode, id) {
         return li;
       }));
     }
+  }
+  if (ehLead && mode === "approve") {
+    titles.approve = "Aprovar e arquivar o contato?";
+    descriptions.approve = "A aprovação arquiva o contato (pode ser restaurado em Clientes arquivados; as pesquisas são preservadas) e exige sua senha atual.";
   }
   root.querySelector("#research-delete-title").textContent = titles[mode];
   root.querySelector("#research-delete-description").textContent = descriptions[mode];
@@ -1418,6 +1424,9 @@ researchDeleteForm.addEventListener("submit", async event => {
   statusBox.hidden = false;
   statusBox.className = "status-message loading";
   statusBox.textContent = "Processando…";
+  // A confirmação é exibida depois do recarregamento da lista, que limpa o
+  // banner de mensagens (antes ela sumia assim que a lista recarregava).
+  let mensagemSucesso = "";
   try {
     if (state.deleteMode === "direct") {
       await responsePayload(await fetch(`/v1/admin/pesquisas/${encodeURIComponent(state.deleteResearchId)}`, {
@@ -1425,31 +1434,55 @@ researchDeleteForm.addEventListener("submit", async event => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ senha: data.senha, motivo: data.motivo }),
       }));
-      showMessage("Pesquisa excluída e operação registrada na auditoria.", "success");
+      mensagemSucesso = "Pesquisa excluída e operação registrada na auditoria.";
     } else if (state.deleteMode === "request") {
       await responsePayload(await fetch(`/v1/admin/pesquisas/${encodeURIComponent(state.deleteResearchId)}/solicitar-exclusao`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ motivo: data.motivo }),
       }));
-      showMessage("Solicitação de exclusão enviada ao administrador.", "success");
-    } else if (state.deleteMode === "approve-lote" || state.deleteMode === "reject-lote") {
-      const aprovar = state.deleteMode === "approve-lote";
-      const resultado = await responsePayload(await fetch("/v1/admin/exclusoes-pesquisas/decidir-lote", {
+      mensagemSucesso = "Solicitação de exclusão enviada ao administrador.";
+    } else if (state.deleteMode === "lead-request") {
+      await responsePayload(await fetch(`/v1/admin/leads/${encodeURIComponent(state.deleteLeadId)}/solicitar-exclusao`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ids: state.deleteRequestIds,
-          decisao: aprovar ? "aprovar" : "rejeitar",
-          senha: data.senha || null,
-          observacao: data.motivo || null,
-        }),
+        body: JSON.stringify({ motivo: data.motivo }),
       }));
-      const removidas = resultado.ja_removidas ? ` ${resultado.ja_removidas} já estavam removidas e foram encerradas.` : "";
-      const ignoradas = resultado.ignoradas ? ` ${resultado.ignoradas} ignorada(s) (já decididas ou inexistentes).` : "";
-      showMessage(`${resultado.processadas} solicitação(ões) ${aprovar ? "aprovada(s) e executada(s)" : "rejeitada(s)"}.${removidas}${ignoradas}`, "success");
+      mensagemSucesso = "Pedido enviado. O contato continua ativo até a aprovação; se aprovado, será arquivado (restaurável), não apagado.";
+    } else if (state.deleteMode === "approve-lote" || state.deleteMode === "reject-lote") {
+      const aprovar = state.deleteMode === "approve-lote";
+      const corpo = ids => JSON.stringify({
+        ids,
+        decisao: aprovar ? "aprovar" : "rejeitar",
+        senha: data.senha || null,
+        observacao: data.motivo || null,
+      });
+      const ids = { pesquisa: [], lead: [] };
+      for (const chave of state.deleteRequestIds) {
+        const [tipo, numero] = String(chave).split(":");
+        ids[tipo === "lead" ? "lead" : "pesquisa"].push(Number(numero));
+      }
+      const resumo = { processadas: 0, ja_removidas: 0, ignoradas: 0 };
+      const feitas = [];
+      try {
+        for (const [tipo, rota] of [["pesquisa", "exclusoes-pesquisas"], ["lead", "exclusoes-leads"]]) {
+          if (!ids[tipo].length) continue;
+          const r = await responsePayload(await fetch(`/v1/admin/${rota}/decidir-lote`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: corpo(ids[tipo]),
+          }));
+          for (const campo of Object.keys(resumo)) resumo[campo] += r[campo] || 0;
+          feitas.push(tipo === "lead" ? `${r.processadas} contato(s)` : `${r.processadas} pesquisa(s)`);
+        }
+      } catch (erro) {
+        if (feitas.length) erro.message = `${erro.message} (já processado: ${feitas.join(" e ")}; recarregue a fila)`;
+        throw erro;
+      }
+      const removidas = resumo.ja_removidas ? ` ${resumo.ja_removidas} já estavam removidas/arquivadas e foram encerradas.` : "";
+      const ignoradas = resumo.ignoradas ? ` ${resumo.ignoradas} ignorada(s) (já decididas ou inexistentes).` : "";
+      mensagemSucesso = `${resumo.processadas} solicitação(ões) ${aprovar ? "aprovada(s): pesquisas excluídas e contatos arquivados" : "rejeitada(s)"} (${feitas.join(" e ")}).${removidas}${ignoradas}`;
     } else {
-      await responsePayload(await fetch(`/v1/admin/exclusoes-pesquisas/${state.deleteRequestId}/decidir`, {
+      const ehContato = state.deleteTipo === "lead";
+      await responsePayload(await fetch(`/v1/admin/${ehContato ? "exclusoes-leads" : "exclusoes-pesquisas"}/${state.deleteRequestId}/decidir`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1458,11 +1491,14 @@ researchDeleteForm.addEventListener("submit", async event => {
           observacao: data.motivo || null,
         }),
       }));
-      showMessage(state.deleteMode === "approve" ? "Exclusão aprovada e executada." : "Solicitação rejeitada.", "success");
+      mensagemSucesso = state.deleteMode === "approve"
+        ? (ehContato ? "Pedido aprovado: o contato foi arquivado (não apagado) e pode ser restaurado em Clientes arquivados." : "Exclusão aprovada e executada.")
+        : "Solicitação rejeitada; nada foi alterado.";
     }
     researchDeleteDialog.close();
     await onChange();
     if (state.openLeadId && dialog.open) await openLead(state.openLeadId);
+    if (mensagemSucesso) showMessage(mensagemSucesso, "success");
   } catch (error) {
     statusBox.className = "status-message error";
     statusBox.textContent = error.message;

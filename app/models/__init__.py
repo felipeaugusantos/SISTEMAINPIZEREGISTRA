@@ -85,6 +85,7 @@ from app.models.marca_busca import PesquisaMarca as PesquisaMarca
 from app.models.marca_busca import PrevisaoRegistrabilidade as PrevisaoRegistrabilidade
 from app.models.marca_busca import ProjetoBuscaMarca as ProjetoBuscaMarca
 from app.models.marca_busca import RotuloHistoricoMarca as RotuloHistoricoMarca
+from app.models.marca_busca import SolicitacaoExclusaoLead as SolicitacaoExclusaoLead
 from app.models.marca_busca import SolicitacaoExclusaoPesquisa as SolicitacaoExclusaoPesquisa
 from app.models.marca_busca import VersaoRelatorioMarca as VersaoRelatorioMarca
 from app.models.mensageria import ConsentimentoCanal as ConsentimentoCanal

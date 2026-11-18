@@ -337,6 +337,73 @@
     );
   }
 
+  function duracaoTexto(min) {
+    const total = Math.max(0, Math.floor(Number(min) || 0));
+    if (total < 60) return `${total} min`;
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    if (h < 48) return m ? `${h} h ${String(m).padStart(2, "0")}` : `${h} h`;
+    const d = Math.floor(h / 24);
+    return `${d} d ${h % 24} h`;
+  }
+
+  function dataHoraCurta(valor) {
+    const d = new Date(valor);
+    if (Number.isNaN(d.getTime())) return "";
+    return `${d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${hora(d)}`;
+  }
+
+  function itemDisponibilidade(rotulo, leitura) {
+    const l = leitura && typeof leitura === "object" ? leitura : {};
+    const ok = l.disponivel === true && typeof l.disponibilidade_mes === "number";
+    const saude = ok ? l.saude || "cinza" : "cinza";
+    const item = el("div", `tv-backup-item saude-${saude}`);
+    const corpo = el("div", "tv-backup-texto");
+    // coletando_desde é data pura (AAAA-MM-DD): formatar da string, sem fuso
+    const dd = typeof l.coletando_desde === "string" ? l.coletando_desde : "";
+    const desde = dd.length >= 10 ? `${dd.slice(8, 10)}/${dd.slice(5, 7)}` : "";
+    corpo.append(
+      el("span", "", `${rotulo} · mês${desde ? ` (desde ${desde})` : ""}`),
+      el("strong", "", ok ? `${(l.disponibilidade_mes * 100).toFixed(2).replace(".", ",")}%` : "coletando…"),
+      el("small", "", ok
+        ? l.minutos_fora_mes > 0 ? `${duracaoTexto(l.minutos_fora_mes)} fora no mês` : "nenhum minuto fora no mês"
+        : "o histórico começou a ser guardado agora"),
+    );
+    const estado = saude === "vermelho" && l.incidente_aberto ? "Fora agora"
+      : { verde: "No ar", amarelo: "Instável", vermelho: "Quedas", cinza: "Sem dados" }[saude];
+    item.append(corpo, el("em", "tv-backup-selo", estado));
+    return item;
+  }
+
+  function itemIncidentes(lista) {
+    const itens = (Array.isArray(lista) ? lista : []).filter((i) => i && i.inicio);
+    const aberto = itens.some((i) => !i.fim);
+    const item = el("div", `tv-backup-item tv-incidentes saude-${aberto ? "vermelho" : "cinza"}`);
+    const corpo = el("div", "tv-backup-texto");
+    corpo.append(el("span", "", "Incidentes"), el("strong", "", itens.length ? `${itens.length} recente(s)` : "nenhum"));
+    const nomes = { zeregistra: "Zé Registra", erp: "EZRA" };
+    const tipos = { falha: "queda", sem_dados: "sem dados (VPS fora)" };
+    itens.slice(0, 2).forEach((i) => {
+      const fim = i.fim ? duracaoTexto(i.minutos) : "em andamento";
+      corpo.append(el("small", "", `${dataHoraCurta(i.inicio)} · ${fim} · ${nomes[i.alvo] || ""} ${tipos[i.tipo] || ""}`));
+    });
+    item.append(corpo, el("em", "tv-backup-selo", aberto ? "Em queda" : itens.length ? "Histórico" : "Limpo"));
+    return item;
+  }
+
+  function cartaoDisponibilidade(disp) {
+    const alvo = document.getElementById("tv-disponibilidade");
+    if (!alvo) return;
+    const d = disp && typeof disp === "object" ? disp : {};
+    const alvos = d.alvos && typeof d.alvos === "object" ? d.alvos : {};
+    alvo.replaceChildren(
+      el("h2", "", "Disponibilidade"),
+      itemDisponibilidade("Zé Registra", alvos.zeregistra),
+      itemDisponibilidade("EZRA ERP", alvos.erp),
+      itemIncidentes(d.incidentes),
+    );
+  }
+
   function mostrarAviso(texto) {
     if (texto) { alvoAviso.textContent = texto; alvoAviso.hidden = false; } else { alvoAviso.hidden = true; }
   }
@@ -346,6 +413,7 @@
     alvoCentral.classList.toggle("velho", Boolean(velho));
     if (velho) alvoErp.classList.add("velho");
     if (ultimoDado && ultimoDado.backup) cartaoBackup(ultimoDado.backup, ultimoDado.erp);
+    if (ultimoDado) cartaoDisponibilidade(ultimoDado.disponibilidade);
     alvoAtualizado.textContent = ultimoSucesso ? `atualizado às ${hora(ultimoSucesso)}` : "aguardando dados…";
   }
 
@@ -371,6 +439,7 @@
       cartaoCentral(dados.zeregistra, dados.sistema);
       cartaoErp(dados.erp);
       cartaoBackup(dados.backup, dados.erp);
+      cartaoDisponibilidade(dados.disponibilidade);
       mostrarAviso("");
     } catch (e) {
       mostrarAviso(ultimoSucesso

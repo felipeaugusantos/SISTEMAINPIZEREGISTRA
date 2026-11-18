@@ -413,3 +413,77 @@ def test_sistema_cpu_pela_carga_de_5_minutos(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr("builtins.open", lambda *_a, **_k: __import__("io").StringIO("3.70 3.60 2.00 1/400 99\n"))
     leitura = tv._leitura_cpu()
     assert leitura == {"percentual": 90, "saude": "vermelho"}
+
+
+def test_disponibilidade_sem_snapshot_fica_cinza() -> None:
+    # fixture _sem_redis: ler_snapshot devolve None (worker ainda não publicou)
+    resumo = tv.normalizar_disponibilidade(None)
+    assert resumo["disponivel"] is False
+    assert resumo["alvos"]["zeregistra"] == {"disponivel": False, "saude": "cinza"}
+    assert resumo["alvos"]["erp"] == {"disponivel": False, "saude": "cinza"}
+    assert resumo["incidentes"] == []
+
+
+def test_normalizar_disponibilidade_copia_so_campos_conhecidos() -> None:
+    bruto = {
+        "mes": "2026-11",
+        "alvos": {
+            "zeregistra": {
+                "disponivel": True,
+                "saude": "amarelo",
+                "disponibilidade_mes": 0.99254,
+                "minutos_fora_mes": 30,
+                "coletando_desde": "2026-11-17",
+                "incidente_aberto": False,
+                "caminho": "/opt/zeregistra/backups",  # nunca chega à TV
+                "detalhe": "linha crua da sonda",
+            },
+            "erp": {"disponivel": False},
+            "outro": {"disponivel": True, "saude": "verde"},
+        },
+        "incidentes": [
+            {
+                "alvo": "zeregistra",
+                "inicio": "2026-11-17T21:36:00+00:00",
+                "fim": "2026-11-17T21:41:00+00:00",
+                "minutos": 5,
+                "tipo": "falha",
+                "extra": "não copia",
+            },
+            {"alvo": "erp", "inicio": "2026-11-17T20:00:00+00:00", "fim": None, "minutos": 3, "tipo": "sem_dados"},
+            {"alvo": "desconhecido", "inicio": "2026-11-17T19:00:00+00:00", "minutos": 2, "tipo": "falha"},
+            {"alvo": "zeregistra", "inicio": "lixo", "minutos": 2, "tipo": "falha"},
+        ]
+        + [
+            {"alvo": "zeregistra", "inicio": f"2026-11-1{i}T10:00:00+00:00", "fim": None, "minutos": 2, "tipo": "falha"}
+            for i in range(7)
+        ],
+        "lixo": "fora",
+    }
+    resumo = tv.normalizar_disponibilidade(bruto)
+    zr = resumo["alvos"]["zeregistra"]
+    assert zr == {
+        "disponivel": True,
+        "saude": "amarelo",
+        "disponibilidade_mes": 0.9925,
+        "minutos_fora_mes": 30,
+        "coletando_desde": "2026-11-17",
+        "incidente_aberto": False,
+    }
+    assert resumo["alvos"]["erp"] == {"disponivel": False, "saude": "cinza"}
+    assert "outro" not in resumo["alvos"]
+    assert "lixo" not in resumo
+    assert len(resumo["incidentes"]) == 5  # cap
+    primeiro = resumo["incidentes"][0]
+    assert set(primeiro) == {"alvo", "inicio", "fim", "minutos", "tipo"}
+    assert resumo["incidentes"][1]["tipo"] == "sem_dados"
+    assert resumo["incidentes"][1]["fim"] is None
+
+
+def test_normalizar_disponibilidade_com_lixo() -> None:
+    resumo = tv.normalizar_disponibilidade({"alvos": "não é dict", "incidentes": "não é lista"})
+    assert resumo["disponivel"] is False
+    assert resumo["incidentes"] == []
+    resumo2 = tv.normalizar_disponibilidade({"alvos": {"zeregistra": {"disponivel": True, "saude": "roxo", "disponibilidade_mes": "x"}}})
+    assert resumo2["alvos"]["zeregistra"]["saude"] == "cinza"
+    assert resumo2["alvos"]["zeregistra"]["disponibilidade_mes"] is None

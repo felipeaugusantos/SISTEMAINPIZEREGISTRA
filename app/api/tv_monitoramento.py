@@ -446,6 +446,81 @@ async def resumo_backup() -> dict[str, Any]:
     }
 
 
+def _rotulo_alvo(alvo: Any) -> str | None:
+    """Só os dois alvos conhecidos chegam à TV."""
+    return str(alvo) if alvo in ("zeregistra", "erp") else None
+
+
+def _normalizar_alvo_disponibilidade(bruto: Any) -> dict[str, Any]:
+    """Disponibilidade do mês de um alvo: só percentual, minutos e datas (sem caminho nem detalhe).
+
+    Cinza até a sonda da VPS gravar a primeira leitura - o painel mostra
+    "Coletando" em vez de inventar um mês sem histórico."""
+    if not isinstance(bruto, dict) or not bruto.get("disponivel"):
+        return {"disponivel": False, "saude": "cinza"}
+    pct = bruto.get("disponibilidade_mes")
+    try:
+        pct = round(float(pct), 4) if pct is not None else None
+    except (TypeError, ValueError):
+        pct = None
+    saude = str(bruto.get("saude")) if bruto.get("saude") in ("verde", "amarelo", "vermelho") else "cinza"
+    return {
+        "disponivel": True,
+        "saude": saude,
+        "disponibilidade_mes": pct,
+        "minutos_fora_mes": _inteiro(bruto.get("minutos_fora_mes")),
+        "coletando_desde": _data_iso(bruto.get("coletando_desde")),
+        "incidente_aberto": bool(bruto.get("incidente_aberto")),
+    }
+
+
+def normalizar_disponibilidade(bruto: Any) -> dict[str, Any]:
+    """Copia só os campos conhecidos do resumo de disponibilidade calculado pelo worker."""
+    dados = bruto if isinstance(bruto, dict) else {}
+    alvos_brutos = dados.get("alvos") if isinstance(dados.get("alvos"), dict) else {}
+    alvos = {
+        chave: _normalizar_alvo_disponibilidade(alvos_brutos.get(chave))
+        for chave in ("zeregistra", "erp")
+    }
+    incidentes: list[dict[str, Any]] = []
+    if isinstance(dados.get("incidentes"), list):
+        for item in dados["incidentes"]:
+            if len(incidentes) >= 5 or not isinstance(item, dict):
+                continue
+            alvo = _rotulo_alvo(item.get("alvo"))
+            inicio = _data_iso(item.get("inicio"))
+            tipo = str(item.get("tipo")) if item.get("tipo") in ("falha", "sem_dados") else None
+            if alvo is None or inicio is None or tipo is None:
+                continue
+            incidentes.append(
+                {
+                    "alvo": alvo,
+                    "inicio": inicio,
+                    "fim": _data_iso(item.get("fim")),
+                    "minutos": min(_inteiro(item.get("minutos")), 60 * 24 * 31),
+                    "tipo": tipo,
+                }
+            )
+    return {
+        "disponivel": any(alvo["disponivel"] for alvo in alvos.values()),
+        "mes": str(dados.get("mes") or "")[:7],
+        "alvos": alvos,
+        "incidentes": incidentes,
+    }
+
+
+async def resumo_disponibilidade() -> dict[str, Any]:
+    """Disponibilidade do mês e incidentes (instantâneo do worker no Redis; ausência = coletando)."""
+    try:
+        snapshot = await asyncio.wait_for(ler_snapshot(), timeout=2.0)
+    except Exception:  # noqa: BLE001 -- Redis fora do ar não pode derrubar a TV
+        logger.warning("TV: leitura da disponibilidade falhou", exc_info=True)
+        snapshot = None
+    if not isinstance(snapshot, dict):
+        return normalizar_disponibilidade(None)
+    return normalizar_disponibilidade(snapshot.get("disponibilidade"))
+
+
 SISTEMA_LIMITE_ATENCAO = 80.0
 SISTEMA_LIMITE_CRITICO = 90.0
 _DISCO_CAMINHO = "/app/data"
@@ -515,5 +590,14 @@ async def painel_tv(session: SessionDep, response: Response, _chave: ChaveTvDep)
     # Leitura agregada da plataforma inteira, liberada só depois da chave da TV (mesmo recurso do webhook
     # do WhatsApp e do portal): a auditoria tem RLS por organização e esta consulta cruza todas.
     await aplicar_contexto_tenant(session, get_settings().default_organization_id, superadmin=True)
-    central, erp, backup = await asyncio.gather(_resumo_central(session), resumo_erp(), resumo_backup())
-    return {"gerado_em": datetime.now(UTC), "zeregistra": central, "erp": erp, "backup": backup, "sistema": resumo_sistema()}
+    central, erp, backup, disponibilidade = await asyncio.gather(
+        _resumo_central(session), resumo_erp(), resumo_backup(), resumo_disponibilidade()
+    )
+    return {
+        "gerado_em": datetime.now(UTC),
+        "zeregistra": central,
+        "erp": erp,
+        "backup": backup,
+        "disponibilidade": disponibilidade,
+        "sistema": resumo_sistema(),
+    }

@@ -222,3 +222,30 @@ async def test_falha_na_avaliacao_nao_propaga(monkeypatch: pytest.MonkeyPatch, t
 
     monkeypatch.setattr("app.alertas_plataforma.coletar_saude_backups", _quebra)
     await _verificar_rotina_backups(FakeSession([]), tmp_path)
+
+
+async def test_snapshot_ganha_disponibilidade_mesmo_sem_arquivos_da_sonda(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _alertas_isolados: list[dict]
+) -> None:
+    # Painel de TV, item 3 (17/11/2026): o mesmo instantâneo leva a disponibilidade
+    # calculada dos jsonl da sonda; sem os arquivos, fica cinza "coletando", sem quebrar.
+    monkeypatch.setattr("app.alertas_plataforma.coletar_saude_backups", lambda _d: _saude("ok", "ok"))
+    session = FakeSession([FakeResult(scalar=None), FakeResult(scalar=None)])
+    await _verificar_rotina_backups(session, tmp_path)
+    publicado = _alertas_isolados[0]
+    assert publicado["disponibilidade"]["alvos"]["zeregistra"]["disponivel"] is False
+    assert publicado["disponibilidade"]["alvos"]["zeregistra"]["saude"] == "cinza"
+
+
+async def test_falha_na_disponibilidade_nao_derruba_saude_dos_backups(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _alertas_isolados: list[dict]
+) -> None:
+    def _quebra(*_a: object, **_k: object) -> dict:
+        raise RuntimeError("falha simulada")
+
+    monkeypatch.setattr("app.alertas_plataforma.coletar_saude_backups", lambda _d: _saude("ok", "ok"))
+    monkeypatch.setattr("app.alertas_plataforma.coletar_disponibilidade", _quebra)
+    session = FakeSession([FakeResult(scalar=None), FakeResult(scalar=None)])
+    await _verificar_rotina_backups(session, tmp_path)
+    assert "disponibilidade" not in _alertas_isolados[0]
+    assert _alertas_isolados[0]["geral"] == "ok"

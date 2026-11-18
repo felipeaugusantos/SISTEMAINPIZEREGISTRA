@@ -16,6 +16,13 @@ Página `/tv/monitoramento`: os dois sistemas lado a lado, só números agregado
   - Exceção aprovada pelo dono em 17/11/2026: a lista de **clientes sem uso em 7 dias** mostra o nome e há quantos dias ("nunca usou" quando não há registro), limitada a 20. A contagem total continua no rodapé do cartão.
 - Fora essa lista, nunca aparecem nome de organização/cliente, usuário, e-mail, IP nem texto de erro.
 
+## Disponibilidade do mês e incidentes (17/11/2026)
+- Uma **sonda no host da VPS** (`docker/sonda-disponibilidade.sh`, cron a cada minuto) grava 1 linha por alvo em `backups/disponibilidade.jsonl` e fecha cada dia (fuso de Brasília) em `backups/disponibilidade-diario.jsonl`. Alvos: Zé Registra (`/health`, só 200 vale) e EZRA ERP (endereço público, qualquer resposta < 500 vale).
+- Minuto "fora" = sonda falhou ou não há linha no minuto (sem linha = VPS fora/reiniciando = app fora para o usuário). **Incidente** = 2+ minutos fora seguidos; encerra com 2 minutos ok. Queda de 1 minuto conta na disponibilidade mas não é listada.
+- Disponibilidade do mês = minutos no ar / minutos decorridos do mês (Brasília), do dia 1 ou do início da coleta, o mais recente. Enquanto o mês não está coberto, o cartão mostra "desde <data>". Sem nenhum dado: cinza "coletando".
+- Retenção: raw 14 dias (detalhe dos incidentes); agregado diário para sempre (histórico dos meses).
+- O worker calcula no ciclo de manutenção horário e publica no mesmo instantâneo do Redis (`saude:backups`, chave `disponibilidade`); a API só normaliza. Ou seja, o cartão atualiza a cada hora - queda em andamento aparece antes nos cartões de saúde em tempo real.
+
 ## EZRA ERP
 A central busca o ERP **de servidor para servidor** (`ERP_TV_URL` = `https://<domínio do ERP>/api/public/tv/monitoramento`, `ERP_TV_TOKEN` = chave de leitura do ERP; só o hash dela está no código do ERP). Sem CORS e sem credencial no navegador.
 

@@ -381,7 +381,7 @@ class AlertaEstado(Base):
     titulo: Mapped[str] = mapped_column(String(160))
     detalhe: Mapped[str] = mapped_column(String(400), default="")
     desde_quando: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    em_falha: Mapped[bool] = mapped_column(Boolean, default=True)
+    em_falha: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     confirmado: Mapped[bool] = mapped_column(Boolean, default=False)
     ausente_desde: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ultimo_aviso: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

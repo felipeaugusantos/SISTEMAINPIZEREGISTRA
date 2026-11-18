@@ -1,0 +1,64 @@
+/* Ajustes exclusivos da landing: preserva a tipografia das outras páginas. */
+.landing-page .hero {
+  padding: 40px 0 56px;
+  gap: 56px;
+}
+
+.landing-page .hero-brand-visual {
+  width: 88px;
+  height: 88px;
+  margin-bottom: 24px;
+}
+
+.landing-page .hero-brand-visual img {
+  height: 86px;
+}
+
+.landing-page h1 {
+  font-size: clamp(2.5rem, 4vw, 3.5rem);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  margin-bottom: 20px;
+}
+
+.landing-page .hero-search-cta {
+  min-height: 48px;
+  margin-top: 4px;
+}
+
+.landing-page .trust-points {
+  margin-top: 24px;
+}
+
+.landing-page #research-form {
+  scroll-margin-top: 24px;
+}
+
+.landing-page .hero-search-cta:focus-visible {
+  outline: 3px solid var(--forest);
+  outline-offset: 4px;
+}
+
+@media (max-width: 860px) {
+  .landing-page .hero {
+    gap: 32px;
+    padding-top: 32px;
+  }
+}
+
+@media (max-width: 620px) {
+  .landing-page .hero-brand-visual {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 20px;
+  }
+
+  .landing-page .hero-brand-visual img {
+    height: 62px;
+  }
+
+  .landing-page .hero-description {
+    font-size: 1rem;
+    line-height: 1.55;
+  }
+}

@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     # Origem do resumo agregado do EZRA ERP (rota /api/public/tv/monitoramento) e a chave de leitura dela.
     erp_tv_url: str = ""
     erp_tv_token: str = ""
+    # Alertas ativos (app/alertas_ativos.py): avaliador do worker, a cada minuto. Desligado por padrão.
+    alertas_ativos_enabled: bool = False
+    # Gateway WhatsApp (Evolution API) vigiado pelo avaliador: URL base na rede docker, chave da API e nome da
+    # instância. Qualquer um vazio = checagem da sessão desligada (nunca alerta por falta de configuração).
+    evolution_api_url: str = ""
+    evolution_api_key: str = ""
+    evolution_instance: str = ""
     inpi_integration_token: str = ""
     rpi_sync_interval_seconds: int = 21_600
     rpi_sync_start_number: int = 2900

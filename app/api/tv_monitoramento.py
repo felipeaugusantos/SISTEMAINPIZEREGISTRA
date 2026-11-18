@@ -35,8 +35,9 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.alertas_ativos import ler_avaliador_em
 from app.database import get_session
-from app.models import EventoAuditoria, EventoOperacional
+from app.models import AlertaEstado, EventoAuditoria, EventoOperacional
 from app.ratelimit import RateLimiter
 from app.saude_backups import ler_snapshot
 from app.settings import get_settings
@@ -600,4 +601,54 @@ async def painel_tv(session: SessionDep, response: Response, _chave: ChaveTvDep)
         "backup": backup,
         "disponibilidade": disponibilidade,
         "sistema": resumo_sistema(),
+    }
+
+
+ALERTAS_RECUPERADOS_HORAS = 24
+
+
+def _item_alerta(linha: AlertaEstado) -> dict[str, Any]:
+    """Só o que o notificador precisa: nada de dado de cliente (detalhe vem de contagens e rotas)."""
+    return {
+        "fingerprint": linha.fingerprint,
+        "severidade": linha.severidade,
+        "titulo": linha.titulo,
+        "detalhe": linha.detalhe or "",
+        "desde_quando": linha.desde_quando,
+        "ativo": bool(linha.em_falha and linha.confirmado),
+        "aviso_seq": linha.aviso_seq,
+        "aviso_tipo": linha.aviso_tipo,
+        "ultimo_aviso": linha.ultimo_aviso,
+    }
+
+
+@router.get("/alertas")
+async def alertas_ativos(session: SessionDep, response: Response, _chave: ChaveTvDep) -> dict[str, Any]:
+    """Alertas ativos (e recuperados nas últimas 24 h) com o que já é devido avisar. Somente leitura.
+
+    ``aviso_seq`` sobe a cada aviso devido (novo, lembrete ou recuperado) de um fingerprint: o notificador guarda
+    o último ``aviso_seq`` que enviou e avisa quando ele aumenta. ``avaliado_em`` é o batimento do avaliador do
+    worker; se ficar velho, o próprio avaliador parou."""
+    response.headers["Cache-Control"] = "no-store"
+    await aplicar_contexto_tenant(session, get_settings().default_organization_id, superadmin=True)
+    agora = datetime.now(UTC)
+    linhas = (
+        (
+            await session.execute(
+                select(AlertaEstado).where(
+                    (AlertaEstado.em_falha.is_(True) & AlertaEstado.confirmado.is_(True))
+                    | (
+                        (AlertaEstado.aviso_tipo == "recuperado")
+                        & (AlertaEstado.atualizado_em >= agora - timedelta(hours=ALERTAS_RECUPERADOS_HORAS))
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "gerado_em": agora,
+        "avaliado_em": await ler_avaliador_em(),
+        "alertas": [_item_alerta(linha) for linha in sorted(linhas, key=lambda x: x.fingerprint)],
     }

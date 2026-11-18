@@ -7,6 +7,7 @@ from uuid import uuid4
 from sqlalchemy import exists, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from app.alertas_ativos import avaliar_alertas
 from app.alertas_plataforma import verificar_saude_plataforma
 from app.api.juridico import executar_motor_organizacao
 from app.api.versoes_sistema import lembrar_atualizacoes_pendentes
@@ -798,6 +799,9 @@ async def processar(tipo: str, payload: dict) -> None:
                 await reconciliar_campanhas_ativas(session, redis_reconciliacao)
             finally:
                 await redis_reconciliacao.aclose()
+        elif tipo == "alertas.avaliar":
+            # Alertas ativos: avaliador por minuto, sem envio (ver app/alertas_ativos.py).
+            await avaliar_alertas(session)
         elif tipo == "plataforma.verificar_saude":
             # Achado FASE6-9 da auditoria (04/09/2026): fila de falhas, RPI
             # desatualizada e latência/erro de API viravam número num painel,
@@ -854,6 +858,7 @@ TAREFAS_MANUTENCAO_HORARIA: tuple[str, ...] = (
 INTERVALO_MANUTENCAO_HORARIA = timedelta(hours=1)
 INTERVALO_COMUNICACAO_JURIDICA = timedelta(minutes=1)
 INTERVALO_MENSAGERIA = timedelta(minutes=1)
+INTERVALO_ALERTAS_ATIVOS = timedelta(minutes=1)
 INTERVALO_ALTO_RENOME = timedelta(days=7)
 
 
@@ -1047,6 +1052,16 @@ async def _loop_mensageria(redis) -> None:
         await asyncio.sleep(10)
 
 
+async def _loop_alertas_ativos(redis) -> None:
+    """Avalia os alertas ativos a cada minuto; inerte enquanto ALERTAS_ATIVOS_ENABLED estiver desligado."""
+    proxima_execucao = datetime.now(UTC)
+    while True:
+        if datetime.now(UTC) >= proxima_execucao:
+            await _executar_tarefa_manutencao(redis, "alertas.avaliar")
+            proxima_execucao = datetime.now(UTC) + INTERVALO_ALERTAS_ATIVOS
+        await asyncio.sleep(10)
+
+
 async def main() -> None:
     redis = cliente_redis()
     # Só recupera o que está com lease vencido (A05): outro worker vivo não perde a tarefa que está rodando.
@@ -1057,6 +1072,7 @@ async def main() -> None:
         _loop_manutencao(redis),
         _loop_comunicacao_juridica(redis),
         _loop_mensageria(redis),
+        _loop_alertas_ativos(redis),
     )
 
 

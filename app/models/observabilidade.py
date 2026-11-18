@@ -364,3 +364,27 @@ class ControleProducao(Base):
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class AlertaEstado(Base):
+    """Estado de cada alerta ativo do monitoramento (app/alertas_ativos.py).
+
+    Uma linha por fingerprint (assinatura estável da condição). O avaliador do
+    worker decide quando um aviso é devido (novo, lembrete, recuperado) e
+    registra em ``aviso_seq``/``aviso_tipo``: o notificador da VPS só lê.
+    """
+
+    __tablename__ = "alertas_estado"
+
+    fingerprint: Mapped[str] = mapped_column(String(200), primary_key=True)
+    severidade: Mapped[str] = mapped_column(String(20))
+    titulo: Mapped[str] = mapped_column(String(160))
+    detalhe: Mapped[str] = mapped_column(String(400), default="")
+    desde_quando: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    em_falha: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    confirmado: Mapped[bool] = mapped_column(Boolean, default=False)
+    ausente_desde: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ultimo_aviso: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    aviso_seq: Mapped[int] = mapped_column(Integer, default=0)
+    aviso_tipo: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

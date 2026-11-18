@@ -56,6 +56,17 @@ async function fixture(page, screen, permissions, opts = {}) {
   return { requests, errors };
 }
 
+// Contagens de requisições são eventuais: a lista recarrega após cada
+// salvamento. Esperar a condição evita o flake de contar cedo demais.
+async function ateQue(cond, timeoutMs = 7000) {
+  const inicio = Date.now();
+  while (!cond()) {
+    if (Date.now() - inicio > timeoutMs) return false;
+    await new Promise(r => setTimeout(r, 50));
+  }
+  return true;
+}
+
 test("Visualizar proposta abre conteúdo sem popup em branco", async () => {
   const browser = await chromium.launch();
   try {
@@ -103,10 +114,10 @@ for (const screen of ["crm", "leads"]) {
       if (screen === "crm") {
         assert.equal(await page.locator("#leads-list, #lead-filters").count(), 0);
         assert.ok(!requests.some(r => r.path === "/static/admin-leads.js" || r.path === "/v1/admin/leads"));
-        assert.ok(requests.filter(r => r.path === "/v1/admin/leads-kanban").length >= 3);
-        assert.ok(requests.filter(r => r.path === "/v1/admin/crm/historico").length >= 3);
+        assert.ok(await ateQue(() => requests.filter(r => r.path === "/v1/admin/leads-kanban").length >= 3), "kanban não recarregou após os salvamentos");
+        assert.ok(await ateQue(() => requests.filter(r => r.path === "/v1/admin/crm/historico").length >= 3), "histórico não recarregou após os salvamentos");
       } else {
-        assert.ok(requests.filter(r => r.path === "/v1/admin/leads").length >= 3);
+        assert.ok(await ateQue(() => requests.filter(r => r.path === "/v1/admin/leads").length >= 3), "lista de contatos não recarregou após os salvamentos");
         await page.locator("#lead-dialog .dialog-close").click();
         await page.locator("#lead-status-filter").selectOption("em_contato");
         await Promise.all([

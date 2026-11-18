@@ -146,6 +146,9 @@ test('R04/R05: fila de exclusões recolhida e contrato de filtros/contagem expl�
   const f = await fixture(page, { exclusoes: 2 });
   await page.goto('http://operations.test/admin/pesquisas');
   await page.locator('#leads-list tr').first().waitFor();
+  // A fila de exclusões carrega em paralelo à lista de contatos; esperar a
+  // contagem real evita ler o "0 pendentes" estático do HTML (flake do CI).
+  await page.waitForFunction(() => document.querySelector('#deletion-request-count').textContent.includes('2 pendentes'));
   assert.ok(await page.locator('#deletion-requests').isVisible());
   assert.match(await page.locator('#deletion-request-count').innerText(), /2 pendentes/);
   assert.ok(!(await page.locator('#deletion-requests-body').isVisible()));

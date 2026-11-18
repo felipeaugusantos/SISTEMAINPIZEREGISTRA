@@ -19,6 +19,7 @@ from pathlib import Path
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.disponibilidade import coletar_disponibilidade
 from app.emailing import enviar_alerta_plataforma
 from app.models import AlertaSistema, EventoOperacional, RpiImportacao, RpiSyncEstado
 from app.queueing import status_fila
@@ -106,6 +107,13 @@ async def _verificar_rotina_backups(session: AsyncSession, diretorio: Path) -> N
     interrompe os demais alertas de plataforma."""
     try:
         saude = coletar_saude_backups(diretorio)
+        try:
+            # Painel de TV, item 3 (17/11/2026): disponibilidade do mês e incidentes,
+            # calculados dos jsonl que a sonda do host grava em backups/ e publicados
+            # no mesmo instantâneo. Falha aqui não pode derrubar a saúde dos backups.
+            saude["disponibilidade"] = coletar_disponibilidade(diretorio)
+        except Exception:
+            logger.exception("Falha ao calcular a disponibilidade do mês")
         await publicar_snapshot(saude)
         criticas = [etapa for etapa in saude["etapas"] if etapa["status"] == "critico"]
         if criticas:

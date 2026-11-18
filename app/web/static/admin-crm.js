@@ -151,7 +151,8 @@ async function loadAtendimentoStats() {
 
 function reminderParams() {
   const query = new URLSearchParams(new FormData(reminderFilter));
-  [...query].forEach(([key, value]) => { if (!value) query.delete(key); });
+  // status vazio é "Todos"; omitir status mantém o padrão "pendente" da API.
+  [...query].forEach(([key, value]) => { if (!value && key !== "status") query.delete(key); });
   query.set("limite", crmState.remindersLimit);
   query.set("deslocamento", crmState.remindersOffset);
   return query;

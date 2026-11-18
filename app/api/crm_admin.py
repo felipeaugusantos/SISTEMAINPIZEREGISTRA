@@ -393,7 +393,7 @@ def _serializar_lembrete(item: LembreteCRM) -> dict:
 async def listar_lembretes(
     session: SessionDep,
     usuario: CRMViewDep,
-    status_lembrete: Literal["pendente", "concluido", "cancelado"] | None = Query(default="pendente", alias="status"),
+    status_lembrete: Literal["pendente", "concluido", "cancelado", ""] | None = Query(default="pendente", alias="status"),
     responsavel_id: int | None = Query(default=None, ge=1),
     tipo: str | None = Query(default=None, max_length=40),
     limite: int = Query(default=100, ge=1, le=200),

@@ -71,6 +71,7 @@ const server = http.createServer((req, res) => {
     [1920, 1080, "tv-1920", fixture],
     [1536, 751, "tv-1536", fixture],
     [1536, 751, "tv-1536-vazio", { ...fixture, disponibilidade: { disponivel: false, mes: "2026-11", alvos: { zeregistra: { disponivel: false, saude: "cinza" }, erp: { disponivel: false, saude: "cinza" } }, incidentes: [] } }],
+    [390, 844, "tv-390-movel", fixture],
   ];
   for (const [largura, altura, nome, dado] of variantes) {
     const page = await browser.newPage({ viewport: { width: largura, height: altura } });
@@ -83,7 +84,9 @@ const server = http.createServer((req, res) => {
       const r = (s) => { const n = document.querySelector(s); if (!n) return null; const b = n.getBoundingClientRect(); return { topo: Math.round(b.top), base: Math.round(b.bottom), altura: Math.round(b.height) }; };
       const cartao = document.querySelector("#tv-zeregistra");
       const filhos = cartao ? Math.round([...cartao.children].reduce((a, f) => a + f.getBoundingClientRect().height, 0)) : 0;
-      return { janela: window.innerHeight, zr: r("#tv-zeregistra"), erp: r("#tv-erp"), backup: r("#tv-backup"), disp: r("#tv-disponibilidade"), conteudoZr: filhos };
+      const forte = document.querySelector("#tv-disponibilidade .tv-backup-texto strong");
+      const dispoFontePx = forte ? Math.round(parseFloat(getComputedStyle(forte).fontSize) * 10) / 10 : null;
+      return { janela: window.innerHeight, largura: window.innerWidth, dispoFontePx, zr: r("#tv-zeregistra"), erp: r("#tv-erp"), backup: r("#tv-backup"), disp: r("#tv-disponibilidade"), conteudoZr: filhos };
     });
     console.log(nome, JSON.stringify(medidas));
     await page.close();

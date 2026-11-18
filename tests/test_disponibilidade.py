@@ -59,9 +59,10 @@ def test_dia_anterior_ao_inicio_da_coleta_nao_conta(tmp_path: Path) -> None:
     _diario(tmp_path, _dia("zeregistra", "2026-11-17", 0))  # dia de hoje no diário é ignorado
     _raw(tmp_path, *[_linha("zeregistra", m) for m in range(1, 31)])
     zr = coletar_disponibilidade(tmp_path, agora=AGORA)["alvos"]["zeregistra"]
-    # coleta começou hoje: só os minutos de hoje entram; 1/11 a 16/11 ficam de fora
+    # coleta começou hoje 18:30 (1ª linha do raw): 1/11 a 16/11 ficam de fora e as
+    # horas de hoje ANTES da coleta também (sem dado não é "fora", é "sem coleta")
     assert zr["coletando_desde"] == "2026-11-17"
-    assert zr["minutos_mes"] == 19 * 60
+    assert zr["minutos_mes"] == 30
 
 
 def test_dia_coberto_sem_agregado_e_fora_da_janela_raw_conta_100_por_cento_fora(tmp_path: Path) -> None:
@@ -141,3 +142,47 @@ def test_linhas_invalidas_sao_ignoradas(tmp_path: Path) -> None:
          json.dumps({"alvo": "zeregistra", "ok": True, "em": "não é data"}))
     resultado = coletar_disponibilidade(tmp_path, agora=AGORA)
     assert resultado["alvos"]["zeregistra"]["disponivel"] is False
+
+
+def test_primeiro_dia_da_coleta_conta_so_os_minutos_cobertos(tmp_path: Path) -> None:
+    """Regressão dos "23h22 fora" fantasmas (18/11/2026): a coleta começou 17/11
+    22:21; 17/11 não pode entrar inteiro (1440) na base, só os 99 min cobertos."""
+    agora = datetime(2026, 11, 18, 20, 39, tzinfo=UTC)  # 17:39 em Brasília
+    _diario(tmp_path, _dia("zeregistra", "2026-11-17", 99))
+    inicio = datetime(2026, 11, 18, 1, 21, tzinfo=UTC)  # 17/11 22:21 em Brasília
+    minutos = int((agora - inicio).total_seconds() // 60)
+    _raw(
+        tmp_path,
+        *[
+            json.dumps({"alvo": "zeregistra", "ok": True, "em": (inicio + timedelta(minutes=m)).strftime("%Y-%m-%dT%H:%M:%SZ")})
+            for m in range(minutos)
+        ],
+    )
+    zr = coletar_disponibilidade(tmp_path, agora=agora)["alvos"]["zeregistra"]
+    assert zr["minutos_mes"] == 99 + 17 * 60 + 39  # 99 de 17/11 + hoje 00:00..17:38
+    assert zr["minutos_fora_mes"] == 0
+    assert zr["disponibilidade_mes"] == 1.0
+    assert zr["coletando_desde"] == "2026-11-17"
+
+
+def test_fechamento_diario_inclui_a_ultima_hora_do_dia(tmp_path: Path) -> None:
+    """Regressão: 'date -d "$dia 03:00 + 1 day"' lia "+ 1" como fuso e fechava o
+    dia 1h mais cedo, perdendo 23:00-23:59 de Brasília do agregado diário."""
+    import subprocess
+    from zoneinfo import ZoneInfo
+
+    (tmp_path / "docker").mkdir()
+    (tmp_path / "backups").mkdir()
+    script = Path(__file__).resolve().parent.parent / "docker" / "sonda-disponibilidade.sh"
+    (tmp_path / "docker" / "sonda-disponibilidade.sh").write_text(script.read_text())
+    ontem = (datetime.now(ZoneInfo("America/Sao_Paulo")) - timedelta(days=1)).date()
+    inicio = datetime(ontem.year, ontem.month, ontem.day, 22, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    with (tmp_path / "backups" / "disponibilidade.jsonl").open("w") as arq:
+        for i in range(120):  # 22:00..23:59 = 120 minutos no ar, um por minuto
+            em = (inicio + timedelta(minutes=i)).astimezone(UTC)
+            arq.write(json.dumps({"alvo": "zeregistra", "ok": True, "em": em.strftime("%Y-%m-%dT%H:%M:%SZ"), "ms": 10, "http": 200}, separators=(",", ":")) + "\n")  # compacto, como a sonda grava
+    subprocess.run(["sh", str(tmp_path / "docker" / "sonda-disponibilidade.sh"), "--fechar-dia"], check=True)
+    linhas = (tmp_path / "backups" / "disponibilidade-diario.jsonl").read_text().splitlines()
+    fechamento = next(json.loads(linha) for linha in linhas if json.loads(linha)["alvo"] == "zeregistra")
+    assert fechamento["dia"] == ontem.isoformat()
+    assert fechamento["minutos_up"] == 120

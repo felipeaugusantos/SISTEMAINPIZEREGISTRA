@@ -47,8 +47,11 @@ sonda() {
 fechar_dia() {
     # Fecha o dia de ontem (fuso de Brasilia) por alvo e poda o raw.
     dia=$(TZ=America/Sao_Paulo date -d 'yesterday' +%F)
-    ini=$(date -u -d "$dia 03:00" +'%Y-%m-%dT%H:%M')
-    fim=$(date -u -d "$dia 03:00 + 1 day" +'%Y-%m-%dT%H:%M')
+    # Janela por epoch: "date -d '$dia 03:00 + 1 day'" era lido como 03:00 no
+    # fuso +1 e fechava o dia 1h mais cedo (perdia 23:00-23:59 de Brasília).
+    ini_s=$(date -u -d "$dia 03:00" +%s)
+    ini=$(date -u -d "@$ini_s" +'%Y-%m-%dT%H:%M')
+    fim=$(date -u -d "@$((ini_s + 86400))" +'%Y-%m-%dT%H:%M')
     [ -f "$RAW" ] || return 0
     for alvo in zeregistra erp; do
         up=$(awk -v alvo="\"$alvo\"" -v ini="$ini" -v fim="$fim" '

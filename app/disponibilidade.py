@@ -188,7 +188,10 @@ def _mes_do_alvo(agora: datetime, dias: dict[date, int], minutos: dict[datetime,
         inicio_coleta = datetime.combine(min(dias), time.min, tzinfo=FUSO).astimezone(UTC)
     if minutos:
         primeiro_raw = min(minutos)
-        inicio_coleta = min(inicio_coleta, primeiro_raw) if inicio_coleta else primeiro_raw
+        # O fechamento diário não guarda a hora de início: quando o raw alcança o
+        # primeiro dia agregado, é ele quem diz quando a coleta começou de fato.
+        if inicio_coleta is None or primeiro_raw.astimezone(FUSO).date() <= inicio_coleta.astimezone(FUSO).date():
+            inicio_coleta = primeiro_raw
     if inicio_coleta is None:
         return {"disponivel": False}
     inicio_coleta_dia = inicio_coleta.astimezone(FUSO).date()
@@ -209,7 +212,13 @@ def _mes_do_alvo(agora: datetime, dias: dict[date, int], minutos: dict[datetime,
             elif dia in up_raw_por_dia:
                 up_total += up_raw_por_dia[dia]  # fechamento da noite ainda não rodou
             # sem agregado e fora da janela do raw = dia coberto sem dado: 0 no ar
-            base += MINUTOS_DIA
+            if dia == inicio_coleta_dia:
+                # Primeiro dia da coleta: conta só do início real até meia-noite,
+                # nunca o dia inteiro (o que antecede a coleta não é "fora").
+                ini_sp = inicio_coleta.astimezone(FUSO)
+                base += MINUTOS_DIA - (ini_sp.hour * 60 + ini_sp.minute)
+            else:
+                base += MINUTOS_DIA
         dia += timedelta(days=1)
 
     # Hoje, minuto a minuto, do raw: falta de linha conta como fora. Fecha no

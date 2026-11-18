@@ -175,3 +175,17 @@ body.tv {
   .tv-backup-texto small { font-size: 11px; }
   .tv-backup-selo { font-size: 12px; padding: 4px 10px; white-space: nowrap; }
 }
+
+/* Celular (tela estreita): --u cai para ~4px e a faixa de Disponibilidade fica
+   ilegível. Mínimos em px e a faixa pode quebrar linha e crescer em altura. */
+@media (max-width: 720px) {
+  .tv-disponibilidade { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 14px; }
+  .tv-disponibilidade h2 { grid-column: 1 / -1; width: auto; font-size: 16px; padding-right: 0; }
+  .tv-disponibilidade .tv-incidentes { grid-column: 1 / -1; }
+  .tv-disponibilidade .tv-backup-item { padding: 8px 10px; }
+  .tv-disponibilidade .tv-backup-texto strong { font-size: 20px; }
+  .tv-disponibilidade .tv-backup-texto span,
+  .tv-disponibilidade .tv-backup-texto small,
+  .tv-disponibilidade > div small { font-size: 12px; }
+  .tv-disponibilidade .tv-backup-selo { font-size: 12px; }
+}

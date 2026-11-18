@@ -91,6 +91,7 @@ from app.models.marca_busca import VersaoRelatorioMarca as VersaoRelatorioMarca
 from app.models.mensageria import ConsentimentoCanal as ConsentimentoCanal
 from app.models.mensageria import MensagemSaida as MensagemSaida
 from app.models.mensageria import PausaCanal as PausaCanal
+from app.models.observabilidade import AlertaEstado as AlertaEstado
 from app.models.observabilidade import ControleProducao as ControleProducao
 from app.models.observabilidade import EventoAuditoria as EventoAuditoria
 from app.models.observabilidade import EventoOperacional as EventoOperacional

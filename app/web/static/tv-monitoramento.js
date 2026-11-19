@@ -1,7 +1,9 @@
 // Painel de TV (17/11/2026): Zé Registra e EZRA ERP lado a lado, números agregados; a lista de
 // clientes do ERP sem uso em 7 dias mostra nome e dias (aprovado pelo dono em 17/11/2026).
-// Sem login: a chave de leitura vem no fragmento da URL (#t=...), que não vai para log do servidor,
-// fica guardada neste navegador e some da barra de endereço. Atualiza sozinho; se algo falha, avisa na tela.
+// Na TV, a chave de leitura vem no fragmento da URL (#t=...), que não vai para log do servidor,
+// fica guardada neste navegador e some da barra de endereço. No computador, entra também pela
+// sessão normal do Zé Registra (superadmin); sem as duas, vai para /login e volta após entrar.
+// Atualiza sozinho; se algo falha, avisa na tela.
 (function () {
   "use strict";
 
@@ -420,15 +422,25 @@
   async function atualizar() {
     if (parado) return;
     const chave = lerChave();
-    if (!chave) {
-      mostrarAviso("Sem chave de acesso. Abra o endereço completo do painel (com a chave) uma vez nesta TV.");
-      parado = true;
-      return;
-    }
     try {
-      const resposta = await fetch("/v1/monitoramento/tv", { headers: { Authorization: `Bearer ${chave}` }, cache: "no-store" });
-      if (resposta.status === 401 || resposta.status === 404) {
-        mostrarAviso("Chave do painel inválida ou revogada. Gere um novo endereço.");
+      // Com chave (TV): vai no Bearer. Sem chave (computador): o servidor aceita
+      // o cookie da sessão de superadmin no lugar da chave.
+      const opcoes = { cache: "no-store", credentials: "same-origin" };
+      if (chave) opcoes.headers = { Authorization: `Bearer ${chave}` };
+      let resposta = await fetch("/v1/monitoramento/tv", opcoes);
+      if (resposta.status === 401 && chave) {
+        // A chave salva não foi aceita: tenta de novo sem ela, pela sessão.
+        resposta = await fetch("/v1/monitoramento/tv", { cache: "no-store", credentials: "same-origin" });
+      }
+      if (resposta.status === 401) {
+        // Sem chave válida e sem sessão: login normal do Zé Registra, voltando
+        // ao painel depois de entrar. A chave guardada neste navegador não é apagada.
+        parado = true;
+        window.location.assign("/login?next=/tv/monitoramento");
+        return;
+      }
+      if (resposta.status === 404) {
+        mostrarAviso("Painel de monitoramento desligado no servidor.");
         parado = true;
         return;
       }

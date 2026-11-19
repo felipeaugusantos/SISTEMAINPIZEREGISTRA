@@ -36,6 +36,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alertas_ativos import ler_avaliador_em
+from app.auth import obter_usuario_atual
 from app.database import get_session
 from app.models import AlertaEstado, EventoAuditoria, EventoOperacional
 from app.ratelimit import RateLimiter
@@ -65,19 +66,29 @@ _CAMPOS_INTEIROS_ERP = (
 )
 
 
-def exigir_chave_tv(
+async def exigir_chave_tv(
     request: Request,
+    session: SessionDep,
     authorization: Annotated[str | None, Header()] = None,
 ) -> None:
-    """Chave de leitura da TV. Painel desligado ou chave errada: sem detalhe."""
+    """Chave de leitura da TV ou sessão de superadmin. Falhas sem detalhe."""
     _limitar(request)
     esperado = get_settings().tv_monitoramento_token_sha256.strip().lower()
     if not esperado:
         raise HTTPException(status_code=404, detail="Não encontrado")
     prefixo = "Bearer "
     recebido = (authorization or "")[len(prefixo) :] if (authorization or "").startswith(prefixo) else ""
-    calculado = hashlib.sha256(recebido.encode("utf-8")).hexdigest()
-    if not recebido or not secrets.compare_digest(calculado, esperado):
+    if recebido:
+        calculado = hashlib.sha256(recebido.encode("utf-8")).hexdigest()
+        if secrets.compare_digest(calculado, esperado):
+            return
+    # Sem chave (ou chave que não confere): tenta a sessão normal do Zé Registra;
+    # só superadmin entra. Qualquer falha cai no mesmo 401 genérico, sem detalhe.
+    try:
+        usuario = await obter_usuario_atual(request, session)
+    except HTTPException:
+        raise HTTPException(status_code=401, detail="Chave inválida") from None
+    if not usuario.superadmin:
         raise HTTPException(status_code=401, detail="Chave inválida")
 
 

@@ -73,6 +73,14 @@ class LoginInput(BaseModel):
     identificador: str = Field(min_length=2, max_length=254)
     senha: str = Field(min_length=1, max_length=200)
     codigo_mfa: str | None = Field(default=None, min_length=6, max_length=20)
+    proximo: str | None = Field(default=None, max_length=200)
+
+
+def _destino_solicitado(caminho: str | None) -> str | None:
+    """Só aceita caminho interno ("/..." sem "//"): evita redirecionamento aberto."""
+    if not caminho or not caminho.startswith("/") or caminho.startswith("//") or "\\" in caminho:
+        return None
+    return caminho
 
 
 class TrocarSenhaInput(BaseModel):
@@ -283,7 +291,10 @@ async def login(
         "destino": (
             "/alterar-senha"
             if usuario.alterar_senha
-            else destino_inicial(usuario.perfil, frozenset(p.chave for p in usuario.permissoes))
+            else (
+                _destino_solicitado(dados.proximo)
+                or destino_inicial(usuario.perfil, frozenset(p.chave for p in usuario.permissoes))
+            )
         ),
     }
 

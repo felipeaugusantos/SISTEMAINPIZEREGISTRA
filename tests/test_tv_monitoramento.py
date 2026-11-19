@@ -1,8 +1,10 @@
 import hashlib
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api import tv_monitoramento as tv
@@ -12,8 +14,8 @@ from app.main import app
 from app.settings import get_settings
 from tests.conftest import FakeResult, FakeSession
 
-# Painel de TV (17/11/2026): leitura agregada dos dois sistemas com chave própria,
-# sem sessão de usuário. Estes testes travam o que a TV pode e não pode ver.
+# Painel de TV (17/11/2026): leitura agregada dos dois sistemas com chave própria
+# ou sessão de superadmin (19/11/2026). Estes testes travam quem pode ver o painel.
 
 CHAVE = "chave-de-tv-para-teste-com-bastante-entropia-123"
 HASH = hashlib.sha256(CHAVE.encode()).hexdigest()
@@ -68,6 +70,7 @@ def _cliente() -> TestClient:
 
 def test_painel_desligado_sem_hash_configurado_responde_404(monkeypatch: pytest.MonkeyPatch) -> None:
     _configurar(monkeypatch, tv_monitoramento_token_sha256="")
+    _sessao()
     resposta = _cliente().get("/v1/monitoramento/tv", headers={"Authorization": f"Bearer {CHAVE}"})
     assert resposta.status_code == 404
 
@@ -487,3 +490,66 @@ def test_normalizar_disponibilidade_com_lixo() -> None:
     resumo2 = tv.normalizar_disponibilidade({"alvos": {"zeregistra": {"disponivel": True, "saude": "roxo", "disponibilidade_mes": "x"}}})
     assert resumo2["alvos"]["zeregistra"]["saude"] == "cinza"
     assert resumo2["alvos"]["zeregistra"]["disponibilidade_mes"] is None
+
+
+def test_sessao_superadmin_sem_chave_devolve_resumo(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configurar(monkeypatch)
+    _sessao()
+
+    async def _superadmin(request, session):  # noqa: ANN001, ANN202 -- dublê de obter_usuario_atual
+        return SimpleNamespace(superadmin=True)
+
+    monkeypatch.setattr(tv, "obter_usuario_atual", _superadmin)
+    resposta = _cliente().get("/v1/monitoramento/tv")
+    assert resposta.status_code == 200
+    assert resposta.json()["zeregistra"]["agregado"] is True
+
+
+def test_chave_errada_com_sessao_superadmin_devolve_200(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configurar(monkeypatch)
+    _sessao()
+
+    async def _superadmin(request, session):  # noqa: ANN001, ANN202 -- dublê de obter_usuario_atual
+        return SimpleNamespace(superadmin=True)
+
+    monkeypatch.setattr(tv, "obter_usuario_atual", _superadmin)
+    resposta = _cliente().get("/v1/monitoramento/tv", headers={"Authorization": "Bearer chave-errada"})
+    assert resposta.status_code == 200
+
+
+def test_sessao_sem_ser_superadmin_responde_401(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configurar(monkeypatch)
+    _sessao()
+
+    async def _comum(request, session):  # noqa: ANN001, ANN202 -- dublê de obter_usuario_atual
+        return SimpleNamespace(superadmin=False)
+
+    monkeypatch.setattr(tv, "obter_usuario_atual", _comum)
+    resposta = _cliente().get("/v1/monitoramento/tv")
+    assert resposta.status_code == 401
+    assert resposta.json()["detail"] == "Chave inválida"
+
+
+def test_sem_chave_e_sem_sessao_responde_401(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configurar(monkeypatch)
+    _sessao()
+
+    async def _sem_login(request, session):  # noqa: ANN001, ANN202 -- dublê de obter_usuario_atual
+        raise HTTPException(status_code=401, detail="Autenticacao necessaria")
+
+    monkeypatch.setattr(tv, "obter_usuario_atual", _sem_login)
+    resposta = _cliente().get("/v1/monitoramento/tv")
+    assert resposta.status_code == 401
+    assert resposta.json()["detail"] == "Chave inválida"
+
+
+def test_painel_desligado_responde_404_mesmo_com_sessao_superadmin(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configurar(monkeypatch, tv_monitoramento_token_sha256="")
+    _sessao()
+
+    async def _superadmin(request, session):  # noqa: ANN001, ANN202 -- dublê de obter_usuario_atual
+        return SimpleNamespace(superadmin=True)
+
+    monkeypatch.setattr(tv, "obter_usuario_atual", _superadmin)
+    resposta = _cliente().get("/v1/monitoramento/tv")
+    assert resposta.status_code == 404

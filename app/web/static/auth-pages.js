@@ -126,6 +126,10 @@ login?.addEventListener("submit", async event => {
   try {
     const dados = Object.fromEntries(new FormData(login));
     if (!dados.codigo_mfa) delete dados.codigo_mfa;
+    // Veio de redirecionamento (?next=...): o servidor devolve esse destino
+    // (validado, só caminhos internos) para voltar à tela de origem após entrar.
+    const proximo = parametrosLogin.get("next");
+    if (proximo) dados.proximo = proximo;
     const resposta = socialMfa
       ? await enviar("/v1/auth/social/mfa", { codigo: dados.codigo_mfa || "" })
       : await enviar("/v1/auth/login", dados);
